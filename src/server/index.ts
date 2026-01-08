@@ -34,6 +34,12 @@ export type {
   AddProcedureInput,
   AddStreamInput,
   AddEventInput,
+
+  // Providers (Dependency Injection)
+  ProviderFactory,
+  ProviderDefinition,
+  ProvidersConfig,
+  ResolvedProviders,
 } from './types.js'
 export type {
   RouteKind,

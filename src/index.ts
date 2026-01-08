@@ -213,6 +213,11 @@ export type {
   StreamRouteDefinition,
   EventRouteDefinition,
   RouteLoaderOptions,
+  // Providers (Dependency Injection)
+  ProviderFactory,
+  ProviderDefinition,
+  ProvidersConfig,
+  ResolvedProviders,
 } from './server/index.js'
 
 // === Errors ===

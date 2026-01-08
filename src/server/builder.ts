@@ -45,6 +45,10 @@ import type {
   AddProcedureInput,
   AddStreamInput,
   AddEventInput,
+  ProviderFactory,
+  ProviderDefinition,
+  ProvidersConfig,
+  ResolvedProviders,
 } from './types.js'
 import type { GraphQLOptions } from '../graphql/index.js'
 import {
@@ -334,6 +338,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     middleware,
     discovery,
     hotReload = isDevelopment(),
+    providers: initialProviders,
   } = options
 
   // Core components
@@ -428,6 +433,21 @@ export function createServer(options: ServerOptions): RaffelServer {
   let running = false
   let addresses: ServerAddresses | null = null
 
+  // Provider definitions (added via .provide() or options.providers)
+  const providerDefinitions = new Map<string, ProviderDefinition>()
+  const resolvedProviders: ResolvedProviders = {}
+
+  // Initialize provider definitions from options
+  if (initialProviders) {
+    for (const [name, config] of Object.entries(initialProviders)) {
+      if (typeof config === 'function') {
+        providerDefinitions.set(name, { factory: config })
+      } else {
+        providerDefinitions.set(name, config)
+      }
+    }
+  }
+
   // Custom protocol handlers (added via .addTcpHandler()/.addUdpHandler())
   const tcpHandlers: LoadedTcpHandler[] = []
   const udpHandlers: LoadedUdpHandler[] = []
@@ -504,6 +524,20 @@ export function createServer(options: ServerOptions): RaffelServer {
         options: opts,
         shared: opts.port === undefined,
       }
+      return server
+    },
+
+    // === Providers ===
+
+    provide<T>(
+      name: string,
+      factory: ProviderFactory<T>,
+      options?: { onShutdown?: (instance: T) => void | Promise<void> }
+    ) {
+      providerDefinitions.set(name, {
+        factory: factory as ProviderFactory<unknown>,
+        onShutdown: options?.onShutdown as ((instance: unknown) => void | Promise<void>) | undefined,
+      })
       return server
     },
 
@@ -756,6 +790,31 @@ export function createServer(options: ServerOptions): RaffelServer {
         throw new Error('Server is already running')
       }
 
+      // Initialize providers
+      if (providerDefinitions.size > 0) {
+        logger.debug({ count: providerDefinitions.size }, 'Initializing providers')
+        for (const [name, definition] of providerDefinitions) {
+          try {
+            const instance = await definition.factory()
+            resolvedProviders[name] = instance
+            logger.debug({ name }, 'Provider initialized')
+          } catch (err) {
+            logger.error({ err, name }, 'Failed to initialize provider')
+            throw err
+          }
+        }
+
+        // Add interceptor to inject providers into context
+        globalInterceptors.unshift(async (_env, ctx, next) => {
+          // Inject all providers into context
+          const ctxAny = ctx as unknown as Record<string, unknown>
+          for (const [name, instance] of Object.entries(resolvedProviders)) {
+            ctxAny[name] = instance
+          }
+          return next()
+        })
+      }
+
       // Load file-system handlers first (before starting adapters)
       if (discoveryWatcher) {
         const result = await discoveryWatcher.start()
@@ -964,6 +1023,18 @@ export function createServer(options: ServerOptions): RaffelServer {
         discoveryWatcher.stop()
       }
 
+      // Shutdown providers
+      for (const [name, definition] of providerDefinitions) {
+        if (definition.onShutdown && resolvedProviders[name]) {
+          try {
+            await definition.onShutdown(resolvedProviders[name])
+            logger.debug({ name }, 'Provider shut down')
+          } catch (err) {
+            logger.error({ err, name }, 'Error shutting down provider')
+          }
+        }
+      }
+
       router.stop()
 
       running = false
@@ -1004,6 +1075,10 @@ export function createServer(options: ServerOptions): RaffelServer {
     // Deprecated alias
     get routeWatcher() {
       return discoveryWatcher
+    },
+
+    get providers() {
+      return resolvedProviders
     },
 
     get graphql() {

@@ -35,6 +35,34 @@ import type {
 import type { DiscoveryResult } from './fs-routes/loader.js'
 import type { GraphQLOptions, GraphQLAdapter, GeneratedSchemaInfo } from '../graphql/index.js'
 
+// === Providers (Dependency Injection) ===
+
+/**
+ * Provider factory function.
+ * Called once at server startup to create the singleton instance.
+ */
+export type ProviderFactory<T> = () => T | Promise<T>
+
+/**
+ * Provider definition with optional lifecycle hooks.
+ */
+export interface ProviderDefinition<T = unknown> {
+  /** Factory function to create the provider instance */
+  factory: ProviderFactory<T>
+  /** Called on server shutdown */
+  onShutdown?: (instance: T) => void | Promise<void>
+}
+
+/**
+ * Map of provider names to their definitions or factory functions.
+ */
+export type ProvidersConfig = Record<string, ProviderFactory<unknown> | ProviderDefinition<unknown>>
+
+/**
+ * Resolved provider instances (after initialization).
+ */
+export type ResolvedProviders = Record<string, unknown>
+
 // === Server Options ===
 
 export interface ServerOptions {
@@ -161,6 +189,37 @@ export interface ServerOptions {
    * @default true in development, false in production
    */
   hotReload?: boolean
+
+  // === Providers (Dependency Injection) ===
+
+  /**
+   * Providers are singletons injected into the context of all handlers.
+   * Use this to share database clients, services, configs, etc.
+   *
+   * @example
+   * ```typescript
+   * import { PrismaClient } from '@prisma/client'
+   * import { S3DB } from 's3db.js'
+   *
+   * const server = createServer({
+   *   port: 3000,
+   *   providers: {
+   *     db: () => new PrismaClient(),
+   *     s3db: () => new S3DB({ bucket: 'my-bucket' }),
+   *     config: () => ({
+   *       apiKey: process.env.API_KEY,
+   *       environment: process.env.NODE_ENV,
+   *     }),
+   *   },
+   * })
+   *
+   * // In handlers (including discovered routes):
+   * server.procedure('users.get').handler(async (input, ctx) => {
+   *   return ctx.db.user.findUnique({ where: { id: input.id } })
+   * })
+   * ```
+   */
+  providers?: ProvidersConfig
 
   // === Advanced ===
 
@@ -389,6 +448,31 @@ export interface RaffelServer {
   /** Configure GraphQL with custom options */
   configureGraphQL(options: GraphQLOptions): this
 
+  // === Providers (Dependency Injection) ===
+
+  /**
+   * Register a provider (singleton) that will be available in all handlers.
+   * Providers are initialized on server start and injected into context.
+   *
+   * @example
+   * ```typescript
+   * const server = createServer({ port: 3000 })
+   *   .provide('db', () => new PrismaClient())
+   *   .provide('s3db', () => new S3DB({ bucket: 'my-bucket' }))
+   *   .provide('config', () => ({ apiKey: process.env.API_KEY }))
+   *
+   * // In handlers:
+   * server.procedure('users.get').handler(async (input, ctx) => {
+   *   return ctx.db.user.findUnique({ where: { id: input.id } })
+   * })
+   * ```
+   */
+  provide<T>(
+    name: string,
+    factory: ProviderFactory<T>,
+    options?: { onShutdown?: (instance: T) => void | Promise<void> }
+  ): this
+
   // === Global Middleware ===
 
   /** Add global interceptor */
@@ -580,6 +664,21 @@ export interface RaffelServer {
 
   /** @deprecated Use discoveryWatcher instead */
   readonly routeWatcher: DiscoveryWatcher | null
+
+  /**
+   * Resolved provider instances.
+   * Available after server.start() is called.
+   *
+   * @example
+   * ```typescript
+   * await server.start()
+   *
+   * // Access providers directly (useful for CLI tools, scripts)
+   * const db = server.providers.db as PrismaClient
+   * await db.user.findMany()
+   * ```
+   */
+  readonly providers: ResolvedProviders
 
   /**
    * GraphQL adapter info.

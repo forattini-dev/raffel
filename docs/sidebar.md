@@ -3,6 +3,7 @@
   - [Quickstart](quickstart.md)
 - Core
   - [Core Model](core-model.md)
+  - [Providers](providers.md)
   - [Events](events.md)
   - [Streams](streams.md)
   - [Interceptors](interceptors.md)

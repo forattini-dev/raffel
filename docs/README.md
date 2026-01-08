@@ -36,6 +36,7 @@ await server.start()
 | Protocols | HTTP, WebSocket, TCP, JSON-RPC, gRPC, GraphQL |
 | Routing | Router modules and mount prefixes |
 | Discovery | File-system discovery with middleware, auth, and hot reload |
+| Providers | Dependency injection for DB clients, services, configs |
 | Reliability | at-least-once and at-most-once events |
 | Cache | Pluggable drivers: memory (LRU/FIFO), file, Redis, S3DB |
 | Tooling | Zod validation plus OpenAPI and GraphQL generators |
@@ -44,6 +45,7 @@ await server.start()
 
 - [Quickstart](quickstart.md)
 - [Core model](core-model.md)
+- [Providers](providers.md)
 - [Router modules](router-modules.md)
 - [Route discovery](route-discovery.md)
 - [File-system discovery](file-system-discovery.md)
