@@ -1,3 +1,8 @@
+# AI Agent configs (local only)
+.claude/
+.gemini/
+.agent/
+
 # Dependencies
 node_modules/
 
