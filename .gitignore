@@ -2,6 +2,7 @@
 .claude/
 .gemini/
 .agent/
+openspec/
 
 # Dependencies
 node_modules/
