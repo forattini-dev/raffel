@@ -1,0 +1,71 @@
+:root {
+  --theme-color: #1f7a6e;
+  --text-color-base: #1b1f24;
+  --text-color-secondary: #5b6773;
+  --heading-color: #0f2f2a;
+  --code-font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+body {
+  font-family: "Space Grotesk", "Segoe UI", Helvetica, Arial, sans-serif;
+  background: #f8fafb;
+}
+
+.markdown-section {
+  max-width: 980px;
+  padding: 2.5rem 2.5rem 4rem;
+}
+
+.markdown-section h1,
+.markdown-section h2,
+.markdown-section h3,
+.markdown-section h4 {
+  color: var(--heading-color);
+  letter-spacing: -0.01em;
+}
+
+.markdown-section h1 {
+  font-size: 2.4rem;
+}
+
+.markdown-section h2 {
+  margin-top: 2.4rem;
+}
+
+.markdown-section code {
+  font-family: var(--code-font-family);
+  font-size: 0.95em;
+}
+
+.markdown-section pre > code {
+  font-size: 0.9em;
+}
+
+.sidebar {
+  background: #ffffff;
+}
+
+.cover {
+  background: radial-gradient(circle at top, #e8f7f4, #f8fafb 55%, #ffffff 100%);
+}
+
+.cover-main > h1 {
+  font-weight: 700;
+}
+
+.cover-main > p {
+  color: var(--text-color-secondary);
+}
+
+.app-name-link {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+a {
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
