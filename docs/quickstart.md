@@ -1,523 +1,200 @@
 # Quickstart
 
-Get a multi-protocol server running in under 5 minutes.
+Get running in 2 minutes.
 
----
-
-## Installation
-
-<!-- tabs:start -->
-
-#### **pnpm**
+## Install
 
 ```bash
 pnpm add raffel
 ```
 
-#### **npm**
-
-```bash
-npm install raffel
-```
-
-#### **yarn**
-
-```bash
-yarn add raffel
-```
-
-#### **bun**
-
-```bash
-bun add raffel
-```
-
-<!-- tabs:end -->
-
----
-
-> [!NOTE]
-> Examples use Zod. Install it (`pnpm add zod`, `npm install zod`) and register
-> the adapter with `registerValidator(createZodAdapter(z))`.
-
 ## Hello World
 
-Create your first multi-protocol server:
-
 ```typescript
-import { createServer, createZodAdapter, registerValidator } from 'raffel'
-import { z } from 'zod'
+import { createServer } from 'raffel'
 
-registerValidator(createZodAdapter(z))
-
-const server = createServer({ port: 3000 })
-
-// Define a procedure
-server
-  .procedure('hello')
-  .input(z.object({ name: z.string() }))
-  .handler(async ({ name }) => ({ message: `Hello, ${name}!` }))
-
-await server.start()
-console.log('⚡ Server running on http://localhost:3000')
+await createServer({
+  port: 3000,
+  routes: {
+    'hello': ({ name }) => `Hello, ${name}!`
+  }
+})
 ```
 
 Test it:
 
 ```bash
-# HTTP
-curl -X POST http://localhost:3000/hello \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "World"}'
+curl localhost:3000/hello -d '{"name":"World"}'
+# → "Hello, World!"
+```
 
-# Response: {"message":"Hello, World!"}
+Done. Your handler now works on HTTP, WebSocket, JSON-RPC, GraphQL, gRPC, TCP, and UDP.
+
+---
+
+## File-Based Routes
+
+Even simpler - just drop files:
+
+```typescript
+// server.ts
+import { createServer } from 'raffel'
+
+await createServer({ port: 3000, discovery: true })
+```
+
+```typescript
+// routes/hello.ts
+export default ({ name }) => `Hello, ${name}!`
+```
+
+```typescript
+// routes/users/create.ts
+export default async (input) => ({
+  id: crypto.randomUUID(),
+  ...input
+})
+```
+
+```
+routes/
+├── hello.ts         → /hello
+└── users/
+    └── create.ts    → /users.create
 ```
 
 ---
 
-## Add WebSocket Support
+## Add Validation
 
-Enable WebSocket with a single line:
-
-```typescript
-const server = createServer({
-  port: 3000,
-  websocket: true,  // or '/ws' for custom path
-})
-
-server
-  .procedure('hello')
-  .input(z.object({ name: z.string() }))
-  .handler(async ({ name }) => ({ message: `Hello, ${name}!` }))
-
-await server.start()
-```
-
-Test via WebSocket:
-
-```bash
-# Using wscat
-wscat -c ws://localhost:3000/ws
-> {"procedure":"hello","payload":{"name":"World"}}
-< {"success":true,"data":{"message":"Hello, World!"}}
-```
-
----
-
-## Add JSON-RPC
-
-Enable JSON-RPC 2.0:
+Pass a Zod/Yup/Joi schema:
 
 ```typescript
-const server = createServer({
+import { createServer } from 'raffel'
+import { z } from 'zod'
+
+await createServer({
   port: 3000,
-  websocket: true,
-  jsonrpc: '/rpc',  // Enable JSON-RPC at /rpc
-})
-
-server
-  .procedure('hello')
-  .input(z.object({ name: z.string() }))
-  .handler(async ({ name }) => ({ message: `Hello, ${name}!` }))
-
-await server.start()
-```
-
-Test via JSON-RPC:
-
-```bash
-curl -X POST http://localhost:3000/rpc \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"hello","params":{"name":"World"}}'
-
-# Response: {"jsonrpc":"2.0","id":1,"result":{"message":"Hello, World!"}}
-```
-
----
-
-## Enable GraphQL
-
-Auto-generate a GraphQL schema from your procedures:
-
-```typescript
-const server = createServer({
-  port: 3000,
-  graphql: '/graphql',  // Enable GraphQL at /graphql
-})
-
-server
-  .procedure('users.create')
-  .input(z.object({ name: z.string(), email: z.string().email() }))
-  .output(z.object({ id: z.string(), name: z.string(), email: z.string() }))
-  .handler(async (input) => ({
-    id: crypto.randomUUID(),
-    ...input,
-  }))
-
-await server.start()
-```
-
-Query via GraphQL:
-
-```graphql
-mutation {
-  usersCreate(name: "Alice", email: "alice@example.com") {
-    id
-    name
-    email
+  routes: {
+    'users.create': {
+      input: z.object({
+        name: z.string().min(2),
+        email: z.string().email()
+      }),
+      handler: async (input) => ({
+        id: crypto.randomUUID(),
+        ...input
+      })
+    }
   }
-}
-```
-
----
-
-## Enable gRPC
-
-Expose procedures as gRPC services:
-
-```typescript
-const server = createServer({
-  port: 3000,
-  grpc: {
-    port: 50051,
-    protoPath: './proto/app.proto',
-  },
 })
-
-server
-  .procedure('UserService.Create')
-  .input(z.object({ name: z.string(), email: z.string() }))
-  .handler(async (input) => ({
-    id: crypto.randomUUID(),
-    ...input,
-  }))
-
-await server.start()
 ```
 
----
-
-## File-Based Routing
-
-Let the filesystem define your endpoints:
+Or in file-based routes:
 
 ```typescript
-const server = createServer({
-  port: 3000,
-  discovery: true,  // Enable auto-discovery
-})
-
-await server.start()
-```
-
-Create handler files:
-
-```
-src/
-├── http/
-│   └── users/
-│       ├── get.ts      → users.get (GET /users.get)
-│       └── create.ts   → users.create (POST /users.create)
-├── streams/
-│   └── logs/
-│       └── tail.ts     → logs.tail (streaming)
-└── channels/
-    └── chat-room.ts    → WebSocket channel
-```
-
-Example handler file:
-
-```typescript
-// src/http/users/create.ts
+// routes/users/create.ts
 import { z } from 'zod'
 
 export const input = z.object({
-  name: z.string(),
-  email: z.string().email(),
+  name: z.string().min(2),
+  email: z.string().email()
 })
 
-export const handler = async (input) => {
-  return { id: crypto.randomUUID(), ...input }
-}
+export default async (input) => ({
+  id: crypto.randomUUID(),
+  ...input
+})
 ```
-
-> [!NOTE]
-> File-based handlers still require a validator adapter in your entrypoint.
-> Use `registerValidator(createZodAdapter(z))` once at startup.
 
 ---
 
 ## Add Interceptors
 
-Add rate limiting, logging, and more:
-
 ```typescript
-import {
-  createServer,
-  createRateLimitInterceptor,
-  createLoggingInterceptor,
-  createTimeoutInterceptor,
-} from 'raffel'
+import { createServer, logging, timeout, rateLimit } from 'raffel'
 
-const server = createServer({ port: 3000 })
-
-// Apply interceptors globally
-server.use(createLoggingInterceptor())
-server.use(createTimeoutInterceptor({ timeout: 30000 }))
-server.use(createRateLimitInterceptor({
-  windowMs: 60000,
-  maxRequests: 100,
-}))
-
-server
-  .procedure('hello')
-  .handler(async ({ name }) => ({ message: `Hello, ${name}!` }))
-
-await server.start()
+await createServer({
+  port: 3000,
+  interceptors: [
+    logging(),
+    timeout(30000),
+    rateLimit({ max: 100, window: '1m' })
+  ],
+  routes: {
+    'hello': ({ name }) => `Hello, ${name}!`
+  }
+})
 ```
 
 ---
 
-## Add Authentication
-
-Protect your endpoints with JWT:
+## Add Auth
 
 ```typescript
-import {
-  createServer,
-  createAuthMiddleware,
-  createBearerStrategy,
-} from 'raffel'
+import { createServer, bearer } from 'raffel'
 
-const server = createServer({ port: 3000 })
+await createServer({
+  port: 3000,
+  auth: bearer({ secret: process.env.JWT_SECRET }),
+  routes: {
+    // Public
+    'health': () => ({ ok: true }),
 
-// JWT authentication
-const auth = createAuthMiddleware({
-  strategies: [
-    createBearerStrategy({
-      verify: async (token) => {
-        const payload = await verifyJwt(token) // implement with your JWT library
-        if (!payload) return null
-        return {
-          authenticated: true,
-          principal: payload.sub,
-          claims: payload,
-          roles: payload.roles ?? [],
-        }
-      },
-    }),
-  ],
+    // Protected
+    'users.me': {
+      auth: true,
+      handler: (_, ctx) => ({ id: ctx.auth.principal })
+    }
+  }
 })
-
-// Public procedure
-server
-  .procedure('health.check')
-  .handler(async () => ({ ok: true }))
-
-// Protected procedure
-server
-  .procedure('users.me')
-  .use(auth)
-  .handler(async (input, ctx) => {
-    return { userId: ctx.auth?.principal }
-  })
-
-await server.start()
-```
-
-Test with authentication:
-
-```bash
-# Get a token (your auth flow)
-TOKEN="eyJhbGc..."
-
-# Call protected endpoint
-curl -X POST http://localhost:3000/users.me \
-  -H 'Authorization: Bearer $TOKEN'
 ```
 
 ---
 
 ## Streaming
 
-Create streaming handlers for real-time data:
-
 ```typescript
-server
-  .stream('logs.tail')
-  .input(z.object({ file: z.string() }))
-  .handler(async function* ({ file }) {
-    // Generator-based streaming
-    for (let i = 0; i < 100; i++) {
-      yield { line: `Log line ${i}`, timestamp: Date.now() }
-      await new Promise(r => setTimeout(r, 100))
+await createServer({
+  port: 3000,
+  streams: {
+    'logs.tail': async function* ({ file }) {
+      for await (const line of readLines(file)) {
+        yield { line, ts: Date.now() }
+      }
     }
-  })
-```
-
----
-
-## Events (Pub/Sub)
-
-Fire-and-forget events with delivery guarantees:
-
-```typescript
-server
-  .event('notifications.send')
-  .delivery('at-least-once')  // or 'best-effort', 'at-most-once'
-  .handler(async (payload, ctx, ack) => {
-    await sendNotification(payload)
-    ack()  // Acknowledge successful delivery
-  })
-```
-
-Publish events:
-
-```bash
-curl -X POST http://localhost:3000/events/notifications.send \
-  -H 'Content-Type: application/json' \
-  -d '{"userId": "123", "message": "Hello!"}'
-```
-
----
-
-## Real-time Channels
-
-Pusher-like channels for WebSocket pub/sub:
-
-```typescript
-const server = createServer({
-  port: 3000,
-  websocket: {
-    channels: {
-      authorize: async (socketId, channel, ctx) => {
-        // Check if user can access this channel
-        if (channel.startsWith('private-')) {
-          return ctx.auth?.authenticated ?? false
-        }
-        return true
-      },
-    },
-  },
+  }
 })
-
-// Broadcast to channels
-server.channels.broadcast('news', 'update', { headline: 'Breaking news!' })
-server.channels.broadcast('private-user-123', 'notification', { text: 'New message' })
-
-await server.start()
 ```
 
 ---
 
-## Full Example
-
-Here's a complete example with all features:
+## Enable More Protocols
 
 ```typescript
-import {
-  createServer,
-  createZodAdapter,
-  registerValidator,
-  createRateLimitInterceptor,
-  createLoggingInterceptor,
-  createAuthMiddleware,
-  createBearerStrategy,
-} from 'raffel'
-import { z } from 'zod'
-
-registerValidator(createZodAdapter(z))
-
-const server = createServer({
+await createServer({
   port: 3000,
-  websocket: true,
+
+  // All enabled by default, but you can customize:
+  http: true,
+  websocket: true,           // or '/ws' for custom path
   jsonrpc: '/rpc',
   graphql: '/graphql',
+  grpc: { port: 50051 },
+  tcp: { port: 9000 },
+  udp: { port: 9001 },
+
+  routes: {
+    'hello': ({ name }) => `Hello, ${name}!`
+  }
 })
-
-// Global interceptors
-server.use(createLoggingInterceptor())
-server.use(createRateLimitInterceptor({ windowMs: 60000, maxRequests: 100 }))
-
-// JWT auth middleware
-const auth = createAuthMiddleware({
-  strategies: [
-    createBearerStrategy({
-      verify: async (token) => {
-        const payload = await verifyJwt(token)
-        if (!payload) return null
-        return {
-          authenticated: true,
-          principal: payload.sub,
-          claims: payload,
-        }
-      },
-    }),
-  ],
-})
-
-// Public health check
-server
-  .procedure('health.check')
-  .handler(async () => ({ ok: true, timestamp: Date.now() }))
-
-// User creation with validation
-server
-  .procedure('users.create')
-  .input(z.object({
-    name: z.string().min(2),
-    email: z.string().email(),
-  }))
-  .handler(async (input) => ({
-    id: crypto.randomUUID(),
-    ...input,
-    createdAt: new Date().toISOString(),
-  }))
-
-// Protected user profile
-server
-  .procedure('users.me')
-  .use(auth)
-  .handler(async (input, ctx) => ({
-    id: ctx.auth?.principal,
-    email: ctx.auth?.claims?.email,
-  }))
-
-// Streaming logs
-server
-  .stream('logs.tail')
-  .use(auth)
-  .input(z.object({ service: z.string() }))
-  .handler(async function* ({ service }) {
-    for (let i = 0; i < 50; i++) {
-      yield { service, line: `Log ${i}`, ts: Date.now() }
-      await new Promise(r => setTimeout(r, 500))
-    }
-  })
-
-// Fire-and-forget notifications
-server
-  .event('notifications.send')
-  .delivery('at-least-once')
-  .handler(async (payload, ctx, ack) => {
-    console.log('Sending notification:', payload)
-    ack()
-  })
-
-await server.start()
-console.log('⚡ Raffel server running on http://localhost:3000')
-console.log('  → HTTP:      http://localhost:3000')
-console.log('  → WebSocket: ws://localhost:3000/ws')
-console.log('  → JSON-RPC:  http://localhost:3000/rpc')
-console.log('  → GraphQL:   http://localhost:3000/graphql')
 ```
 
 ---
 
 ## Next Steps
 
-- **[Core Model](core-model.md)** - Deep dive into Envelope, Context, and handlers
-- **[Interceptors](interceptors.md)** - Rate limiting, circuit breaker, caching
-- **[Authentication](auth/overview.md)** - JWT, OAuth2, OIDC, sessions
-- **[File Discovery](file-system-discovery.md)** - Convention-based routing
-- **[Protocols](protocols/http.md)** - Protocol-specific details
+- **[File Discovery](/file-system-discovery.md)** - Zero-config routing
+- **[Interceptors](/interceptors.md)** - Rate limit, cache, retry
+- **[Auth](/auth/overview.md)** - JWT, OAuth2, API keys
+- **[Protocols](/protocols/http.md)** - Protocol-specific details
