@@ -4,363 +4,58 @@
   <meta charset="UTF-8">
   <title>Raffel - Unified Multi-Protocol Server Runtime</title>
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
-  <meta name="description" content="One handler. Seven protocols. Zero duplication. Build HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP servers with a single codebase.">
+  <meta name="description" content="One handler. Seven protocols. Zero duplication.">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
-  <meta name="keywords" content="raffel, multi-protocol, server, runtime, typescript, http, websocket, grpc, jsonrpc, graphql, tcp, udp">
-
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://forattini-dev.github.io/raffel/">
-  <meta property="og:title" content="Raffel - Unified Multi-Protocol Server Runtime">
-  <meta property="og:description" content="One handler. Seven protocols. Zero duplication. Build HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP servers with a single codebase.">
-
-  <!-- Twitter -->
-  <meta property="twitter:card" content="summary_large_image">
-  <meta property="twitter:url" content="https://forattini-dev.github.io/raffel/">
-  <meta property="twitter:title" content="Raffel - Unified Multi-Protocol Server Runtime">
-  <meta property="twitter:description" content="One handler. Seven protocols. Zero duplication.">
 
   <!-- Favicon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
-  <!-- Docsify Dark/Light Theme -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/docsify-darklight-theme@latest/dist/style.min.css"
-    title="docsify-darklight-theme"
-    type="text/css"
-  />
+  <!-- Theme -->
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
 
   <!-- Custom Styles -->
   <link rel="stylesheet" href="./custom.css" />
-
-  <!-- Progress Bar & Additional Styles -->
-  <style>
-    .progress-bar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      height: 3px;
-      background: linear-gradient(135deg, #8b5cf6 0%, #c084fc 100%);
-      z-index: 9999;
-      transition: width 0.2s ease;
-    }
-
-    /* Loading screen */
-    #app {
-      font-family: 'Space Grotesk', sans-serif;
-      color: #a78bfa;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      font-size: 1.2rem;
-    }
-
-    /* Smooth scroll */
-    html {
-      scroll-behavior: smooth;
-    }
-
-    /* Code font global */
-    code, pre {
-      font-family: 'IBM Plex Mono', monospace !important;
-    }
-  </style>
 </head>
 <body>
-  <div id="app">⚡ Loading Raffel...</div>
+  <div id="app">Loading...</div>
 
   <script>
     window.$docsify = {
-      name: '<span style="display:flex;align-items:center;gap:8px"><span class="lightning" style="font-size:24px">⚡</span>Raffel</span>',
-      nameLink: '#/',
+      name: 'Raffel',
       repo: 'https://github.com/forattini-dev/raffel',
-      loadSidebar: 'sidebar.md',
-      loadNavbar: 'navbar.md',
-      coverpage: 'coverpage.md',
+      loadSidebar: true,
+      coverpage: true,
       auto2top: true,
       subMaxLevel: 3,
-      relativePath: true,
       themeColor: '#8b5cf6',
-      topMargin: 60,
 
-      // Routing
-      routerMode: 'hash',
-      alias: {
-        '/.*/_sidebar.md': '/sidebar.md'
-      },
-
-      // Not found page
-      notFoundPage: true,
-
-      // Markdown config
-      markdown: {
-        gfm: true,
-        breaks: false,
-        smartLists: true,
-        renderer: {
-          heading: function(text, level) {
-            const id = text.toLowerCase().replace(/[^\w]+/g, '-');
-            return '<h' + level + ' id="' + id + '">' + text + '</h' + level + '>';
-          }
-        }
-      },
-
-      // Search
       search: {
-        maxAge: 86400000,
-        paths: 'auto',
-        placeholder: '🔍 Search docs...',
-        noData: 'No results found',
-        depth: 6,
-        hideOtherSidebarContent: true,
-        namespace: 'raffel'
+        placeholder: 'Search...',
+        noData: 'No results',
+        depth: 3
       },
 
-      // Copy Code
       copyCode: {
-        buttonText: '📋 Copy',
-        errorText: '❌ Error',
-        successText: '✅ Copied!'
+        buttonText: 'Copy',
+        successText: 'Copied'
       },
 
-      // Pagination
-      pagination: {
-        previousText: '← Previous',
-        nextText: 'Next →',
-        crossChapter: true,
-        crossChapterText: true
-      },
-
-      // Sidebar collapse
-      sidebarDisplayLevel: 1,
-
-      // Tabs
       tabs: {
         persist: true,
-        sync: true,
-        theme: 'classic',
-        tabComments: true,
-        tabHeadings: true
-      },
-
-      // Dark/Light Theme
-      darklightTheme: {
-        siteFont: 'Space Grotesk, Manrope, system-ui',
-        defaultTheme: 'dark',
-        codeFontFamily: 'IBM Plex Mono, monospace',
-        bodyFontSize: '16px',
-        dark: {
-          accent: '#8b5cf6',
-          toogleBackground: '#17102b',
-          background: '#0b0816',
-          textColor: '#f3eefe',
-          codeTextColor: '#c084fc',
-          codeBackgroundColor: '#140b29',
-          borderColor: 'rgba(139, 92, 246, 0.18)',
-          blockQuoteColor: '#a78bfa',
-          highlightColor: '#8b5cf6',
-          sidebarSublink: '#b9a6e2',
-          codeTypeColor: '#c084fc',
-          coverBackground: 'radial-gradient(ellipse at top, #22123e 0%, #0b0816 70%)',
-          toogleImage: 'url(https://cdn.jsdelivr.net/npm/docsify-darklight-theme@latest/icons/sun.svg)'
-        },
-        light: {
-          accent: '#8b5cf6',
-          toogleBackground: '#ffffff',
-          background: '#fbf7ff',
-          textColor: '#2a1b45',
-          codeTextColor: '#7c3aed',
-          codeBackgroundColor: '#f2eaff',
-          borderColor: '#e5d9ff',
-          blockQuoteColor: '#8b5cf6',
-          highlightColor: '#c4b5fd',
-          sidebarSublink: '#6b5d8e',
-          codeTypeColor: '#8b5cf6',
-          coverBackground: 'linear-gradient(to bottom, #f7f2ff 0%, #ffffff 100%)',
-          toogleImage: 'url(https://cdn.jsdelivr.net/npm/docsify-darklight-theme@latest/icons/moon.svg)'
-        }
+        sync: true
       }
     };
   </script>
 
-  <!-- Core Docsify -->
-  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <!-- Docsify -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
 
-  <!-- Essential Plugins -->
-  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code/dist/docsify-copy-code.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docsify-tabs@1/dist/docsify-tabs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docsify-plugin-flexible-alerts"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/zoom-image.min.js"></script>
-
-  <!-- Sidebar Collapse -->
-  <script src="https://cdn.jsdelivr.net/npm/docsify-sidebar-collapse/dist/docsify-sidebar-collapse.min.js"></script>
-
-  <!-- Syntax Highlighting -->
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-protobuf.min.js"></script>
-
-  <!-- Mermaid for Diagrams -->
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: 'dark',
-      themeVariables: {
-        primaryColor: '#8b5cf6',
-        primaryTextColor: '#fff',
-        primaryBorderColor: '#a78bfa',
-        lineColor: '#c4b5fd',
-        secondaryColor: '#140b29',
-        tertiaryColor: '#0b0816'
-      }
-    });
-    window.mermaid = mermaid;
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/docsify-mermaid@2/dist/docsify-mermaid.js"></script>
-
-  <!-- Dark/Light Theme Toggle -->
-  <script src="https://cdn.jsdelivr.net/npm/docsify-darklight-theme@latest/dist/index.min.js"></script>
-
-  <!-- Custom Scripts -->
-  <script>
-    // Progress bar
-    (function() {
-      var progress = document.createElement('div');
-      progress.className = 'progress-bar';
-      progress.style.width = '0%';
-      document.body.appendChild(progress);
-
-      window.addEventListener('scroll', function() {
-        var scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
-        var scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
-        var percent = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
-        progress.style.width = percent + '%';
-      });
-    })();
-
-    // Back to top button
-    (function() {
-      var btn = document.createElement('button');
-      btn.className = 'back-to-top';
-      btn.textContent = '↑';
-      btn.title = 'Back to top';
-      document.body.appendChild(btn);
-
-      btn.addEventListener('click', function() {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      });
-
-      window.addEventListener('scroll', function() {
-        if (window.scrollY > 300) {
-          btn.classList.add('visible');
-        } else {
-          btn.classList.remove('visible');
-        }
-      });
-    })();
-
-    // Keyboard shortcuts hint
-    (function() {
-      var hint = document.createElement('div');
-      hint.className = 'keyboard-hint';
-      var kbdSlash = document.createElement('kbd');
-      kbdSlash.textContent = '/';
-      var kbdArrows = document.createElement('kbd');
-      kbdArrows.textContent = '↑↓';
-      var kbdEnter = document.createElement('kbd');
-      kbdEnter.textContent = 'Enter';
-
-      hint.appendChild(kbdSlash);
-      hint.appendChild(document.createTextNode(' Search  '));
-      hint.appendChild(kbdArrows);
-      hint.appendChild(document.createTextNode(' Navigate  '));
-      hint.appendChild(kbdEnter);
-      hint.appendChild(document.createTextNode(' Select'));
-      document.body.appendChild(hint);
-
-      document.addEventListener('keydown', function(e) {
-        if (e.key === '/' || e.key === 'Escape') {
-          hint.classList.toggle('visible');
-          setTimeout(function() { hint.classList.remove('visible'); }, 3000);
-        }
-
-        if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
-          var search = document.querySelector('.search input');
-          if (search && document.activeElement !== search) {
-            e.preventDefault();
-            search.focus();
-          }
-        }
-      });
-    })();
-
-    // Copy anchor link on heading click
-    document.addEventListener('click', function(e) {
-      if (e.target.matches('h1, h2, h3, h4, h5, h6')) {
-        var id = e.target.id;
-        if (id) {
-          var baseUrl = window.location.href.split('#')[0];
-          var hash = window.location.hash.split('?')[0].slice(1);
-          var url = baseUrl + '#' + hash + '?id=' + id;
-          navigator.clipboard.writeText(url);
-
-          var originalText = e.target.textContent;
-          e.target.textContent = '🔗 Link copied!';
-          setTimeout(function() { e.target.textContent = originalText; }, 1500);
-        }
-      }
-    });
-
-    // External links open in new tab
-    document.addEventListener('DOMContentLoaded', function() {
-      setInterval(function() {
-        document.querySelectorAll('a[href^="http"]').forEach(function(link) {
-          if (!link.href.includes(window.location.host)) {
-            link.setAttribute('target', '_blank');
-            link.setAttribute('rel', 'noopener noreferrer');
-          }
-        });
-      }, 1000);
-    });
-  </script>
-
-  <!-- Footer Plugin -->
-  <script>
-    window.$docsify.plugins = [].concat(function(hook) {
-      hook.afterEach(function(html) {
-        var footer = document.createElement('footer');
-        footer.className = 'doc-footer';
-        var p = document.createElement('p');
-        var lightning = document.createElement('span');
-        lightning.className = 'lightning';
-        lightning.textContent = '⚡';
-        p.appendChild(lightning);
-        p.appendChild(document.createTextNode(' Raffel · MIT License · '));
-        var ghLink = document.createElement('a');
-        ghLink.href = 'https://github.com/forattini-dev/raffel';
-        ghLink.target = '_blank';
-        ghLink.textContent = 'GitHub';
-        p.appendChild(ghLink);
-        footer.appendChild(p);
-
-        var wrapper = document.createElement('div');
-        wrapper.innerHTML = html;
-        wrapper.appendChild(footer);
-        return wrapper.innerHTML;
-      });
-    }, window.$docsify.plugins || []);
-  </script>
+  <!-- Plugins -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-tabs@1"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
 </body>
 </html>
