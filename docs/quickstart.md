@@ -36,6 +36,10 @@ bun add raffel
 
 ---
 
+> [!NOTE]
+> Examples use Zod. Install it (`pnpm add zod`, `npm install zod`) and register
+> the adapter with `registerValidator(createZodAdapter(z))`.
+
 ## Hello World
 
 Create your first multi-protocol server:
@@ -236,6 +240,10 @@ export const handler = async (input) => {
   return { id: crypto.randomUUID(), ...input }
 }
 ```
+
+> [!NOTE]
+> File-based handlers still require a validator adapter in your entrypoint.
+> Use `registerValidator(createZodAdapter(z))` once at startup.
 
 ---
 
@@ -508,8 +516,8 @@ console.log('  → GraphQL:   http://localhost:3000/graphql')
 
 ## Next Steps
 
-- **[Core Model](core-model.md)** — Deep dive into Envelope, Context, and handlers
-- **[Interceptors](interceptors.md)** — Rate limiting, circuit breaker, caching
-- **[Authentication](auth/overview.md)** — JWT, OAuth2, OIDC, sessions
-- **[File Discovery](file-system-discovery.md)** — Convention-based routing
-- **[Protocols](protocols/http.md)** — Protocol-specific details
+- **[Core Model](core-model.md)** - Deep dive into Envelope, Context, and handlers
+- **[Interceptors](interceptors.md)** - Rate limiting, circuit breaker, caching
+- **[Authentication](auth/overview.md)** - JWT, OAuth2, OIDC, sessions
+- **[File Discovery](file-system-discovery.md)** - Convention-based routing
+- **[Protocols](protocols/http.md)** - Protocol-specific details

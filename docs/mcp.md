@@ -11,9 +11,9 @@ best practices and documentation.
 MCP is a protocol that lets AI assistants call tools and read structured resources.
 With Raffel MCP you get:
 
-- **Tools** — code generation, search, debugging
-- **Resources** — docs, patterns, adapters, interceptors, boilerplates
-- **Prompts** — guided flows for common tasks
+- **Tools** - code generation, search, debugging
+- **Resources** - docs, patterns, adapters, interceptors, boilerplates
+- **Prompts** - guided flows for common tasks
 
 ---
 
@@ -247,7 +247,7 @@ npx raffel-mcp --debug
 
 ## Next Steps
 
-- **[Quickstart](quickstart.md)** — Run your first server
-- **[MCP Tools](mcp.md#tools)** — Full tool list
-- **[Patterns](interceptors.md)** — Middleware + composition
-- **[USD](usd.md)** — Auto-generated docs
+- **[Quickstart](quickstart.md)** - Run your first server
+- **[MCP Tools](mcp.md#tools)** - Full tool list
+- **[Patterns](interceptors.md)** - Middleware + composition
+- **[USD](usd.md)** - Auto-generated docs

@@ -341,6 +341,6 @@ server.use(createOtelLoggingInterceptor({
 
 ## Next Steps
 
-- **[Metrics](metrics.md)** — Prometheus metrics
-- **[Tracing](tracing.md)** — OpenTelemetry tracing
-- **[DX](dx.md)** — Developer experience features
+- **[Metrics](metrics.md)** - Prometheus metrics
+- **[Tracing](tracing.md)** - OpenTelemetry tracing
+- **[DX](dx.md)** - Developer experience features

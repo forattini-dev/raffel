@@ -225,6 +225,6 @@ createTimeoutInterceptor({
 
 ## Next Steps
 
-- **[Retry](retry.md)** — Automatic retry with backoff
-- **[Circuit Breaker](circuit-breaker.md)** — Fail fast on repeated errors
-- **[Bulkhead](bulkhead.md)** — Limit concurrent requests
+- **[Retry](retry.md)** - Automatic retry with backoff
+- **[Circuit Breaker](circuit-breaker.md)** - Fail fast on repeated errors
+- **[Bulkhead](bulkhead.md)** - Limit concurrent requests

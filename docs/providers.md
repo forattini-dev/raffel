@@ -255,8 +255,8 @@ export default {
 // src/routes/_middleware.ts
 export default async function middleware(ctx, next) {
   // Providers available in middleware too!
-  const user = ctx.auth?.userId
-    ? await ctx.db.user.findUnique({ where: { id: ctx.auth.userId } })
+  const user = ctx.auth?.principal
+    ? await ctx.db.user.findUnique({ where: { id: ctx.auth.principal } })
     : null
 
   ctx.currentUser = user

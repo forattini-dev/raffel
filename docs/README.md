@@ -2,7 +2,7 @@
 
 **Unified Multi-Protocol Server Runtime**
 
-Raffel is a protocol-agnostic server framework that lets you write handlers once and expose them over HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP. Same validation, same auth, same interceptors—all protocols.
+Raffel is a protocol-agnostic server framework that lets you write handlers once and expose them over HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP. Same validation, same auth, same interceptors-all protocols.
 
 ---
 
@@ -50,9 +50,9 @@ server.procedure('users.create')
 ---
 
 > [!TIP]
-> Press `/` to search the docs instantly. Use ↑↓ to navigate results.
+> Press `/` to search the docs instantly. Use up/down to navigate results.
 
-## 10‑Minute Flight Plan
+## 10-Minute Flight Plan
 
 <div class="grid-4">
 <a href="#/quickstart" class="card">
@@ -99,9 +99,9 @@ server.procedure('users.create')
 
 ---
 
-## First Server (Production‑Ready)
+## First Server (Production-Ready)
 
-Create a multi‑protocol server with validation, logging, and error handling:
+Create a multi-protocol server with validation, logging, and error handling:
 
 ```typescript
 import { createServer, createZodAdapter, registerValidator, Errors } from 'raffel'
@@ -248,13 +248,13 @@ server.event('emails.send')
 
 ## Production Checklist
 
-When you’re ready to ship, most services follow this pattern:
+When you're ready to ship, most services follow this pattern:
 
-1. **Validation adapter** — `registerValidator(createZodAdapter(z))`
-2. **Interceptors** — rate limit, retry, timeout, logging
-3. **Auth** — bearer/API key/OAuth2 depending on protocol
-4. **Observability** — Prometheus metrics + OpenTelemetry tracing
-5. **USD/OpenAPI** — auto‑generate docs from schemas
+1. **Validation adapter** - `registerValidator(createZodAdapter(z))`
+2. **Interceptors** - rate limit, retry, timeout, logging
+3. **Auth** - bearer/API key/OAuth2 depending on protocol
+4. **Observability** - Prometheus metrics + OpenTelemetry tracing
+5. **USD/OpenAPI** - auto-generate docs from schemas
 
 ---
 
@@ -322,7 +322,7 @@ Each protocol has its own adapter that translates to/from the core Envelope form
 | **JSON-RPC** | `{ method: 'users.create' }` | Batching |
 | **GraphQL** | `mutation { usersCreate }` | Subscriptions |
 | **TCP** | Length-prefixed frames | Streaming |
-| **UDP** | Datagram messages | — |
+| **UDP** | Datagram messages | - |
 
 ---
 
@@ -342,7 +342,7 @@ Raffel includes 20+ interceptors for cross-cutting concerns:
 | `createLoggingInterceptor` | Structured logging |
 | `createEnvelopeInterceptor` | Standard response format |
 
-All interceptors work across all protocols—write once, apply everywhere.
+All interceptors work across all protocols-write once, apply everywhere.
 
 ---
 
@@ -440,12 +440,12 @@ npx raffel-mcp --category docs,codegen
 
 ## Next Steps
 
-1. **[Quickstart](quickstart.md)** — Get running in 5 minutes
-2. **[Core Model](core-model.md)** — Understand the fundamentals
-3. **[Interceptors](interceptors.md)** — Add cross-cutting concerns
-4. **[File Discovery](file-system-discovery.md)** — Convention-based routing
-5. **[REST Auto-CRUD](rest-autocrud.md)** — Schema-first REST
-6. **[MCP Server](mcp.md)** — AI tooling for Raffel
+1. **[Quickstart](quickstart.md)** - Get running in 5 minutes
+2. **[Core Model](core-model.md)** - Understand the fundamentals
+3. **[Interceptors](interceptors.md)** - Add cross-cutting concerns
+4. **[File Discovery](file-system-discovery.md)** - Convention-based routing
+5. **[REST Auto-CRUD](rest-autocrud.md)** - Schema-first REST
+6. **[MCP Server](mcp.md)** - AI tooling for Raffel
 
 ---
 

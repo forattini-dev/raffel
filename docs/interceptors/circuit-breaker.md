@@ -9,9 +9,9 @@ Prevent cascading failures by failing fast when a service is unhealthy.
 The circuit breaker pattern monitors for failures and "trips" when a threshold is exceeded, returning errors immediately without attempting the operation.
 
 **States:**
-- **Closed** — Normal operation, requests pass through
-- **Open** — Failing fast, returning errors immediately
-- **Half-Open** — Testing if service recovered
+- **Closed** - Normal operation, requests pass through
+- **Open** - Failing fast, returning errors immediately
+- **Half-Open** - Testing if service recovered
 
 ---
 
@@ -358,7 +358,7 @@ createCircuitBreakerInterceptor({
 
 ## Next Steps
 
-- **[Retry](retry.md)** — Automatic retry with backoff
-- **[Timeout](timeout.md)** — Request deadlines
-- **[Bulkhead](bulkhead.md)** — Limit concurrent requests
-- **[Fallback](fallback.md)** — Default responses on failure
+- **[Retry](retry.md)** - Automatic retry with backoff
+- **[Timeout](timeout.md)** - Request deadlines
+- **[Bulkhead](bulkhead.md)** - Limit concurrent requests
+- **[Fallback](fallback.md)** - Default responses on failure

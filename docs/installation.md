@@ -181,6 +181,6 @@ CMD ["node", "dist/index.js"]
 
 ## Next Steps
 
-- **[Quickstart](quickstart.md)** — Build your first multi-protocol server
-- **[Core Model](core-model.md)** — Understand Envelope, Context, handlers
-- **[HTTP Protocol](protocols/http.md)** — REST API configuration
+- **[Quickstart](quickstart.md)** - Build your first multi-protocol server
+- **[Core Model](core-model.md)** - Understand Envelope, Context, handlers
+- **[HTTP Protocol](protocols/http.md)** - REST API configuration

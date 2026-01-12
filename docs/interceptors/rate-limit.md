@@ -33,7 +33,7 @@ createRateLimitInterceptor({
   // Key generator for identifying clients
   keyGenerator: (ctx) => {
     // Default: uses ctx.headers['x-forwarded-for'] || ctx.ip
-    return ctx.auth?.userId || ctx.ip
+    return ctx.auth?.principal || ctx.ip
   },
 
   // Custom message when rate limited
@@ -42,7 +42,7 @@ createRateLimitInterceptor({
   // Skip rate limiting for certain requests
   skip: (ctx) => {
     // Skip for admin users
-    return ctx.auth?.roles?.includes('admin')
+    return ctx.auth?.claims?.roles?.includes('admin')
   },
 
   // Headers to include in response
@@ -101,7 +101,7 @@ createRateLimitInterceptor({
 createRateLimitInterceptor({
   keyGenerator: (ctx) => {
     // Rate limit by user if authenticated, otherwise by IP
-    return ctx.auth?.userId || ctx.ip
+    return ctx.auth?.principal || ctx.ip
   },
 })
 ```
@@ -122,7 +122,7 @@ createRateLimitInterceptor({
 createRateLimitInterceptor({
   keyGenerator: (ctx) => {
     // Separate limits per user per endpoint
-    return `${ctx.auth?.userId || ctx.ip}:${ctx.procedure}`
+    return `${ctx.auth?.principal || ctx.ip}:${ctx.procedure}`
   },
 })
 ```
@@ -260,7 +260,7 @@ createRateLimitInterceptor({
     }
 
     // Skip for admin users
-    if (ctx.auth?.roles?.includes('admin')) {
+    if (ctx.auth?.claims?.roles?.includes('admin')) {
       return true
     }
 
@@ -290,7 +290,7 @@ const tierLimits = {
 createRateLimitInterceptor({
   windowMs: 60 * 1000,
   maxRequests: (ctx) => {
-    const tier = ctx.auth?.tier || 'free'
+    const tier = ctx.auth?.claims?.tier || 'free'
     return tierLimits[tier]
   },
 })
@@ -363,6 +363,6 @@ try {
 
 ## Next Steps
 
-- **[Circuit Breaker](circuit-breaker.md)** — Fail fast on repeated errors
-- **[Bulkhead](bulkhead.md)** — Limit concurrent requests
-- **[Timeout](timeout.md)** — Request deadlines
+- **[Circuit Breaker](circuit-breaker.md)** - Fail fast on repeated errors
+- **[Bulkhead](bulkhead.md)** - Limit concurrent requests
+- **[Timeout](timeout.md)** - Request deadlines

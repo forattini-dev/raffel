@@ -73,7 +73,7 @@ import { createRateLimitInterceptor } from 'raffel'
 const rateLimit = createRateLimitInterceptor({
   windowMs: 60000,    // 1 minute window
   maxRequests: 100,   // 100 requests per window
-  keyGenerator: (envelope, ctx) => ctx.auth?.userId ?? ctx.clientIp ?? 'anonymous',
+  keyGenerator: (envelope, ctx) => ctx.auth?.principal ?? ctx.clientIp ?? 'anonymous',
 })
 
 server.use(rateLimit)

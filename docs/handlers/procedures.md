@@ -138,8 +138,8 @@ server.procedure('users.me')
     console.log(ctx.protocol)   // 'http' | 'websocket' | 'grpc' | ...
 
     // Authentication (if middleware applied)
-    console.log(ctx.auth?.userId)
-    console.log(ctx.auth?.roles)
+    console.log(ctx.auth?.principal)
+    console.log(ctx.auth?.claims?.roles)
 
     // Cancellation
     if (ctx.signal.aborted) {
@@ -149,7 +149,7 @@ server.procedure('users.me')
     // Custom context (from interceptors)
     console.log(ctx.custom?.requestedAt)
 
-    return { userId: ctx.auth?.userId }
+    return { userId: ctx.auth?.principal }
   })
 ```
 
@@ -173,7 +173,7 @@ Procedure names can be any string. Adapters interpret them:
 Add interceptors (middleware) to procedures:
 
 ```typescript
-import { createAuthMiddleware, createRateLimitInterceptor } from 'raffel'
+import { createAuthMiddleware, createRateLimitInterceptor, hasRole, Errors } from 'raffel'
 
 const auth = createAuthMiddleware({ /* ... */ })
 const rateLimit = createRateLimitInterceptor({ windowMs: 60000, maxRequests: 10 })
@@ -184,8 +184,8 @@ server.procedure('admin.deleteUser')
   .input(z.object({ userId: z.string() }))
   .handler(async ({ userId }, ctx) => {
     // Only authenticated users can reach here
-    if (!ctx.auth?.roles.includes('admin')) {
-      throw new ForbiddenError('Admin only')
+    if (!hasRole(ctx, 'admin')) {
+      throw Errors.forbidden('Admin only')
     }
     await db.users.delete({ where: { id: userId } })
     return { deleted: true }
@@ -199,7 +199,7 @@ server.procedure('admin.deleteUser')
 Throw errors to return error responses:
 
 ```typescript
-import { NotFoundError, ValidationError, ForbiddenError } from 'raffel'
+import { Errors } from 'raffel'
 
 server.procedure('users.get')
   .input(z.object({ id: z.string() }))
@@ -207,24 +207,24 @@ server.procedure('users.get')
     const user = await db.users.findUnique({ where: { id } })
 
     if (!user) {
-      throw new NotFoundError('User not found')
+      throw Errors.notFound('User', id)
     }
 
     return user
   })
 ```
 
-Built-in error types:
+Built-in error factories:
 
-| Error | HTTP Status | Code |
-|:------|:------------|:-----|
-| `ValidationError` | 400 | `VALIDATION_ERROR` |
-| `UnauthorizedError` | 401 | `UNAUTHORIZED` |
-| `ForbiddenError` | 403 | `FORBIDDEN` |
-| `NotFoundError` | 404 | `NOT_FOUND` |
-| `ConflictError` | 409 | `CONFLICT` |
-| `RateLimitError` | 429 | `RATE_LIMITED` |
-| `InternalError` | 500 | `INTERNAL_ERROR` |
+| Factory | HTTP Status | Code |
+|:--------|:------------|:-----|
+| `Errors.validation(...)` | 400 | `VALIDATION_ERROR` |
+| `Errors.unauthorized(...)` | 401 | `UNAUTHENTICATED` |
+| `Errors.forbidden(...)` | 403 | `PERMISSION_DENIED` |
+| `Errors.notFound(...)` | 404 | `NOT_FOUND` |
+| `Errors.alreadyExists(...)` | 409 | `ALREADY_EXISTS` |
+| `Errors.rateLimit(...)` | 429 | `RATE_LIMITED` |
+| `Errors.internal(...)` | 500 | `INTERNAL_ERROR` |
 
 ---
 
@@ -279,6 +279,10 @@ export const handler = async (input: z.infer<typeof input>) => {
 }
 ```
 
+> [!NOTE]
+> Make sure your entrypoint registers a validator adapter (e.g. Zod) so that
+> file-based schemas are enforced at runtime.
+
 The file path determines the procedure name:
 - `src/http/users/create.ts` → `users.create`
 - `src/http/orders/items/add.ts` → `orders.items.add`
@@ -322,6 +326,6 @@ server
 
 ## Next Steps
 
-- **[Streams](streams.md)** — Server-sent and bidirectional streaming
-- **[Events](events.md)** — Fire-and-forget pub/sub
-- **[Interceptors](interceptors.md)** — Cross-cutting concerns
+- **[Streams](streams.md)** - Server-sent and bidirectional streaming
+- **[Events](events.md)** - Fire-and-forget pub/sub
+- **[Interceptors](interceptors.md)** - Cross-cutting concerns

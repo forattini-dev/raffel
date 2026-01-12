@@ -127,25 +127,25 @@ app.use('/admin/*', basicAuth({
 import { bearerAuth } from 'raffel/http'
 
 app.use('/api/*', bearerAuth({
-  secret: process.env.JWT_SECRET!,
-  algorithm: 'HS256',
+  verifyToken: async (token) => {
+    const payload = await verifyJwt(token)
+    return payload ?? null
+  },
 }))
 ```
 
 ### Cookie Session
 
 ```typescript
-import { cookieSession, createRedisSessionStore } from 'raffel/http'
+import { cookieSession } from 'raffel/http'
 
 app.use(cookieSession({
-  store: createRedisSessionStore({ url: process.env.REDIS_URL! }),
-  cookie: {
-    name: 'session',
-    secure: true,
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  },
+  secret: process.env.COOKIE_SECRET!,
+  cookieName: 'session',
+  maxAge: 60 * 60 * 24 * 7, // seconds
+  secure: true,
+  httpOnly: true,
+  sameSite: 'Lax',
 }))
 ```
 
@@ -321,24 +321,22 @@ app.group('/api/v1', (api) => {
 ## Error Handling
 
 ```typescript
+import { HttpError, serverError, notFound } from 'raffel/http'
+
 // Global error handler
 app.onError((err, req) => {
   console.error(err)
 
-  if (err instanceof ValidationError) {
-    return error('VALIDATION_ERROR', err.message, 400)
+  if (err instanceof HttpError) {
+    return err.toResponse()
   }
 
-  if (err instanceof NotFoundError) {
-    return error('NOT_FOUND', err.message, 404)
-  }
-
-  return error('INTERNAL_ERROR', 'An unexpected error occurred', 500)
+  return serverError('An unexpected error occurred')
 })
 
 // 404 handler
 app.notFound((req) => {
-  return error('NOT_FOUND', `Route ${req.method} ${req.url} not found`, 404)
+  return notFound(`Route ${req.method} ${req.url} not found`)
 })
 ```
 
@@ -405,7 +403,7 @@ await server.start()
 
 ## Next Steps
 
-- **[Middleware](middleware.md)** — All available middleware
-- **[Responses](responses.md)** — Response helpers in detail
-- **[Static Files](static.md)** — Serving static assets
-- **[Health Checks](health.md)** — Health and readiness endpoints
+- **[Middleware](middleware.md)** - All available middleware
+- **[Responses](responses.md)** - Response helpers in detail
+- **[Static Files](static.md)** - Serving static assets
+- **[Health Checks](health.md)** - Health and readiness endpoints

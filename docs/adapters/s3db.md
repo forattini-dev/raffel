@@ -497,7 +497,7 @@ const server = createServer({ port: 3000 })
 
       // Admin-only user management
       if (resource === 'users') {
-        return ctx.auth.roles?.includes('admin')
+        return ctx.auth?.claims?.roles?.includes('admin')
       }
 
       return true
