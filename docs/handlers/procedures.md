@@ -57,7 +57,10 @@ curl -X POST http://localhost:3000/rpc \
 Define input schema using Zod (or Yup, Joi, Ajv):
 
 ```typescript
-import { z } from 'raffel'
+import { createZodAdapter, registerValidator } from 'raffel'
+import { z } from 'zod'
+
+registerValidator(createZodAdapter(z))
 
 server.procedure('users.create')
   .input(z.object({
@@ -98,6 +101,8 @@ Invalid input returns an error:
 Define output schema for type safety and documentation:
 
 ```typescript
+import { Errors } from 'raffel'
+
 server.procedure('users.get')
   .input(z.object({ id: z.string().uuid() }))
   .output(z.object({
@@ -108,7 +113,7 @@ server.procedure('users.get')
   }))
   .handler(async ({ id }) => {
     const user = await db.users.findUnique({ where: { id } })
-    if (!user) throw new NotFoundError('User not found')
+    if (!user) throw Errors.notFound('User', id)
     return user
   })
 ```
@@ -255,7 +260,7 @@ Define procedures in files for auto-discovery:
 
 ```typescript
 // src/http/users/create.ts
-import { z } from 'raffel'
+import { z } from 'zod'
 
 export const input = z.object({
   name: z.string(),
@@ -307,7 +312,7 @@ server
   .handler(async (input, ctx) => {
     const result = await paymentService.process({
       ...input,
-      userId: ctx.auth!.userId,
+      userId: ctx.auth?.principal,
     })
     return result
   })
