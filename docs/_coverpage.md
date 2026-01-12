@@ -2,14 +2,9 @@
 
 > One function. Seven protocols. Zero config.
 
-```typescript
-await createServer({
-  port: 3000,
-  routes: {
-    'hello': ({ name }) => `Hello, ${name}!`
-  }
-})
-```
+**HTTP** • **WebSocket** • **gRPC** • **JSON-RPC** • **GraphQL** • **TCP** • **UDP**
 
-[Get Started](/quickstart.md)
+Write your handler once, expose it everywhere.
+
+[Get Started](#quickstart)
 [GitHub](https://github.com/forattini-dev/raffel)
