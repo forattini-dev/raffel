@@ -1,71 +1,730 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Raffel Documentation - Custom Styles
+   A modern, purple-themed design for the Unified Multi-Protocol Server Runtime
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Variables & Base Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --theme-color: #1f7a6e;
-  --text-color-base: #1b1f24;
-  --text-color-secondary: #5b6773;
-  --heading-color: #0f2f2a;
-  --code-font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --raffel-purple: #8b5cf6;
+  --raffel-purple-light: #a78bfa;
+  --raffel-purple-dark: #7c3aed;
+  --raffel-pink: #c084fc;
+  --raffel-gradient: linear-gradient(135deg, #8b5cf6 0%, #c084fc 100%);
+  --raffel-glow: 0 0 20px rgba(139, 92, 246, 0.4);
+  --code-font: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 body {
   font-family: "Space Grotesk", "Segoe UI", Helvetica, Arial, sans-serif;
-  background: #f8fafb;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cover Page Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+section.cover {
+  background: radial-gradient(ellipse at top, #22123e 0%, #0b0816 70%) !important;
+}
+
+section.cover.show {
+  background: radial-gradient(ellipse at top, #22123e 0%, #0b0816 70%) !important;
+}
+
+section.cover h1 {
+  font-size: 3rem !important;
+  font-weight: 700 !important;
+  background: var(--raffel-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none !important;
+}
+
+section.cover blockquote {
+  font-size: 1.4rem !important;
+  color: #c4b5fd !important;
+  font-weight: 500 !important;
+}
+
+section.cover a.anchor {
+  border-radius: 8px !important;
+  background: var(--raffel-gradient) !important;
+  color: white !important;
+  padding: 12px 32px !important;
+  font-weight: 600 !important;
+  transition: all 0.3s ease !important;
+  border: none !important;
+}
+
+section.cover a.anchor:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: var(--raffel-glow) !important;
+}
+
+/* Cover page code block */
+section.cover pre {
+  text-align: left !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(139, 92, 246, 0.2) !important;
+  border-radius: 12px !important;
+  padding: 1.5rem !important;
+  margin: 2rem auto !important;
+  max-width: 600px !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Navigation & Sidebar
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Hide navbar on homepage */
+body.ready .app-nav {
+  display: none !important;
+}
+
+/* Fix sidebar toggle position */
+.sidebar-toggle {
+  position: fixed !important;
+  top: 1rem !important;
+  left: 1rem !important;
+  bottom: auto !important;
+  width: 40px !important;
+  height: 40px !important;
+  z-index: 999 !important;
+  background: rgba(139, 92, 246, 0.1) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(139, 92, 246, 0.2) !important;
+}
+
+/* Sidebar styling */
+.sidebar {
+  border-right: 1px solid rgba(139, 92, 246, 0.1) !important;
+}
+
+.sidebar-nav {
+  padding: 1rem 0 !important;
+}
+
+/* Sidebar category headers with emojis */
+.sidebar-nav > ul > li > a {
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  color: var(--raffel-purple-light) !important;
+}
+
+/* Sidebar links */
+.sidebar-nav li a {
+  padding: 6px 15px !important;
+  margin: 2px 0 !important;
+  border-radius: 6px !important;
+  transition: all 0.2s ease !important;
+}
+
+.sidebar-nav li a:hover {
+  background: rgba(139, 92, 246, 0.1) !important;
+}
+
+.sidebar-nav li.active > a {
+  background: rgba(139, 92, 246, 0.15) !important;
+  color: var(--raffel-purple) !important;
+  border-left: 3px solid var(--raffel-purple) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Content Area
+   ───────────────────────────────────────────────────────────────────────────── */
 
 .markdown-section {
   max-width: 980px;
-  padding: 2.5rem 2.5rem 4rem;
-}
-
-.markdown-section h1,
-.markdown-section h2,
-.markdown-section h3,
-.markdown-section h4 {
-  color: var(--heading-color);
-  letter-spacing: -0.01em;
+  padding: 2.5rem 3rem 4rem;
 }
 
 .markdown-section h1 {
   font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid rgba(139, 92, 246, 0.2);
 }
 
 .markdown-section h2 {
-  margin-top: 2.4rem;
+  font-size: 1.8rem;
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  letter-spacing: -0.01em;
+  color: var(--raffel-purple-light);
 }
 
-.markdown-section code {
-  font-family: var(--code-font-family);
-  font-size: 0.95em;
+.markdown-section h3 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
 }
 
+.markdown-section h4 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Code Blocks
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.markdown-section code,
 .markdown-section pre > code {
+  font-family: var(--code-font);
   font-size: 0.9em;
 }
 
-.sidebar {
-  background: #ffffff;
+.markdown-section pre {
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin: 1.5rem 0;
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  position: relative;
 }
 
-.cover {
-  background: radial-gradient(circle at top, #e8f7f4, #f8fafb 55%, #ffffff 100%);
+.markdown-section pre::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--raffel-gradient);
+  border-radius: 10px 10px 0 0;
 }
 
-.cover-main > h1 {
-  font-weight: 700;
+.markdown-section code:not([class*="language-"]) {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--raffel-pink);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
 }
 
-.cover-main > p {
-  color: var(--text-color-secondary);
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tables
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.markdown-section table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.5rem 0;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.app-name-link {
-  font-weight: 700;
-  letter-spacing: -0.01em;
+.markdown-section table th {
+  background: rgba(139, 92, 246, 0.15);
+  font-weight: 600;
+  text-align: left;
+  color: var(--raffel-purple-light);
 }
+
+.markdown-section table th,
+.markdown-section table td {
+  padding: 0.875rem 1rem;
+  border: 1px solid rgba(139, 92, 246, 0.1);
+}
+
+.markdown-section table tbody tr:hover {
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.markdown-section table code {
+  background: rgba(139, 92, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Blockquotes (Callouts)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.markdown-section blockquote {
+  border-left: 4px solid var(--raffel-purple);
+  background: rgba(139, 92, 246, 0.08);
+  padding: 1rem 1.5rem;
+  margin: 1.5rem 0;
+  border-radius: 0 8px 8px 0;
+}
+
+.markdown-section blockquote > p {
+  margin: 0;
+}
+
+.markdown-section blockquote strong:first-child {
+  color: var(--raffel-purple);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Links
+   ───────────────────────────────────────────────────────────────────────────── */
 
 a {
+  color: var(--raffel-purple);
   text-decoration: none;
+  transition: all 0.2s ease;
 }
 
 a:hover {
+  color: var(--raffel-pink);
   text-decoration: underline;
+}
+
+/* External link indicator */
+a[target="_blank"]::after {
+  content: " ↗";
+  font-size: 0.75em;
+  opacity: 0.7;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Card Grid (for landing page)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin: 2rem 0;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.card {
+  display: block;
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(192, 132, 252, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  text-decoration: none !important;
+  color: inherit;
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--raffel-glow);
+  border-color: var(--raffel-purple);
+  text-decoration: none !important;
+}
+
+.card h4 {
+  margin: 0 0 0.75rem 0;
+  color: var(--raffel-purple);
+  font-weight: 600;
+}
+
+.card p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.85;
+  line-height: 1.5;
+}
+
+.card .icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Feature Badges
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-purple {
+  background: rgba(139, 92, 246, 0.2);
+  color: var(--raffel-purple);
+}
+
+.badge-green {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.badge-blue {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.badge-orange {
+  background: rgba(249, 115, 22, 0.2);
+  color: #f97316;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Lightning Animation (for hero elements)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.lightning {
+  display: inline-block;
+  animation: lightning-flash 5s infinite;
+  transform-origin: center;
+}
+
+@keyframes lightning-flash {
+  0%, 90%, 100% {
+    filter: brightness(1);
+    text-shadow: none;
+    transform: scale(1);
+  }
+  92% {
+    filter: brightness(2.5) drop-shadow(0 0 8px #c084fc);
+    text-shadow: 0 0 15px #8b5cf6, 0 0 30px #c084fc;
+    transform: scale(1.1) rotate(-2deg);
+  }
+  93% {
+    filter: brightness(1);
+    text-shadow: none;
+    transform: scale(1);
+  }
+  95% {
+    filter: brightness(3) drop-shadow(0 0 12px #a855f7);
+    text-shadow: 0 0 20px #8b5cf6, 0 0 40px #c084fc;
+    transform: scale(1.15) rotate(2deg);
+  }
+  97% {
+    filter: brightness(1);
+    text-shadow: none;
+    transform: scale(1);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Protocol Icons (for protocol listing)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.protocol-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.protocol-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--raffel-purple-light);
+  transition: all 0.2s ease;
+}
+
+.protocol-badge:hover {
+  background: rgba(139, 92, 246, 0.2);
+  transform: translateY(-1px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Comparison Table Styling
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.markdown-section table td:first-child {
+  font-weight: 500;
+}
+
+/* Check marks and X marks in tables */
+.markdown-section table td:contains('✅'),
+.markdown-section table td:contains('❌') {
+  text-align: center;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Progress Bar
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: var(--raffel-gradient);
+  z-index: 9999;
+  transition: width 0.2s ease;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Back to Top Button
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.back-to-top {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--raffel-gradient);
+  color: white;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: var(--raffel-glow);
+}
+
+.back-to-top.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.back-to-top:hover {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Keyboard Hint
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.keyboard-hint {
+  position: fixed;
+  bottom: 30px;
+  left: 30px;
+  padding: 10px 16px;
+  background: rgba(11, 8, 22, 0.9);
+  color: #e8ecf2;
+  border-radius: 8px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 999;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.keyboard-hint.visible {
+  opacity: 1;
+}
+
+.keyboard-hint kbd {
+  background: rgba(139, 92, 246, 0.3);
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin: 0 3px;
+  font-family: var(--code-font);
+  font-size: 11px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Alerts / Callouts (docsify-plugin-flexible-alerts)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.alert {
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  border-left: 4px solid;
+}
+
+.alert.callout-tip {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: #22c55e;
+}
+
+.alert.callout-warning {
+  background: rgba(234, 179, 8, 0.1);
+  border-color: #eab308;
+}
+
+.alert.callout-danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+
+.alert.callout-note {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: var(--raffel-purple);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tabs (docsify-tabs)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.docsify-tabs__tab {
+  padding: 10px 20px !important;
+  border-radius: 8px 8px 0 0 !important;
+  background: rgba(139, 92, 246, 0.1) !important;
+  border: 1px solid rgba(139, 92, 246, 0.2) !important;
+  border-bottom: none !important;
+  color: var(--raffel-purple-light) !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.docsify-tabs__tab--active {
+  background: rgba(139, 92, 246, 0.2) !important;
+  color: var(--raffel-purple) !important;
+}
+
+.docsify-tabs__content {
+  border: 1px solid rgba(139, 92, 246, 0.2) !important;
+  border-radius: 0 8px 8px 8px !important;
+  padding: 1.5rem !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Copy Button (docsify-copy-code)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.docsify-copy-code-button {
+  background: rgba(139, 92, 246, 0.2) !important;
+  color: var(--raffel-purple-light) !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  padding: 4px 10px !important;
+}
+
+.docsify-copy-code-button:hover {
+  background: rgba(139, 92, 246, 0.4) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Dark Mode Specific
+   ───────────────────────────────────────────────────────────────────────────── */
+
+body.dark .markdown-section table th {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+body.dark .markdown-section table th,
+body.dark .markdown-section table td {
+  border-color: rgba(139, 92, 246, 0.1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Light Mode Specific
+   ───────────────────────────────────────────────────────────────────────────── */
+
+body.light .markdown-section table th {
+  background: rgba(139, 92, 246, 0.1);
+}
+
+body.light .markdown-section table th,
+body.light .markdown-section table td {
+  border-color: rgba(139, 92, 246, 0.15);
+}
+
+body.light .card {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(192, 132, 252, 0.03) 100%);
+}
+
+body.light .sidebar {
+  background: #faf7ff !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Reading Time & Word Count (hidden)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.markdown-section .reading-time,
+.content .reading-time,
+.count {
+  display: none !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Footer
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.doc-footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(139, 92, 246, 0.15);
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Responsive
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .markdown-section {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .markdown-section h1 {
+    font-size: 1.8rem;
+  }
+
+  .markdown-section h2 {
+    font-size: 1.4rem;
+  }
+
+  .grid-2, .grid-3, .grid-4 {
+    grid-template-columns: 1fr;
+  }
+
+  section.cover h1 {
+    font-size: 2rem !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Print Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media print {
+  .sidebar,
+  .sidebar-toggle,
+  .back-to-top,
+  .keyboard-hint,
+  .progress-bar {
+    display: none !important;
+  }
+
+  .content {
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
 }
