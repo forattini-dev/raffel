@@ -1,20 +1,23 @@
 # MCP Server
 
 Raffel includes an MCP (Model Context Protocol) server for AI-powered development.
+It exposes **tools**, **resources**, and **prompts** that map directly to Raffel
+best practices and documentation.
 
 ---
 
 ## What is MCP?
 
-MCP is a protocol that allows AI assistants like Claude to interact with external tools and resources. The Raffel MCP server provides:
+MCP is a protocol that lets AI assistants call tools and read structured resources.
+With Raffel MCP you get:
 
-- **Tools** — Code generation and debugging helpers
-- **Resources** — Documentation access
-- **Prompts** — Pre-built templates for common tasks
+- **Tools** — code generation, search, debugging
+- **Resources** — docs, patterns, adapters, interceptors, boilerplates
+- **Prompts** — guided flows for common tasks
 
 ---
 
-## Installation
+## Quick Start
 
 ### Add to Claude Code
 
@@ -25,212 +28,150 @@ claude mcp add raffel npx raffel-mcp
 ### Run Directly
 
 ```bash
-# All tools
+# All tools (default)
 npx raffel-mcp
 
-# Minimal set (getting started only)
+# Minimal set (getting started + errors)
 npx raffel-mcp --category minimal
 
-# Specific categories
+# Docs + codegen
 npx raffel-mcp --category docs,codegen
+
+# HTTP transport
+npx raffel-mcp --transport http --port 3200
 ```
 
 ---
 
-## Available Categories
+## Categories
 
-| Category | Description |
-|:---------|:------------|
-| `minimal` | Essential getting started tools |
-| `docs` | Documentation search and access |
-| `codegen` | Code generation tools |
-| `debug` | Debugging and error analysis |
-| `all` | All available tools (default) |
+| Category | Description | Tokens |
+|:---------|:------------|:-------|
+| `minimal` | Essential tools only | ~2.5K |
+| `docs` | Documentation + patterns | ~3K |
+| `codegen` | Code generation helpers | ~4K |
+| `full` | All tools | ~8K |
+
+See full category contents:
+
+```bash
+npx raffel-mcp --list-categories
+```
 
 ---
 
 ## Tools
 
-### Documentation Tools
+### Documentation & Reference
 
 | Tool | Description |
 |:-----|:------------|
-| `raffel_getting_started` | Quick start guide |
-| `raffel_search` | Search all documentation |
-| `raffel_api_patterns` | Correct code patterns |
+| `raffel_getting_started` | Quickstart guide |
+| `raffel_search` | Search across Raffel docs |
+| `raffel_list_interceptors` | List interceptors by category |
+| `raffel_get_interceptor` | Interceptor docs + examples |
+| `raffel_list_adapters` | List protocol adapters |
+| `raffel_get_adapter` | Adapter docs + mappings |
+| `raffel_api_patterns` | **Critical** API usage patterns |
+| `raffel_explain_error` | Error code explanations |
 
-**Example:**
-
-```
-User: How do I add rate limiting in Raffel?
-
-Claude: [Uses raffel_search tool]
-Here's how to add rate limiting...
-```
-
-### Code Generation Tools
+### Code Generation
 
 | Tool | Description |
 |:-----|:------------|
 | `raffel_create_server` | Generate server boilerplate |
 | `raffel_create_procedure` | Generate RPC endpoints |
 | `raffel_create_stream` | Generate streaming handlers |
+| `raffel_create_event` | Generate event handlers |
 | `raffel_add_middleware` | Add interceptors |
+| `raffel_create_module` | Create router modules |
+| `raffel_boilerplate` | Multi-file project templates |
 
-**Example:**
-
-```
-User: Create a new Raffel server with user CRUD
-
-Claude: [Uses raffel_create_server tool]
-[Uses raffel_create_procedure tool x4]
-Here's your complete server...
-```
-
-### Debugging Tools
+### Meta
 
 | Tool | Description |
 |:-----|:------------|
-| `raffel_explain_error` | Debug error codes |
-| `raffel_diagnose` | Analyze common issues |
+| `raffel_version` | Version + compatibility info |
 
 **Example:**
 
 ```
-User: I'm getting RATE_LIMITED error
+User: Add rate limiting to my Raffel API
 
-Claude: [Uses raffel_explain_error tool]
-The RATE_LIMITED error means...
+Assistant: [Uses raffel_search]
+Assistant: [Uses raffel_get_interceptor]
 ```
 
 ---
 
 ## Prompts
 
-Pre-built templates for common scenarios:
-
 | Prompt | Description |
 |:-------|:------------|
 | `create_rest_api` | Build complete REST API |
 | `create_realtime_server` | WebSocket + channels |
+| `create_grpc_service` | gRPC service scaffolding |
 | `create_microservice` | Production-ready service |
-| `migrate_from_express` | Convert from Express |
 | `add_authentication` | Add JWT/API key auth |
+| `add_caching` | Add caching drivers |
+| `add_rate_limiting` | Add per-route limits |
 | `add_observability` | Metrics + tracing |
+| `migrate_from_express` | Convert from Express |
+| `migrate_from_fastify` | Convert from Fastify |
+| `migrate_from_trpc` | Convert from tRPC |
+| `debug_middleware` | Diagnose interceptor issues |
+| `optimize_performance` | Perf review + tuning |
 
-### Using Prompts
-
-In Claude:
+**Usage in Claude:**
 
 ```
 User: /prompt create_rest_api
-
-Claude: I'll help you create a REST API with Raffel.
-What entities do you want to manage?
 ```
 
 ---
 
-## Resources
+## Resources & Templates
 
-The MCP server exposes documentation as resources:
+The MCP server exposes docs and boilerplates as resources:
 
 | Resource | Description |
 |:---------|:------------|
-| `raffel://docs/quickstart` | Quickstart guide |
-| `raffel://docs/core-model` | Core concepts |
-| `raffel://docs/protocols/*` | Protocol-specific docs |
-| `raffel://docs/interceptors/*` | Interceptor docs |
-| `raffel://examples/*` | Code examples |
+| `raffel://guide/quickstart` | Quickstart guide |
+| `raffel://interceptor/{name}` | Interceptor documentation |
+| `raffel://adapter/{name}` | Adapter documentation |
+| `raffel://pattern/{name}` | API patterns |
+| `raffel://error/{code}` | Error explanations |
+| `raffel://boilerplate/{template}` | Project boilerplates |
+
+Resource templates:
+
+- `raffel://interceptor/{name}`
+- `raffel://adapter/{name}`
+- `raffel://pattern/{name}`
+- `raffel://error/{code}`
+- `raffel://guide/{topic}`
+- `raffel://boilerplate/{template}`
 
 ---
 
-## Configuration
+## Transports
 
-### Environment Variables
+### stdio (default)
 
 ```bash
-# Set documentation path (defaults to npm package)
-RAFFEL_DOCS_PATH=/path/to/docs
-
-# Set log level
-RAFFEL_MCP_LOG_LEVEL=debug
-
-# Enable specific categories
-RAFFEL_MCP_CATEGORIES=docs,codegen
+npx raffel-mcp --transport stdio
 ```
 
-### Config File
-
-Create `.raffel-mcp.json`:
-
-```json
-{
-  "categories": ["docs", "codegen"],
-  "logLevel": "info",
-  "customDocs": "./docs"
-}
-```
-
----
-
-## Custom MCP Server
-
-Extend the Raffel MCP server with your own tools:
-
-```typescript
-import { createRaffelMcpServer } from 'raffel/mcp'
-
-const server = createRaffelMcpServer({
-  categories: ['all'],
-})
-
-// Add custom tool
-server.addTool({
-  name: 'my_custom_tool',
-  description: 'Does something custom',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      input: { type: 'string' },
-    },
-  },
-  handler: async (input) => {
-    return { result: `Processed: ${input}` }
-  },
-})
-
-// Add custom resource
-server.addResource({
-  uri: 'my-app://config',
-  name: 'App Configuration',
-  mimeType: 'application/json',
-  handler: async () => {
-    return JSON.stringify(appConfig)
-  },
-})
-
-server.start()
-```
-
----
-
-## Transport Modes
-
-### stdio (Default)
-
-For local CLI tools like Claude Code:
+### HTTP
 
 ```bash
-npx raffel-mcp --transport=stdio
+npx raffel-mcp --transport http --port 3200
 ```
 
 ### SSE
 
-For HTTP-based connections:
-
 ```bash
-npx raffel-mcp --transport=sse --port=8080
+npx raffel-mcp --transport sse --port 3200
 ```
 
 ---
@@ -240,13 +181,7 @@ npx raffel-mcp --transport=sse --port=8080
 ### With Claude Code
 
 ```bash
-# Add the MCP server
 claude mcp add raffel npx raffel-mcp
-
-# Now in conversations:
-# "Create a Raffel server with WebSocket support"
-# "Add rate limiting to my API"
-# "Explain this Raffel error"
 ```
 
 ### With Custom Client
@@ -260,14 +195,9 @@ const transport = new StdioClientTransport({
   args: ['raffel-mcp'],
 })
 
-const client = new Client({
-  name: 'my-app',
-  version: '1.0.0',
-})
-
+const client = new Client({ name: 'my-app', version: '1.0.0' })
 await client.connect(transport)
 
-// Use tools
 const result = await client.callTool({
   name: 'raffel_search',
   arguments: { query: 'rate limiting' },
@@ -278,39 +208,46 @@ console.log(result)
 
 ---
 
-## Troubleshooting
+## Custom Server Options
 
-### MCP Server Not Found
+You can start your own MCP server instance programmatically:
 
-```bash
-# Ensure raffel is installed
-pnpm add raffel
+```typescript
+import { createMCPServer } from 'raffel/mcp'
 
-# Or run directly
-npx raffel-mcp
+const server = createMCPServer({
+  transport: 'http',
+  port: 3200,
+  category: ['docs', 'codegen'],
+  toolsFilter: ['raffel_*', '!raffel_version'],
+  debug: true,
+})
+
+await server.start()
 ```
+
+---
+
+## Troubleshooting
 
 ### Tools Not Showing
 
 ```bash
-# Check available tools
-npx raffel-mcp --list-tools
-
-# Enable all categories
-npx raffel-mcp --category all
+npx raffel-mcp --list-categories
+npx raffel-mcp --category full
 ```
 
 ### Connection Issues
 
 ```bash
-# Enable debug logging
-RAFFEL_MCP_LOG_LEVEL=debug npx raffel-mcp
+npx raffel-mcp --debug
 ```
 
 ---
 
 ## Next Steps
 
-- **[DX](dx.md)** — Developer experience features
-- **[Hot Reload](hot-reload.md)** — Development server
-- **[Quickstart](quickstart.md)** — Get started with Raffel
+- **[Quickstart](quickstart.md)** — Run your first server
+- **[MCP Tools](mcp.md#tools)** — Full tool list
+- **[Patterns](interceptors.md)** — Middleware + composition
+- **[USD](usd.md)** — Auto-generated docs
