@@ -61,6 +61,10 @@ src/
   rpc/         # JSON-RPC + gRPC procedures
   streams/     # Stream handlers
   channels/    # WebSocket channels
+  rest/        # REST resources
+  resources/   # Resource handlers
+  tcp/         # TCP handlers
+  udp/         # UDP handlers
 ```
 
 ### Mapping rules
@@ -70,6 +74,9 @@ src/
 - `src/rpc/UserService.Create.ts` -> `UserService.Create` (gRPC service.method)
 - `src/streams/logs/tail.ts` -> `logs/tail`
 - `src/channels/presence-lobby.ts` -> `presence-lobby`
+- `src/http/users/[id]/get.ts` -> `users/:id/get`
+- `src/http/posts/[...slug].ts` -> `posts/:slug*`
+- `src/http/posts/[[slug]].ts` -> `posts/:slug?`
 
 Route names are literal. The adapters do not perform parameter extraction.
 
@@ -119,7 +126,8 @@ export default {
 
 ### Channels
 
-Channel files export configuration (auth, events, hooks).
+Channel files export configuration (auth, events, hooks) and are auto-registered
+when discovery is enabled.
 
 ```ts
 // src/channels/presence-lobby.ts
