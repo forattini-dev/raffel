@@ -49,6 +49,39 @@ server.procedure('users.create')
 
 ---
 
+> [!TIP]
+> Press `/` to search the docs instantly. Use ↑↓ to navigate results.
+
+## 10‑Minute Flight Plan
+
+<div class="grid-4">
+<a href="#/quickstart" class="card">
+<div class="icon">1️⃣</div>
+<h4>Boot the Server</h4>
+<p>Install, register validation, and ship your first handler.</p>
+</a>
+
+<a href="#/core-model" class="card">
+<div class="icon">2️⃣</div>
+<h4>Learn the Envelope</h4>
+<p>Understand how every protocol maps to a single core model.</p>
+</a>
+
+<a href="#/handlers/procedures" class="card">
+<div class="icon">3️⃣</div>
+<h4>Procedures + Streams</h4>
+<p>RPC, streaming, and events with validation + types.</p>
+</a>
+
+<a href="#/interceptors" class="card">
+<div class="icon">4️⃣</div>
+<h4>Make It Production</h4>
+<p>Auth, retries, timeouts, metrics, tracing, caching.</p>
+</a>
+</div>
+
+---
+
 ## What's Inside
 
 | Category | Features |
@@ -63,6 +96,57 @@ server.procedure('users.create')
 | **Real-time** | Channels (Pusher-like) • Presence • Broadcasting |
 | **Documentation** | USD (Universal Service Docs) • Auto-generated from schemas |
 | **DX** | Hot Reload • File-based Routing • REST Auto-CRUD |
+
+---
+
+## First Server (Production‑Ready)
+
+Create a multi‑protocol server with validation, logging, and error handling:
+
+```typescript
+import { createServer, createZodAdapter, registerValidator, Errors } from 'raffel'
+import { z } from 'zod'
+
+registerValidator(createZodAdapter(z))
+
+const server = createServer({
+  port: 3000,
+  websocket: true,
+  jsonrpc: '/rpc',
+  graphql: '/graphql',
+})
+
+server
+  .procedure('users.create')
+  .input(z.object({ name: z.string().min(2), email: z.string().email() }))
+  .output(z.object({ id: z.string(), name: z.string(), email: z.string() }))
+  .handler(async (input) => {
+    if (input.email.endsWith('@example.com')) {
+      throw Errors.unprocessable('Example.com emails are not allowed')
+    }
+    return { id: crypto.randomUUID(), ...input }
+  })
+
+await server.start()
+```
+
+Test across protocols:
+
+```bash
+# HTTP
+curl -X POST http://localhost:3000/users.create \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ada","email":"ada@open.com"}'
+
+# WebSocket
+wscat -c ws://localhost:3000/ws \
+  -x '{"procedure":"users.create","payload":{"name":"Ada","email":"ada@open.com"}}'
+
+# JSON-RPC
+curl -X POST http://localhost:3000/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":"1","method":"users.create","params":{"name":"Ada","email":"ada@open.com"}}'
+```
 
 ---
 
@@ -118,7 +202,7 @@ interface Envelope {
 }
 ```
 
----
+--- 
 
 ## Handler Types
 
@@ -159,6 +243,18 @@ server.event('emails.send')
     ack()  // Acknowledge delivery
   })
 ```
+
+---
+
+## Production Checklist
+
+When you’re ready to ship, most services follow this pattern:
+
+1. **Validation adapter** — `registerValidator(createZodAdapter(z))`
+2. **Interceptors** — rate limit, retry, timeout, logging
+3. **Auth** — bearer/API key/OAuth2 depending on protocol
+4. **Observability** — Prometheus metrics + OpenTelemetry tracing
+5. **USD/OpenAPI** — auto‑generate docs from schemas
 
 ---
 
@@ -296,12 +392,20 @@ npx raffel-mcp --category docs,codegen
 |:-----|:------------|
 | `raffel_getting_started` | Quick start guide |
 | `raffel_search` | Search all documentation |
+| `raffel_list_interceptors` | List interceptors by category |
+| `raffel_get_interceptor` | Interceptor docs + examples |
+| `raffel_list_adapters` | List protocol adapters |
+| `raffel_get_adapter` | Adapter docs + mappings |
 | `raffel_api_patterns` | Correct code patterns |
 | `raffel_create_server` | Generate server boilerplate |
 | `raffel_create_procedure` | Generate RPC endpoints |
 | `raffel_create_stream` | Generate streaming handlers |
+| `raffel_create_event` | Generate event handlers |
 | `raffel_add_middleware` | Add interceptors |
+| `raffel_create_module` | Create router modules |
+| `raffel_boilerplate` | Multi-file project templates |
 | `raffel_explain_error` | Debug error codes |
+| `raffel_version` | Version + compatibility info |
 
 ### Available Prompts
 
@@ -309,10 +413,28 @@ npx raffel-mcp --category docs,codegen
 |:-------|:------------|
 | `create_rest_api` | Build complete REST API |
 | `create_realtime_server` | WebSocket + channels |
+| `create_grpc_service` | gRPC service scaffolding |
 | `create_microservice` | Production-ready service |
-| `migrate_from_express` | Convert from Express |
 | `add_authentication` | Add JWT/API key auth |
+| `add_caching` | Add caching drivers |
+| `add_rate_limiting` | Add per-route limits |
 | `add_observability` | Metrics + tracing |
+| `migrate_from_express` | Convert from Express |
+| `migrate_from_fastify` | Convert from Fastify |
+| `migrate_from_trpc` | Convert from tRPC |
+| `debug_middleware` | Debug interceptor behavior |
+| `optimize_performance` | Perf review + tuning |
+
+### Resources & Templates
+
+| Resource | Description |
+|:---------|:------------|
+| `raffel://guide/quickstart` | Quickstart guide |
+| `raffel://interceptor/{name}` | Interceptor documentation |
+| `raffel://adapter/{name}` | Adapter documentation |
+| `raffel://pattern/{name}` | API patterns |
+| `raffel://error/{code}` | Error explanations |
+| `raffel://boilerplate/{template}` | Project boilerplates |
 
 ---
 
@@ -322,7 +444,8 @@ npx raffel-mcp --category docs,codegen
 2. **[Core Model](core-model.md)** — Understand the fundamentals
 3. **[Interceptors](interceptors.md)** — Add cross-cutting concerns
 4. **[File Discovery](file-system-discovery.md)** — Convention-based routing
-5. **[HTTP Protocol](protocols/http.md)** — REST API details
+5. **[REST Auto-CRUD](rest-autocrud.md)** — Schema-first REST
+6. **[MCP Server](mcp.md)** — AI tooling for Raffel
 
 ---
 
