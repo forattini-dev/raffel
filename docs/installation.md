@@ -88,7 +88,7 @@ Create a simple test file to verify installation:
 
 ```typescript
 // test.ts
-import { createServer, z } from 'raffel'
+import { createServer } from 'raffel'
 
 const server = createServer({ port: 3000 })
 
