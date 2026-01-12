@@ -37,6 +37,9 @@ const server = createServer({
 await server.start()
 ```
 
+If you provide `authorize`, it runs for every channel (including public). Return
+`true` for public channels you want to allow.
+
 ## Channel Types
 
 | Prefix | Type | Auth Required | Member Tracking |
@@ -44,6 +47,39 @@ await server.start()
 | (none) | Public | No | No |
 | `private-` | Private | Yes | No |
 | `presence-` | Presence | Yes | Yes |
+
+## Channel Parameters (USD)
+
+Use templated channel names to expose parameters in USD docs:
+
+```ts
+// Example channel names:
+// rooms.{roomId}
+// private-:userId
+```
+
+USD will infer parameters for templated segments and surface them under
+`x-usd.websocket.channels.<name>.parameters`.
+
+## Content Types (USD)
+
+USD defaults to JSON for channel messages. You can document operation-specific
+content types under each channel:
+
+```json
+{
+  "x-usd": {
+    "websocket": {
+      "channels": {
+        "chat-room": {
+          "subscribe": { "contentTypes": { "default": "application/json" } },
+          "publish": { "contentTypes": { "default": "application/octet-stream" } }
+        }
+      }
+    }
+  }
+}
+```
 
 ## Server Configuration
 
