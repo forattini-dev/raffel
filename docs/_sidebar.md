@@ -2,8 +2,8 @@
 
 - **Getting Started**
   - [Quickstart](/quickstart.md)
+  - [Arquitetura](/architecture.md)
   - [Installation](/installation.md)
-  - [Core Model](/core-model.md)
 
 - **Handler Types**
   - [Procedures (RPC)](/handlers/procedures.md)
@@ -44,5 +44,6 @@
   - [Overview](/http/overview.md)
 
 - **Reference**
+  - [Core Model](/core-model.md)
   - [Error Codes](/error-codes.md)
   - [MCP Server](/mcp.md)
