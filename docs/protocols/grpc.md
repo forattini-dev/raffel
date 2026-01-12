@@ -42,9 +42,17 @@ src/rpc/User.Create.ts -> User.Create
 
 ## Options
 
-- `serviceNames`: register only a subset of services
-- `packageName`: scope services under a proto package
-- `loaderOptions`: pass options to `@grpc/proto-loader`
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `port` | number | required | Port to listen on |
+| `host` | string | `'0.0.0.0'` | Host to bind to |
+| `protoPath` | string | required | Path to `.proto` file |
+| `serviceNames` | string[] | - | Register only specific services |
+| `packageName` | string | - | Prefix services with proto package |
+| `loaderOptions` | object | - | Options for `@grpc/proto-loader` |
+| `tls` | object | - | TLS configuration (key/cert/ca) |
+| `maxReceiveMessageLength` | number | - | Maximum inbound message size |
+| `maxSendMessageLength` | number | - | Maximum outbound message size |
 
 ## Streaming
 
@@ -56,6 +64,52 @@ gRPC streaming methods map to Raffel stream handlers:
 
 Use the fluent builder with `.direction(...)` or register via `registry.stream` with
 `direction`.
+
+## USD Documentation Metadata
+
+Use metadata to document gRPC streaming semantics in USD:
+
+```ts
+server
+  .procedure('chat.stream')
+  .grpc({ clientStreaming: true, serverStreaming: true })
+  .handler(async () => ({ ok: true }))
+```
+
+With file-system discovery:
+
+```ts
+export const meta = {
+  grpc: {
+    clientStreaming: true,
+    serverStreaming: false,
+  },
+}
+```
+
+## USD Content Types
+
+USD defaults to `application/x-protobuf` for gRPC messages. You can override
+protocol defaults or per-method content types for documentation:
+
+```ts
+server.enableUSD({
+  grpc: {
+    contentTypes: {
+      default: 'application/x-protobuf',
+      supported: ['application/x-protobuf', 'application/json'],
+    },
+  },
+})
+```
+
+For file-system discovery, use handler metadata to override a method:
+
+```ts
+export const meta = {
+  contentTypes: { default: 'application/x-protobuf' },
+}
+```
 
 ## TLS
 
