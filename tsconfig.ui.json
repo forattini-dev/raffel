@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "./dist/ui",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true
+  },
+  "include": ["src/docs/ui/**/*", "src/docs/openapi/index.ts", "src/docs/types.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}
