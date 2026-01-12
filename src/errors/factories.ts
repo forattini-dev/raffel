@@ -6,7 +6,6 @@
  */
 
 import { RaffelError } from '../core/router.js'
-import { ErrorCodes } from './codes.js'
 
 /**
  * Pre-built error factories for consistent error handling

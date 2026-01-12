@@ -13,6 +13,8 @@ import type {
   DeliveryGuarantee,
   RetryPolicy,
   StreamDirection,
+  JsonRpcMeta,
+  GrpcMeta,
 } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
 import type {
@@ -20,6 +22,9 @@ import type {
   StreamBuilder,
   EventBuilder,
   RouterModule,
+  BeforeHook,
+  AfterHook,
+  ErrorHook,
 } from './types.js'
 
 type ModuleRouteKind = 'procedure' | 'stream' | 'event'
@@ -28,7 +33,20 @@ export interface ModuleRoute {
   kind: ModuleRouteKind
   name: string
   handler: ProcedureHandler | StreamHandler | EventHandler
+  /** Short summary for OpenAPI (one-liner) */
+  summary?: string
+  /** Description for OpenAPI (supports markdown) */
   description?: string
+  /** Tags for OpenAPI grouping */
+  tags?: string[]
+  /** HTTP path override for procedures */
+  httpPath?: string
+  /** HTTP method override for procedures */
+  httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+  /** JSON-RPC metadata for USD generation */
+  jsonrpc?: JsonRpcMeta
+  /** gRPC metadata for USD generation */
+  grpc?: GrpcMeta
   moduleInterceptors: Interceptor[]
   interceptors: Interceptor[]
   schema?: HandlerSchema
@@ -36,6 +54,12 @@ export interface ModuleRoute {
   delivery?: DeliveryGuarantee
   retryPolicy?: RetryPolicy
   deduplicationWindow?: number
+  /** Procedure hooks (only for procedure kind) */
+  beforeHooks?: BeforeHook<any>[]
+  afterHooks?: AfterHook<any, any>[]
+  errorHooks?: ErrorHook<any>[]
+  /** GraphQL mapping (only for procedure kind) */
+  graphql?: { type: 'query' | 'mutation' }
 }
 
 export interface RouterModuleDefinition {
@@ -61,8 +85,19 @@ function createProcedureBuilder(
 ): ProcedureBuilder {
   let inputSchema: z.ZodType | undefined
   let outputSchema: z.ZodType | undefined
+  let summary: string | undefined
   let description: string | undefined
+  let procedureTags: string[] | undefined
+  let httpPath: string | undefined
+  let httpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | undefined
   const interceptors: Interceptor[] = []
+  const beforeHooks: BeforeHook<any>[] = []
+  const afterHooks: AfterHook<any, any>[] = []
+  const errorHooks: ErrorHook<any>[] = []
+
+  let graphqlMeta: { type: 'query' | 'mutation' } | undefined
+  let jsonrpcMeta: JsonRpcMeta | undefined
+  let grpcMeta: GrpcMeta | undefined
 
   const builder: ProcedureBuilder = {
     input(schema) {
@@ -73,12 +108,49 @@ function createProcedureBuilder(
       outputSchema = schema
       return builder as ProcedureBuilder<unknown, z.infer<typeof schema>>
     },
+    summary(sum) {
+      summary = sum
+      return builder
+    },
+    tags(tagsArr) {
+      procedureTags = tagsArr
+      return builder
+    },
     description(desc) {
       description = desc
       return builder
     },
+    http(path, method) {
+      httpPath = path
+      httpMethod = method
+      return builder
+    },
     use(interceptor) {
       interceptors.push(interceptor)
+      return builder
+    },
+    graphql(type) {
+      graphqlMeta = { type }
+      return builder
+    },
+    jsonrpc(meta) {
+      jsonrpcMeta = meta
+      return builder
+    },
+    grpc(meta) {
+      grpcMeta = meta
+      return builder
+    },
+    before(hook) {
+      beforeHooks.push(hook)
+      return builder
+    },
+    after(hook) {
+      afterHooks.push(hook)
+      return builder
+    },
+    error(hook) {
+      errorHooks.push(hook)
       return builder
     },
     handler(fn) {
@@ -90,10 +162,20 @@ function createProcedureBuilder(
         kind: 'procedure',
         name,
         handler: fn as ProcedureHandler,
+        summary,
         description,
+        tags: procedureTags,
+        httpPath,
+        httpMethod,
+        jsonrpc: jsonrpcMeta,
+        grpc: grpcMeta,
         moduleInterceptors: [...moduleInterceptors],
         interceptors: [...interceptors],
         schema: schema.input || schema.output ? schema : undefined,
+        beforeHooks: beforeHooks.length > 0 ? [...beforeHooks] : undefined,
+        afterHooks: afterHooks.length > 0 ? [...afterHooks] : undefined,
+        errorHooks: errorHooks.length > 0 ? [...errorHooks] : undefined,
+        graphql: graphqlMeta,
       })
     },
   }

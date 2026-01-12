@@ -30,7 +30,7 @@
  */
 
 // === Adapter ===
-export { createGraphQLAdapter } from './adapter.js'
+export { createGraphQLAdapter, createGraphQLMiddleware } from './adapter.js'
 
 // === Schema Generator ===
 export {
@@ -52,3 +52,4 @@ export type {
   SupportedZodType,
   CorsConfig as GraphQLCorsConfig,
 } from './types.js'
+export type { GraphQLMiddleware } from './adapter.js'

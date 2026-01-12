@@ -43,8 +43,29 @@ export const OPERATION_METHODS: Record<RestOperation, string> = {
 }
 
 // Operations that work on collection vs item
-export const COLLECTION_OPERATIONS: RestOperation[] = ['list', 'create', 'head', 'options']
-export const ITEM_OPERATIONS: RestOperation[] = ['get', 'update', 'patch', 'delete', 'head', 'options']
+// Order follows REST convention: GET, HEAD, POST/PUT/PATCH/DELETE, OPTIONS
+export const COLLECTION_OPERATIONS: RestOperation[] = ['list', 'head', 'create', 'options']
+export const ITEM_OPERATIONS: RestOperation[] = ['get', 'head', 'update', 'patch', 'delete', 'options']
+
+/**
+ * Standard REST route ordering for documentation and consistency.
+ * Collection routes first, then item routes.
+ * Within each: GET, HEAD, POST/PUT/PATCH, DELETE, OPTIONS
+ */
+export const REST_ROUTE_ORDER: Record<string, number> = {
+  // Collection operations (0-99)
+  'list': 0,      // GET /resource
+  'head:c': 10,   // HEAD /resource (collection)
+  'create': 20,   // POST /resource
+  'options:c': 30, // OPTIONS /resource (collection)
+  // Item operations (100-199)
+  'get': 100,     // GET /resource/:id
+  'head:i': 110,  // HEAD /resource/:id (item)
+  'update': 120,  // PUT /resource/:id
+  'patch': 130,   // PATCH /resource/:id
+  'delete': 140,  // DELETE /resource/:id
+  'options:i': 150, // OPTIONS /resource/:id (item)
+}
 
 // === REST File Exports ===
 

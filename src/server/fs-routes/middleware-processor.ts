@@ -254,13 +254,28 @@ function createRateLimitInterceptor(config: { limit: number; window: number }): 
  * This authorizer checks if the socket context is authenticated.
  */
 export function createChannelAuthorizer(
-  authConfig?: AuthConfig
+  authConfig?: AuthConfig,
+  requirement: 'required' | 'optional' | 'none' = 'none'
 ): ((socketId: string, channel: string, ctx: Context) => boolean | Promise<boolean>) | undefined {
-  if (!authConfig) return undefined
+  if (!authConfig || requirement === 'none') return undefined
 
   return async (_socketId, _channel, ctx) => {
     // Check if already authenticated (auth should be set by WebSocket adapter)
     if (ctx.auth?.authenticated) {
+      return true
+    }
+
+    if (requirement === 'optional') {
+      if (authConfig.anonymous) {
+        ctx.auth = {
+          authenticated: false,
+          principal: authConfig.anonymous.principal,
+          claims: {
+            ...(authConfig.anonymous.claims ?? {}),
+            roles: authConfig.anonymous.roles ?? [],
+          },
+        }
+      }
       return true
     }
 

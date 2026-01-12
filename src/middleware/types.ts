@@ -5,6 +5,7 @@
  */
 
 import type { Envelope, Context } from '../types/index.js'
+import type { RateLimitDriver, RateLimitDriverConfig, RateLimitDriverType } from '../rate-limit/types.js'
 
 // ============================================================================
 // Rate Limiting
@@ -51,6 +52,9 @@ export interface RateLimitConfig {
 
   /** Custom key generator */
   keyGenerator?: (envelope: Envelope, ctx: Context) => string
+
+  /** Rate limit driver configuration */
+  driver?: RateLimitDriverConfig | RateLimitDriverType | RateLimitDriver
 
   /** Path-specific rules */
   rules?: RateLimitRule[]
@@ -473,6 +477,86 @@ export interface EnhancedCorsConfig {
 
   /** Handle OPTIONS requests (default: true) */
   preflightContinue?: boolean
+}
+
+// ============================================================================
+// Bulkhead (Concurrency Limiter)
+// ============================================================================
+
+/**
+ * Bulkhead configuration for concurrency limiting
+ */
+export interface BulkheadConfig {
+  /** Maximum concurrent executions (required) */
+  concurrency: number
+
+  /** Maximum queue size. 0 = no queue, reject immediately (default: 0) */
+  maxQueueSize?: number
+
+  /** Queue timeout in ms. 0 = no timeout (default: 0) */
+  queueTimeout?: number
+
+  /** Callback when a request is rejected */
+  onReject?: (procedure: string) => void
+
+  /** Callback when a request is queued */
+  onQueued?: () => void
+
+  /** Callback when a request is dequeued */
+  onDequeued?: () => void
+}
+
+// ============================================================================
+// Fallback Handler
+// ============================================================================
+
+/**
+ * Fallback configuration for graceful degradation
+ */
+export interface FallbackConfig<TOutput = unknown> {
+  /** Static fallback response */
+  response?: TOutput
+
+  /** Dynamic fallback handler */
+  handler?: (ctx: Context, error: Error) => TOutput | Promise<TOutput>
+
+  /** Condition to apply fallback (default: always) */
+  when?: (error: Error) => boolean
+}
+
+// ============================================================================
+// Response Envelope
+// ============================================================================
+
+/**
+ * Response envelope configuration
+ *
+ * Wraps all responses in a standardized format:
+ * - Success: { success: true, data: ..., meta: { ... } }
+ * - Error: { success: false, error: { message, code, details }, meta: { ... } }
+ */
+export interface EnvelopeConfig {
+  /** Include requestId in meta (default: true) */
+  includeRequestId?: boolean
+
+  /** Include duration in meta (default: true) */
+  includeDuration?: boolean
+
+  /** Include timestamp in meta (default: true) */
+  includeTimestamp?: boolean
+
+  /** Include error details in error response (default: true) */
+  includeErrorDetails?: boolean
+
+  /** Include stack trace in error response (default: true in development) */
+  includeErrorStack?: boolean
+
+  /**
+   * Custom error code mapper
+   * Extracts an error code string from an error object.
+   * Default behavior checks error.code, error.status, and error.name.
+   */
+  errorCodeMapper?: (error: Error) => string
 }
 
 // ============================================================================

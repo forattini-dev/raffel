@@ -112,6 +112,10 @@ function mapErrorCodeToStatus(code: string): grpc.status {
       return grpc.status.NOT_FOUND
     case 'INVALID_ARGUMENT':
     case 'VALIDATION_ERROR':
+    case 'INVALID_TYPE':
+    case 'INVALID_ENVELOPE':
+    case 'PARSE_ERROR':
+    case 'UNSUPPORTED_MEDIA_TYPE':
       return grpc.status.INVALID_ARGUMENT
     case 'UNAUTHENTICATED':
       return grpc.status.UNAUTHENTICATED
@@ -119,16 +123,22 @@ function mapErrorCodeToStatus(code: string): grpc.status {
       return grpc.status.PERMISSION_DENIED
     case 'ALREADY_EXISTS':
       return grpc.status.ALREADY_EXISTS
+    case 'NOT_ACCEPTABLE':
     case 'FAILED_PRECONDITION':
+    case 'UNPROCESSABLE_ENTITY':
       return grpc.status.FAILED_PRECONDITION
     case 'RESOURCE_EXHAUSTED':
     case 'RATE_LIMITED':
+    case 'PAYLOAD_TOO_LARGE':
+    case 'MESSAGE_TOO_LARGE':
       return grpc.status.RESOURCE_EXHAUSTED
     case 'DEADLINE_EXCEEDED':
       return grpc.status.DEADLINE_EXCEEDED
     case 'UNIMPLEMENTED':
       return grpc.status.UNIMPLEMENTED
     case 'UNAVAILABLE':
+    case 'BAD_GATEWAY':
+    case 'GATEWAY_TIMEOUT':
       return grpc.status.UNAVAILABLE
     case 'CANCELLED':
       return grpc.status.CANCELLED

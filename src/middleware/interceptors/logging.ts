@@ -12,7 +12,7 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
-import type { LoggingConfig, LogFilterContext, LogLevel } from '../types.js'
+import type { LoggingConfig, LogFilterContext } from '../types.js'
 
 /**
  * Default logger that uses console
@@ -148,7 +148,7 @@ function matchProcedure(patterns: string[], procedure: string): boolean {
  */
 export function createLoggingInterceptor(config: LoggingConfig = {}): Interceptor {
   const {
-    level = 'info',
+    level: _level = 'info',
     format = process.env.NODE_ENV === 'production' ? 'json' : 'pretty',
     includePayload = false,
     includeResponse = false,

@@ -45,7 +45,6 @@ export type { TimeoutPhase } from './timeout.js'
 export {
   createRetryInterceptor,
   createSelectiveRetryInterceptor,
-  createRetryAfterInterceptor,
   parseRetryAfter,
 } from './retry.js'
 
@@ -82,3 +81,34 @@ export {
   CachePresets,
 } from './cache.js'
 export type { CacheEventContext, ExtendedCacheConfig } from './cache.js'
+
+// Bulkhead (Concurrency Limiter)
+export {
+  createBulkheadInterceptor,
+  createProcedureBulkhead,
+  createBulkheadManager,
+} from './bulkhead.js'
+export type { BulkheadManager } from './bulkhead.js'
+
+// Fallback Handler
+export {
+  createFallbackInterceptor,
+} from './fallback.js'
+
+// Response Envelope
+export {
+  createEnvelopeInterceptor,
+  createMinimalEnvelopeInterceptor,
+  createStandardEnvelopeInterceptor,
+  createDetailedEnvelopeInterceptor,
+  isEnvelopeResponse,
+  isEnvelopeSuccess,
+  isEnvelopeError,
+  EnvelopePresets,
+} from './envelope.js'
+export type {
+  EnvelopeSuccess,
+  EnvelopeError,
+  EnvelopeMeta,
+  EnvelopeResponse,
+} from './envelope.js'

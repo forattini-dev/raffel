@@ -98,7 +98,7 @@ export function createCircuitBreakerInterceptor(config: CircuitBreakerConfig = {
    */
   const transitionTo = (circuit: CircuitBreaker, procedure: string, newState: CircuitState): void => {
     if (circuit.state !== newState) {
-      const oldState = circuit.state
+      const _oldState = circuit.state
       circuit.state = newState
       circuit.lastStateChange = Date.now()
 

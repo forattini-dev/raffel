@@ -6,12 +6,17 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, Server } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
+import {
+  extractMetadataFromHeaders,
+  mergeMetadata,
+  sanitizeMetadataRecord,
+} from '../utils/header-metadata.js'
 import {
   createChannelManager,
   isChannelMessage,
@@ -28,8 +33,11 @@ const logger = createLogger('ws-adapter')
  * WebSocket adapter configuration
  */
 export interface WebSocketAdapterOptions {
-  /** Port to listen on */
-  port: number
+  /** Port to listen on (required if no server is provided) */
+  port?: number
+
+  /** Existing HTTP server to attach to */
+  server?: Server
 
   /** Host to bind to (default: '0.0.0.0') */
   host?: string
@@ -80,6 +88,7 @@ interface ClientConnection {
   ws: WebSocket
   alive: boolean
   request: IncomingMessage
+  connectionMetadata: Record<string, string>
   activeStreams: Map<string, AbortController>
   activeRequests: Map<string, AbortController>
 }
@@ -117,7 +126,12 @@ export function createWebSocketAdapter(
     path = '/',
     maxPayloadSize = 1024 * 1024, // 1MB
     heartbeatInterval = 30000,
+    server: sharedServer,
   } = options
+
+  if (!sharedServer && port === undefined) {
+    throw new Error('WebSocket adapter requires a port when no server is provided')
+  }
 
   let wss: WebSocketServer | null = null
   let heartbeatTimer: NodeJS.Timeout | null = null
@@ -278,6 +292,10 @@ export function createWebSocketAdapter(
       const raw = typeof data === 'string' ? data : data.toString('utf-8')
       const parsed = JSON.parse(raw)
 
+      if (handleCancelMessage(client, parsed)) {
+        return
+      }
+
       // Check if this is a channel message
       if (await handleChannelMessage(client, parsed)) {
         return
@@ -304,7 +322,10 @@ export function createWebSocketAdapter(
         procedure: parsed.procedure,
         type: parsed.type,
         payload: parsed.payload ?? {},
-        metadata: parsed.metadata ?? {},
+        metadata: mergeMetadata(
+          client.connectionMetadata,
+          sanitizeMetadataRecord(parsed.metadata)
+        ),
         context: ctx,
       }
 
@@ -320,20 +341,25 @@ export function createWebSocketAdapter(
       // Route the envelope
       const result = await router.handle(envelope)
 
+      const requestAbortController = client.activeRequests.get(envelope.id)
+      if (requestAbortController?.signal.aborted) {
+        return
+      }
+
       // Check if result is a stream (async iterable)
       if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
         // Stream response
         const streamId = envelope.id
-        const abortController = client.activeRequests.get(streamId)
-        if (!abortController) {
+        const streamAbortController = client.activeRequests.get(streamId)
+        if (!streamAbortController) {
           throw new Error(`Missing abort controller for stream ${streamId}`)
         }
         client.activeRequests.delete(streamId)
-        client.activeStreams.set(streamId, abortController)
+        client.activeStreams.set(streamId, streamAbortController)
 
         try {
           for await (const chunk of result as AsyncIterable<Envelope>) {
-            if (abortController.signal.aborted) break
+            if (streamAbortController.signal.aborted) break
             if (client.ws.readyState !== WebSocket.OPEN) break
 
             sendEnvelope(client, chunk)
@@ -378,19 +404,44 @@ export function createWebSocketAdapter(
     client: ClientConnection,
     code: string,
     message: string,
-    requestId?: string
+    requestId?: string,
+    envelopeType: 'error' | 'stream:error' = 'error'
   ): void {
     if (client.ws.readyState !== WebSocket.OPEN) return
 
     const envelope = {
-      id: requestId ? `${requestId}:error` : sid(),
+      id: requestId ? `${requestId}:${envelopeType}` : sid(),
       procedure: '',
-      type: 'error',
+      type: envelopeType,
       payload: { code, message },
       metadata: {},
     }
 
     client.ws.send(JSON.stringify(envelope))
+  }
+
+  function handleCancelMessage(client: ClientConnection, parsed: Record<string, unknown>): boolean {
+    if (parsed.type !== 'cancel') return false
+    const requestId = parsed.id !== undefined ? String(parsed.id) : undefined
+    if (!requestId) return true
+
+    const streamController = client.activeStreams.get(requestId)
+    if (streamController) {
+      streamController.abort('Client cancelled')
+      client.activeStreams.delete(requestId)
+      sendError(client, 'CANCELLED', 'Stream cancelled', requestId, 'stream:error')
+      return true
+    }
+
+    const requestController = client.activeRequests.get(requestId)
+    if (requestController) {
+      requestController.abort('Client cancelled')
+      client.activeRequests.delete(requestId)
+      sendError(client, 'CANCELLED', 'Request cancelled', requestId)
+      return true
+    }
+
+    return true
   }
 
   /**
@@ -403,6 +454,7 @@ export function createWebSocketAdapter(
       ws,
       alive: true,
       request: req,
+      connectionMetadata: extractMetadataFromHeaders(req.headers),
       activeStreams: new Map(),
       activeRequests: new Map(),
     }
@@ -468,12 +520,11 @@ export function createWebSocketAdapter(
   return {
     async start(): Promise<void> {
       return new Promise((resolve, reject) => {
-        wss = new WebSocketServer({
-          port,
-          host,
-          path,
-          maxPayload: maxPayloadSize,
-        })
+        wss = new WebSocketServer(
+          sharedServer
+            ? { server: sharedServer, path, maxPayload: maxPayloadSize }
+            : { port: port!, host, path, maxPayload: maxPayloadSize }
+        )
 
         wss.on('connection', handleConnection)
 
@@ -481,6 +532,15 @@ export function createWebSocketAdapter(
           logger.error({ err }, 'WebSocket server error')
           reject(err)
         })
+
+        if (sharedServer) {
+          logger.info({ path }, 'WebSocket server attached')
+          if (heartbeatInterval > 0) {
+            heartbeatTimer = setInterval(heartbeat, heartbeatInterval)
+          }
+          resolve()
+          return
+        }
 
         wss.on('listening', () => {
           logger.info({ port, host, path }, 'WebSocket server listening')

@@ -13,15 +13,9 @@
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
 import type { RateLimitConfig, RateLimitInfo, RateLimitRule } from '../types.js'
+import type { RateLimitDriver, RateLimitDriverConfig } from '../../rate-limit/types.js'
+import { createDriver, createDriverFromConfig } from '../../rate-limit/factory.js'
 import { RaffelError } from '../../core/router.js'
-
-/**
- * Rate limit record for tracking requests
- */
-interface RateLimitRecord {
-  count: number
-  resetAt: number
-}
 
 /**
  * Token bucket record for burst-capable rate limiting
@@ -201,6 +195,33 @@ function defaultKeyGenerator(envelope: Envelope, ctx: Context): string {
   return `req:${ctx.requestId}`
 }
 
+function resolveRateLimitDriver(config: RateLimitConfig): RateLimitDriver {
+  const driver = config.driver
+  const memoryOptions = config.maxUniqueKeys ? { maxKeys: config.maxUniqueKeys } : undefined
+
+  if (!driver) {
+    return createDriver('memory', memoryOptions)
+  }
+  if (typeof driver === 'string') {
+    if (driver === 'memory') {
+      return createDriver('memory', memoryOptions)
+    }
+    if (driver === 'filesystem') {
+      return createDriver('filesystem')
+    }
+    // Redis requires options - caller should use driver config object
+    throw new Error(`Rate limit driver '${driver}' requires configuration. Use { driver: '${driver}', options: {...} } instead.`)
+  }
+  if (typeof (driver as RateLimitDriver).increment === 'function') {
+    return driver as RateLimitDriver
+  }
+  if ((driver as RateLimitDriverConfig).driver === 'memory') {
+    const configOptions = (driver as RateLimitDriverConfig).options ?? {}
+    return createDriver('memory', { ...configOptions, ...memoryOptions })
+  }
+  return createDriverFromConfig(driver as RateLimitDriverConfig)
+}
+
 /**
  * Create a rate limiting interceptor
  *
@@ -229,45 +250,12 @@ export function createRateLimitInterceptor(config: RateLimitConfig = {}): Interc
   const {
     windowMs = 60000,
     maxRequests = 100,
-    maxUniqueKeys = 10000,
     skipSuccessfulRequests = false,
     keyGenerator = defaultKeyGenerator,
     rules = [],
   } = config
 
-  // In-memory stores
-  const defaultStore = new Map<string, RateLimitRecord>()
-  const ruleStores = new Map<string, Map<string, RateLimitRecord>>()
-
-  // Cleanup old entries periodically
-  const cleanup = (store: Map<string, RateLimitRecord>) => {
-    const now = Date.now()
-    for (const [key, record] of store) {
-      if (now > record.resetAt) {
-        store.delete(key)
-      }
-    }
-  }
-
-  // Run cleanup every minute
-  const cleanupInterval = setInterval(() => {
-    cleanup(defaultStore)
-    for (const store of ruleStores.values()) {
-      cleanup(store)
-    }
-  }, 60000)
-
-  // Prevent the interval from keeping the process alive
-  cleanupInterval.unref?.()
-
-  const getStore = (rule: RateLimitRule | null): Map<string, RateLimitRecord> => {
-    if (!rule) return defaultStore
-
-    if (!ruleStores.has(rule.id)) {
-      ruleStores.set(rule.id, new Map())
-    }
-    return ruleStores.get(rule.id)!
-  }
+  const driver = resolveRateLimitDriver(config)
 
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     const procedure = envelope.procedure
@@ -275,69 +263,43 @@ export function createRateLimitInterceptor(config: RateLimitConfig = {}): Interc
 
     const effectiveWindow = matchedRule?.windowMs ?? windowMs
     const effectiveLimit = matchedRule?.maxRequests ?? maxRequests
-    const store = getStore(matchedRule)
+    const rulePrefix = matchedRule ? `rule:${matchedRule.id}:` : 'default:'
 
     // Generate the rate limit key
     const effectiveKeyGenerator = matchedRule?.keyGenerator ?? keyGenerator
-    const key = effectiveKeyGenerator(envelope, ctx)
+    const key = `${rulePrefix}${effectiveKeyGenerator(envelope, ctx)}`
 
     const now = Date.now()
-    let record = store.get(key)
+    const record = await driver.increment(key, effectiveWindow)
+    const remaining = Math.max(0, effectiveLimit - record.count)
+    const retryAfter = Math.max(0, Math.ceil((record.resetAt - now) / 1000))
 
-    // Check if record has expired
-    if (record && now > record.resetAt) {
-      store.delete(key)
-      record = undefined
+    const info: RateLimitInfo = {
+      limit: effectiveLimit,
+      remaining,
+      resetAt: record.resetAt,
+      retryAfter,
     }
 
-    // Create new record if needed
-    if (!record) {
-      record = { count: 0, resetAt: now + effectiveWindow }
-      store.set(key, record)
-
-      // Evict oldest entry if we have too many keys
-      if (store.size > maxUniqueKeys) {
-        const oldestKey = store.keys().next().value
-        if (oldestKey) {
-          store.delete(oldestKey)
-        }
-      }
-    }
-
-    // Check if rate limit exceeded
-    if (record.count >= effectiveLimit) {
-      const retryAfter = Math.ceil((record.resetAt - now) / 1000)
-
-      const info: RateLimitInfo = {
-        limit: effectiveLimit,
-        remaining: 0,
-        resetAt: record.resetAt,
-        retryAfter,
-      }
-
-      // Add rate limit info to envelope metadata for adapters
-      envelope.metadata['x-ratelimit-limit'] = effectiveLimit.toString()
-      envelope.metadata['x-ratelimit-remaining'] = '0'
-      envelope.metadata['x-ratelimit-reset'] = record.resetAt.toString()
-      envelope.metadata['retry-after'] = retryAfter.toString()
-
-      throw new RaffelError('RATE_LIMITED', 'Rate limit exceeded', { ...info })
-    }
-
-    // Increment count before processing
-    record.count++
+    ;(ctx as any).rateLimitInfo = info
+    ;(envelope.context as any).rateLimitInfo = info
 
     // Add rate limit headers to metadata
     envelope.metadata['x-ratelimit-limit'] = effectiveLimit.toString()
-    envelope.metadata['x-ratelimit-remaining'] = Math.max(0, effectiveLimit - record.count).toString()
+    envelope.metadata['x-ratelimit-remaining'] = remaining.toString()
     envelope.metadata['x-ratelimit-reset'] = record.resetAt.toString()
+    envelope.metadata['retry-after'] = retryAfter.toString()
+
+    if (record.count > effectiveLimit) {
+      throw new RaffelError('RATE_LIMITED', 'Rate limit exceeded', { ...info })
+    }
 
     try {
       const result = await next()
 
       // Optionally skip counting successful requests
-      if (skipSuccessfulRequests) {
-        record.count = Math.max(0, record.count - 1)
+      if (skipSuccessfulRequests && driver.decrement) {
+        await driver.decrement(key)
       }
 
       return result

@@ -17,7 +17,6 @@ import {
   GraphQLInt,
   GraphQLFloat,
   GraphQLBoolean,
-  GraphQLID,
   GraphQLList,
   GraphQLNonNull,
   GraphQLEnumType,
@@ -32,6 +31,7 @@ import {
 import type { z } from 'zod'
 import type { Registry } from '../core/registry.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
+import type { HandlerMeta } from '../types/index.js'
 import type {
   SchemaGenerationOptions,
   GeneratedSchemaInfo,
@@ -427,7 +427,7 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
   // Process procedures → Query or Mutation
   for (const meta of registry.listProcedures()) {
     const schema = schemaRegistry.get(meta.name)
-    const isQuery = isProcedureQuery(meta.name, options)
+    const isQuery = isProcedureQuery(meta, options)
 
     const field = createFieldFromHandler(
       meta.name,
@@ -576,20 +576,19 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
   }
 }
 
-function isProcedureQuery(name: string, options: Required<SchemaGenerationOptions>): boolean {
+function isProcedureQuery(meta: HandlerMeta, options: Required<SchemaGenerationOptions>): boolean {
   switch (options.procedureMapping) {
     case 'all-queries':
       return true
     case 'all-mutations':
       return false
     case 'meta':
-      // Would need to check handler metadata - not implemented yet
-      return false
+      return meta.graphql?.type === 'query'
     case 'prefix':
     default: {
       // Check if name starts with a query prefix
-      const nameLower = name.toLowerCase()
-      const lastSegment = name.split('.').pop()?.toLowerCase() ?? nameLower
+      const nameLower = meta.name.toLowerCase()
+      const lastSegment = meta.name.split('.').pop()?.toLowerCase() ?? nameLower
 
       return options.queryPrefixes.some(
         (prefix) => lastSegment.startsWith(prefix)

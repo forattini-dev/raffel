@@ -8,6 +8,7 @@ import type { GraphQLSchema } from 'graphql'
 import type { Registry } from '../core/registry.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { Router } from '../core/router.js'
+import type { Codec } from '../utils/content-codecs.js'
 
 // === Server Options ===
 
@@ -65,6 +66,9 @@ export interface GraphQLOptions {
    * Inherits from server CORS if not specified.
    */
   cors?: CorsConfig | boolean
+
+  /** Additional codecs for content negotiation */
+  codecs?: Codec[]
 
   /**
    * Context factory to extend GraphQL context.

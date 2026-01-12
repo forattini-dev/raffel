@@ -5,8 +5,15 @@
  */
 
 import type { z } from 'zod'
-import type { Context, Interceptor, RetryPolicy, StreamDirection } from '../../types/index.js'
-import type { ChannelOptions } from '../../channels/index.js'
+import type {
+  Context,
+  Interceptor,
+  RetryPolicy,
+  StreamDirection,
+  HttpMethod,
+  JsonRpcMeta,
+  GrpcMeta,
+} from '../../types/index.js'
 
 // === Discovery Configuration ===
 
@@ -87,9 +94,6 @@ export interface DiscoveryConfig {
   udp?: string | boolean
 }
 
-/** @deprecated Use DiscoveryConfig instead */
-export type RoutesConfig = DiscoveryConfig
-
 export interface DiscoveryLoaderOptions {
   /** Base directory (default: process.cwd()) */
   baseDir?: string
@@ -110,9 +114,6 @@ export interface DiscoveryLoaderOptions {
   onError?: (error: Error) => void
 }
 
-/** @deprecated Use DiscoveryLoaderOptions instead */
-export type RoutesLoaderOptions = DiscoveryLoaderOptions
-
 export interface DiscoveryStats {
   http: number
   channels: number
@@ -126,9 +127,6 @@ export interface DiscoveryStats {
   total: number
   duration: number
 }
-
-/** @deprecated Use DiscoveryStats instead */
-export type RouteLoadStats = DiscoveryStats
 
 // === Handler Exports ===
 
@@ -171,8 +169,29 @@ export interface HandlerExports {
 export type HandlerFunction = (input: unknown, ctx: Context, ack?: () => void) => unknown | Promise<unknown>
 
 export interface HandlerMeta {
-  /** Description for OpenAPI/docs */
+  /** Short summary for OpenAPI (one-liner, shown in endpoint cards) */
+  summary?: string
+
+  /**
+   * Description for OpenAPI/docs (supports markdown).
+   * Can also be loaded from a sibling .md file automatically.
+   */
   description?: string
+
+  /**
+   * Tags for OpenAPI grouping.
+   * Can also be set via _meta.ts in the directory.
+   */
+  tags?: string[]
+
+  /** Content type shorthand for this handler */
+  contentType?: string
+
+  /** Content type configuration for this handler */
+  contentTypes?: {
+    default?: string
+    supported?: string[]
+  }
 
   /**
    * Authentication requirement.
@@ -205,6 +224,74 @@ export interface HandlerMeta {
 
   /** Stream direction (for streams) */
   direction?: StreamDirection
+
+  /** GraphQL mapping metadata (procedures only) */
+  graphql?: {
+    type: 'query' | 'mutation'
+  }
+
+  /** HTTP path override for procedures */
+  httpPath?: string
+
+  /** HTTP method override for procedures */
+  httpMethod?: HttpMethod
+
+  /** JSON-RPC metadata (for USD generation) */
+  jsonrpc?: JsonRpcMeta
+
+  /** gRPC metadata (for USD generation) */
+  grpc?: GrpcMeta
+}
+
+// === Directory Metadata ===
+
+/**
+ * Directory-level metadata for grouping and documenting endpoints.
+ * Loaded from `_meta.ts` or `_meta.md` files.
+ *
+ * @example
+ * ```typescript
+ * // src/http/users/_meta.ts
+ * export default {
+ *   tag: 'Users',
+ *   summary: 'User management',
+ *   description: `
+ * ## User Management API
+ *
+ * CRUD operations for user accounts, profiles, and settings.
+ *   `,
+ * }
+ * ```
+ */
+export interface DirectoryMeta {
+  /**
+   * Tag name for grouping endpoints in documentation.
+   * Defaults to directory name if not specified.
+   */
+  tag?: string
+
+  /** Short summary for the tag (one-liner) */
+  summary?: string
+
+  /**
+   * Description for the tag (supports markdown).
+   * Can also be loaded from `_meta.md` file.
+   */
+  description?: string
+
+  /**
+   * External documentation link.
+   */
+  externalDocs?: {
+    url: string
+    description?: string
+  }
+
+  /**
+   * Order hint for sorting tags in documentation.
+   * Lower numbers appear first.
+   */
+  order?: number
 }
 
 // === Middleware Exports ===
@@ -432,6 +519,12 @@ export interface LoadedRoute {
 
   /** Auth config for this route */
   authConfig?: AuthConfig
+
+  /**
+   * Directory metadata for documentation grouping.
+   * Loaded from _meta.ts or _meta.md in the handler's directory.
+   */
+  directoryMeta?: DirectoryMeta
 }
 
 export interface LoadedChannel {

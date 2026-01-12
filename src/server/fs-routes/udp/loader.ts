@@ -4,7 +4,7 @@
  * Loads custom UDP handlers from file system and creates servers.
  */
 
-import { createSocket, Socket as UdpSocket, RemoteInfo } from 'node:dgram'
+import { createSocket, RemoteInfo } from 'node:dgram'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, parse as parsePath } from 'node:path'
 import { pathToFileURL } from 'node:url'

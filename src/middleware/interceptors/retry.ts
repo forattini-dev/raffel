@@ -353,20 +353,3 @@ export function createSelectiveRetryInterceptor(options: {
     return next()
   }
 }
-
-/**
- * Create a retry interceptor that respects Retry-After header
- *
- * This is a convenience wrapper around createRetryInterceptor with
- * respectRetryAfter enabled and rate-limiting aware defaults.
- *
- * @deprecated Use createRetryInterceptor with { respectRetryAfter: true } instead
- */
-export function createRetryAfterInterceptor(config: RetryConfig = {}): Interceptor {
-  return createRetryInterceptor({
-    maxAttempts: 3,
-    maxDelayMs: 60000,
-    respectRetryAfter: true,
-    ...config,
-  })
-}

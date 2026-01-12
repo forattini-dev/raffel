@@ -45,25 +45,6 @@ export function compose(...interceptors: Interceptor[]): Interceptor {
 }
 
 /**
- * Pipe multiple interceptors (left-to-right execution order)
- *
- * Alias for compose - both execute left-to-right.
- * The first interceptor in the list will run first.
- *
- * @example
- * ```typescript
- * // validation runs first, then auth, then rateLimit
- * const middleware = pipe(validation, auth, rateLimit)
- * ```
- *
- * @param interceptors - Interceptors to pipe (left-to-right order)
- * @returns A single composed interceptor
- */
-export function pipe(...interceptors: Interceptor[]): Interceptor {
-  return compose(...interceptors)
-}
-
-/**
  * Create a conditional interceptor that only runs if predicate is true
  *
  * @example

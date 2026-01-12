@@ -15,13 +15,29 @@ import type {
   DeliveryGuarantee,
   RetryPolicy,
   StreamDirection,
+  GraphQLMeta,
+  HttpMethod,
+  JsonRpcMeta,
+  GrpcMeta,
 } from '../types/handlers.js'
 
 /**
  * Procedure registration options
  */
 export interface ProcedureOptions {
+  summary?: string
   description?: string
+  /** Tags for OpenAPI grouping */
+  tags?: string[]
+  /** Content type shorthand */
+  contentType?: string
+  /** Content type configuration */
+  contentTypes?: { default?: string; supported?: string[] }
+  graphql?: GraphQLMeta
+  httpPath?: string
+  httpMethod?: HttpMethod
+  jsonrpc?: JsonRpcMeta
+  grpc?: GrpcMeta
   interceptors?: Interceptor[]
 }
 
@@ -31,6 +47,10 @@ export interface ProcedureOptions {
 export interface StreamOptions {
   description?: string
   direction?: StreamDirection
+  /** Content type shorthand */
+  contentType?: string
+  /** Content type configuration */
+  contentTypes?: { default?: string; supported?: string[] }
   interceptors?: Interceptor[]
 }
 
@@ -42,6 +62,10 @@ export interface EventOptions {
   delivery?: DeliveryGuarantee
   retryPolicy?: RetryPolicy
   deduplicationWindow?: number
+  /** Content type shorthand */
+  contentType?: string
+  /** Content type configuration */
+  contentTypes?: { default?: string; supported?: string[] }
   interceptors?: Interceptor[]
 }
 
@@ -126,7 +150,16 @@ export function createRegistry(): Registry {
         meta: {
           kind: 'procedure',
           name,
+          summary: options.summary,
           description: options.description,
+          tags: options.tags,
+          contentType: options.contentType,
+          contentTypes: options.contentTypes,
+          graphql: options.graphql,
+          httpPath: options.httpPath,
+          httpMethod: options.httpMethod,
+          jsonrpc: options.jsonrpc,
+          grpc: options.grpc,
         },
         interceptors: options.interceptors,
       })
@@ -148,6 +181,8 @@ export function createRegistry(): Registry {
           name,
           description: options.description,
           streamDirection: options.direction ?? 'server',
+          contentType: options.contentType,
+          contentTypes: options.contentTypes,
         },
         interceptors: options.interceptors,
       })
@@ -171,6 +206,8 @@ export function createRegistry(): Registry {
           delivery: options.delivery ?? 'best-effort',
           retryPolicy: options.retryPolicy,
           deduplicationWindow: options.deduplicationWindow,
+          contentType: options.contentType,
+          contentTypes: options.contentTypes,
         },
         interceptors: options.interceptors,
       })

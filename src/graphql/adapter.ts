@@ -12,6 +12,7 @@ import {
   parse,
   validate,
   subscribe,
+  GraphQLError,
   type GraphQLSchema,
   type ExecutionResult,
   type DocumentNode,
@@ -30,8 +31,46 @@ import type {
 import { generateGraphQLSchema } from './schema-generator.js'
 import { createLogger } from '../utils/logger.js'
 import { sid } from '../utils/id/index.js'
+import {
+  extractMetadataFromHeaders,
+  extractMetadataFromRecord,
+  mergeMetadata,
+} from '../utils/header-metadata.js'
+import {
+  jsonCodec,
+  resolveCodecs,
+  selectCodecForAccept,
+  selectCodecForContentType,
+  type Codec,
+} from '../utils/content-codecs.js'
 
 const logger = createLogger('graphql-adapter')
+const CONNECTION_INIT_KEY = Symbol.for('raffel.connection_init')
+
+class GraphQLAdapterError extends Error {
+  code: string
+  status: number
+
+  constructor(code: string, status: number, message: string) {
+    super(message)
+    this.code = code
+    this.status = status
+  }
+}
+
+export interface GraphQLMiddleware {
+  middleware: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>
+  schema: GraphQLSchema
+  schemaInfo: GeneratedSchemaInfo | null
+  createSubscriptionServer: (server: Server) => WebSocketServer | null
+}
+
+export interface GraphQLMiddlewareOptions {
+  router: Router
+  registry: Registry
+  schemaRegistry: SchemaRegistry
+  config: GraphQLAdapterOptions['config']
+}
 
 // === GraphiQL HTML ===
 
@@ -67,14 +106,33 @@ interface GraphQLRequest {
   variables?: Record<string, unknown>
 }
 
-async function parseGraphQLRequest(req: IncomingMessage): Promise<GraphQLRequest> {
+async function parseGraphQLRequest(
+  req: IncomingMessage,
+  maxBodySize: number,
+  codec: Codec
+): Promise<GraphQLRequest> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
+    let size = 0
 
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > maxBodySize) {
+        req.destroy()
+        reject(new GraphQLAdapterError('PAYLOAD_TOO_LARGE', 413, 'Request body too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
+
     req.on('end', () => {
       try {
         const body = Buffer.concat(chunks).toString('utf-8')
+        if (codec.name === 'text') {
+          resolve({ query: body })
+          return
+        }
+
         const parsed = JSON.parse(body)
         resolve({
           query: parsed.query,
@@ -82,10 +140,60 @@ async function parseGraphQLRequest(req: IncomingMessage): Promise<GraphQLRequest
           variables: parsed.variables,
         })
       } catch (err) {
-        reject(new Error('Invalid JSON body'))
+        reject(new GraphQLAdapterError('PARSE_ERROR', 400, 'Invalid request body'))
       }
     })
     req.on('error', reject)
+  })
+}
+
+function requestHasBody(req: IncomingMessage): boolean {
+  const lengthHeader = req.headers['content-length']
+  if (typeof lengthHeader === 'string') {
+    const length = Number.parseInt(lengthHeader, 10)
+    if (Number.isFinite(length)) {
+      return length > 0
+    }
+  }
+
+  const transferEncoding = req.headers['transfer-encoding']
+  if (typeof transferEncoding === 'string' && transferEncoding.toLowerCase() !== 'identity') {
+    return true
+  }
+
+  return false
+}
+
+function createGraphQLError(code: string, message: string): GraphQLError {
+  return new GraphQLError(message, { extensions: { code } })
+}
+
+function createErrorResult(code: string, message: string): ExecutionResult {
+  return {
+    errors: [createGraphQLError(code, message)],
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return promise
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new GraphQLAdapterError('DEADLINE_EXCEEDED', 504, 'Request deadline exceeded'))
+    }, timeoutMs)
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
+    )
   })
 }
 
@@ -98,14 +206,15 @@ async function executeProcedure(
   router: Router,
   procedure: string,
   input: unknown,
-  ctx: Context
+  ctx: Context,
+  metadata: Record<string, string>
 ): Promise<unknown> {
   const envelope: Envelope = {
     id: sid(),
     procedure,
     type: 'request',
     payload: input,
-    metadata: {},
+    metadata,
     context: ctx,
   }
 
@@ -113,7 +222,7 @@ async function executeProcedure(
 
   if ('type' in result && result.type === 'error') {
     const errorPayload = result.payload as { code: string; message: string }
-    throw new Error(errorPayload.message)
+    throw createGraphQLError(errorPayload.code, errorPayload.message)
   }
 
   if ('type' in result && result.type === 'response') {
@@ -130,18 +239,24 @@ async function emitEvent(
   router: Router,
   event: string,
   input: unknown,
-  ctx: Context
+  ctx: Context,
+  metadata: Record<string, string>
 ): Promise<boolean> {
   const envelope: Envelope = {
     id: sid(),
     procedure: event,
     type: 'event',
     payload: input,
-    metadata: {},
+    metadata,
     context: ctx,
   }
 
-  await router.handle(envelope)
+  const result = await router.handle(envelope)
+
+  if ('type' in result && result.type === 'error') {
+    const errorPayload = result.payload as { code: string; message: string }
+    throw createGraphQLError(errorPayload.code, errorPayload.message)
+  }
   return true
 }
 
@@ -152,14 +267,15 @@ async function* executeStream(
   router: Router,
   stream: string,
   input: unknown,
-  ctx: Context
+  ctx: Context,
+  metadata: Record<string, string>
 ): AsyncIterable<unknown> {
   const envelope: Envelope = {
     id: sid(),
     procedure: stream,
     type: 'stream:start',
     payload: input,
-    metadata: {},
+    metadata,
     context: ctx,
   }
 
@@ -171,8 +287,8 @@ async function* executeStream(
       if (item.type === 'stream:data') {
         yield item.payload
       } else if (item.type === 'stream:error') {
-        const errorPayload = item.payload as { message: string }
-        throw new Error(errorPayload.message)
+        const errorPayload = item.payload as { code?: string; message: string }
+        throw createGraphQLError(errorPayload.code ?? 'STREAM_ERROR', errorPayload.message)
       }
       // Skip stream:start and stream:end markers
     }
@@ -185,7 +301,8 @@ function createRootValue(
   router: Router,
   registry: Registry,
   schemaInfo: GeneratedSchemaInfo,
-  ctx: Context
+  ctx: Context,
+  metadata: Record<string, string>
 ) {
   const root: Record<string, unknown> = {}
 
@@ -196,7 +313,7 @@ function createRootValue(
       continue
     }
     root[fieldName(queryName)] = (args: Record<string, unknown>) =>
-      executeProcedure(router, queryName, args, ctx)
+      executeProcedure(router, queryName, args, ctx, metadata)
   }
 
   // Map mutations
@@ -205,41 +322,38 @@ function createRootValue(
     const procedure = registry.getProcedure(mutationName)
     if (procedure) {
       root[fieldName(mutationName)] = (args: Record<string, unknown>) =>
-        executeProcedure(router, mutationName, args, ctx)
+        executeProcedure(router, mutationName, args, ctx, metadata)
     } else {
       // It's an event
       root[fieldName(mutationName)] = (args: Record<string, unknown>) =>
-        emitEvent(router, mutationName, args, ctx)
+        emitEvent(router, mutationName, args, ctx, metadata)
     }
   }
 
   // Map subscriptions (return async iterators)
   for (const subscriptionName of schemaInfo.subscriptions) {
     root[fieldName(subscriptionName)] = (args: Record<string, unknown>) =>
-      executeStream(router, subscriptionName, args, ctx)
+      executeStream(router, subscriptionName, args, ctx, metadata)
   }
 
   return root
 }
 
-function fieldName(handlerName: string): string {
-  // Convert 'users.get' to 'usersGet'
-  const parts = handlerName.split(/[.\-_]/)
-  return parts
-    .map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
-    .join('')
+interface GraphQLHandlers {
+  schema: GraphQLSchema
+  schemaInfo: GeneratedSchemaInfo | null
+  handleRequest: (req: IncomingMessage, res: ServerResponse, opts?: { skipPathCheck?: boolean }) => Promise<void>
+  createSubscriptionServer: (server: Server) => WebSocketServer | null
 }
 
-// === Adapter Implementation ===
-
-export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAdapter {
-  const { router, registry, schemaRegistry, config, host, port } = options
-
-  let server: Server | null = null
-  let wss: WebSocketServer | null = null
+function createGraphQLHandlers(
+  router: Router,
+  registry: Registry,
+  schemaRegistry: SchemaRegistry,
+  config: GraphQLAdapterOptions['config']
+): GraphQLHandlers {
   let schema: GraphQLSchema
   let schemaInfo: GeneratedSchemaInfo | null = null
-  let address: { host: string; port: number; path: string } | null = null
 
   // Generate or use provided schema
   if (config.schema) {
@@ -256,7 +370,13 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
     throw new Error('GraphQL adapter requires either a schema or generateSchema: true')
   }
 
-  const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
+  const codecs = resolveCodecs(config.codecs)
+
+  const handleRequest = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    opts?: { skipPathCheck?: boolean }
+  ) => {
     const url = new URL(req.url || '/', `http://${req.headers.host}`)
 
     // CORS preflight
@@ -268,7 +388,7 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
     }
 
     // Only handle configured path
-    if (url.pathname !== config.path) {
+    if (!opts?.skipPathCheck && url.pathname !== config.path) {
       res.writeHead(404, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Not found' }))
       return
@@ -286,6 +406,14 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
       }
     }
 
+    const acceptHeader = typeof req.headers.accept === 'string' ? req.headers.accept : undefined
+    const responseCodec = selectCodecForAccept(acceptHeader, codecs, jsonCodec)
+    if (!responseCodec) {
+      res.writeHead(406, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(createErrorResult('NOT_ACCEPTABLE', 'Not acceptable')))
+      return
+    }
+
     // Handle GraphQL POST
     if (req.method !== 'POST') {
       res.writeHead(405, { 'Content-Type': 'application/json' })
@@ -293,69 +421,150 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
       return
     }
 
+    const timeoutMs = config.timeout ?? 0
+    const maxBodySize = config.maxBodySize ?? 1024 * 1024
+
     try {
-      const gqlRequest = await parseGraphQLRequest(req)
+      const result = await withTimeout((async () => {
+        const contentType = typeof req.headers['content-type'] === 'string'
+          ? req.headers['content-type']
+          : undefined
+        let requestCodec = jsonCodec
+        if (contentType) {
+          const selected = selectCodecForContentType(contentType, codecs)
+          if (!selected || selected.name === 'csv') {
+            throw new GraphQLAdapterError('UNSUPPORTED_MEDIA_TYPE', 415, 'Unsupported media type')
+          }
+          requestCodec = selected
+        } else if (requestHasBody(req)) {
+          throw new GraphQLAdapterError('UNSUPPORTED_MEDIA_TYPE', 415, 'Unsupported media type')
+        }
 
-      // Create context
-      const ctx = createContext(sid())
+        const gqlRequest = await parseGraphQLRequest(req, maxBodySize, requestCodec)
 
-      // Add custom context if provided
-      if (config.context) {
-        const customCtx = await config.context({
-          method: req.method,
-          url: req.url || '/',
-          headers: req.headers as Record<string, string | string[] | undefined>,
-        })
-        // Merge custom context into extensions
-        if (customCtx) {
-          for (const [key, value] of Object.entries(customCtx)) {
-            ctx.extensions.set(Symbol.for(key), value)
+        const metadata = extractMetadataFromHeaders(req.headers)
+
+        // Create context
+        const ctx = createContext(sid())
+        if (timeoutMs > 0) {
+          ctx.deadline = Date.now() + timeoutMs
+        }
+
+        // Add custom context if provided
+        if (config.context) {
+          const customCtx = await config.context({
+            method: req.method || 'POST',
+            url: req.url || '/',
+            headers: req.headers as Record<string, string | string[] | undefined>,
+          })
+          // Merge custom context into extensions
+          if (customCtx) {
+            for (const [key, value] of Object.entries(customCtx)) {
+              ctx.extensions.set(Symbol.for(key), value)
+            }
           }
         }
+
+        // Execute GraphQL
+        return executeGraphQL(
+          schema,
+          gqlRequest,
+          router,
+          registry,
+          schemaInfo,
+          ctx,
+          metadata,
+          config.introspection !== false
+        )
+      })(), timeoutMs)
+
+      res.writeHead(200, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
+      res.end(responseCodec.encode(result))
+    } catch (err) {
+      if (err instanceof GraphQLAdapterError) {
+        res.writeHead(err.status, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
+        res.end(responseCodec.encode(createErrorResult(err.code, err.message)))
+        return
       }
 
-      // Execute GraphQL
-      const result = await executeGraphQL(
-        schema,
-        gqlRequest,
-        router,
-        registry,
-        schemaInfo,
-        ctx,
-        config.introspection !== false
-      )
-
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(result))
-    } catch (err) {
       logger.error({ err }, 'GraphQL execution error')
-      res.writeHead(500, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({
+      res.writeHead(500, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
+      res.end(responseCodec.encode({
         errors: [{ message: (err as Error).message }],
       }))
     }
   }
 
+  const createSubscriptionServer = (server: Server): WebSocketServer | null => {
+    if (config.subscriptions === false || !schemaInfo?.subscriptions.length) {
+      return null
+    }
+
+    const subscriptionPath = typeof config.subscriptions === 'object'
+      ? config.subscriptions.path ?? config.path
+      : config.path
+    const keepAliveInterval = typeof config.subscriptions === 'object'
+      ? config.subscriptions.keepAliveInterval
+      : undefined
+
+    const wss = new WebSocketServer({ server, path: subscriptionPath })
+    wss.on('connection', (ws, req) => {
+      handleSubscriptionConnection(
+        ws,
+        req,
+        schema,
+        router,
+        registry,
+        schemaInfo!,
+        keepAliveInterval
+      )
+    })
+
+    logger.debug({ path: subscriptionPath }, 'WebSocket subscriptions enabled')
+    return wss
+  }
+
+  return { schema, schemaInfo, handleRequest, createSubscriptionServer }
+}
+
+function fieldName(handlerName: string): string {
+  // Convert 'users.get' to 'usersGet'
+  const parts = handlerName.split(/[.\-_]/)
+  return parts
+    .map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join('')
+}
+
+// === Adapter Implementation ===
+
+export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAdapter {
+  const { router, registry, schemaRegistry, config, host, port } = options
+
+  let server: Server | null = null
+  let wss: WebSocketServer | null = null
+  let address: { host: string; port: number; path: string } | null = null
+
+  const { schema, schemaInfo, handleRequest, createSubscriptionServer } = createGraphQLHandlers(
+    router,
+    registry,
+    schemaRegistry,
+    config
+  )
+
   return {
     async start() {
-      server = createServer(handleRequest)
+      server = createServer((req, res) => {
+        handleRequest(req, res).catch((err) => {
+          logger.error({ err }, 'GraphQL request error')
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ errors: [{ message: (err as Error).message }] }))
+          }
+        })
+      })
 
       // Setup WebSocket for subscriptions if enabled
-      if (config.subscriptions !== false && schemaInfo?.subscriptions.length) {
-        wss = new WebSocketServer({ server })
-
-        wss.on('connection', (ws) => {
-          handleSubscriptionConnection(
-            ws,
-            schema,
-            router,
-            registry,
-            schemaInfo!
-          )
-        })
-
-        logger.debug('WebSocket subscriptions enabled')
-      }
+      wss = createSubscriptionServer(server) ?? null
 
       await new Promise<void>((resolve, reject) => {
         server!.on('error', reject)
@@ -400,6 +609,42 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
   }
 }
 
+export function createGraphQLMiddleware(options: GraphQLMiddlewareOptions): GraphQLMiddleware {
+  const { router, registry, schemaRegistry, config } = options
+  const { schema, schemaInfo, handleRequest, createSubscriptionServer } = createGraphQLHandlers(
+    router,
+    registry,
+    schemaRegistry,
+    config
+  )
+
+  const middleware = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
+    const urlPath = new URL(req.url || '/', `http://${req.headers.host}`).pathname
+    if (urlPath !== config.path) {
+      return false
+    }
+
+    try {
+      await handleRequest(req, res, { skipPathCheck: true })
+    } catch (err) {
+      logger.error({ err }, 'GraphQL middleware error')
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ errors: [{ message: (err as Error).message }] }))
+      }
+    }
+
+    return true
+  }
+
+  return {
+    middleware,
+    schema,
+    schemaInfo,
+    createSubscriptionServer,
+  }
+}
+
 // === GraphQL Execution ===
 
 async function executeGraphQL(
@@ -409,6 +654,7 @@ async function executeGraphQL(
   registry: Registry,
   schemaInfo: GeneratedSchemaInfo | null,
   ctx: Context,
+  metadata: Record<string, string>,
   introspection: boolean
 ): Promise<ExecutionResult> {
   const { query, operationName, variables } = request
@@ -441,7 +687,7 @@ async function executeGraphQL(
 
   // Create root value with resolvers
   const rootValue = schemaInfo
-    ? createRootValue(router, registry, schemaInfo, ctx)
+    ? createRootValue(router, registry, schemaInfo, ctx, metadata)
     : {}
 
   // Execute
@@ -459,12 +705,23 @@ async function executeGraphQL(
 
 function handleSubscriptionConnection(
   ws: WebSocket,
+  req: IncomingMessage,
   schema: GraphQLSchema,
   router: Router,
   registry: Registry,
-  schemaInfo: GeneratedSchemaInfo
-) {
+  schemaInfo: GeneratedSchemaInfo,
+  keepAliveInterval?: number
+): void {
   const subscriptions = new Map<string, AsyncIterator<unknown>>()
+  const connectionMetadata = extractMetadataFromHeaders(req.headers)
+  let connectionInitPayload: unknown = undefined
+  const pingTimer = keepAliveInterval && keepAliveInterval > 0
+    ? setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      }
+    }, keepAliveInterval)
+    : null
 
   ws.on('message', async (data) => {
     try {
@@ -472,6 +729,7 @@ function handleSubscriptionConnection(
 
       switch (message.type) {
         case 'connection_init': {
+          connectionInitPayload = message.payload
           ws.send(JSON.stringify({ type: 'connection_ack' }))
           break
         }
@@ -481,9 +739,19 @@ function handleSubscriptionConnection(
           const { query, operationName, variables } = payload
 
           const ctx = createContext(sid())
+          if (connectionInitPayload !== undefined) {
+            ctx.extensions.set(CONNECTION_INIT_KEY, connectionInitPayload)
+          }
+
+          const metadata = mergeMetadata(
+            connectionMetadata,
+            extractMetadataFromRecord(connectionInitPayload),
+            extractMetadataFromRecord((connectionInitPayload as { headers?: unknown })?.headers),
+            extractMetadataFromRecord((connectionInitPayload as { metadata?: unknown })?.metadata)
+          )
 
           const document = parse(query)
-          const rootValue = createRootValue(router, registry, schemaInfo, ctx)
+          const rootValue = createRootValue(router, registry, schemaInfo, ctx, metadata)
 
           const result = await subscribe({
             schema,
@@ -551,8 +819,11 @@ function handleSubscriptionConnection(
   })
 
   ws.on('close', () => {
+    if (pingTimer) {
+      clearInterval(pingTimer)
+    }
     // Clean up all subscriptions
-    for (const [id, iterator] of subscriptions) {
+    for (const [_id, iterator] of subscriptions) {
       if (iterator?.return) {
         iterator.return(undefined)
       }
@@ -567,7 +838,11 @@ function setCorsHeaders(res: ServerResponse, cors: GraphQLOptions['cors']) {
   if (cors === false) return
 
   const config = cors === true || cors === undefined
-    ? { origin: '*', methods: ['GET', 'POST', 'OPTIONS'], headers: ['Content-Type', 'Authorization'] }
+    ? {
+        origin: '*',
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        headers: ['Content-Type', 'Authorization', 'Accept', 'X-Request-Id', 'Traceparent', 'Tracestate'],
+      }
     : cors
 
   if (config.origin) {

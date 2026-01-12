@@ -56,6 +56,9 @@ export type {
   EventHandler,
   AckFunction,
   HandlerKind,
+  JsonRpcErrorMeta,
+  JsonRpcMeta,
+  GrpcMeta,
   StreamDirection,
   DeliveryGuarantee,
   RetryPolicy,
@@ -87,6 +90,10 @@ export {
   createGrpcAdapter,
   JsonRpcErrorCode,
   HttpMetadataKey,
+  // S3DB Resource Adapter
+  createS3DBAdapter,
+  createS3DBContextInterceptor,
+  generateS3DBHttpPaths,
 } from './adapters/index.js'
 export type {
   WebSocketAdapter,
@@ -104,6 +111,21 @@ export type {
   GrpcAdapterOptions,
   GrpcTlsOptions,
   GrpcMethodInfo,
+  // S3DB types
+  S3DBResourceLike,
+  S3DBDatabaseLike,
+  S3DBRelationDefinition,
+  S3DBAdapterOptions,
+  S3DBListInput,
+  S3DBGetInput,
+  S3DBCreateInput,
+  S3DBUpdateInput,
+  S3DBDeleteInput,
+  S3DBListResponse,
+  S3DBSingleResponse,
+  S3DBDeleteResponse,
+  S3DBOptionsResponse,
+  S3DBHeadResponse,
 } from './adapters/index.js'
 
 // === Validation ===
@@ -156,14 +178,8 @@ export {
   hasRole,
   hasAnyRole,
   hasAllRoles,
-  // Rate Limiting
-  createRateLimitMiddleware,
-  createPerProcedureRateLimitMiddleware,
-  createInMemoryStore,
-  createSlidingWindowRateLimiter,
   // Composition
   compose,
-  pipe,
   when,
   forProcedures,
   forPattern,
@@ -180,18 +196,48 @@ export type {
   ApiKeyOptions,
   AuthzMiddlewareOptions,
   AuthzRule,
-  // Rate limit types
-  RateLimitOptions,
-  RateLimitInfo,
-  RateLimitStore,
-  ProcedureRateLimit,
-  PerProcedureRateLimitOptions,
 } from './middleware/index.js'
 
+// === Rate Limit Drivers ===
+export {
+  createDriver as createRateLimitDriver,
+  createDriverFromConfig as createRateLimitDriverFromConfig,
+  MemoryRateLimitDriver,
+  FilesystemRateLimitDriver,
+  RedisRateLimitDriver,
+} from './rate-limit/index.js'
+export type {
+  RateLimitDriver,
+  RateLimitDriverType,
+  RateLimitDriverConfig,
+  MemoryRateLimitDriverOptions,
+  FilesystemRateLimitDriverOptions,
+  RedisRateLimitDriverOptions,
+  RedisLikeClient as RateLimitRedisLikeClient,
+} from './rate-limit/index.js'
+
 // === Server (Unified API) ===
-export { createServer, createRouterModule, loadRouterModule, pathToRouteName } from './server/index.js'
+export {
+  createServer,
+  createRouterModule,
+  loadRouterModule,
+  pathToRouteName,
+  loadDiscovery,
+  createDiscoveryWatcher,
+  createRouteInterceptors,
+  createChannelAuthorizer,
+  isDevelopment,
+  loadRestResources,
+  loadResources,
+  generateResourceRoutes,
+  loadTcpHandlers,
+  createTcpServer,
+  loadUdpHandlers,
+  createUdpServer,
+} from './server/index.js'
 export type {
   ServerOptions,
+  HttpOptions,
   CorsOptions,
   RaffelServer,
   ServerAddresses,
@@ -218,6 +264,11 @@ export type {
   ProviderDefinition,
   ProvidersConfig,
   ResolvedProviders,
+  // Procedure Hooks
+  BeforeHook,
+  AfterHook,
+  ErrorHook,
+  GlobalHooksConfig,
 } from './server/index.js'
 
 // === Errors ===
@@ -234,6 +285,16 @@ export type { ErrorCode, ErrorCodeDef } from './errors/index.js'
 
 // === Utils ===
 export { createLogger, getLogger } from './utils/logger.js'
+export {
+  defaultCodecs,
+  jsonCodec,
+  csvCodec,
+  textCodec,
+  selectCodecForAccept,
+  selectCodecForContentType,
+  resolveCodecs,
+} from './utils/content-codecs.js'
+export type { Codec } from './utils/content-codecs.js'
 
 // ID Generation (sid - replacement for nanoid)
 export {
@@ -263,7 +324,7 @@ export {
   generateOpenAPI,
   generateOpenAPIJson,
   generateOpenAPIYaml,
-} from './openapi/index.js'
+} from './docs/openapi/index.js'
 export type {
   OpenAPIDocument,
   OpenAPIInfo,
@@ -274,7 +335,7 @@ export type {
   OpenAPISecurityScheme,
   OpenAPITag,
   GeneratorOptions,
-} from './openapi/index.js'
+} from './docs/openapi/index.js'
 
 // === Channels (Pusher-like) ===
 export {
@@ -303,6 +364,7 @@ export type {
 // === GraphQL ===
 export {
   createGraphQLAdapter,
+  createGraphQLMiddleware,
   generateGraphQLSchema,
   GraphQLJSON,
   GraphQLDateTime,
@@ -311,6 +373,7 @@ export type {
   GraphQLOptions,
   GraphQLAdapter,
   GraphQLAdapterOptions,
+  GraphQLMiddleware,
   SubscriptionOptions as GraphQLSubscriptionOptions,
   SchemaGenerationOptions,
   GeneratedSchemaInfo,
@@ -347,7 +410,7 @@ export type {
   MemoryDriverOptions as CacheMemoryDriverOptions,
   FileDriverOptions as CacheFileDriverOptions,
   RedisDriverOptions as CacheRedisDriverOptions,
-  RedisLikeClient,
+  RedisLikeClient as CacheRedisLikeClient,
   S3DBDriverOptions as CacheS3DBDriverOptions,
   S3DBLikeClient,
   CacheDriverType,
@@ -355,3 +418,165 @@ export type {
   EvictionInfo as CacheEvictionInfo,
   PressureInfo as CachePressureInfo,
 } from './cache/index.js'
+
+// === Metrics (Prometheus-style) ===
+export {
+  createMetricRegistry,
+  createMetricsInterceptor,
+  registerWsMetrics,
+  registerProcessMetrics,
+  collectProcessMetrics,
+  startProcessMetricsCollection,
+  exportPrometheus,
+  exportJson,
+  DEFAULT_HISTOGRAM_BUCKETS,
+  AUTO_METRICS,
+} from './metrics/index.js'
+export type {
+  MetricType,
+  Labels,
+  MetricOptions,
+  MetricsConfig,
+  MetricValue,
+  HistogramBucket,
+  HistogramValue,
+  MetricDefinition,
+  MetricRegistry,
+  ExportFormat,
+} from './metrics/index.js'
+
+// === Tracing (OpenTelemetry-compatible) ===
+export {
+  // Tracer
+  createTracer,
+  // Span
+  createSpan,
+  generateTraceId,
+  generateSpanId,
+  // Samplers
+  createAlwaysOnSampler,
+  createAlwaysOffSampler,
+  createProbabilitySampler,
+  createRateLimitedSampler,
+  createParentBasedSampler,
+  createCompositeSampler,
+  // Exporters
+  createConsoleExporter,
+  createJaegerExporter,
+  createZipkinExporter,
+  createNoopExporter,
+  // Interceptor
+  createTracingInterceptor,
+  extractTraceHeaders,
+  injectTraceHeaders,
+  // Constants
+  SAMPLING_STRATEGIES,
+} from './tracing/index.js'
+export type {
+  SpanKind,
+  SpanStatusCode,
+  SpanAttributes,
+  SpanLogEntry,
+  SpanStatus,
+  SpanContext,
+  TraceHeaders,
+  SpanData,
+  Span,
+  SpanExporter,
+  SamplingResult,
+  Sampler,
+  StartSpanOptions,
+  Tracer,
+  TracingConfig,
+  JaegerExporterOptions,
+  ZipkinExporterOptions,
+} from './tracing/index.js'
+
+// === Developer Experience (DX) ===
+export {
+  // Health Check System
+  createHealthCheckProcedures,
+  CommonProbes,
+  // HTTP Request Logging
+  createHttpLoggingMiddleware,
+  createDevLoggingMiddleware,
+  createTinyLoggingMiddleware,
+  createProductionHttpLoggingMiddleware,
+  withHttpLogging,
+  LOG_FORMATS,
+  // USD Documentation
+  createUSDHandlers,
+} from './dx/index.js'
+export type {
+  // Health Check types
+  HealthCheckConfig,
+  HealthProbe,
+  HealthProbeGroupConfig,
+  ProbeResult,
+  HealthResponse,
+  HealthCheckState,
+  HealthCheckProcedure,
+  HealthCheckProcedures,
+  // HTTP Logging types
+  HttpLoggingMiddleware,
+  HttpLoggingConfig,
+  LogFormat,
+  LogContext,
+  // USD Documentation types
+  USDMiddlewareConfig,
+  USDHandlers,
+  USDMiddlewareContext,
+} from './dx/index.js'
+
+// === MCP (Model Context Protocol) ===
+export {
+  // Server
+  MCPServer,
+  createMCPServer,
+  runMCPServer,
+  // Error codes
+  JsonRpcErrorCode as MCPErrorCode,
+  // Tools
+  tools as mcpTools,
+  toolCategories as mcpToolCategories,
+  getToolsByCategory as getMCPToolsByCategory,
+  handlers as mcpHandlers,
+  // Resources
+  getStaticResources as getMCPResources,
+  getResourceTemplates as getMCPResourceTemplates,
+  readResource as readMCPResource,
+  // Prompts
+  prompts as mcpPrompts,
+  getPromptResult as getMCPPromptResult,
+  // Documentation
+  interceptors as mcpInterceptorDocs,
+  getInterceptor as getMCPInterceptorDoc,
+  adapters as mcpAdapterDocs,
+  getAdapter as getMCPAdapterDoc,
+  patterns as mcpPatterns,
+  getPattern as getMCPPattern,
+  errors as mcpErrors,
+  getError as getMCPError,
+  quickstartGuide as mcpQuickstartGuide,
+  boilerplates as mcpBoilerplates,
+  getBoilerplate as getMCPBoilerplate,
+} from './mcp/index.js'
+export type {
+  // MCP types
+  JsonRpcRequest as MCPRequest,
+  JsonRpcResponse as MCPResponse,
+  JsonRpcError as MCPError,
+  MCPServerOptions,
+  MCPCapabilities,
+  MCPInitializeResult,
+  MCPTransportMode,
+  MCPTool,
+  MCPToolResult,
+  MCPResource,
+  MCPResourceTemplate,
+  MCPResourceReadResult,
+  MCPPrompt,
+  MCPPromptArgument,
+  MCPPromptResult,
+  CategoryName as MCPCategoryName,
+} from './mcp/index.js'

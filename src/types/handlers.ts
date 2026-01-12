@@ -90,6 +90,43 @@ export interface RetryPolicy {
   backoffMultiplier: number
 }
 
+export interface GraphQLMeta {
+  type: 'query' | 'mutation'
+}
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+
+export interface JsonRpcErrorMeta {
+  code: number
+  message: string
+  description?: string
+  dataSchema?: unknown
+}
+
+export interface JsonRpcMeta {
+  streaming?: boolean
+  notification?: boolean
+  errors?: JsonRpcErrorMeta[]
+}
+
+export interface GrpcMeta {
+  /** Service name */
+  serviceName?: string
+  /** Method name */
+  methodName?: string
+  /** Method type: unary, server-streaming, client-streaming, bidirectional */
+  type?: 'unary' | 'server-streaming' | 'client-streaming' | 'bidirectional'
+  /** Client streaming flag (deprecated, use type instead) */
+  clientStreaming?: boolean
+  /** Server streaming flag (deprecated, use type instead) */
+  serverStreaming?: boolean
+}
+
+export interface ContentTypesMeta {
+  default?: string
+  supported?: string[]
+}
+
 /**
  * Handler metadata
  */
@@ -100,8 +137,23 @@ export interface HandlerMeta {
   /** Procedure/stream/event name */
   name: string
 
-  /** Description (for introspection) */
+  /** Short summary (one-liner for OpenAPI) */
+  summary?: string
+
+  /** Description (for introspection, supports markdown) */
   description?: string
+
+  /**
+   * Tags for OpenAPI grouping.
+   * Can be set via _meta.ts in fs-routes or programmatically.
+   */
+  tags?: string[]
+
+  /** Content type shorthand for this handler */
+  contentType?: string
+
+  /** Content type configuration for this handler */
+  contentTypes?: ContentTypesMeta
 
   /** Stream direction (for stream handlers) */
   streamDirection?: StreamDirection
@@ -114,6 +166,21 @@ export interface HandlerMeta {
 
   /** Deduplication window (ms) for at-most-once events */
   deduplicationWindow?: number
+
+  /** GraphQL mapping metadata (procedures only) */
+  graphql?: GraphQLMeta
+
+  /** HTTP path override for procedures */
+  httpPath?: string
+
+  /** HTTP method override for procedures */
+  httpMethod?: HttpMethod
+
+  /** JSON-RPC metadata */
+  jsonrpc?: JsonRpcMeta
+
+  /** gRPC metadata */
+  grpc?: GrpcMeta
 }
 
 /**

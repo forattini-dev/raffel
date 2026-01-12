@@ -15,7 +15,6 @@
 
 export {
   compose,
-  pipe,
   when,
   forProcedures,
   forPattern,
@@ -73,6 +72,9 @@ export type {
   // Presets
   SecurityPreset,
   PerformancePreset,
+
+  // Response Envelope
+  EnvelopeConfig,
 } from './types.js'
 
 // ============================================================================
@@ -110,7 +112,6 @@ export {
 export {
   createRetryInterceptor,
   createSelectiveRetryInterceptor,
-  createRetryAfterInterceptor,
 } from './interceptors/retry.js'
 
 // Circuit Breaker
@@ -130,6 +131,24 @@ export {
   CachePresets,
 } from './interceptors/cache.js'
 export type { CacheEventContext, ExtendedCacheConfig } from './interceptors/cache.js'
+
+// Response Envelope
+export {
+  createEnvelopeInterceptor,
+  createMinimalEnvelopeInterceptor,
+  createStandardEnvelopeInterceptor,
+  createDetailedEnvelopeInterceptor,
+  isEnvelopeResponse,
+  isEnvelopeSuccess,
+  isEnvelopeError,
+  EnvelopePresets,
+} from './interceptors/envelope.js'
+export type {
+  EnvelopeSuccess,
+  EnvelopeError,
+  EnvelopeMeta,
+  EnvelopeResponse,
+} from './interceptors/envelope.js'
 
 // ============================================================================
 // HTTP-Specific Middleware
@@ -210,20 +229,29 @@ export type {
   // Authz types
   AuthzMiddlewareOptions,
   AuthzRule,
+
+  // OAuth2/OIDC types
+  OAuth2Config,
+  OAuth2Tokens,
+  OAuth2UserInfo,
+  OAuth2StrategyWithFlow,
+  OIDCConfig,
+  OIDCDiscoveryDocument,
+  OIDCStrategyWithFlow,
+  OAuth2Provider,
 } from './auth.js'
 
-// Old Rate Limiting (legacy - prefer createRateLimitInterceptor)
+// OAuth2/OIDC Strategies
 export {
-  createRateLimitMiddleware,
-  createPerProcedureRateLimitMiddleware,
-  createInMemoryStore,
-  createSlidingWindowRateLimiter,
-} from './rate-limit.js'
-
-export type {
-  RateLimitOptions,
-  RateLimitInfo as LegacyRateLimitInfo,
-  RateLimitStore,
-  ProcedureRateLimit,
-  PerProcedureRateLimitOptions,
-} from './rate-limit.js'
+  createOAuth2Strategy,
+  createOIDCStrategy,
+  OAuth2Providers,
+  createGoogleOAuth2Strategy,
+  createGitHubOAuth2Strategy,
+  createMicrosoftOAuth2Strategy,
+  createAppleOAuth2Strategy,
+  createFacebookOAuth2Strategy,
+  generateState,
+  generateNonce,
+  clearDiscoveryCache,
+} from './auth.js'

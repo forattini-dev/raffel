@@ -184,7 +184,6 @@ export class FileDriver implements CacheDriver {
 
         if (prefix) {
           // Read file to check if key matches prefix
-          const filePath = path.join(this.directory, file)
           // For prefix clearing, we'd need to store the original key
           // For now, just clear all .cache files
         }

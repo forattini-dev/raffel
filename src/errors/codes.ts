@@ -53,6 +53,20 @@ export const ErrorCodes = {
     message: 'Invalid type',
   },
 
+  /** Invalid envelope shape */
+  INVALID_ENVELOPE: {
+    code: 'INVALID_ENVELOPE',
+    status: 400,
+    message: 'Invalid envelope',
+  },
+
+  /** Parse error */
+  PARSE_ERROR: {
+    code: 'PARSE_ERROR',
+    status: 400,
+    message: 'Parse error',
+  },
+
   /** Authentication required */
   UNAUTHENTICATED: {
     code: 'UNAUTHENTICATED',
@@ -74,6 +88,13 @@ export const ErrorCodes = {
     message: 'Not found',
   },
 
+  /** Not acceptable */
+  NOT_ACCEPTABLE: {
+    code: 'NOT_ACCEPTABLE',
+    status: 406,
+    message: 'Not acceptable',
+  },
+
   /** Resource already exists */
   ALREADY_EXISTS: {
     code: 'ALREADY_EXISTS',
@@ -88,10 +109,31 @@ export const ErrorCodes = {
     message: 'Precondition failed',
   },
 
+  /** Payload too large */
+  PAYLOAD_TOO_LARGE: {
+    code: 'PAYLOAD_TOO_LARGE',
+    status: 413,
+    message: 'Payload too large',
+  },
+
+  /** Message too large */
+  MESSAGE_TOO_LARGE: {
+    code: 'MESSAGE_TOO_LARGE',
+    status: 413,
+    message: 'Message too large',
+  },
+
+  /** Unsupported media type */
+  UNSUPPORTED_MEDIA_TYPE: {
+    code: 'UNSUPPORTED_MEDIA_TYPE',
+    status: 415,
+    message: 'Unsupported media type',
+  },
+
   /** Request timeout / deadline exceeded (local) */
   DEADLINE_EXCEEDED: {
     code: 'DEADLINE_EXCEEDED',
-    status: 408,
+    status: 504,
     message: 'Deadline exceeded',
   },
 
@@ -191,6 +233,13 @@ export const ErrorCodes = {
     message: 'Stream error',
   },
 
+  /** Output validation failed */
+  OUTPUT_VALIDATION_ERROR: {
+    code: 'OUTPUT_VALIDATION_ERROR',
+    status: 500,
+    message: 'Output validation failed',
+  },
+
   /** Unknown error */
   UNKNOWN: {
     code: 'UNKNOWN',
@@ -260,13 +309,21 @@ export function isRetryable(code: string): boolean {
 
     // Not retryable - would just fail again
     case 'INVALID_ARGUMENT':
+    case 'INVALID_TYPE':
+    case 'INVALID_ENVELOPE':
+    case 'PARSE_ERROR':
     case 'VALIDATION_ERROR':
+    case 'OUTPUT_VALIDATION_ERROR':
     case 'UNPROCESSABLE_ENTITY':
     case 'UNAUTHENTICATED':
     case 'PERMISSION_DENIED':
     case 'NOT_FOUND':
+    case 'NOT_ACCEPTABLE':
     case 'ALREADY_EXISTS':
     case 'FAILED_PRECONDITION':
+    case 'PAYLOAD_TOO_LARGE':
+    case 'MESSAGE_TOO_LARGE':
+    case 'UNSUPPORTED_MEDIA_TYPE':
     case 'CANCELLED':
     case 'UNIMPLEMENTED':
     case 'DATA_LOSS':

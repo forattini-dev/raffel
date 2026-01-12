@@ -122,7 +122,12 @@ export function createZodAdapter(
       }
 
       try {
-        return zodToJsonSchema(schema) as Record<string, unknown>
+        const result = zodToJsonSchema(schema) as Record<string, unknown>
+        // Remove $schema property if present
+        if (result && '$schema' in result) {
+          delete result['$schema']
+        }
+        return result
       } catch {
         return {}
       }

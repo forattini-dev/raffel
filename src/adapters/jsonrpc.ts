@@ -12,6 +12,14 @@ import type { Router } from '../core/router.js'
 import { RaffelError } from '../core/router.js'
 import { createContext, createExtensionKey, withExtension } from '../types/context.js'
 import { getLogger } from '../utils/logger.js'
+import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
+import {
+  jsonCodec,
+  resolveCodecs,
+  selectCodecForAccept,
+  selectCodecForContentType,
+  type Codec,
+} from '../utils/content-codecs.js'
 
 /**
  * Extension key for HTTP request metadata (headers, etc.)
@@ -84,7 +92,12 @@ export interface JsonRpcAdapterOptions {
   maxBodySize?: number
   /** Request timeout in ms (default: 30000) */
   timeout?: number
+
+  /** Additional codecs for content negotiation */
+  codecs?: Codec[]
 }
+
+export type JsonRpcMiddlewareOptions = Omit<JsonRpcAdapterOptions, 'port' | 'host'>
 
 export interface JsonRpcAdapter {
   /** Start the server */
@@ -95,20 +108,20 @@ export interface JsonRpcAdapter {
   getServer(): Server | null
 }
 
-/**
- * Create a JSON-RPC 2.0 HTTP adapter
- */
-export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOptions): JsonRpcAdapter {
+function createJsonRpcHandler(
+  router: Router,
+  options: JsonRpcAdapterOptions | JsonRpcMiddlewareOptions
+): {
+  handleRequest: (req: IncomingMessage, res: ServerResponse, opts?: { skipPathCheck?: boolean }) => Promise<void>
+  createError: (code: number, message: string, id: string | number | null, data?: unknown) => JsonRpcResponse
+} {
   const {
-    port,
-    host = '0.0.0.0',
     path = '/',
     cors = true,
     maxBodySize = 1024 * 1024, // 1MB
     timeout = 30000,
   } = options
-
-  let server: Server | null = null
+  const codecs = resolveCodecs(options.codecs)
 
   /**
    * Create error response
@@ -130,12 +143,30 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
         return JsonRpcErrorCode.METHOD_NOT_FOUND
       case 'VALIDATION_ERROR':
       case 'INVALID_ARGUMENT':
+      case 'UNPROCESSABLE_ENTITY':
         return JsonRpcErrorCode.INVALID_PARAMS
+      case 'INVALID_TYPE':
+      case 'INVALID_ENVELOPE':
+        return JsonRpcErrorCode.INVALID_REQUEST
+      case 'PARSE_ERROR':
+        return JsonRpcErrorCode.PARSE_ERROR
       case 'UNAUTHENTICATED':
       case 'PERMISSION_DENIED':
         return JsonRpcErrorCode.SERVER_ERROR - 1 // -32001
       case 'RATE_LIMITED':
+      case 'RESOURCE_EXHAUSTED':
         return JsonRpcErrorCode.SERVER_ERROR - 2 // -32002
+      case 'NOT_ACCEPTABLE':
+      case 'UNSUPPORTED_MEDIA_TYPE':
+      case 'PAYLOAD_TOO_LARGE':
+      case 'MESSAGE_TOO_LARGE':
+      case 'FAILED_PRECONDITION':
+      case 'ALREADY_EXISTS':
+      case 'DEADLINE_EXCEEDED':
+      case 'UNAVAILABLE':
+      case 'BAD_GATEWAY':
+      case 'GATEWAY_TIMEOUT':
+        return JsonRpcErrorCode.SERVER_ERROR
       default:
         return JsonRpcErrorCode.INTERNAL_ERROR
     }
@@ -236,13 +267,51 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
   /**
    * Handle HTTP request
    */
-  async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handleRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    opts?: { skipPathCheck?: boolean }
+  ): Promise<void> {
+    const accept = typeof req.headers.accept === 'string' ? req.headers.accept : undefined
+    const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
+    if (!responseCodec) {
+      res.writeHead(406, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(createError(JsonRpcErrorCode.INVALID_REQUEST, 'Not acceptable', null)))
+      return
+    }
+
+    const contentType = typeof req.headers['content-type'] === 'string'
+      ? req.headers['content-type']
+      : undefined
+    if (contentType) {
+      const requestCodec = selectCodecForContentType(contentType, codecs)
+      if (!requestCodec || requestCodec.name === 'csv') {
+        const errorResponse = createError(JsonRpcErrorCode.INVALID_REQUEST, 'Unsupported media type', null)
+        res.writeHead(415, {
+          'Content-Type': responseCodec.contentTypes[0] ?? 'application/json',
+        })
+        res.end(responseCodec.encode(errorResponse))
+        return
+      }
+    }
+
+    const sendResponse = (status: number, payload: JsonRpcResponse | JsonRpcResponse[]) => {
+      const headers: Record<string, string> = {
+        'Content-Type': responseCodec.contentTypes[0] ?? 'application/json',
+      }
+      if (cors) {
+        headers['Access-Control-Allow-Origin'] = '*'
+      }
+      res.writeHead(status, headers)
+      res.end(responseCodec.encode(payload))
+    }
+
     // CORS preflight
     if (cors && req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, X-Request-Id, Traceparent, Tracestate',
         'Access-Control-Max-Age': '86400',
       })
       res.end()
@@ -251,25 +320,17 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
 
     // Only accept POST
     if (req.method !== 'POST') {
-      res.writeHead(405, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(createError(JsonRpcErrorCode.INVALID_REQUEST, 'Method not allowed', null)))
+      sendResponse(405, createError(JsonRpcErrorCode.INVALID_REQUEST, 'Method not allowed', null))
       return
     }
 
     // Check path
-    const urlPath = new URL(req.url || '/', `http://${req.headers.host}`).pathname
-    if (urlPath !== path) {
-      res.writeHead(404, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(createError(JsonRpcErrorCode.INVALID_REQUEST, 'Not found', null)))
-      return
-    }
-
-    // Check content type
-    const contentType = req.headers['content-type'] || ''
-    if (!contentType.includes('application/json')) {
-      res.writeHead(415, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(createError(JsonRpcErrorCode.INVALID_REQUEST, 'Content-Type must be application/json', null)))
-      return
+    if (!opts?.skipPathCheck) {
+      const urlPath = new URL(req.url || '/', `http://${req.headers.host}`).pathname
+      if (urlPath !== path) {
+        sendResponse(404, createError(JsonRpcErrorCode.INVALID_REQUEST, 'Not found', null))
+        return
+      }
     }
 
     // Read body
@@ -280,15 +341,18 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
       for await (const chunk of req) {
         bodySize += chunk.length
         if (bodySize > maxBodySize) {
-          res.writeHead(413, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify(createError(JsonRpcErrorCode.INVALID_REQUEST, 'Request body too large', null)))
+          sendResponse(413, createError(JsonRpcErrorCode.INVALID_REQUEST, 'Request body too large', null))
           return
         }
         body += chunk
       }
     } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(createError(JsonRpcErrorCode.PARSE_ERROR, 'Failed to read request body', null)))
+      sendResponse(400, createError(JsonRpcErrorCode.PARSE_ERROR, 'Failed to read request body', null))
+      return
+    }
+
+    if (!contentType && bodySize > 0) {
+      sendResponse(415, createError(JsonRpcErrorCode.INVALID_REQUEST, 'Unsupported media type', null))
       return
     }
 
@@ -297,32 +361,17 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
     try {
       parsed = JSON.parse(body)
     } catch {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(createError(JsonRpcErrorCode.PARSE_ERROR, 'Parse error', null)))
+      sendResponse(200, createError(JsonRpcErrorCode.PARSE_ERROR, 'Parse error', null))
       return
     }
 
     // Extract metadata from headers
-    const metadata: Record<string, string> = {}
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (typeof value === 'string') {
-        metadata[key.toLowerCase()] = value
-      }
-    }
-
-    // Set response headers
-    const responseHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    if (cors) {
-      responseHeaders['Access-Control-Allow-Origin'] = '*'
-    }
+    const metadata = extractMetadataFromHeaders(req.headers)
 
     // Handle batch requests
     if (Array.isArray(parsed)) {
       if (parsed.length === 0) {
-        res.writeHead(200, responseHeaders)
-        res.end(JSON.stringify(createError(JsonRpcErrorCode.INVALID_REQUEST, 'Empty batch', null)))
+        sendResponse(200, createError(JsonRpcErrorCode.INVALID_REQUEST, 'Empty batch', null))
         return
       }
 
@@ -337,13 +386,12 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
 
       // If all were notifications, don't send response
       if (filteredResponses.length === 0) {
-        res.writeHead(204, responseHeaders)
+        res.writeHead(204, cors ? { 'Access-Control-Allow-Origin': '*' } : undefined)
         res.end()
         return
       }
 
-      res.writeHead(200, responseHeaders)
-      res.end(JSON.stringify(filteredResponses))
+      sendResponse(200, filteredResponses)
       return
     }
 
@@ -354,14 +402,24 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
 
     // Notification - no response
     if (response === null) {
-      res.writeHead(204, responseHeaders)
+      res.writeHead(204, cors ? { 'Access-Control-Allow-Origin': '*' } : undefined)
       res.end()
       return
     }
 
-    res.writeHead(200, responseHeaders)
-    res.end(JSON.stringify(response))
+    sendResponse(200, response)
   }
+
+  return { handleRequest, createError }
+}
+
+/**
+ * Create a JSON-RPC 2.0 HTTP adapter
+ */
+export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOptions): JsonRpcAdapter {
+  const { port, host = '0.0.0.0', path = '/' } = options
+  const { handleRequest, createError } = createJsonRpcHandler(router, options)
+  let server: Server | null = null
 
   return {
     async start(): Promise<void> {
@@ -403,5 +461,22 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
     getServer(): Server | null {
       return server
     },
+  }
+}
+
+export function createJsonRpcMiddleware(
+  router: Router,
+  options: JsonRpcMiddlewareOptions
+): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {
+  const path = options.path || '/'
+  const { handleRequest } = createJsonRpcHandler(router, options)
+
+  return async (req, res) => {
+    const urlPath = new URL(req.url || '/', `http://${req.headers.host}`).pathname
+    if (urlPath !== path) {
+      return false
+    }
+    await handleRequest(req, res, { skipPathCheck: true })
+    return true
   }
 }

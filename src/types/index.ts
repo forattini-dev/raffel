@@ -25,6 +25,7 @@ export type {
   AuthContext,
   TracingContext,
   ExtensionKey,
+  CallFunction,
 } from './context.js'
 export {
   createContext,
@@ -45,6 +46,10 @@ export type {
   EventHandler,
   AckFunction,
   HandlerKind,
+  JsonRpcErrorMeta,
+  JsonRpcMeta,
+  GrpcMeta,
+  HttpMethod,
   StreamDirection,
   DeliveryGuarantee,
   RetryPolicy,

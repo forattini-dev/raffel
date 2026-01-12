@@ -27,9 +27,6 @@ import type {
   TimeoutConfig,
   RetryConfig,
   CircuitBreakerConfig,
-  CacheConfig,
-  SecurityPreset,
-  PerformancePreset,
 } from './types.js'
 
 import type { ExtendedCacheConfig } from './interceptors/cache.js'

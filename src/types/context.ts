@@ -39,6 +39,14 @@ export interface TracingContext {
 export type ExtensionKey<T> = symbol & { __type?: T }
 
 /**
+ * Call function type for invoking other procedures
+ */
+export type CallFunction = <TInput = unknown, TOutput = unknown>(
+  procedure: string,
+  input: TInput
+) => Promise<TOutput>
+
+/**
  * Request context
  */
 export interface Context {
@@ -59,6 +67,24 @@ export interface Context {
 
   /** Custom extensions storage */
   readonly extensions: Map<symbol, unknown>
+
+  /**
+   * Call another procedure internally, propagating context.
+   * Only available when procedures are invoked through the router.
+   *
+   * @example
+   * ```typescript
+   * const user = await ctx.call('users.get', { id: userId })
+   * const orders = await ctx.call('orders.list', { userId })
+   * ```
+   */
+  call?: CallFunction
+
+  /**
+   * Calling depth for nested ctx.call() invocations.
+   * 0 = top-level request, 1 = first nested call, etc.
+   */
+  callingLevel?: number
 }
 
 /**

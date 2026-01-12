@@ -5,7 +5,7 @@
  */
 
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join, parse as parsePath, extname } from 'node:path'
+import { join, parse as parsePath } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import { createLogger } from '../../../utils/logger.js'
@@ -25,7 +25,6 @@ import type {
   ResolvedRestConfig,
   RestRoute,
   RestActionConfig,
-  ResolvedPaginationConfig,
   DatabaseClient,
 } from './types.js'
 import {
@@ -33,6 +32,7 @@ import {
   OPERATION_METHODS,
   COLLECTION_OPERATIONS,
   ITEM_OPERATIONS,
+  REST_ROUTE_ORDER,
 } from './types.js'
 
 const logger = createLogger('rest-loader')
@@ -185,7 +185,7 @@ function createRestResource(
     adapter,
     handlers,
     actions,
-    routes,
+    routes: sortRoutes(routes),
   }
 }
 
@@ -670,18 +670,6 @@ function createRoutes(
     })
   }
 
-  // OPTIONS needs both
-  if (operation === 'options') {
-    routes.push({
-      method,
-      path: basePath,
-      operation,
-      handler,
-      auth,
-      isCollection: true,
-    })
-  }
-
   return routes
 }
 
@@ -706,6 +694,30 @@ function createActionRoute(
     auth: action.auth ?? 'required',
     isCollection: !action.path.includes(':'),
   }
+}
+
+/**
+ * Get sort order for a route based on REST conventions.
+ * Collection routes first, then item routes.
+ * Within each group: GET, HEAD, POST/PUT/PATCH, DELETE, OPTIONS
+ */
+function getRouteSortOrder(route: RestRoute): number {
+  const op = route.operation
+
+  // For head and options, use the suffix to differentiate collection vs item
+  if (op === 'head' || op === 'options') {
+    const suffix = route.isCollection ? ':c' : ':i'
+    return REST_ROUTE_ORDER[`${op}${suffix}`] ?? 999
+  }
+
+  return REST_ROUTE_ORDER[op] ?? 999
+}
+
+/**
+ * Sort routes following REST conventions.
+ */
+function sortRoutes(routes: RestRoute[]): RestRoute[] {
+  return routes.slice().sort((a, b) => getRouteSortOrder(a) - getRouteSortOrder(b))
 }
 
 // === Query Helpers ===

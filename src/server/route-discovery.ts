@@ -34,6 +34,7 @@ export interface RouteDefinitionBase {
 export interface ProcedureRouteDefinition extends RouteDefinitionBase {
   kind: 'procedure'
   handler: ProcedureHandler
+  graphql?: { type: 'query' | 'mutation' }
 }
 
 export interface StreamRouteDefinition extends RouteDefinitionBase {
@@ -188,6 +189,7 @@ function registerRoute(module: RouterModule, name: string, definition: RouteDefi
     if (schema?.input) builder.input(schema.input as z.ZodType)
     if (schema?.output) builder.output(schema.output as z.ZodType)
     if (definition.description) builder.description(definition.description)
+    if (definition.graphql) builder.graphql(definition.graphql.type)
     for (const interceptor of interceptors) builder.use(interceptor)
     // Cast needed because ProcedureHandler allows sync returns but builder expects Promise
     builder.handler(definition.handler as (input: unknown, ctx: Context) => Promise<unknown>)

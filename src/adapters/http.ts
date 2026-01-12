@@ -13,8 +13,41 @@ import type { Router } from '../core/router.js'
 import type { Envelope, Context } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
+import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
+import {
+  jsonCodec,
+  resolveCodecs,
+  selectCodecForAccept,
+  selectCodecForContentType,
+  type Codec,
+} from '../utils/content-codecs.js'
 
 const logger = createLogger('http-adapter')
+
+type RateLimitHeaderInfo = {
+  limit?: number
+  remaining?: number
+  resetAt?: number
+  retryAfter?: number
+}
+
+class BodyParseError extends Error {
+  code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR' | 'INVALID_ARGUMENT'
+
+  constructor(code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR' | 'INVALID_ARGUMENT', message: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+/**
+ * HTTP middleware function.
+ * Return true to indicate the request was handled, false to continue to next middleware/router.
+ */
+export type HttpMiddleware = (
+  req: IncomingMessage,
+  res: ServerResponse
+) => boolean | Promise<boolean>
 
 /**
  * HTTP adapter configuration
@@ -41,7 +74,16 @@ export interface HttpAdapterOptions {
     methods?: string[]
     headers?: string[]
     credentials?: boolean
-  }
+  } | boolean
+
+  /** Additional codecs for content negotiation */
+  codecs?: Codec[]
+
+  /**
+   * HTTP middleware to run before routing.
+   * Middleware that returns true indicates it handled the request.
+   */
+  middleware?: HttpMiddleware[]
 }
 
 /**
@@ -59,9 +101,13 @@ export interface HttpAdapter {
 }
 
 /**
- * Parse request body as JSON
+ * Parse request body using a codec
  */
-function parseBody(req: IncomingMessage, maxSize: number): Promise<unknown> {
+function parseBody(
+  req: IncomingMessage,
+  maxSize: number,
+  codec: Codec
+): Promise<{ payload: unknown; size: number }> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
@@ -70,7 +116,7 @@ function parseBody(req: IncomingMessage, maxSize: number): Promise<unknown> {
       size += chunk.length
       if (size > maxSize) {
         req.destroy()
-        reject(new Error('Request body too large'))
+        reject(new BodyParseError('PAYLOAD_TOO_LARGE', 'Request body too large'))
         return
       }
       chunks.push(chunk)
@@ -78,15 +124,15 @@ function parseBody(req: IncomingMessage, maxSize: number): Promise<unknown> {
 
     req.on('end', () => {
       if (size === 0) {
-        resolve({})
+        resolve({ payload: {}, size })
         return
       }
 
       try {
         const body = Buffer.concat(chunks).toString('utf-8')
-        resolve(JSON.parse(body))
+        resolve({ payload: codec.decode(body), size })
       } catch {
-        reject(new Error('Invalid JSON body'))
+        reject(new BodyParseError('PARSE_ERROR', 'Invalid request body'))
       }
     })
 
@@ -95,12 +141,12 @@ function parseBody(req: IncomingMessage, maxSize: number): Promise<unknown> {
 }
 
 /**
- * Send JSON response
+ * Send response using a codec
  */
-function sendJson(res: ServerResponse, status: number, data: unknown): void {
-  const body = JSON.stringify(data)
+function sendEncoded(res: ServerResponse, status: number, data: unknown, codec: Codec): void {
+  const body = codec.encode(data)
   res.writeHead(status, {
-    'Content-Type': 'application/json',
+    'Content-Type': codec.contentTypes[0] ?? 'application/json',
     'Content-Length': Buffer.byteLength(body),
   })
   res.end(body)
@@ -109,8 +155,85 @@ function sendJson(res: ServerResponse, status: number, data: unknown): void {
 /**
  * Send error response
  */
-function sendError(res: ServerResponse, status: number, code: string, message: string): void {
-  sendJson(res, status, { error: { code, message } })
+function sendError(
+  res: ServerResponse,
+  status: number,
+  code: string,
+  message: string,
+  details?: unknown
+): void {
+  sendEncoded(
+    res,
+    status,
+    { error: { code, message, ...(details !== undefined && { details }) } },
+    jsonCodec
+  )
+}
+
+function getHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (!value) return undefined
+  return Array.isArray(value) ? value.join(',') : value
+}
+
+function requestHasBody(req: IncomingMessage): boolean {
+  const lengthHeader = getHeaderValue(req.headers['content-length'])
+  if (lengthHeader) {
+    const length = Number.parseInt(lengthHeader, 10)
+    if (Number.isFinite(length)) {
+      return length > 0
+    }
+  }
+
+  const transferEncoding = getHeaderValue(req.headers['transfer-encoding'])
+  if (transferEncoding && transferEncoding.toLowerCase() !== 'identity') {
+    return true
+  }
+
+  return false
+}
+
+function getRateLimitInfo(ctx: Context, details?: unknown): RateLimitHeaderInfo | null {
+  const ctxInfo = (ctx as { rateLimitInfo?: RateLimitHeaderInfo }).rateLimitInfo
+  const detailInfo = (details as RateLimitHeaderInfo | undefined) ?? undefined
+
+  const limit = ctxInfo?.limit ?? detailInfo?.limit
+  const remaining = ctxInfo?.remaining ?? detailInfo?.remaining
+  const resetAt = ctxInfo?.resetAt ?? detailInfo?.resetAt
+  const retryAfter = ctxInfo?.retryAfter ?? detailInfo?.retryAfter
+
+  if (
+    limit === undefined
+    && remaining === undefined
+    && resetAt === undefined
+    && retryAfter === undefined
+  ) {
+    return null
+  }
+
+  return { limit, remaining, resetAt, retryAfter }
+}
+
+function applyRateLimitHeaders(
+  res: ServerResponse,
+  ctx: Context,
+  details?: unknown,
+  includeRetryAfter = false
+): void {
+  const info = getRateLimitInfo(ctx, details)
+  if (!info) return
+
+  if (info.limit !== undefined) {
+    res.setHeader('X-RateLimit-Limit', info.limit.toString())
+  }
+  if (info.remaining !== undefined) {
+    res.setHeader('X-RateLimit-Remaining', info.remaining.toString())
+  }
+  if (info.resetAt !== undefined) {
+    res.setHeader('X-RateLimit-Reset', info.resetAt.toString())
+  }
+  if (includeRetryAfter && info.retryAfter !== undefined) {
+    res.setHeader('Retry-After', info.retryAfter.toString())
+  }
 }
 
 /**
@@ -120,9 +243,16 @@ function mapErrorCodeToStatus(code: string): number {
   switch (code) {
     case 'NOT_FOUND':
       return 404
+    case 'NOT_ACCEPTABLE':
+      return 406
     case 'INVALID_ARGUMENT':
+    case 'INVALID_TYPE':
+    case 'INVALID_ENVELOPE':
+    case 'PARSE_ERROR':
     case 'VALIDATION_ERROR':
       return 400
+    case 'UNPROCESSABLE_ENTITY':
+      return 422
     case 'UNAUTHENTICATED':
       return 401
     case 'PERMISSION_DENIED':
@@ -131,15 +261,24 @@ function mapErrorCodeToStatus(code: string): number {
       return 409
     case 'FAILED_PRECONDITION':
       return 412
+    case 'PAYLOAD_TOO_LARGE':
+    case 'MESSAGE_TOO_LARGE':
+      return 413
+    case 'UNSUPPORTED_MEDIA_TYPE':
+      return 415
     case 'RATE_LIMITED':
     case 'RESOURCE_EXHAUSTED':
       return 429
     case 'DEADLINE_EXCEEDED':
       return 504
+    case 'BAD_GATEWAY':
+      return 502
     case 'UNIMPLEMENTED':
       return 501
     case 'UNAVAILABLE':
       return 503
+    case 'GATEWAY_TIMEOUT':
+      return 504
     case 'CANCELLED':
       return 499
     case 'DATA_LOSS':
@@ -158,32 +297,40 @@ function setCorsHeaders(
   req: IncomingMessage,
   cors: HttpAdapterOptions['cors']
 ): void {
-  if (!cors) return
+  if (cors === false) return
+
+  const config = cors === true || cors === undefined
+    ? {
+        origin: '*',
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        headers: ['Content-Type', 'Authorization', 'Accept', 'X-Request-Id', 'Traceparent', 'Tracestate'],
+      }
+    : cors
 
   // Origin
-  if (cors.origin === true) {
+  if (config.origin === true) {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
-  } else if (typeof cors.origin === 'string') {
-    res.setHeader('Access-Control-Allow-Origin', cors.origin)
-  } else if (Array.isArray(cors.origin)) {
+  } else if (typeof config.origin === 'string') {
+    res.setHeader('Access-Control-Allow-Origin', config.origin)
+  } else if (Array.isArray(config.origin)) {
     const reqOrigin = req.headers.origin
-    if (reqOrigin && cors.origin.includes(reqOrigin)) {
+    if (reqOrigin && config.origin.includes(reqOrigin)) {
       res.setHeader('Access-Control-Allow-Origin', reqOrigin)
     }
   }
 
   // Methods
-  if (cors.methods) {
-    res.setHeader('Access-Control-Allow-Methods', cors.methods.join(', '))
+  if (config.methods) {
+    res.setHeader('Access-Control-Allow-Methods', config.methods.join(', '))
   }
 
   // Headers
-  if (cors.headers) {
-    res.setHeader('Access-Control-Allow-Headers', cors.headers.join(', '))
+  if (config.headers) {
+    res.setHeader('Access-Control-Allow-Headers', config.headers.join(', '))
   }
 
   // Credentials
-  if (cors.credentials) {
+  if (config.credentials) {
     res.setHeader('Access-Control-Allow-Credentials', 'true')
   }
 }
@@ -232,6 +379,7 @@ export function createHttpAdapter(
     maxBodySize = 1024 * 1024, // 1MB
     cors,
   } = options
+  const codecs = resolveCodecs(options.codecs)
 
   let server: Server | null = null
 
@@ -281,6 +429,16 @@ export function createHttpAdapter(
       return
     }
 
+    // Run HTTP middleware (e.g., OpenAPI UI, static files)
+    if (options.middleware) {
+      for (const middleware of options.middleware) {
+        const handled = await middleware(req, res)
+        if (handled) {
+          return
+        }
+      }
+    }
+
     const abortController = new AbortController()
     const abort = (reason: string) => {
       if (!abortController.signal.aborted) {
@@ -298,10 +456,12 @@ export function createHttpAdapter(
 
     logger.debug({ method: req.method, path: url.pathname, procedure }, 'Request received')
 
+    let ctx: Context | null = null
+
     try {
       // Build context
       const requestId = (req.headers['x-request-id'] as string) || sid()
-      const ctx = createAbortableContext(requestId, options.contextFactory?.(req), abortController)
+      ctx = createAbortableContext(requestId, options.contextFactory?.(req), abortController)
 
       // Handle based on type
       if (isStream && req.method === 'GET') {
@@ -314,11 +474,17 @@ export function createHttpAdapter(
         // Regular procedure call
         await handleProcedure(req, res, procedure, ctx)
       } else {
+        if (ctx) {
+          applyRateLimitHeaders(res, ctx)
+        }
         sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method ${req.method} not allowed`)
       }
     } catch (err) {
       const error = err as Error
       logger.error({ err: error, procedure }, 'Request handler error')
+      if (ctx) {
+        applyRateLimitHeaders(res, ctx)
+      }
       sendError(res, 500, 'INTERNAL_ERROR', error.message)
     } finally {
       logger.debug({ procedure, duration: Date.now() - startTime }, 'Request completed')
@@ -334,13 +500,54 @@ export function createHttpAdapter(
     procedure: string,
     ctx: Context
   ): Promise<void> {
+    const accept = getHeaderValue(req.headers.accept)
+    const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
+    if (!responseCodec) {
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
+      return
+    }
+
+    const contentType = getHeaderValue(req.headers['content-type'])
+    let requestCodec = jsonCodec
+    if (contentType) {
+      const selected = selectCodecForContentType(contentType, codecs)
+      if (!selected) {
+        applyRateLimitHeaders(res, ctx)
+        sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
+        return
+      }
+      requestCodec = selected
+    } else if (requestHasBody(req)) {
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
+      return
+    }
+
     // Parse body
     let payload: unknown
+    let bodySize = 0
     try {
-      payload = await parseBody(req, maxBodySize)
+      const parsed = await parseBody(req, maxBodySize, requestCodec)
+      payload = parsed.payload
+      bodySize = parsed.size
     } catch (err) {
       const error = err as Error
-      sendError(res, 400, 'BAD_REQUEST', error.message)
+      if (error instanceof BodyParseError) {
+        const status = mapErrorCodeToStatus(error.code)
+        applyRateLimitHeaders(res, ctx)
+        sendError(res, status, error.code, error.message)
+        return
+      }
+
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 400, 'INVALID_ARGUMENT', error.message)
+      return
+    }
+
+    if (!contentType && bodySize > 0) {
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
       return
     }
 
@@ -350,7 +557,7 @@ export function createHttpAdapter(
       procedure,
       type: 'request',
       payload,
-      metadata: extractMetadata(req),
+      metadata: extractMetadataFromHeaders(req.headers),
       context: ctx,
     }
 
@@ -361,14 +568,16 @@ export function createHttpAdapter(
     if (result && typeof result === 'object' && 'type' in result) {
       const resultEnvelope = result as Envelope
       if (resultEnvelope.type === 'error') {
-        const errorPayload = resultEnvelope.payload as { code: string; message: string }
+        const errorPayload = resultEnvelope.payload as { code: string; message: string; details?: unknown }
         const status = mapErrorCodeToStatus(errorPayload.code)
-        sendError(res, status, errorPayload.code, errorPayload.message)
+        applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
+        sendError(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
         return
       }
 
       // Success response
-      sendJson(res, 200, resultEnvelope.payload)
+      applyRateLimitHeaders(res, ctx)
+      sendEncoded(res, 200, resultEnvelope.payload, responseCodec)
     }
   }
 
@@ -399,7 +608,7 @@ export function createHttpAdapter(
       procedure,
       type: 'stream:start',
       payload,
-      metadata: extractMetadata(req),
+      metadata: extractMetadataFromHeaders(req.headers),
       context: ctx,
     }
 
@@ -408,9 +617,9 @@ export function createHttpAdapter(
 
     // Check if error
     if (result && typeof result === 'object' && 'type' in result && (result as Envelope).type === 'error') {
-      const errorPayload = (result as Envelope).payload as { code: string; message: string }
+      const errorPayload = (result as Envelope).payload as { code: string; message: string; details?: unknown }
       const status = mapErrorCodeToStatus(errorPayload.code)
-      sendError(res, status, errorPayload.code, errorPayload.message)
+      sendError(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
       return
     }
 
@@ -469,13 +678,53 @@ export function createHttpAdapter(
     procedure: string,
     ctx: Context
   ): Promise<void> {
+    const accept = getHeaderValue(req.headers.accept)
+    if (!selectCodecForAccept(accept, codecs, jsonCodec)) {
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
+      return
+    }
+
+    const contentType = getHeaderValue(req.headers['content-type'])
+    let requestCodec = jsonCodec
+    if (contentType) {
+      const selected = selectCodecForContentType(contentType, codecs)
+      if (!selected) {
+        applyRateLimitHeaders(res, ctx)
+        sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
+        return
+      }
+      requestCodec = selected
+    } else if (requestHasBody(req)) {
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
+      return
+    }
+
     // Parse body
     let payload: unknown
+    let bodySize = 0
     try {
-      payload = await parseBody(req, maxBodySize)
+      const parsed = await parseBody(req, maxBodySize, requestCodec)
+      payload = parsed.payload
+      bodySize = parsed.size
     } catch (err) {
       const error = err as Error
-      sendError(res, 400, 'BAD_REQUEST', error.message)
+      if (error instanceof BodyParseError) {
+        const status = mapErrorCodeToStatus(error.code)
+        applyRateLimitHeaders(res, ctx)
+        sendError(res, status, error.code, error.message)
+        return
+      }
+
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 400, 'INVALID_ARGUMENT', error.message)
+      return
+    }
+
+    if (!contentType && bodySize > 0) {
+      applyRateLimitHeaders(res, ctx)
+      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
       return
     }
 
@@ -485,7 +734,7 @@ export function createHttpAdapter(
       procedure,
       type: 'event',
       payload,
-      metadata: extractMetadata(req),
+      metadata: extractMetadataFromHeaders(req.headers),
       context: ctx,
     }
 
@@ -496,33 +745,18 @@ export function createHttpAdapter(
     if (result && typeof result === 'object' && 'type' in result) {
       const resultEnvelope = result as Envelope
       if (resultEnvelope.type === 'error') {
-        const errorPayload = resultEnvelope.payload as { code: string; message: string }
+        const errorPayload = resultEnvelope.payload as { code: string; message: string; details?: unknown }
         const status = mapErrorCodeToStatus(errorPayload.code)
-        sendError(res, status, errorPayload.code, errorPayload.message)
+        applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
+        sendError(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
         return
       }
     }
 
     // Accepted (fire-and-forget)
+    applyRateLimitHeaders(res, ctx)
     res.writeHead(202)
     res.end()
-  }
-
-  /**
-   * Extract metadata from request headers
-   */
-  function extractMetadata(req: IncomingMessage): Record<string, string> {
-    const metadata: Record<string, string> = {}
-    const allowlist = new Set(['authorization'])
-
-    // Extract x-* headers as metadata
-    for (const [key, value] of Object.entries(req.headers)) {
-      if ((key.startsWith('x-') || allowlist.has(key)) && typeof value === 'string') {
-        metadata[key] = value
-      }
-    }
-
-    return metadata
   }
 
   return {

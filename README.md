@@ -1,605 +1,485 @@
 <div align="center">
 
-# Raffel
+# ⚡ Raffel
 
-### Unified multi-protocol server runtime
+### Unified Multi-Protocol Server Runtime
 
-One core, many transports. Procedures, streams, and events with delivery guarantees.
-Modular routing, file-based discovery, and protocol adapters that speak the same envelope.
+One handler. Seven protocols. Zero duplication.
 
-[![npm version](https://img.shields.io/npm/v/raffel.svg?style=flat-square&color=2F855A)](https://www.npmjs.com/package/raffel)
-[![npm downloads](https://img.shields.io/npm/dm/raffel.svg?style=flat-square&color=3182CE)](https://www.npmjs.com/package/raffel)
+[![npm version](https://img.shields.io/npm/v/raffel.svg?style=flat-square&color=8b5cf6)](https://www.npmjs.com/package/raffel)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[Documentation](https://forattini-dev.github.io/raffel) · [Quick Start](#quick-start) · [Routing](#routing)
+[Documentation](https://forattini-dev.github.io/raffel) · [Quick Start](#quick-start) · [Examples](./examples) · [MCP Server](#mcp-server)
 
 </div>
+
+---
+
+## Why Raffel?
+
+```typescript
+// Define once
+server.procedure('users.create')
+  .input(z.object({ name: z.string(), email: z.string().email() }))
+  .handler(async (input) => db.users.create({ data: input }))
+
+// Expose everywhere
+// ✓ HTTP POST /users.create
+// ✓ WebSocket { procedure: 'users.create', payload: {...} }
+// ✓ gRPC UsersService.Create()
+// ✓ JSON-RPC { method: 'users.create', params: {...} }
+// ✓ GraphQL mutation { usersCreate(...) }
+// ✓ TCP/UDP raw protocol support
+```
+
+**Same validation. Same errors. Same auth. Same metrics. All protocols.**
 
 ---
 
 ## Quick Start
 
 ```bash
-pnpm add raffel
+pnpm add raffel zod
 ```
 
-```ts
-import { createServer } from 'raffel'
+Prefer another validator? Swap Zod for Yup/Joi/Ajv and register its adapter.
 
-const server = createServer({ port: 3000 })
+```typescript
+import { createServer, registerValidator, createZodAdapter } from 'raffel'
+import { z } from 'zod'
 
-server
-  .procedure('users.create')
-  .handler(async (input: { name: string }) => {
-    return { id: `user-${input.name}` }
-  })
+registerValidator(createZodAdapter(z))
 
-server
-  .stream('logs.tail')
-  .handler(async function* () {
-    yield { line: 'booted' }
-    yield { line: 'ready' }
-  })
+const server = createServer({
+  port: 3000,
+  websocket: true,
+  jsonrpc: '/rpc',
+})
 
 server
-  .event('emails.send')
-  .delivery('at-least-once')
-  .retryPolicy({ maxAttempts: 3, initialDelay: 500 })
-  .handler(async (_payload, _ctx, ack) => {
-    ack()
-  })
+  .procedure('hello')
+  .input(z.object({ name: z.string() }))
+  .handler(async ({ name }) => ({ message: `Hello, ${name}!` }))
 
 await server.start()
 ```
 
-Note: loader APIs live under `server/fs-routes` in this repo. Expose a subpath
-export if you want to consume them from the package entrypoint.
-
-## What Raffel gives you
-
-| Area | Highlights |
-|:--|:--|
-| Core | Protocol-agnostic envelope, immutable context, onion interceptors |
-| Protocols | HTTP, WebSocket, TCP, JSON-RPC, gRPC, GraphQL adapters |
-| Routing | Router modules with mountable prefixes |
-| Discovery | File-system discovery with middleware, auth, and hot reload |
-| REST | Auto-CRUD loaders and resource handlers (manual registration) |
-| Channels | Pusher-like pub/sub (public, private, presence) |
-| Events | best-effort, at-least-once, at-most-once delivery |
-| Streams | Async streaming with backpressure (RaffelStream) |
-| Custom TCP/UDP | Full control over socket lifecycle with framing |
-| Validation | Multi-validator support (Zod, Yup, Joi, Ajv, fastest-validator) |
-| Tooling | OpenAPI and GraphQL schema generators |
+```bash
+# Test all protocols
+curl -X POST localhost:3000/hello -d '{"name":"World"}'
+wscat -c ws://localhost:3000/ws -x '{"procedure":"hello","payload":{"name":"World"}}'
+```
 
 ---
 
-## File-System Discovery
+## Documentation (Docsify Deep Dive)
 
-Discovery scans for procedures and streams using a conventional layout:
+**Raffel's docs are the product** - dense, example-first, and protocol-accurate.
 
-```
-src/
-├── http/        # HTTP procedures
-├── rpc/         # JSON-RPC + gRPC procedures
-├── streams/     # Streaming handlers
-└── channels/    # WebSocket channels
-```
+**👉 Full documentation:** https://forattini-dev.github.io/raffel
 
-Route names are literal and used as-is by adapters.
-
-### Enable Discovery
-
-```ts
-const server = createServer({
-  port: 3000,
-  discovery: true, // Enable defaults
-})
-
-// Or configure individually:
-const server = createServer({
-  port: 3000,
-  discovery: {
-    http: './src/http',
-    rpc: './src/rpc',
-    streams: './src/streams',
-    channels: './src/channels',
-  },
-})
-```
-
-REST/resources and custom TCP/UDP handlers are loaded manually (see below).
+| Path | What you get |
+|------|--------------|
+| [Quickstart](https://forattini-dev.github.io/raffel/#/quickstart) | 5-minute multi-protocol server |
+| [Core Model](https://forattini-dev.github.io/raffel/#/core-model) | Envelope, Context, handler lifecycle |
+| [Handlers](https://forattini-dev.github.io/raffel/#/handlers/procedures) | Procedures, Streams, Events with real examples |
+| [Protocols](https://forattini-dev.github.io/raffel/#/protocols/http) | HTTP/WS/gRPC/JSON-RPC/GraphQL/TCP/UDP mappings |
+| [Interceptors](https://forattini-dev.github.io/raffel/#/interceptors) | Rate limit, retry, timeout, caching, fallback |
+| [Auth](https://forattini-dev.github.io/raffel/#/auth/overview) | Bearer/API key/OAuth2/OIDC/Sessions |
+| [Routing & Discovery](https://forattini-dev.github.io/raffel/#/file-system-discovery) | File-based routing, REST Auto-CRUD |
+| [Observability](https://forattini-dev.github.io/raffel/#/metrics) | Prometheus metrics + OpenTelemetry tracing |
+| [USD & OpenAPI](https://forattini-dev.github.io/raffel/#/usd) | Universal docs generated from schemas |
+| [MCP Server](https://forattini-dev.github.io/raffel/#/mcp) | AI tools, resources, prompts |
 
 ---
 
-## REST Auto-CRUD
+## What's Inside
 
-Define a schema and register the generated handlers:
+| Category | Features |
+|----------|----------|
+| **Protocols** | HTTP • WebSocket • gRPC • JSON-RPC • GraphQL • TCP • UDP |
+| **Handler Types** | Procedures (RPC) • Streams (Server/Client/Bidi) • Events (Pub/Sub) |
+| **Validation** | Zod • Yup • Joi • Ajv • fastest-validator |
+| **Auth** | JWT • API Key • OAuth2 • OIDC • Basic • Session |
+| **Resilience** | Rate Limit • Circuit Breaker • Retry • Timeout • Bulkhead • Fallback |
+| **Observability** | Prometheus Metrics • OpenTelemetry Tracing • Structured Logging |
+| **Caching** | Memory • Redis • S3DB • Read-through • Write-through |
+| **Real-time** | Channels (Pusher-like) • Presence • Broadcasting |
+| **Documentation** | USD (Universal Service Docs) • Auto-generated from schemas |
+| **DX** | Hot Reload • File-based Routing • REST Auto-CRUD |
 
-```ts
-import { loadRestResources } from 'raffel'
+---
 
-const rest = await loadRestResources({ restDir: './src/rest' })
-for (const resource of rest.resources) {
-  server.addRest(resource)
+## Highlights
+
+### Unified Envelope Architecture
+
+Every request becomes a normalized `Envelope` - same processing for all protocols:
+
+```typescript
+interface Envelope {
+  id: string           // Request correlation
+  procedure: string    // Handler name
+  type: 'request' | 'response' | 'stream:data' | 'event'
+  payload: unknown     // Your data
+  context: Context     // Auth, tracing, deadline
 }
 ```
 
-```ts
-// src/rest/users.ts
-import { z } from 'zod'
+### Three Handler Types
 
+```typescript
+// Procedures - Request → Response
+server.procedure('math.add')
+  .handler(async ({ a, b }) => ({ result: a + b }))
+
+// Streams - Request → Multiple Responses
+server.stream('logs.tail')
+  .handler(async function* ({ file }) {
+    for await (const line of readLines(file)) {
+      yield { line }
+    }
+  })
+
+// Events - Fire and Forget with Guarantees
+server.event('emails.send')
+  .delivery('at-least-once')
+  .handler(async (payload, ctx, ack) => {
+    await sendEmail(payload)
+    ack()
+  })
+```
+
+### Protocol-Agnostic Interceptors
+
+Write middleware once, apply everywhere:
+
+```typescript
+server.use(async (envelope, ctx, next) => {
+  const start = Date.now()
+  const result = await next()
+  console.log(`${envelope.procedure}: ${Date.now() - start}ms`)
+  return result
+})
+// Runs for HTTP, WebSocket, gRPC, JSON-RPC, TCP, UDP...
+```
+
+<details>
+<summary><strong>Built-in Interceptors</strong></summary>
+
+```typescript
+import {
+  // Auth
+  createAuthMiddleware,
+  createBearerStrategy,
+  createApiKeyStrategy,
+
+  // Resilience
+  createRateLimitInterceptor,
+  createCircuitBreakerInterceptor,
+  createRetryInterceptor,
+  createTimeoutInterceptor,
+  createBulkheadInterceptor,
+  createFallbackInterceptor,
+
+  // Observability
+  createMetricsInterceptor,
+  createTracingInterceptor,
+  createLoggingInterceptor,
+
+  // Caching
+  createCacheInterceptor,
+
+  // Response
+  createEnvelopeInterceptor,
+} from 'raffel'
+```
+
+</details>
+
+### File-System Discovery
+
+Drop files in folders, get endpoints automatically:
+
+```
+src/
+├── http/
+│   └── users/
+│       ├── get.ts      → users.get
+│       └── create.ts   → users.create
+├── streams/
+│   └── logs/
+│       └── tail.ts     → logs.tail
+├── rest/
+│   └── users.ts        → Auto-CRUD
+└── channels/
+    └── chat-room.ts    → WebSocket channel
+```
+
+```typescript
+const server = createServer({ port: 3000, discovery: true })
+```
+
+### REST Auto-CRUD
+
+Define a schema, get a full REST API:
+
+```typescript
+// src/rest/users.ts
 export const schema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   email: z.string().email(),
-  createdAt: z.date(),
 })
 
-export const config = {
-  operations: ['list', 'get', 'create', 'update', 'delete'],
-  pagination: { defaultLimit: 20, maxLimit: 100 },
-  sortable: ['name', 'createdAt'],
-  filterable: ['name', 'email'],
-}
-
-// Prisma adapter (auto-detected)
-export { prisma.user as adapter }
+export const adapter = prisma.user
 ```
 
-**Generated operations (procedures):**
-- `users.list`
-- `users.get`
-- `users.create`
-- `users.update`
-- `users.patch`
-- `users.delete`
-
-The loader also returns route metadata if you want to map real REST endpoints
-in a custom adapter.
-
----
-
-## Resource Handlers
-
-For explicit control over each operation:
-
-```ts
-import { loadResources } from 'raffel'
-
-const resources = await loadResources({ resourcesDir: './src/resources' })
-for (const resource of resources.resources) {
-  server.addResource(resource)
-}
+```
+GET    /users           → list
+GET    /users/:id       → get
+POST   /users           → create
+PUT    /users/:id       → update
+PATCH  /users/:id       → patch
+DELETE /users/:id       → delete
 ```
 
-```ts
-// src/resources/products.ts
-import type { ResourceContext, ResourceQuery } from 'raffel'
+### WebSocket Channels
 
-export const config = {
-  basePath: '/products',
-  idField: 'id',
-  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
-}
+Pusher-like real-time with authentication:
 
-export async function list(query: ResourceQuery, ctx: ResourceContext) {
-  return db.products.findMany({
-    take: query.limit ?? 20,
-    skip: query.offset ?? 0,
-    orderBy: query.sort ? { [query.sort]: query.order ?? 'asc' } : undefined,
-  })
-}
-
-export async function get(id: string, ctx: ResourceContext) {
-  return db.products.findUnique({ where: { id } })
-}
-
-export async function create(data: unknown, ctx: ResourceContext) {
-  return db.products.create({ data })
-}
-
-export async function update(id: string, data: unknown, ctx: ResourceContext) {
-  return db.products.update({ where: { id }, data })
-}
-
-export async function delete_(id: string, ctx: ResourceContext) {
-  return db.products.delete({ where: { id } })
-}
-export { delete_ as delete }
-
-// Custom actions
-export const actions = {
-  publish: {
-    method: 'POST',
-    collection: false, // Route metadata: POST /products/:id/publish
-    handler: async (data, id, ctx) => {
-      return db.products.update({ where: { id }, data: { published: true } })
-    },
-  },
-}
-```
-
----
-
-## WebSocket Channels (Pusher-like)
-
-Real-time pub/sub with three channel types:
-
-```ts
+```typescript
 const server = createServer({
-  port: 3000,
   websocket: {
-    path: '/ws',
     channels: {
       authorize: async (socketId, channel, ctx) => {
-        // Private/Presence channels require auth
-        if (channel.startsWith('private-') || channel.startsWith('presence-')) {
+        if (channel.startsWith('private-')) {
           return ctx.auth?.authenticated ?? false
         }
-        return true // Public channels always allowed
+        return true
       },
-      presenceData: (socketId, channel, ctx) => ({
-        userId: ctx.auth?.principal,
-        name: ctx.auth?.claims?.name,
-      }),
     },
   },
 })
 
-// Server-side broadcasting
-server.channels?.broadcast('chat-room', 'message', { text: 'Hello!' })
+// Public channels
+server.channels.broadcast('news', 'update', { headline: '...' })
 
-// Presence members
-const members = server.channels?.getMembers('presence-lobby')
+// Private channels
+server.channels.broadcast('private-user-123', 'notification', {...})
+
+// Presence channels
+const members = server.channels.getMembers('presence-lobby')
 ```
 
-**Channel types:**
-- `chat-room` → Public (anyone can subscribe)
-- `private-user-123` → Private (requires auth)
-- `presence-lobby` → Presence (auth + member tracking)
+### Unified Error Handling
+
+Throw once, convert automatically per protocol:
+
+```typescript
+import { RaffelError } from 'raffel'
+
+throw new RaffelError('NOT_FOUND', 'User not found', { userId: '123' })
+
+// HTTP → 404 Not Found + JSON body
+// JSON-RPC → { error: { code: -32601, message: '...' } }
+// gRPC → status: NOT_FOUND (5)
+// WebSocket → { type: 'error', code: 'NOT_FOUND' }
+```
 
 ---
 
-## Validation
+## HTTP Module
 
-Raffel supports multiple validation libraries. Install your preferred validator:
+Raffel includes a complete HTTP toolkit - no extra dependencies needed:
+
+```typescript
+import {
+  // Server
+  HttpApp, serve,
+
+  // Middleware
+  cors, compress, secureHeaders, bodyLimit,
+  basicAuth, bearerAuth, cookieSession, oauth2, oidc,
+  rateLimitMiddleware, validate,
+
+  // Static files
+  serveStatic, serveStaticS3,
+
+  // Responses
+  success, error, list, created, notFound, validationError,
+
+  // Session
+  createSessionTracker, createRedisSessionStore,
+
+  // Utils
+  getCookie, setCookie, healthCheck,
+} from 'raffel/http'
+```
+
+---
+
+## MCP Server
+
+Raffel includes an MCP server for AI-powered development:
 
 ```bash
-pnpm add zod              # TypeScript-first (recommended)
-pnpm add yup              # Object schemas
-pnpm add joi              # Powerful validation
-pnpm add ajv              # JSON Schema
-pnpm add fastest-validator # High performance
+# Add to Claude Code
+claude mcp add raffel npx raffel-mcp
+
+# Or run directly
+npx raffel-mcp --category minimal
+npx raffel-mcp --category docs,codegen
+npx raffel-mcp --transport http --port 3200
 ```
 
-Register and use:
-
-```ts
-import { z } from 'zod'
-import { createServer, registerValidator, createZodAdapter } from 'raffel'
-
-registerValidator(createZodAdapter(z))
-
-const server = createServer({ port: 3000 })
-
-server
-  .procedure('users.create')
-  .input(z.object({
-    name: z.string().min(1),
-    email: z.string().email(),
-  }))
-  .output(z.object({
-    id: z.string(),
-    name: z.string(),
-  }))
-  .handler(async (input) => ({
-    id: `user-${Date.now()}`,
-    name: input.name,
-  }))
-```
-
-**Available adapters:**
-- `createZodAdapter(z)` - TypeScript inference
-- `createYupAdapter(yup)` - Object schemas
-- `createJoiAdapter(Joi)` - Complex validation
-- `createAjvAdapter(new Ajv())` - JSON Schema
-- `createFastestValidatorAdapter(v)` - High throughput
-
-See [Validation Guide](docs/validation.md) for more details.
-
----
-
-## Custom TCP Handlers
-
-Full control over TCP connections with message framing:
-
-```ts
-import { loadTcpHandlers } from 'raffel'
-
-const tcp = await loadTcpHandlers({ tcpDir: './src/tcp' })
-for (const handler of tcp.handlers) {
-  server.addTcpHandler(handler)
-}
-```
-
-```ts
-// src/tcp/game-server.ts
-import type { Socket } from 'node:net'
-import type { TcpContext } from 'raffel'
-
-export const config = {
-  port: 9000,
-  keepAlive: true,
-  framing: {
-    type: 'length-prefixed',
-    lengthBytes: 4,
-    maxMessageSize: 1024 * 1024,
-  },
-}
-
-interface PlayerState {
-  playerId?: string
-  authenticated: boolean
-}
-
-export function onConnect(socket: Socket, ctx: TcpContext<PlayerState>) {
-  ctx.state = { authenticated: false }
-  ctx.send(Buffer.from('WELCOME'))
-}
-
-export function onMessage(message: Buffer, socket: Socket, ctx: TcpContext<PlayerState>) {
-  const cmd = message.toString()
-  if (cmd.startsWith('AUTH:')) {
-    ctx.state.playerId = cmd.slice(5)
-    ctx.state.authenticated = true
-    ctx.send(Buffer.from('OK'))
-  }
-}
-
-export function onClose(hadError: boolean, socket: Socket, ctx: TcpContext<PlayerState>) {
-  console.log(`Player ${ctx.state.playerId} disconnected`)
-}
-```
-
-**Framing options:**
-- `none` → Raw data chunks
-- `length-prefixed` → Messages prefixed with length header
-- `delimiter` → Messages separated by delimiter (e.g., `\n`)
-
----
-
-## Custom UDP Handlers
-
-Full control over UDP datagrams:
-
-```ts
-import { loadUdpHandlers } from 'raffel'
-
-const udp = await loadUdpHandlers({ udpDir: './src/udp' })
-for (const handler of udp.handlers) {
-  server.addUdpHandler(handler)
-}
-```
-
-```ts
-// src/udp/metrics-collector.ts
-import type { RemoteInfo } from 'node:dgram'
-import type { UdpContext } from 'raffel'
-
-export const config = {
-  port: 9999,
-  type: 'udp4',
-}
-
-interface MetricsState {
-  packetsReceived: number
-}
-
-export function onListening(ctx: UdpContext<MetricsState>) {
-  ctx.state = { packetsReceived: 0 }
-  console.log(`UDP listening on ${ctx.server.address?.port}`)
-}
-
-export function onMessage(
-  message: Buffer,
-  rinfo: RemoteInfo,
-  ctx: UdpContext<MetricsState>
-) {
-  ctx.state.packetsReceived++
-
-  const metric = JSON.parse(message.toString())
-  processMetric(metric)
-
-  // Respond to sender
-  ctx.send(Buffer.from('ACK'), rinfo.port, rinfo.address)
-}
-```
-
----
-
-## Programmatic Registration API
-
-Full control over discovered handlers with `.add*()` methods:
-
-```ts
-import {
-  createServer,
-  loadDiscovery,
-  loadRestResources,
-  loadTcpHandlers
-} from 'raffel'
-
-const server = createServer({ port: 3000 })
-
-// 1. Load and iterate with full control
-const discovery = await loadDiscovery({ discovery: true })
-for (const route of discovery.routes) {
-  // Skip admin routes
-  if (route.name.startsWith('admin.')) continue
-
-  if (route.kind === 'procedure') server.addProcedure(route)
-  if (route.kind === 'stream') server.addStream(route)
-  if (route.kind === 'event') server.addEvent(route)
-}
-
-// 2. Or bulk register everything
-server.addDiscovery(discovery)
-
-// 3. Add REST resources selectively
-const rest = await loadRestResources({ restDir: './src/rest' })
-for (const resource of rest.resources) {
-  if (resource.name !== 'internal') {
-    server.addRest(resource)
-  }
-}
-
-// 4. Add TCP handlers
-const tcp = await loadTcpHandlers({ tcpDir: './src/tcp' })
-for (const handler of tcp.handlers) {
-  server.addTcpHandler(handler)
-}
-
-// 5. Add inline handlers
-server.addProcedure({
-  name: 'health.check',
-  handler: async () => ({ status: 'ok', timestamp: Date.now() }),
-})
-
-await server.start()
-```
-
-### Available Methods
-
-| Method | Description |
-|:--|:--|
-| `addProcedure(input)` | Add procedure handler |
-| `addStream(input)` | Add stream handler |
-| `addEvent(input)` | Add event handler |
-| `addChannel(channel)` | Add WebSocket channel config |
-| `addRest(resource)` | Add REST auto-CRUD resource |
-| `addResource(resource)` | Add explicit resource handlers |
-| `addTcpHandler(handler)` | Add TCP server handler |
-| `addUdpHandler(handler)` | Add UDP server handler |
-| `addDiscovery(result)` | Bulk add all from discovery |
-
----
-
-## Protocol Adapters
-
-```ts
-createServer({ port: 3000 })
-  .enableWebSocket('/ws')
-  .enableJsonRpc('/rpc')
-  .enableGraphQL('/graphql')
-  .tcp({ port: 4000 })
-  .grpc({ port: 50051, protoPath: './proto/app.proto', serviceNames: ['UserService'] })
-```
-
----
-
-## Events with Delivery Guarantees
-
-```ts
-server
-  .event('payments.captured')
-  .delivery('at-most-once')
-  .deduplicationWindow(5 * 60 * 1000)
-  .handler(async (payload) => {
-    await reconcile(payload)
-  })
-
-server
-  .event('orders.created')
-  .delivery('at-least-once')
-  .retryPolicy({ maxAttempts: 5, initialDelay: 1000, maxDelay: 30000 })
-  .handler(async (payload, ctx, ack) => {
-    await processOrder(payload)
-    ack()
-  })
-```
-
----
-
-## Streaming with Backpressure
-
-```ts
-server
-  .stream('metrics.live')
-  .handler(async function* () {
-    while (true) {
-      yield { cpu: getCpuUsage(), memory: getMemoryUsage() }
-      await new Promise((r) => setTimeout(r, 1000))
-    }
-  })
-```
-
----
-
-## Router Modules
-
-```ts
-import { createRouterModule, createServer } from 'raffel'
-
-const users = createRouterModule('users')
-users.procedure('create').handler(async () => ({ id: '1' }))
-users.procedure('list').handler(async () => [])
-
-const server = createServer({ port: 3000 })
-server.mount('api', users)
-// Registers: api.users.create, api.users.list
-```
-
----
-
-## Architecture
-
-```
-Client -> Adapter (HTTP/WS/TCP/JSON-RPC/gRPC/GraphQL) -> Envelope -> Core -> Handler
-```
-
-| Layer | Responsibility |
-|:--|:--|
-| Adapter | Protocol translation to/from envelope |
-| Envelope | Unified message format across protocols |
-| Core | Routing, interceptors, context |
-| Handler | Business logic (procedure/stream/event) |
-
----
-
-## Directory Structure
-
-```
-src/
-├── http/                    # Procedures (discovery)
-│   ├── _middleware.ts       # Middleware for all routes in dir
-│   ├── _auth.ts             # Auth config for all routes
-│   └── users/
-│       ├── get.ts           # → users/get
-│       └── update.ts        # → users/update
-├── rpc/                     # JSON-RPC + gRPC procedures
-│   └── UserService.Create.ts # → UserService.Create
-├── channels/                # WebSocket pub/sub (manual wiring)
-│   ├── chat-room.ts
-│   └── presence-lobby.ts
-├── streams/                 # Streaming handlers
-│   └── logs/tail.ts
-├── rest/                    # Manual loader (auto-CRUD)
-│   └── users.ts
-├── resources/               # Manual loader (explicit handlers)
-│   └── products.ts
-├── tcp/                     # Manual loader (custom TCP servers)
-│   └── game-server.ts
-└── udp/                     # Manual loader (custom UDP servers)
-    └── metrics-collector.ts
-```
+<details>
+<summary><strong>Available Categories</strong></summary>
+
+| Category | Tokens | Tools |
+|----------|--------|-------|
+| `minimal` | ~2.5K | Essential docs & patterns |
+| `docs` | ~3K | Documentation search |
+| `codegen` | ~4K | Code generation |
+| `full` | ~8K | All 16 tools |
+
+</details>
+
+### MCP Tools
+
+**Docs & Reference**
+- `raffel_getting_started` - Quick start guide
+- `raffel_search` - Search all documentation
+- `raffel_list_interceptors` - List interceptors by category
+- `raffel_get_interceptor` - Interceptor details + examples
+- `raffel_list_adapters` - List protocol adapters
+- `raffel_get_adapter` - Adapter details + protocol mapping
+- `raffel_api_patterns` - **Critical** - Correct code patterns
+- `raffel_explain_error` - Error code explanations
+
+**Codegen**
+- `raffel_create_server` - Generate server boilerplate
+- `raffel_create_procedure` - Generate RPC endpoints
+- `raffel_create_stream` - Generate streaming handlers
+- `raffel_create_event` - Generate event handlers
+- `raffel_add_middleware` - Add interceptors
+- `raffel_create_module` - Generate router modules
+- `raffel_boilerplate` - Multi-file project templates
+
+**Meta**
+- `raffel_version` - Version + compatibility info
+
+### MCP Prompts
+
+- `create_rest_api` - Build complete REST API
+- `create_realtime_server` - WebSocket + channels
+- `create_grpc_service` - gRPC services (unary + streaming)
+- `create_microservice` - Production-ready service
+- `add_authentication` - Add JWT/API key auth
+- `add_caching` - Add caching drivers
+- `add_rate_limiting` - Add per-route or global limits
+- `add_observability` - Metrics + tracing
+- `migrate_from_express` - Convert from Express
+- `migrate_from_fastify` - Convert from Fastify
+- `migrate_from_trpc` - Convert from tRPC
+- `debug_middleware` - Diagnose interceptor order/issues
+- `optimize_performance` - Perf review + tuning ideas
+
+### MCP Resources
+
+The MCP server also exposes documentation and boilerplates as resources:
+
+- `raffel://guide/quickstart`
+- `raffel://interceptor/{name}`
+- `raffel://adapter/{name}`
+- `raffel://pattern/{name}`
+- `raffel://error/{code}`
+- `raffel://boilerplate/{template}`
 
 ---
 
 ## Documentation
 
-Full docs: https://forattini-dev.github.io/raffel
+The docs go deep on **every** adapter, interceptor, and design choice.
+
+| Topic | Highlights |
+|-------|------------|
+| [Quickstart](https://forattini-dev.github.io/raffel/#/quickstart) | Multi-protocol in 5 minutes |
+| [Core Model](https://forattini-dev.github.io/raffel/#/core-model) | Envelope + Context deep dive |
+| [Handlers](https://forattini-dev.github.io/raffel/#/handlers/procedures) | Procedures, Streams, Events |
+| [Interceptors](https://forattini-dev.github.io/raffel/#/interceptors) | Retry, timeout, bulkhead, cache |
+| [Auth](https://forattini-dev.github.io/raffel/#/auth/overview) | Bearer/API key/OAuth2/OIDC |
+| [Routing](https://forattini-dev.github.io/raffel/#/route-discovery) | Modules, discovery, REST Auto-CRUD |
+| [USD + OpenAPI](https://forattini-dev.github.io/raffel/#/usd) | Specs from schemas |
+| [MCP Server](https://forattini-dev.github.io/raffel/#/mcp) | Tools, resources, prompts |
+
+---
+
+## By the Numbers
+
+| Metric | Value |
+|--------|-------|
+| **Protocols** | 7 (HTTP, WS, gRPC, JSON-RPC, GraphQL, TCP, UDP) |
+| **Interceptors** | 20+ built-in |
+| **Validation Libraries** | 5 supported |
+| **Auth Strategies** | 8+ (JWT, API Key, OAuth2, OIDC, Basic, Session, etc.) |
+| **MCP Tools** | 16 |
+| **MCP Prompts** | 13 |
+
+---
+
+## Examples
+
+```bash
+# Clone and run examples
+pnpm tsx examples/00-hello-world.ts
+pnpm tsx examples/01-rest-api.ts
+pnpm tsx examples/02-websocket-server.ts
+pnpm tsx examples/03-rpc-server.ts
+```
+
+---
+
+## Comparison
+
+### vs Express, Koa, Fastify, Hono
+
+| Feature | Express/Koa | Raffel |
+|---------|-------------|--------|
+| HTTP routing | ✅ | ✅ |
+| WebSocket | ❌ separate | ✅ same handlers |
+| gRPC | ❌ separate | ✅ same handlers |
+| JSON-RPC | ❌ separate | ✅ same handlers |
+| GraphQL | ❌ separate | ✅ same handlers |
+| Unified validation | ❌ | ✅ one schema |
+| Unified errors | ❌ | ✅ auto-converted |
+| Unified auth | ❌ | ✅ all protocols |
+
+### vs tRPC
+
+| Feature | tRPC | Raffel |
+|---------|------|--------|
+| Type-safe RPC | ✅ | ✅ |
+| HTTP | ✅ | ✅ |
+| WebSocket | ✅ | ✅ |
+| gRPC | ❌ | ✅ |
+| JSON-RPC | ❌ | ✅ |
+| TCP/UDP | ❌ | ✅ |
+| Channels/Presence | ❌ | ✅ |
+| File routing | ❌ | ✅ |
+
+---
 
 ## License
 
 MIT
+
+---
+
+<div align="center">
+
+**[Documentation](https://forattini-dev.github.io/raffel)** · **[GitHub](https://github.com/forattini-dev/raffel)** · **[npm](https://www.npmjs.com/package/raffel)**
+
+</div>

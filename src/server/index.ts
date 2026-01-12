@@ -10,6 +10,7 @@ export { loadRouterModule, pathToRouteName } from './route-discovery.js'
 export type {
   // Server
   ServerOptions,
+  HttpOptions,
   CorsOptions,
   RaffelServer,
   ServerAddresses,
@@ -27,8 +28,32 @@ export type {
   StreamBuilder,
   EventBuilder,
   GroupBuilder,
+  ResourceBuilder,
   RouterModule,
   MountOptions,
+
+  // HTTP Routes (Hono-style)
+  HttpRouteHandler,
+  HttpRouteOptions,
+
+  // Protocol Namespaces
+  HttpNamespace,
+  WebSocketNamespace,
+  WebSocketChannelOptions,
+  WebSocketSubscribeHandler,
+  WebSocketMessageHandler,
+  WebSocketUnsubscribeHandler,
+  StreamsNamespace,
+  StreamOptions,
+  StreamSourceHandler,
+  StreamSinkHandler,
+  StreamDuplexHandler,
+
+  // Declarative Definition Types
+  ProcedureDef,
+  ProcedureMap,
+  ResourceDef,
+  ResourceMap,
 
   // Programmatic Add Types
   AddProcedureInput,
@@ -40,6 +65,12 @@ export type {
   ProviderDefinition,
   ProvidersConfig,
   ResolvedProviders,
+
+  // Procedure Hooks
+  BeforeHook,
+  AfterHook,
+  ErrorHook,
+  GlobalHooksConfig,
 } from './types.js'
 export type {
   RouteKind,
@@ -54,9 +85,7 @@ export type {
 export {
   // Discovery
   loadDiscovery,
-  loadRoutes,
   createDiscoveryWatcher,
-  createRouteWatcher,
   createRouteInterceptors,
   createChannelAuthorizer,
   isDevelopment,
@@ -81,12 +110,6 @@ export type {
   DiscoveryLoaderOptions,
   DiscoveryStats,
   DiscoveryWatcher,
-
-  // Legacy aliases
-  RoutesConfig,
-  RoutesLoaderOptions,
-  RouteLoadStats,
-  RouteWatcher,
 
   // Loaded Handlers
   LoadedRoute,
@@ -165,3 +188,50 @@ export type {
   ResolvedUdpConfig,
   UdpServerInstance,
 } from './fs-routes/index.js'
+
+// === Cross-Protocol Context Sharing ===
+export {
+  createSharedContextFactory,
+  createAuthContextFactory,
+  mergeContextFactories,
+  // Extension symbols for storing data in ctx.extensions
+  SESSION_SYMBOL,
+  HTTP_REQUEST_SYMBOL,
+  // Helpers to retrieve from extensions
+  getSessionFromContext,
+  getHttpRequestFromContext,
+} from './shared-context.js'
+
+export type {
+  SharedContextFactoryOptions,
+  ProtocolContextFactory,
+} from './shared-context.js'
+
+// === Unified Error Handling ===
+export {
+  // Error normalization
+  normalizeError,
+  isOperationalError,
+  // Error interceptor
+  createErrorInterceptor,
+  // Error response helpers
+  createErrorEnvelope,
+  toRaffelError,
+  // Protocol-specific formatters
+  formatHttpError,
+  formatJsonRpcError,
+  formatWebSocketError,
+  formatStreamError,
+  // Global error handler helper
+  createGlobalErrorHandler,
+} from './errors.js'
+
+export type {
+  ErrorInterceptorOptions,
+} from './errors.js'
+
+export type {
+  NormalizedError,
+  GlobalErrorHandler,
+  ErrorProtocol,
+} from './types.js'

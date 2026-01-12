@@ -16,6 +16,7 @@ import type { Router } from '../core/router.js'
 import type { Envelope, Context } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
+import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
 
 const logger = createLogger('tcp-adapter')
 
@@ -154,14 +155,15 @@ export function createTcpAdapter(
     client: ClientConnection,
     code: string,
     message: string,
-    requestId?: string
+    requestId?: string,
+    envelopeType: 'error' | 'stream:error' = 'error'
   ): void {
     if (client.socket.destroyed) return
 
     const envelope = {
-      id: requestId ? `${requestId}:error` : sid(),
+      id: requestId ? `${requestId}:${envelopeType}` : sid(),
       procedure: '',
-      type: 'error',
+      type: envelopeType,
       payload: { code, message },
       metadata: {},
     }
@@ -181,6 +183,10 @@ export function createTcpAdapter(
     try {
       const raw = data.toString('utf-8')
       const parsed = JSON.parse(raw)
+
+      if (handleCancelMessage(client, parsed)) {
+        return
+      }
 
       // Validate envelope structure
       if (!parsed.procedure || !parsed.type) {
@@ -203,7 +209,7 @@ export function createTcpAdapter(
         procedure: parsed.procedure,
         type: parsed.type,
         payload: parsed.payload ?? {},
-        metadata: parsed.metadata ?? {},
+        metadata: sanitizeMetadataRecord(parsed.metadata),
         context: ctx,
       }
 
@@ -219,20 +225,25 @@ export function createTcpAdapter(
       // Route the envelope
       const result = await router.handle(envelope)
 
+      const requestAbortController = client.activeRequests.get(envelope.id)
+      if (requestAbortController?.signal.aborted) {
+        return
+      }
+
       // Check if result is a stream (async iterable)
       if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
         // Stream response
         const streamId = envelope.id
-        const abortController = client.activeRequests.get(streamId)
-        if (!abortController) {
+        const streamAbortController = client.activeRequests.get(streamId)
+        if (!streamAbortController) {
           throw new Error(`Missing abort controller for stream ${streamId}`)
         }
         client.activeRequests.delete(streamId)
-        client.activeStreams.set(streamId, abortController)
+        client.activeStreams.set(streamId, streamAbortController)
 
         try {
           for await (const chunk of result as AsyncIterable<Envelope>) {
-            if (abortController.signal.aborted) break
+            if (streamAbortController.signal.aborted) break
             if (client.socket.destroyed) break
 
             sendEnvelope(client, chunk)
@@ -251,6 +262,30 @@ export function createTcpAdapter(
     } finally {
       client.activeRequests.delete(envelope.id)
     }
+  }
+
+  function handleCancelMessage(client: ClientConnection, parsed: Record<string, unknown>): boolean {
+    if (parsed.type !== 'cancel') return false
+    const requestId = parsed.id !== undefined ? String(parsed.id) : undefined
+    if (!requestId) return true
+
+    const streamController = client.activeStreams.get(requestId)
+    if (streamController) {
+      streamController.abort('Client cancelled')
+      client.activeStreams.delete(requestId)
+      sendError(client, 'CANCELLED', 'Stream cancelled', requestId, 'stream:error')
+      return true
+    }
+
+    const requestController = client.activeRequests.get(requestId)
+    if (requestController) {
+      requestController.abort('Client cancelled')
+      client.activeRequests.delete(requestId)
+      sendError(client, 'CANCELLED', 'Request cancelled', requestId)
+      return true
+    }
+
+    return true
   }
 
   /**

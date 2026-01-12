@@ -7,20 +7,21 @@
 
 import type {
   Envelope,
-  ErrorEnvelope,
   Interceptor,
   ProcedureHandler,
-  StreamHandler,
   EventHandler,
   RaffelStream,
+  Context,
+  CallFunction,
 } from '../types/index.js'
-import { createResponseEnvelope, createErrorEnvelope } from '../types/envelope.js'
+import { createResponseEnvelope, createErrorEnvelope, type ErrorPayload } from '../types/envelope.js'
 import type { Registry } from './registry.js'
 import {
   createEventDeliveryEngine,
   type EventDeliveryOptions,
 } from './event-delivery.js'
 import { getStatusForCode } from '../errors/codes.js'
+import { sid as generateId } from '../utils/id/index.js'
 
 /**
  * Raffel error - thrown by handlers to signal known errors
@@ -93,29 +94,11 @@ export interface Router {
 }
 
 /**
- * Create interceptor chain executor
- */
-function createInterceptorChain(
-  interceptors: Interceptor[],
-  finalHandler: () => Promise<unknown>
-): () => Promise<unknown> {
-  // Build chain from right to left (onion model)
-  let chain = finalHandler
-
-  for (let i = interceptors.length - 1; i >= 0; i--) {
-    const interceptor = interceptors[i]
-    const next = chain
-    chain = () => interceptor({} as Envelope, {} as any, next)
-  }
-
-  return chain
-}
-
-/**
  * Build full interceptor chain with envelope and context
  */
 function buildChain(
   envelope: Envelope,
+  ctx: Context,
   interceptors: Interceptor[],
   finalHandler: () => Promise<unknown>
 ): () => Promise<unknown> {
@@ -129,10 +112,88 @@ function buildChain(
   for (let i = interceptors.length - 1; i >= 0; i--) {
     const interceptor = interceptors[i]
     const next = chain
-    chain = () => interceptor(envelope, envelope.context, next)
+    chain = () => interceptor(envelope, ctx, next)
   }
 
   return chain
+}
+
+/**
+ * Create a context with call function and incremented callingLevel
+ *
+ * Note: The call function is created lazily to capture the current context's
+ * callingLevel properly for nested calls.
+ */
+function createContextWithCall(
+  parentCtx: Context,
+  router: Router
+): Context {
+  const callingLevel = (parentCtx.callingLevel ?? 0) + 1
+
+  // Create the context first with a placeholder
+  const ctxWithCall: Context = {
+    ...parentCtx,
+    extensions: new Map(parentCtx.extensions),
+    callingLevel,
+    call: undefined as unknown as CallFunction,
+  }
+
+  // Now create the call function with reference to this context
+  const callFn: CallFunction = async <TInput = unknown, TOutput = unknown>(
+    procedure: string,
+    input: TInput
+  ): Promise<TOutput> => {
+    // Prevent excessive nesting (protection against infinite recursion)
+    if (ctxWithCall.callingLevel! >= 100) {
+      throw new RaffelError(
+        'CALLING_DEPTH_EXCEEDED',
+        `Maximum calling depth exceeded (${ctxWithCall.callingLevel}). Possible infinite recursion.`,
+        { procedure, callingLevel: ctxWithCall.callingLevel },
+        500
+      )
+    }
+
+    // Create envelope for the internal call
+    // Pass ctxWithCall so the next level will see the incremented callingLevel
+    const envelope: Envelope<TInput> = {
+      id: generateId(),
+      procedure,
+      type: 'request',
+      payload: input,
+      metadata: {
+        ...(ctxWithCall.tracing && { 'x-trace-id': ctxWithCall.tracing.traceId }),
+        'x-internal-call': 'true',
+      },
+      context: ctxWithCall,
+    }
+
+    // Execute through router
+    const result = await router.handle(envelope)
+
+    // Handle error response
+    if (result && typeof result === 'object' && 'type' in result) {
+      const responseEnvelope = result as Envelope
+      if (responseEnvelope.type === 'error') {
+        const errorPayload = responseEnvelope.payload as ErrorPayload
+        throw new RaffelError(
+          errorPayload.code,
+          errorPayload.message,
+          errorPayload.details,
+          errorPayload.status
+        )
+      }
+      // Extract payload from response
+      return responseEnvelope.payload as TOutput
+    }
+
+    // For streams or other results, return as-is
+    return result as TOutput
+  }
+
+  // Assign the call function
+  ctxWithCall.call = callFn
+
+  return ctxWithCall
 }
 
 /**
@@ -154,6 +215,10 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
     async handle(envelope: Envelope): Promise<RouterResult> {
       const { procedure, type, payload, context } = envelope
 
+      // Create call function bound to this router
+      // We need a reference to `this` (the router) for ctx.call()
+      const router = this
+
       try {
         // Check deadline
         if (context.deadline && Date.now() > context.deadline) {
@@ -164,6 +229,9 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
         if (context.signal.aborted) {
           return createErrorEnvelope(envelope, 'CANCELLED', 'Request was cancelled')
         }
+
+        // Create enhanced context with call function
+        const ctxWithCall = createContextWithCall(context, router)
 
         // Route based on envelope type
         switch (type) {
@@ -183,8 +251,9 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             const handler = registered.handler as ProcedureHandler
             const chain = buildChain(
               envelope,
+              ctxWithCall,
               interceptors,
-              async () => handler(payload, context)
+              async () => handler(payload, ctxWithCall)
             )
 
             // Execute chain
@@ -213,13 +282,14 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             if (streamDirection === 'server') {
               const handler = registered.handler as (
                 input: unknown,
-                ctx: typeof context
+                ctx: Context
               ) => AsyncIterable<unknown> | RaffelStream<unknown>
 
               const chain = buildChain(
                 envelope,
+                ctxWithCall,
                 interceptors,
-                async () => handler(payload, context)
+                async () => handler(payload, ctxWithCall)
               )
 
               // Execute chain - returns stream or async iterable
@@ -240,13 +310,14 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             if (streamDirection === 'client') {
               const handler = registered.handler as (
                 input: AsyncIterable<unknown> | RaffelStream<unknown>,
-                ctx: typeof context
+                ctx: Context
               ) => Promise<unknown>
 
               const chain = buildChain(
                 envelope,
+                ctxWithCall,
                 interceptors,
-                async () => handler(payload, context)
+                async () => handler(payload, ctxWithCall)
               )
 
               const result = await chain()
@@ -255,13 +326,14 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
 
             const handler = registered.handler as (
               input: AsyncIterable<unknown> | RaffelStream<unknown>,
-              ctx: typeof context
+              ctx: Context
             ) => AsyncIterable<unknown> | RaffelStream<unknown>
 
             const chain = buildChain(
               envelope,
+              ctxWithCall,
               interceptors,
-              async () => handler(payload, context)
+              async () => handler(payload, ctxWithCall)
             )
 
             const result = (await chain()) as AsyncIterable<unknown> | RaffelStream<unknown>
@@ -288,8 +360,9 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             const execute = async (ack: () => void) => {
               const chain = buildChain(
                 envelope,
+                ctxWithCall,
                 interceptors,
-                async () => handler(payload, context, ack)
+                async () => handler(payload, ctxWithCall, ack)
               )
               await chain()
             }

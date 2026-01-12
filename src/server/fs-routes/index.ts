@@ -51,17 +51,12 @@
  */
 
 // === Loader ===
-export { loadDiscovery, loadRoutes, clearModuleCache } from './loader.js'
-export type { DiscoveryResult, LoadedRoutesResult } from './loader.js'
+export { loadDiscovery, clearModuleCache } from './loader.js'
+export type { DiscoveryResult } from './loader.js'
 
 // === Watcher ===
-export { createDiscoveryWatcher, createRouteWatcher, isDevelopment } from './watcher.js'
-export type {
-  DiscoveryWatcherOptions,
-  DiscoveryWatcher,
-  WatcherOptions,
-  RouteWatcher,
-} from './watcher.js'
+export { createDiscoveryWatcher, isDevelopment } from './watcher.js'
+export type { DiscoveryWatcherOptions, DiscoveryWatcher } from './watcher.js'
 
 // === Middleware Processor ===
 export { createRouteInterceptors, createChannelAuthorizer } from './middleware-processor.js'
@@ -72,15 +67,12 @@ export type {
   DiscoveryConfig,
   DiscoveryLoaderOptions,
   DiscoveryStats,
-  // Deprecated aliases
-  RoutesConfig,
-  RoutesLoaderOptions,
-  RouteLoadStats,
 
   // Handler exports
   HandlerExports,
   HandlerFunction,
   HandlerMeta,
+  DirectoryMeta,
 
   // Middleware exports
   MiddlewareExports,

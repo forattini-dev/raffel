@@ -12,7 +12,6 @@ import type {
   ChannelState,
   ChannelMember,
   SubscribeResult,
-  ChannelType,
 } from './types.js'
 import { getChannelType } from './types.js'
 
@@ -149,30 +148,28 @@ export function createChannelManager(
     ): Promise<SubscribeResult> {
       const type = getChannelType(channelName)
 
-      // Authorization check for private/presence channels
-      if (type !== 'public') {
-        if (options.authorize) {
-          const allowed = await options.authorize(socketId, channelName, ctx)
-          if (!allowed) {
-            return {
-              success: false,
-              error: {
-                code: 'PERMISSION_DENIED',
-                status: 403,
-                message: `Not authorized to subscribe to ${channelName}`,
-              },
-            }
-          }
-        } else {
-          // No authorize function → deny by default for private/presence
+      // Authorization check (all channels when authorize is provided)
+      if (options.authorize) {
+        const allowed = await options.authorize(socketId, channelName, ctx)
+        if (!allowed) {
           return {
             success: false,
             error: {
               code: 'PERMISSION_DENIED',
               status: 403,
-              message: `Authorization required for ${type} channels`,
+              message: `Not authorized to subscribe to ${channelName}`,
             },
           }
+        }
+      } else if (type !== 'public') {
+        // No authorize function → deny by default for private/presence
+        return {
+          success: false,
+          error: {
+            code: 'PERMISSION_DENIED',
+            status: 403,
+            message: `Authorization required for ${type} channels`,
+          },
         }
       }
 

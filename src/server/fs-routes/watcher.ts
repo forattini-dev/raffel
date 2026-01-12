@@ -9,7 +9,7 @@ import { join, extname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../../utils/logger.js'
 import { loadDiscovery, clearModuleCache, type DiscoveryResult } from './loader.js'
-import type { DiscoveryLoaderOptions, DiscoveryStats } from './types.js'
+import type { DiscoveryLoaderOptions } from './types.js'
 
 const logger = createLogger('fs-watcher')
 
@@ -20,9 +20,6 @@ export interface DiscoveryWatcherOptions extends DiscoveryLoaderOptions {
   /** Called when handlers are reloaded */
   onReload?: (result: DiscoveryResult) => void | Promise<void>
 }
-
-/** @deprecated Use DiscoveryWatcherOptions instead */
-export type WatcherOptions = DiscoveryWatcherOptions
 
 export interface DiscoveryWatcher {
   /** Start watching for changes */
@@ -39,13 +36,7 @@ export interface DiscoveryWatcher {
 
   /** Get current discovery result */
   readonly result: DiscoveryResult | null
-
-  /** @deprecated Use result instead */
-  readonly routes: DiscoveryResult | null
 }
-
-/** @deprecated Use DiscoveryWatcher instead */
-export type RouteWatcher = DiscoveryWatcher
 
 /**
  * Create a discovery watcher for hot reload
@@ -73,7 +64,7 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
     const dirs: string[] = []
 
     const config = loaderOptions.discovery === true
-      ? { http: true, channels: true, rpc: true, streams: true }
+      ? { http: true, channels: true, rpc: true, streams: true, rest: true, resources: true, tcp: true, udp: true }
       : loaderOptions.discovery || {}
 
     const defaults: Record<string, string> = {
@@ -81,6 +72,10 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
       channels: './src/channels',
       rpc: './src/rpc',
       streams: './src/streams',
+      rest: './src/rest',
+      resources: './src/resources',
+      tcp: './src/tcp',
+      udp: './src/udp',
     }
 
     for (const [key, defaultPath] of Object.entries(defaults)) {
@@ -222,16 +217,8 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
     get result(): DiscoveryResult | null {
       return currentResult
     },
-
-    // Deprecated alias
-    get routes(): DiscoveryResult | null {
-      return currentResult
-    },
   }
 }
-
-/** @deprecated Use createDiscoveryWatcher instead */
-export const createRouteWatcher = createDiscoveryWatcher
 
 /**
  * Check if running in development mode
