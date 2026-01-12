@@ -21,13 +21,23 @@
 
   <script>
     window.$docsify = {
-      name: 'Raffel',
+      name: '<span style="display:flex;align-items:center;gap:8px"><span style="font-size:24px">⚡</span>Raffel</span>',
+      nameLink: '#/',
       repo: 'https://github.com/forattini-dev/raffel',
       loadSidebar: true,
       coverpage: true,
       auto2top: true,
       subMaxLevel: 3,
       themeColor: '#8b5cf6',
+
+      // Critical: Use absolute paths and hash routing
+      relativePath: false,
+      routerMode: 'hash',
+
+      // Redirect all sidebar requests to root
+      alias: {
+        '/.*/_sidebar.md': '/_sidebar.md'
+      },
 
       search: {
         placeholder: 'Search...',
