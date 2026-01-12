@@ -9,6 +9,10 @@ src/http/      -> HTTP procedures
 src/rpc/       -> JSON-RPC + gRPC procedures
 src/streams/   -> Stream handlers
 src/channels/  -> WebSocket channel configs
+src/rest/      -> REST resources
+src/resources/ -> Resource handlers
+src/tcp/       -> TCP handlers
+src/udp/       -> UDP handlers
 ```
 
 ## Route naming
@@ -19,6 +23,9 @@ Names are literal. The adapter uses the same string.
 src/http/users/get.ts          -> users/get
 src/rpc/UserService.Create.ts  -> UserService.Create
 src/streams/logs/tail.ts       -> logs/tail
+src/http/users/[id]/get.ts     -> users/:id/get
+src/http/posts/[...slug].ts    -> posts/:slug*
+src/http/posts/[[slug]].ts     -> posts/:slug?
 ```
 
 ## Handler template
@@ -48,7 +55,7 @@ export default async function handler(input, ctx) {
 | `_middleware.ts` | Directory middleware |
 | `_auth.ts` | Auth configuration |
 
-Note: `matcher`/`exclude` configs are defined but not applied yet.
+`matcher`/`exclude` configs are applied with simple `*` wildcard matching.
 
 ## Stream directions
 
@@ -76,4 +83,13 @@ server.addDiscovery(result)
 
 const rest = await loadRestResources({ restDir: './src/rest' })
 for (const resource of rest.resources) server.addRest(resource)
+
+const resources = await loadResources({ resourcesDir: './src/resources' })
+for (const resource of resources.resources) server.addResource(resource)
+
+const tcp = await loadTcpHandlers({ tcpDir: './src/tcp' })
+for (const handler of tcp.handlers) server.addTcpHandler(handler)
+
+const udp = await loadUdpHandlers({ udpDir: './src/udp' })
+for (const handler of udp.handlers) server.addUdpHandler(handler)
 ```
