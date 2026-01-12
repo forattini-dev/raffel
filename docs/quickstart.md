@@ -41,7 +41,10 @@ bun add raffel
 Create your first multi-protocol server:
 
 ```typescript
-import { createServer, z } from 'raffel'
+import { createServer, createZodAdapter, registerValidator } from 'raffel'
+import { z } from 'zod'
+
+registerValidator(createZodAdapter(z))
 
 const server = createServer({ port: 3000 })
 
@@ -222,7 +225,7 @@ Example handler file:
 
 ```typescript
 // src/http/users/create.ts
-import { z } from 'raffel'
+import { z } from 'zod'
 
 export const input = z.object({
   name: z.string(),
@@ -282,10 +285,20 @@ const server = createServer({ port: 3000 })
 
 // JWT authentication
 const auth = createAuthMiddleware({
-  strategy: createBearerStrategy({
-    secret: process.env.JWT_SECRET,
-    algorithm: 'HS256',
-  }),
+  strategies: [
+    createBearerStrategy({
+      verify: async (token) => {
+        const payload = await verifyJwt(token) // implement with your JWT library
+        if (!payload) return null
+        return {
+          authenticated: true,
+          principal: payload.sub,
+          claims: payload,
+          roles: payload.roles ?? [],
+        }
+      },
+    }),
+  ],
 })
 
 // Public procedure
@@ -298,7 +311,7 @@ server
   .procedure('users.me')
   .use(auth)
   .handler(async (input, ctx) => {
-    return { userId: ctx.auth.userId }
+    return { userId: ctx.auth?.principal }
   })
 
 await server.start()
@@ -396,12 +409,16 @@ Here's a complete example with all features:
 ```typescript
 import {
   createServer,
-  z,
+  createZodAdapter,
+  registerValidator,
   createRateLimitInterceptor,
   createLoggingInterceptor,
   createAuthMiddleware,
   createBearerStrategy,
 } from 'raffel'
+import { z } from 'zod'
+
+registerValidator(createZodAdapter(z))
 
 const server = createServer({
   port: 3000,
@@ -416,7 +433,19 @@ server.use(createRateLimitInterceptor({ windowMs: 60000, maxRequests: 100 }))
 
 // JWT auth middleware
 const auth = createAuthMiddleware({
-  strategy: createBearerStrategy({ secret: process.env.JWT_SECRET }),
+  strategies: [
+    createBearerStrategy({
+      verify: async (token) => {
+        const payload = await verifyJwt(token)
+        if (!payload) return null
+        return {
+          authenticated: true,
+          principal: payload.sub,
+          claims: payload,
+        }
+      },
+    }),
+  ],
 })
 
 // Public health check
@@ -442,8 +471,8 @@ server
   .procedure('users.me')
   .use(auth)
   .handler(async (input, ctx) => ({
-    id: ctx.auth.userId,
-    email: ctx.auth.email,
+    id: ctx.auth?.principal,
+    email: ctx.auth?.claims?.email,
   }))
 
 // Streaming logs
