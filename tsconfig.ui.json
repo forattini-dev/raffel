@@ -8,6 +8,6 @@
     "declarationMap": true,
     "emitDeclarationOnly": true
   },
-  "include": ["src/docs/ui/**/*", "src/docs/openapi/index.ts", "src/docs/types.ts"],
+  "include": ["src/docs/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
