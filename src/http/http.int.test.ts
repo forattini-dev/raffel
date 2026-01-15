@@ -286,7 +286,7 @@ describe('Cookie Utilities', () => {
     it('should chunk large cookies', () => {
       const ctx = createMockContext()
       const largeValue = 'x'.repeat(10000)
-      setChunkedCookie(ctx, 'large', largeValue, {}, { maxCookieSize: 1000 })
+      setChunkedCookie(ctx, 'large', largeValue, {}, { maxCookieSize: 1000, maxChunks: 15 })
 
       const setCookieHeaders = ctx.headers.get('set-cookie')
       expect(setCookieHeaders!.length).toBeGreaterThan(1)
@@ -668,7 +668,8 @@ describe('Body Limit Middleware', () => {
             headers: options.contentLength !== undefined
               ? { 'content-length': String(options.contentLength) }
               : undefined,
-          }),
+            ...(bodyStream ? { duplex: 'half' } : {}),
+          } as RequestInit),
         },
         set res(r: Response | null) {
           res = r
