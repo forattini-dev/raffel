@@ -13,7 +13,6 @@ import type {
   USDSecurityScheme,
   USDError,
   USDTag,
-  USDExternalDocs,
   USDProtocol,
   USDX,
   USDContentTypes,

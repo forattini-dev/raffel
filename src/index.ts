@@ -187,6 +187,62 @@ export {
   branch,
   passthrough,
 } from './middleware/index.js'
+export {
+  // Rate Limiting
+  createRateLimitInterceptor,
+  createAuthRateLimiter,
+  // Request ID
+  createRequestIdInterceptor,
+  createPrefixedRequestIdInterceptor,
+  createCorrelatedRequestIdInterceptor,
+  // Logging
+  createLoggingInterceptor,
+  createProductionLoggingInterceptor,
+  createDebugLoggingInterceptor,
+  // Timeout
+  createTimeoutInterceptor,
+  createCascadingTimeoutInterceptor,
+  createDeadlinePropagationInterceptor,
+  setTimeoutPhase,
+  getTimeoutPhase,
+  getPhaseInfo,
+  // Retry
+  createRetryInterceptor,
+  createSelectiveRetryInterceptor,
+  // Circuit Breaker
+  createCircuitBreakerInterceptor,
+  createProcedureCircuitBreaker,
+  createCircuitBreakerManager,
+  // Bulkhead
+  createBulkheadInterceptor,
+  createProcedureBulkhead,
+  createBulkheadManager,
+  // Fallback
+  createFallbackInterceptor,
+  // Deduplication
+  createDedupInterceptor,
+  createReadOnlyDedupInterceptor,
+  // Size Limits
+  createSizeLimitInterceptor,
+  createRequestSizeLimitInterceptor,
+  createResponseSizeLimitInterceptor,
+  SizeLimitPresets,
+  // Cache
+  createCacheInterceptor,
+  createReadThroughCacheInterceptor,
+  createMemoryCacheStore,
+  createCacheInvalidator,
+  CachePresets,
+  // Response Envelope
+  createEnvelopeInterceptor,
+  createMinimalEnvelopeInterceptor,
+  createStandardEnvelopeInterceptor,
+  createDetailedEnvelopeInterceptor,
+  isEnvelopeResponse,
+  isEnvelopeSuccess,
+  isEnvelopeError,
+  EnvelopePresets,
+} from './middleware/interceptors/index.js'
 export type {
   // Auth types
   AuthResult,
@@ -247,6 +303,11 @@ export type {
   TcpOptions,
   GrpcOptions,
   // GrpcTlsOptions is exported from adapters/index.js
+  ProtocolAdapterContext,
+  ProtocolAdapter,
+  ProtocolAdapterFactory,
+  ProtocolExtensionConfig,
+  ProtocolAddress,
   ProcedureBuilder,
   StreamBuilder,
   EventBuilder,

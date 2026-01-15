@@ -8,6 +8,16 @@ import type { Context } from '../types/index.js'
 import type { ChannelOptions } from '../channels/index.js'
 import type { LoadedChannel } from './fs-routes/index.js'
 import { createChannelAuthorizer } from './fs-routes/index.js'
+import { createLogger } from '../utils/logger.js'
+
+const logger = createLogger('channel-utils')
+
+type ChannelMessageHandler = (
+  channel: string,
+  event: string,
+  data: unknown,
+  ctx: Context
+) => void | Promise<void>
 
 /**
  * Escape special regex characters in a string
@@ -85,9 +95,10 @@ export function findChannelDefinition(
  */
 export function buildChannelOptions(
   channelRegistry: Map<string, LoadedChannel>,
-  baseOptions?: ChannelOptions
+  baseOptions?: ChannelOptions,
+  messageHandler?: ChannelMessageHandler
 ): ChannelOptions | undefined {
-  if (!baseOptions && channelRegistry.size === 0) {
+  if (!baseOptions && channelRegistry.size === 0 && !messageHandler) {
     return undefined
   }
 
@@ -149,6 +160,14 @@ export function buildChannelOptions(
     if (baseOptions?.onPublish) {
       const allowed = await baseOptions.onPublish(socketId, channel, event, data, ctx)
       if (!allowed) return false
+    }
+
+    if (messageHandler) {
+      try {
+        await messageHandler(channel, event, data, ctx)
+      } catch (err) {
+        logger.error({ err, channel, event }, 'WebSocket message handler error')
+      }
     }
 
     return true

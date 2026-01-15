@@ -120,19 +120,21 @@ server.event('orders.notify')
 \`\`\`typescript
 const server = createServer({ port: 3000 })
   // HTTP is default
-  .enableWebSocket({ path: '/ws' })      // Add WebSocket
-  .enableJsonRpc({ path: '/jsonrpc' })   // Add JSON-RPC
+  .websocket({ path: '/ws' })            // Add WebSocket
+  .jsonrpc({ path: '/rpc' })             // Add JSON-RPC
   .grpc({ port: 50051 })                 // Add gRPC
-  .enableGraphQL({ path: '/graphql' })   // Add GraphQL
+  .configureGraphQL({ path: '/graphql' }) // Add GraphQL
 \`\`\`
 
 ## HTTP Mapping
 
 | Handler | HTTP | Path |
 |---------|------|------|
-| procedure | POST | /api/{name} |
-| stream | GET (SSE) | /api/streams/{name} |
-| event | POST | /api/events/{name} |
+| procedure | POST | {basePath}/{name} |
+| stream | GET (SSE) | {basePath}/streams/{name} |
+| event | POST | {basePath}/events/{name} |
+
+Base path defaults to \`/\`. Set \`basePath\` in \`createServer\` to add a prefix.
 
 ## Complete Example
 
@@ -508,14 +510,17 @@ model User {
     title: 'Real-time WebSocket Server',
     description: 'Chat server with WebSocket and pub/sub channels',
     files: {
-      'src/server.ts': `import { createServer, createStream, RaffelError } from 'raffel'
+      'src/server.ts': `import { createServer, createStream } from 'raffel'
+import { EventEmitter } from 'node:events'
 import { z } from 'zod'
 
+const chatEvents = new EventEmitter()
+
 const server = createServer({ port: 3000 })
-  .enableWebSocket({
+  .websocket({
     path: '/ws',
     channels: {
-      authorize: async (socket, channel, ctx) => {
+      authorize: async (socketId, channel, ctx) => {
         // Private channels require auth
         if (channel.startsWith('private-')) {
           return ctx.auth?.authenticated ?? false
@@ -540,6 +545,8 @@ const server = createServer({ port: 3000 })
         timestamp: new Date().toISOString()
       }
 
+      chatEvents.emit('message', msg)
+
       // Broadcast to channel subscribers
       server.channels?.broadcast(input.channel, 'message', msg)
 
@@ -552,13 +559,14 @@ const server = createServer({ port: 3000 })
       const { channel } = input
       const stream = createStream()
 
-      // Subscribe to channel events
-      const unsubscribe = server.channels?.subscribe(channel, (event, data) => {
-        stream.write({ event, data })
-      })
+      const onMessage = (data: unknown) => {
+        stream.write({ channel, data })
+      }
+
+      chatEvents.on('message', onMessage)
 
       ctx.signal.addEventListener('abort', () => {
-        unsubscribe?.()
+        chatEvents.off('message', onMessage)
         stream.end()
       })
 
@@ -604,9 +612,9 @@ const products = new Map([
 
 const server = createServer({ port: 3000 })
   // Enable all protocols
-  .enableWebSocket({ path: '/ws' })
-  .enableJsonRpc({ path: '/jsonrpc' })
-  .enableGraphQL({ path: '/graphql', playground: true })
+  .websocket({ path: '/ws' })
+  .jsonrpc({ path: '/rpc' })
+  .configureGraphQL({ path: '/graphql', playground: true })
   .grpc({ port: 50051 })
 
   // Procedures work on ALL protocols
@@ -651,14 +659,14 @@ await server.start()
 console.log(\`
 Multi-Protocol Server Running:
 
-  HTTP:      http://localhost:3000/api/*
+  HTTP:      http://localhost:3000/*
   WebSocket: ws://localhost:3000/ws
-  JSON-RPC:  http://localhost:3000/jsonrpc
+  JSON-RPC:  http://localhost:3000/rpc
   GraphQL:   http://localhost:3000/graphql
   gRPC:      localhost:50051
 
 Try:
-  curl -X POST http://localhost:3000/api/products.list
+  curl -X POST http://localhost:3000/products.list
   grpcurl -plaintext localhost:50051 raffel.Products/List
 \`)
 `,

@@ -50,7 +50,7 @@ const server = createServer({
         return {
           ...input,
           timestamp: Date.now(),
-          requestId: ctx.id,
+          requestId: ctx.requestId,
         }
       },
 

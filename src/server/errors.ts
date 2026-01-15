@@ -90,30 +90,6 @@ function getStatusForCode(code: string): number {
 }
 
 /**
- * Get default error code from HTTP status
- */
-function getCodeForStatus(status: number): string {
-  const statusMap: Record<number, string> = {
-    400: 'BAD_REQUEST',
-    401: 'UNAUTHORIZED',
-    403: 'FORBIDDEN',
-    404: 'NOT_FOUND',
-    405: 'METHOD_NOT_ALLOWED',
-    409: 'CONFLICT',
-    413: 'PAYLOAD_TOO_LARGE',
-    422: 'UNPROCESSABLE_ENTITY',
-    429: 'TOO_MANY_REQUESTS',
-    500: 'INTERNAL_SERVER_ERROR',
-    501: 'NOT_IMPLEMENTED',
-    502: 'BAD_GATEWAY',
-    503: 'SERVICE_UNAVAILABLE',
-    504: 'GATEWAY_TIMEOUT',
-  }
-
-  return statusMap[status] ?? 'ERROR'
-}
-
-/**
  * Normalize any error to a consistent format
  *
  * @example

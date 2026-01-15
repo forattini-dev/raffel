@@ -302,171 +302,50 @@ interface HttpLoggingConfig {
 }
 ```
 
-## OpenAPI UI
+## USD Docs UI
 
-Interactive API documentation with Swagger UI and ReDoc.
+Interactive API documentation that bundles USD and OpenAPI 3.1.
 
 ### Basic Setup
 
 ```ts
-import { createServer, createOpenAPIUIMiddleware } from 'raffel'
+import { createServer } from 'raffel'
 
 const server = createServer({ port: 3000 })
+  .enableUSD({
+    info: {
+      title: 'My API',
+      version: '1.0.0',
+      description: 'A sample API',
+    },
+  })
 
 // ... register procedures ...
 
-const openapi = createOpenAPIUIMiddleware(server.getRegistry(), server.getSchemaRegistry(), {
-  info: {
-    title: 'My API',
-    version: '1.0.0',
-    description: 'A sample API',
-  },
-})
-
-// Use with HTTP server
-server.options.middleware = [
-  async (req, res) => {
-    if (openapi(req, res)) return true
-    return false
-  },
-]
+await server.start()
 ```
 
 Endpoints:
-- `GET /docs` - Swagger UI
-- `GET /redoc` - ReDoc UI
-- `GET /openapi.json` - OpenAPI spec
-
-### Custom Paths
-
-```ts
-const handlers = createOpenAPIUIHandlers(registry, schemaRegistry, {
-  info: { title: 'My API', version: '1.0.0' },
-  ui: {
-    swagger: '/api-docs',
-    redoc: '/documentation',
-    spec: '/api/openapi.json',
-    specYaml: '/api/openapi.yaml',
-  },
-})
-```
-
-### Swagger UI Only
-
-```ts
-import { OpenAPIUI } from 'raffel'
-
-const handlers = OpenAPIUI.swagger(registry, schemaRegistry, {
-  info: { title: 'My API', version: '1.0.0' },
-  path: '/docs',
-  swaggerOptions: {
-    deepLinking: true,
-    displayOperationId: true,
-  },
-})
-```
-
-### ReDoc Only
-
-```ts
-const handlers = OpenAPIUI.redoc(registry, schemaRegistry, {
-  info: { title: 'My API', version: '1.0.0' },
-  path: '/redoc',
-  redocOptions: {
-    hideDownloadButton: true,
-    expandResponses: '200,201',
-  },
-})
-```
-
-### Spec Only (No UI)
-
-```ts
-const handlers = OpenAPIUI.specOnly(registry, schemaRegistry, {
-  info: { title: 'My API', version: '1.0.0' },
-  specPath: '/openapi.json',
-  specYamlPath: '/openapi.yaml',
-})
-```
-
-### Security Schemes
-
-```ts
-const handlers = createOpenAPIUIHandlers(registry, schemaRegistry, {
-  info: { title: 'My API', version: '1.0.0' },
-  generator: {
-    securitySchemes: {
-      bearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-      },
-      apiKey: {
-        type: 'apiKey',
-        in: 'header',
-        name: 'X-API-Key',
-      },
-    },
-    security: [{ bearerAuth: [] }],
-  },
-})
-```
+- `GET /docs` - USD UI
+- `GET /docs/usd.json` - USD (JSON)
+- `GET /docs/usd.yaml` - USD (YAML)
+- `GET /docs/openapi.json` - OpenAPI 3.1
 
 ### Configuration
 
 ```ts
-interface OpenAPIUIConfig {
-  info: {
-    title: string
-    version: string
-    description?: string
-    termsOfService?: string
-    contact?: { name?: string; url?: string; email?: string }
-    license?: { name: string; url?: string }
-  }
+interface USDDocsConfig {
+  basePath?: string
+  info?: { title?: string; version?: string; description?: string }
   servers?: Array<{ url: string; description?: string }>
+  securitySchemes?: Record<string, unknown>
+  defaultSecurity?: Array<Record<string, string[]>>
   ui?: {
-    swagger?: string | SwaggerUIConfig | false
-    redoc?: string | ReDocConfig | false
-    spec?: string          // Default: '/openapi.json'
-    specYaml?: string      // Optional YAML spec path
-  }
-  generator?: {
-    openApiVersion?: '3.0.3' | '3.1.0'
-    basePath?: string
-    streamPath?: string
-    eventPath?: string
-    securitySchemes?: Record<string, SecurityScheme>
-    security?: SecurityRequirement[]
-    groupByNamespace?: boolean
+    theme?: 'light' | 'dark' | 'auto'
+    primaryColor?: string
+    tryItOut?: boolean
   }
 }
-```
-
-### Manual Handler Usage
-
-```ts
-const handlers = createOpenAPIUIHandlers(registry, schemaRegistry, config)
-
-// Get paths
-console.log(handlers.paths)
-// { swagger: '/docs', redoc: '/redoc', spec: '/openapi.json' }
-
-// Handle requests manually
-if (req.url === handlers.paths.swagger) {
-  const { html, contentType } = handlers.handleSwagger!()
-  res.setHeader('Content-Type', contentType)
-  res.end(html)
-}
-
-if (req.url === handlers.paths.spec) {
-  const { json, contentType } = handlers.handleSpec()
-  res.setHeader('Content-Type', contentType)
-  res.end(json)
-}
-
-// Get document programmatically
-const doc = handlers.getDocument()
 ```
 
 ## Integration Example
@@ -478,12 +357,23 @@ import {
   createServer,
   createHealthCheckProcedures,
   createProductionHttpLoggingMiddleware,
-  createOpenAPIUIMiddleware,
   CommonProbes,
 } from 'raffel'
 import { db, redis } from './connections'
 
-const server = createServer({ port: 3000 })
+const logging = createProductionHttpLoggingMiddleware()
+
+const server = createServer({
+  port: 3000,
+  http: {
+    middleware: [
+      (req, res) =>
+        new Promise((resolve) => logging(req, res, () => resolve(false))),
+    ],
+  },
+}).enableUSD({
+  info: { title: 'My API', version: '1.0.0' },
+})
 
 // Health checks
 const health = createHealthCheckProcedures({
@@ -499,29 +389,6 @@ const health = createHealthCheckProcedures({
 server.addProcedure({ name: 'health', handler: health.health.handler })
 server.addProcedure({ name: 'health.live', handler: health.live!.handler })
 server.addProcedure({ name: 'health.ready', handler: health.ready!.handler })
-
-// HTTP logging
-const logging = createProductionHttpLoggingMiddleware()
-
-// OpenAPI UI
-const openapi = createOpenAPIUIMiddleware(server.getRegistry(), server.getSchemaRegistry(), {
-  info: { title: 'My API', version: '1.0.0' },
-})
-
-// Combine middleware
-server.options.middleware = [
-  async (req, res) => {
-    // Logging wrapper
-    return new Promise((resolve) => {
-      logging(req, res, () => resolve(false))
-    })
-  },
-  async (req, res) => {
-    // OpenAPI UI
-    if (openapi(req, res)) return true
-    return false
-  },
-]
 
 // Your procedures
 server

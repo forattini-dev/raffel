@@ -18,6 +18,7 @@
 import { runMCPServer } from './server.js'
 import type { MCPTransportMode, CategoryName } from './types.js'
 import { toolCategories } from './tools/index.js'
+import { MCP_VERSION } from './version.js'
 
 // Parse command-line arguments
 function parseArgs(): {
@@ -59,7 +60,7 @@ function parseArgs(): {
       printHelp()
       process.exit(0)
     } else if (arg === '--version' || arg === '-v') {
-      console.log('raffel-mcp version 0.1.0')
+      console.log(`raffel-mcp version ${MCP_VERSION}`)
       process.exit(0)
     }
   }

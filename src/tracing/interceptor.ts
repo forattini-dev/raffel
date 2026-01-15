@@ -39,12 +39,11 @@ export function createTracingInterceptor(tracer: Tracer): Interceptor {
     const previousSpan = tracer.getActiveSpan()
     tracer.setActiveSpan(span)
 
-    // Attach span context to ctx for downstream use
-    const _ctxWithSpan = {
-      ...ctx,
-      span,
-      spanContext: span.context,
-    } as Context
+    ctx.tracing = {
+      traceId: span.context.traceId,
+      spanId: span.context.spanId,
+      parentSpanId: parentContext?.spanId,
+    }
 
     try {
       const result = await next()

@@ -227,7 +227,23 @@ export class FileDriver implements CacheDriver {
     // For full key support, we'd need to store key→hash mapping
     try {
       const files = fs.readdirSync(this.directory)
-      return files.filter((f) => f.endsWith('.cache')).map((f) => f.replace('.cache', ''))
+      const allKeys = files
+        .filter((f) => f.endsWith('.cache'))
+        .map((f) => f.replace('.cache', ''))
+
+      if (!pattern) return allKeys
+
+      const regex = new RegExp(
+        '^' +
+          pattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*\*/g, '{{DOUBLE_STAR}}')
+            .replace(/\*/g, '[^:]*')
+            .replace(/{{DOUBLE_STAR}}/g, '.*') +
+          '$'
+      )
+
+      return allKeys.filter((key) => regex.test(key))
     } catch {
       return []
     }

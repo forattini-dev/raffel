@@ -7,24 +7,41 @@ schemas, tags, and error responses.
 ## Basic Usage
 
 ```ts
+import { createServer } from 'raffel'
+
+const server = createServer({ port: 3000 })
+  .enableUSD({
+    info: {
+      title: 'My API',
+      version: '1.0.0',
+      description: 'A sample API built with Raffel',
+    },
+  })
+
+// ... register procedures, streams, events ...
+
+await server.start()
+
+// Generate OpenAPI document (available after enableUSD)
+const document = server.getOpenAPIDocument()
+```
+
+If you want to generate OpenAPI without enabling USD, use the generator directly:
+
+```ts
 import { createServer, generateOpenAPI } from 'raffel'
 
 const server = createServer({ port: 3000 })
 
 // ... register procedures, streams, events ...
 
-// Generate OpenAPI document
-const document = generateOpenAPI(
-  server.getRegistry(),
-  server.getSchemaRegistry(),
-  {
-    info: {
-      title: 'My API',
-      version: '1.0.0',
-      description: 'A sample API built with Raffel',
-    },
-  }
-)
+const document = generateOpenAPI(server.registry, undefined, {
+  info: {
+    title: 'My API',
+    version: '1.0.0',
+    description: 'A sample API built with Raffel',
+  },
+})
 ```
 
 ## Output Formats
@@ -445,35 +462,30 @@ const document = generateOpenAPI(registry, schemaRegistry, {
 })
 ```
 
-## Integration with OpenAPI UI
+## Integration with USD UI
 
-Use with the DX module for interactive documentation:
+Use Raffel's USD documentation UI to serve OpenAPI and USD from the same endpoint:
 
 ```ts
-import {
-  createServer,
-  createOpenAPIUIMiddleware,
-} from 'raffel'
+import { createServer } from 'raffel'
 
 const server = createServer({ port: 3000 })
+  .enableUSD({
+    info: { title: 'My API', version: '1.0.0' },
+  })
 
 // ... register procedures ...
 
-const openapi = createOpenAPIUIMiddleware(
-  server.getRegistry(),
-  server.getSchemaRegistry(),
-  {
-    info: { title: 'My API', version: '1.0.0' },
-  }
-)
+await server.start()
 
-// Adds endpoints:
-// GET /docs       → Swagger UI
-// GET /redoc      → ReDoc
-// GET /openapi.json → OpenAPI spec
+// Endpoints:
+// GET /docs            → USD UI
+// GET /docs/usd.json   → USD (JSON)
+// GET /docs/usd.yaml   → USD (YAML)
+// GET /docs/openapi.json → OpenAPI 3.1
 ```
 
-See [Developer Experience](dx.md) for full UI configuration options.
+See [Developer Experience](dx.md) for full USD UI configuration options.
 
 ## TypeScript Types
 
@@ -568,33 +580,29 @@ server
   })
 
 // Generate OpenAPI
-const document = generateOpenAPI(
-  server.getRegistry(),
-  server.getSchemaRegistry(),
-  {
-    info: {
-      title: 'User Management API',
-      version: '2.0.0',
-      description: 'API for managing users and notifications',
-      contact: {
-        name: 'API Support',
-        email: 'support@example.com',
-      },
+const document = generateOpenAPI(server.registry, undefined, {
+  info: {
+    title: 'User Management API',
+    version: '2.0.0',
+    description: 'API for managing users and notifications',
+    contact: {
+      name: 'API Support',
+      email: 'support@example.com',
     },
-    servers: [
-      { url: 'https://api.example.com', description: 'Production' },
-    ],
-    securitySchemes: {
-      bearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-      },
+  },
+  servers: [
+    { url: 'https://api.example.com', description: 'Production' },
+  ],
+  securitySchemes: {
+    bearerAuth: {
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'JWT',
     },
-    security: [{ bearerAuth: [] }],
-    groupByNamespace: true,
-  }
-)
+  },
+  security: [{ bearerAuth: [] }],
+  groupByNamespace: true,
+})
 
 // Serve as endpoint
 server.procedure('openapi').handler(() => document)

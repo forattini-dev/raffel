@@ -133,9 +133,8 @@ Every handler receives a context object:
 server.procedure('users.me')
   .handler(async (input, ctx) => {
     // Request metadata
-    console.log(ctx.id)         // Request correlation ID
-    console.log(ctx.procedure)  // 'users.me'
-    console.log(ctx.protocol)   // 'http' | 'websocket' | 'grpc' | ...
+    console.log(ctx.requestId)         // Request correlation ID
+    console.log(ctx.tracing.traceId)   // Trace ID
 
     // Authentication (if middleware applied)
     console.log(ctx.auth?.principal)
@@ -146,8 +145,10 @@ server.procedure('users.me')
       throw new Error('Request cancelled')
     }
 
-    // Custom context (from interceptors)
-    console.log(ctx.custom?.requestedAt)
+    // Optional deadline (ms since epoch)
+    if (ctx.deadline && Date.now() > ctx.deadline) {
+      throw new Error('Deadline exceeded')
+    }
 
     return { userId: ctx.auth?.principal }
   })

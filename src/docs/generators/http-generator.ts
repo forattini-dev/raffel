@@ -98,7 +98,6 @@ export function generateHttpPaths(
       for (const route of resource.routes) {
         const openApiPath = convertPathParams(route.path)
         const method = route.method.toLowerCase() as Lowercase<HttpMethod>
-        const _operationId = `${resource.name}_${route.operation}`
 
         // Add both with and without suffix to handle HEAD/OPTIONS variants
         restOperationIds.add(`${resource.name}.${route.operation}`)

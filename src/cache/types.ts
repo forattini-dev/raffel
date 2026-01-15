@@ -115,6 +115,7 @@ export interface CacheStats {
 export interface MemoryStats {
   currentMemoryBytes: number
   maxMemoryBytes: number
+  maxMemoryPercent?: number
   memoryUsagePercent: number
   totalItems: number
   maxSize: number

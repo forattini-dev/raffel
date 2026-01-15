@@ -22,16 +22,18 @@ grpcService.CreateUser = async (call) => { /* mesma lógica, diferente */ })
 Com Raffel, você escreve uma vez:
 
 ```typescript
+import { createServer } from 'raffel'
+
 // ✅ Uma função, todos os protocolos
-await createServer({
-  port: 3000,
-  routes: {
-    'users.create': async (input) => {
-      // Sua lógica de negócio
-      return { id: crypto.randomUUID(), ...input }
-    }
-  }
-})
+const server = createServer({ port: 3000 })
+
+server.procedure('users.create')
+  .handler(async (input) => {
+    // Sua lógica de negócio
+    return { id: crypto.randomUUID(), ...input }
+  })
+
+await server.start()
 ```
 
 Essa função agora responde em:
@@ -51,15 +53,15 @@ O exemplo mais simples possível:
 ```typescript
 import { createServer } from 'raffel'
 
-await createServer({
-  port: 3000,
-  routes: {
-    // 'hello' é o nome do procedimento
-    // O cliente envia { name: 'World' }
-    // O servidor retorna 'Hello, World!'
-    'hello': ({ name }) => `Hello, ${name}!`
-  }
-})
+const server = createServer({ port: 3000 })
+
+server.procedure('hello')
+  // 'hello' é o nome do procedimento
+  // O cliente envia { name: 'World' }
+  // O servidor retorna 'Hello, World!'
+  .handler(async ({ name }) => `Hello, ${name}!`)
+
+await server.start()
 ```
 
 Teste com curl:
@@ -88,16 +90,16 @@ await createServer({
 })
 ```
 
-Agora crie arquivos na pasta `routes/`:
+Agora crie arquivos na pasta `src/rpc/`:
 
 ```typescript
-// routes/hello.ts
+// src/rpc/hello.ts
 // Este arquivo vira o procedimento 'hello'
 export default ({ name }) => `Hello, ${name}!`
 ```
 
 ```typescript
-// routes/users/create.ts
+// src/rpc/users/create.ts
 // Este arquivo vira o procedimento 'users.create'
 export default async (input) => ({
   id: crypto.randomUUID(),
@@ -108,13 +110,13 @@ export default async (input) => ({
 A estrutura de pastas define os nomes:
 
 ```
-routes/
+src/rpc/
 ├── hello.ts           → procedimento: hello
 ├── users/
 │   ├── create.ts      → procedimento: users.create
 │   ├── list.ts        → procedimento: users.list
 │   └── [id].ts        → procedimento: users.get (com parâmetro)
-└── _middleware.ts     → middleware aplicado a todas as rotas
+└── _middleware.ts     → middleware aplicado a todos os handlers
 ```
 
 ---
@@ -124,28 +126,28 @@ routes/
 Para validar os dados de entrada, passe um schema Zod (ou Yup, Joi):
 
 ```typescript
-import { createServer } from 'raffel'
+import { createServer, createZodAdapter, registerValidator } from 'raffel'
 import { z } from 'zod'
 
-await createServer({
-  port: 3000,
-  routes: {
-    'users.create': {
-      // Schema de validação - rejeita requests inválidos automaticamente
-      input: z.object({
-        name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
-        email: z.string().email('Email inválido')
-      }),
+registerValidator(createZodAdapter(z))
 
-      // Handler só é chamado se a validação passar
-      handler: async (input) => ({
-        id: crypto.randomUUID(),
-        ...input,
-        createdAt: new Date().toISOString()
-      })
-    }
-  }
-})
+const server = createServer({ port: 3000 })
+
+server
+  .procedure('users.create')
+  // Schema de validação - rejeita requests inválidos automaticamente
+  .input(z.object({
+    name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+    email: z.string().email('Email inválido'),
+  }))
+  // Handler só é chamado se a validação passar
+  .handler(async (input) => ({
+    id: crypto.randomUUID(),
+    ...input,
+    createdAt: new Date().toISOString(),
+  }))
+
+await server.start()
 ```
 
 Se o cliente enviar dados inválidos:
@@ -172,40 +174,36 @@ curl localhost:3000/users.create \
 Interceptors são middlewares que rodam antes/depois de cada request. Use para logging, rate limiting, timeout, etc:
 
 ```typescript
-import { createServer, logging, timeout, rateLimit } from 'raffel'
+import {
+  createServer,
+  createLoggingInterceptor,
+  createTimeoutInterceptor,
+  createRateLimitInterceptor,
+} from 'raffel'
 
-await createServer({
-  port: 3000,
-
+const server = createServer({ port: 3000 })
   // Interceptors globais - aplicados a TODAS as rotas
-  interceptors: [
-    // Loga cada request com duração
-    logging(),
+  .use(createLoggingInterceptor())
+  .use(createTimeoutInterceptor({ defaultMs: 30000 }))
+  .use(createRateLimitInterceptor({ maxRequests: 100, windowMs: 60_000 }))
 
-    // Cancela requests que demoram mais de 30 segundos
-    timeout(30000),
+server.procedure('hello')
+  .handler(async ({ name }) => `Hello, ${name}!`)
 
-    // Máximo 100 requests por minuto por IP
-    rateLimit({ max: 100, window: '1m' })
-  ],
-
-  routes: {
-    'hello': ({ name }) => `Hello, ${name}!`
-  }
-})
+await server.start()
 ```
 
 Interceptors disponíveis:
 
 | Interceptor | O que faz |
 |:------------|:----------|
-| `logging()` | Loga cada request com método, duração e status |
-| `timeout(ms)` | Cancela requests lentos |
-| `rateLimit({ max, window })` | Limita requests por IP |
-| `retry({ attempts })` | Retry automático em caso de falha |
-| `circuitBreaker()` | Para de chamar serviços que estão falhando |
-| `cache({ ttl })` | Cache de respostas |
-| `bulkhead({ max })` | Limita requests concorrentes |
+| `createLoggingInterceptor()` | Loga cada request com método, duração e status |
+| `createTimeoutInterceptor({ defaultMs })` | Cancela requests lentos |
+| `createRateLimitInterceptor({ maxRequests, windowMs })` | Limita requests por IP |
+| `createRetryInterceptor({ maxAttempts })` | Retry automático em caso de falha |
+| `createCircuitBreakerInterceptor()` | Para de chamar serviços que estão falhando |
+| `createCacheInterceptor({ ttlMs })` | Cache de respostas |
+| `createBulkheadInterceptor({ concurrency })` | Limita requests concorrentes |
 
 ---
 
@@ -214,41 +212,49 @@ Interceptors disponíveis:
 Proteja rotas com JWT, API Key ou outros métodos:
 
 ```typescript
-import { createServer, bearer } from 'raffel'
+import {
+  createServer,
+  createAuthMiddleware,
+  createBearerStrategy,
+  requireAuth,
+  hasRole,
+  RaffelError,
+} from 'raffel'
 
-await createServer({
-  port: 3000,
-
+const server = createServer({ port: 3000 })
   // Configura autenticação JWT globalmente
-  auth: bearer({
-    secret: process.env.JWT_SECRET,
-    // Opcional: buscar usuário do banco
-    getUser: async (payload) => db.users.findById(payload.sub)
-  }),
+  .use(createAuthMiddleware({
+    strategies: [
+      createBearerStrategy({
+        verify: async (token) => verifyJwt(token),
+      }),
+    ],
+  }))
 
-  routes: {
-    // Rota pública - qualquer um pode acessar
-    'health': () => ({ ok: true }),
+// Rota pública - qualquer um pode acessar
+server.procedure('health')
+  .handler(async () => ({ ok: true }))
 
-    // Rota protegida - requer token válido
-    'users.me': {
-      auth: true,  // Exige autenticação
-      handler: (input, ctx) => {
-        // ctx.auth contém os dados do usuário autenticado
-        return {
-          id: ctx.auth.principal,
-          email: ctx.auth.claims.email
-        }
-      }
-    },
-
-    // Rota com roles específicos
-    'admin.stats': {
-      auth: { roles: ['admin'] },  // Só admins
-      handler: async () => getAdminStats()
+// Rota protegida - requer token valido
+server.procedure('users.me')
+  .handler(async (_input, ctx) => {
+    const auth = requireAuth(ctx)
+    return {
+      id: auth.principal,
+      email: auth.claims?.email,
     }
-  }
-})
+  })
+
+// Rota com roles especificos
+server.procedure('admin.stats')
+  .handler(async (_input, ctx) => {
+    if (!hasRole(ctx, 'admin')) {
+      throw new RaffelError('PERMISSION_DENIED', 'Admin only')
+    }
+    return getAdminStats()
+  })
+
+await server.start()
 ```
 
 ---
@@ -258,30 +264,31 @@ await createServer({
 Para dados em tempo real, use generators:
 
 ```typescript
-await createServer({
-  port: 3000,
-  streams: {
-    // Stream de logs em tempo real
-    'logs.tail': async function* ({ file }) {
-      // O asterisco (*) indica que é um generator
-      for await (const line of readLines(file)) {
-        // yield envia cada linha para o cliente
-        yield { line, timestamp: Date.now() }
-      }
-    },
+const server = createServer({ port: 3000 })
 
-    // Stream de progresso de upload
-    'upload.progress': async function* ({ uploadId }) {
-      while (true) {
-        const progress = await getUploadProgress(uploadId)
-        yield { percent: progress.percent }
-
-        if (progress.percent >= 100) break
-        await sleep(500)  // Atualiza a cada 500ms
-      }
+// Stream de logs em tempo real
+server.stream('logs.tail')
+  .handler(async function* ({ file }) {
+    // O asterisco (*) indica que e um generator
+    for await (const line of readLines(file)) {
+      // yield envia cada linha para o cliente
+      yield { line, timestamp: Date.now() }
     }
-  }
-})
+  })
+
+// Stream de progresso de upload
+server.stream('upload.progress')
+  .handler(async function* ({ uploadId }) {
+    while (true) {
+      const progress = await getUploadProgress(uploadId)
+      yield { percent: progress.percent }
+
+      if (progress.percent >= 100) break
+      await sleep(500)  // Atualiza a cada 500ms
+    }
+  })
+
+await server.start()
 ```
 
 ---
@@ -291,22 +298,27 @@ await createServer({
 Por padrão, HTTP e WebSocket estão habilitados. Para customizar:
 
 ```typescript
-await createServer({
-  port: 3000,
+const server = createServer({ port: 3000 })
+  // Configuracao por protocolo
+  .protocols({
+    websocket: '/ws',
+    jsonrpc: '/rpc',
+    graphql: '/graphql',
+    grpc: { port: 50051 },
+    tcp: { port: 9000 },
+  })
 
-  // Configuração por protocolo
-  http: true,                    // Habilitado por padrão
-  websocket: true,               // Habilitado por padrão em /ws
-  jsonrpc: '/rpc',               // JSON-RPC 2.0 em /rpc
-  graphql: '/graphql',           // GraphQL com schema auto-gerado
-  grpc: { port: 50051 },         // gRPC em porta separada
-  tcp: { port: 9000 },           // TCP raw
-  udp: { port: 9001 },           // UDP raw
+server.udp
+  .handler('metrics', { port: 9001 })
+  .onMessage((msg, rinfo, ctx) => {
+    console.log(`UDP ${rinfo.address}:${rinfo.port} -> ${msg.length} bytes`)
+  })
+  .end()
 
-  routes: {
-    'hello': ({ name }) => `Hello, ${name}!`
-  }
-})
+server.procedure('hello')
+  .handler(async ({ name }) => `Hello, ${name}!`)
+
+await server.start()
 ```
 
 ---

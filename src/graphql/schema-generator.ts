@@ -121,9 +121,19 @@ interface TypeCache {
 }
 
 function getZodTypeName(schema: z.ZodTypeAny): string {
-  // Access internal Zod type name
+  // Access internal Zod type name (support both old and new Zod APIs)
   const def = (schema as any)._def
-  return def?.typeName ?? 'unknown'
+  // Newer Zod uses _def.type (lowercase), older uses _def.typeName (ZodXxx)
+  const typeName = def?.typeName ?? def?.type
+  if (!typeName) return 'unknown'
+  // Normalize to ZodXxx format
+  if (typeName.startsWith('Zod')) return typeName
+  return `Zod${typeName.charAt(0).toUpperCase()}${typeName.slice(1)}`
+}
+
+function getZodShape(def: any): Record<string, z.ZodTypeAny> {
+  // Support both old Zod (shape is a function) and new Zod (shape is a getter)
+  return typeof def.shape === 'function' ? def.shape() : def.shape
 }
 
 function zodToGraphQLOutput(
@@ -170,7 +180,7 @@ function zodToGraphQLOutput(
       if (cache.output.has(cacheKey)) {
         baseType = cache.output.get(cacheKey)!
       } else {
-        const shape = def.shape()
+        const shape = getZodShape(def)
         const fields: Record<string, GraphQLFieldConfig<unknown, unknown>> = {}
 
         for (const [key, value] of Object.entries(shape)) {
@@ -198,7 +208,8 @@ function zodToGraphQLOutput(
     }
 
     case 'ZodEnum': {
-      const values = def.values as string[]
+      // Support both old Zod (values is array) and new Zod (entries is object)
+      const values: string[] = def.values ?? Object.values(def.entries ?? {})
       const enumValues: Record<string, { value: string }> = {}
       for (const val of values) {
         const enumKey = val.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
@@ -316,7 +327,7 @@ function zodToGraphQLInput(
       if (cache.input.has(cacheKey)) {
         baseType = cache.input.get(cacheKey)!
       } else {
-        const shape = def.shape()
+        const shape = getZodShape(def)
         const fields: Record<string, GraphQLInputFieldConfig> = {}
 
         for (const [key, value] of Object.entries(shape)) {
@@ -344,7 +355,8 @@ function zodToGraphQLInput(
     }
 
     case 'ZodEnum': {
-      const values = def.values as string[]
+      // Support both old Zod (values is array) and new Zod (entries is object)
+      const values: string[] = def.values ?? Object.values(def.entries ?? {})
       const enumValues: Record<string, { value: string }> = {}
       for (const val of values) {
         const enumKey = val.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
@@ -629,7 +641,7 @@ function createFieldFromHandler(
     if (inputTypeName === 'ZodObject') {
       // Flatten object fields as args
       const def = (schema.input as any)._def
-      const shape = def.shape()
+      const shape = getZodShape(def)
 
       for (const [key, value] of Object.entries(shape)) {
         const fieldSchema = value as z.ZodTypeAny

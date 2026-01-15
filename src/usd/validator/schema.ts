@@ -4,8 +4,8 @@
 
 import { createRequire } from 'node:module'
 
-import type { USDDocument, USDValidationResult, USDValidationError } from '../spec/types.js'
-import { ValidationErrorCodes, createError, createWarning, type ValidationErrorCode } from './errors.js'
+import type { USDValidationResult, USDValidationError } from '../spec/types.js'
+import { ValidationErrorCodes, createError, type ValidationErrorCode } from './errors.js'
 
 /**
  * Minimal Ajv interfaces (avoids complex typing issues)

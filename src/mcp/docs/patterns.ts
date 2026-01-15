@@ -754,7 +754,7 @@ ErrorCodes = {
 }
 
 // Global error hook
-.error(async (error, ctx) => { ... })`,
+onError: (error, protocol, ctx) => { ... }`,
     correctExamples: [
       {
         title: 'Throwing Typed Errors',
@@ -796,11 +796,11 @@ server.procedure('users.create')
 
 server.procedure('orders.process')
   .handler(async (input, ctx) => {
-    if (!ctx.auth.authenticated) {
+    if (!ctx.auth?.authenticated) {
       throw Errors.unauthenticated('Login required')
     }
 
-    if (!ctx.auth.principal.roles.includes('admin')) {
+    if (!ctx.auth?.claims?.roles?.includes('admin')) {
       throw Errors.permissionDenied('Admin access required')
     }
 
@@ -814,24 +814,23 @@ server.procedure('orders.process')
       },
       {
         title: 'Global Error Hook',
-        code: `const server = createServer()
-  .error(async (error, ctx) => {
+        code: `const server = createServer({
+  onError: async (error, protocol, ctx) => {
     // Log all errors
     console.error({
-      requestId: ctx.requestId,
-      procedure: ctx.procedure,
+      requestId: ctx?.requestId,
+      protocol,
       error: error.message,
-      code: error.code,
+      code: (error as any).code,
       stack: error.stack
     })
 
     // Report to error tracking
-    if (error.code === 'INTERNAL') {
+    if ((error as any).code === 'INTERNAL_ERROR') {
       await Sentry.captureException(error)
     }
-
-    // Don't modify the error - just observe
-  })`,
+  }
+})`,
       },
       {
         title: 'Per-Procedure Error Hook',

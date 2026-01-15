@@ -132,7 +132,7 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
   /**
    * Handle file change event
    */
-  function handleChange(eventType: string, filename: string | null, dir: string): void {
+  function handleChange(_eventType: string, filename: string | null, dir: string): void {
     if (!filename) return
 
     // Check if it's a relevant file

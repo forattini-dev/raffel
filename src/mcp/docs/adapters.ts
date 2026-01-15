@@ -14,67 +14,70 @@ export const adapters: AdapterDoc[] = [
       'REST-like HTTP adapter. Maps procedures to endpoints, supports SSE for streaming, and handles CORS.',
     options: [
       {
-        name: 'prefix',
+        name: 'basePath',
         type: 'string',
         required: false,
-        default: "'/api'",
+        default: "'/'",
         description: 'Base path prefix for all endpoints',
       },
       {
         name: 'cors',
         type: 'CorsOptions | boolean',
         required: false,
-        default: 'false',
+        default: 'true',
         description: 'CORS configuration (true enables permissive defaults)',
       },
       {
-        name: 'bodyLimit',
+        name: 'maxBodySize',
         type: 'number',
         required: false,
         default: '1048576',
         description: 'Maximum request body size in bytes (1MB default)',
       },
       {
-        name: 'trustProxy',
-        type: 'boolean',
+        name: 'codecs',
+        type: 'Codec[]',
         required: false,
-        default: 'false',
-        description: 'Trust X-Forwarded-* headers from reverse proxy',
+        description: 'Additional codecs for content negotiation',
       },
       {
-        name: 'streaming',
-        type: 'boolean',
+        name: 'middleware',
+        type: 'HttpMiddleware[]',
         required: false,
-        default: 'true',
-        description: 'Enable SSE for streaming procedures',
+        description: 'HTTP middleware that can short-circuit requests',
+      },
+      {
+        name: 'contextFactory',
+        type: '(req) => Partial<Context>',
+        required: false,
+        description: 'Extend context from incoming requests',
       },
     ],
     features: [
       'Automatic procedure → REST mapping',
       'SSE (Server-Sent Events) for streaming',
       'CORS with preflight support',
-      'Gzip/Brotli compression',
+      'Content negotiation via codecs',
       'Request ID propagation',
-      'Health check endpoints',
-      'OpenAPI spec generation',
+      'Rate limit headers (when enabled)',
     ],
     mapping: `
 ## HTTP Mapping
 
 | Handler Type | HTTP Method | Path Pattern | Response |
 |--------------|-------------|--------------|----------|
-| Procedure | POST | /api/{procedure.name} | JSON |
-| Stream (server) | GET | /api/streams/{name} | SSE |
-| Event | POST | /api/events/{name} | 202 Accepted |
+| Procedure | POST | {basePath}/{procedure.name} | JSON |
+| Stream (server) | GET | {basePath}/streams/{name} | SSE |
+| Event | POST | {basePath}/events/{name} | 202 Accepted |
 
 ### Headers → Metadata
 
 | HTTP Header | Envelope Metadata |
 |-------------|-------------------|
 | Authorization | metadata.authorization |
-| X-Request-ID | envelope.id |
-| X-Trace-ID | context.tracing.traceId |
-| Content-Type | metadata.contentType |
+| X-Request-Id | metadata['x-request-id'] |
+| Traceparent | metadata.traceparent |
+| Content-Type | metadata['content-type'] |
 | Accept | metadata.accept |
 
 ### Status Code Mapping
@@ -106,8 +109,8 @@ const server = createServer({ port: 3000 })
 await server.start()
 
 // Endpoints created:
-// POST /api/users.list
-// POST /api/users.create`,
+// POST /users.list
+// POST /users.create`,
       },
       {
         title: 'SSE Streaming',
@@ -129,7 +132,7 @@ const server = createServer({ port: 3000 })
       }
     })
 
-// Client: GET /api/streams/logs.tail (SSE)
+// Client: GET /streams/logs.tail (SSE)
 // Receives: data: {"level":"info","message":"..."}`,
       },
       {
@@ -158,8 +161,14 @@ const server = createServer({
         name: 'path',
         type: 'string',
         required: false,
-        default: "'/ws'",
+        default: "'/'",
         description: 'WebSocket endpoint path',
+      },
+      {
+        name: 'port',
+        type: 'number',
+        required: false,
+        description: 'WebSocket port (defaults to HTTP port when shared)',
       },
       {
         name: 'heartbeatInterval',
@@ -169,17 +178,11 @@ const server = createServer({
         description: 'Ping interval in milliseconds',
       },
       {
-        name: 'maxConnections',
+        name: 'maxPayloadSize',
         type: 'number',
         required: false,
-        description: 'Maximum concurrent connections',
-      },
-      {
-        name: 'perMessageDeflate',
-        type: 'boolean',
-        required: false,
-        default: 'true',
-        description: 'Enable per-message compression',
+        default: '1048576',
+        description: 'Maximum message size in bytes (1MB default)',
       },
       {
         name: 'channels',
@@ -192,10 +195,8 @@ const server = createServer({
       'Full-duplex bidirectional communication',
       'JSON envelope protocol',
       'Automatic heartbeat/ping-pong',
-      'Per-message compression',
       'Pusher-compatible pub/sub channels',
       'Presence channels with member tracking',
-      'Automatic reconnection support (client)',
       'Stream multiplexing',
     ],
     mapping: `
@@ -259,17 +260,20 @@ const server = createServer({
         code: `import { createServer } from 'raffel'
 
 const server = createServer({ port: 3000 })
-  .enableWebSocket({
+  .websocket({
     path: '/ws',
-    heartbeatInterval: 30000
+    heartbeatInterval: 30000,
+    channels: {
+      authorize: () => true,
+    }
   })
 
   .procedure('chat.send')
     .handler(async (input, ctx) => {
       const message = await db.messages.create({ data: input })
 
-      // Broadcast to all connected clients
-      server.ws?.broadcast({ type: 'new_message', data: message })
+      // Broadcast to a public channel
+      server.channels?.broadcast('chat-room', 'new_message', message)
 
       return message
     })
@@ -285,7 +289,8 @@ await server.start()
 const server = createServer()
   .enableWebSocket()
 
-  .stream('chat.room', { direction: 'bidi' })
+  .stream('chat.room')
+    .direction('bidi')
     .handler(async function* (inputStream, ctx) {
       const output = createStream()
 
@@ -304,9 +309,9 @@ const server = createServer()
         code: `import { createServer } from 'raffel'
 
 const server = createServer()
-  .enableWebSocket({
+  .websocket({
     channels: {
-      authorize: async (socket, channel, ctx) => {
+      authorize: async (socketId, channel, ctx) => {
         // Authorize private/presence channels
         if (channel.startsWith('private-user-')) {
           const userId = channel.replace('private-user-', '')
@@ -314,9 +319,10 @@ const server = createServer()
         }
         return true
       },
-      onSubscribe: (socket, channel) => {
-        console.log(\`Client subscribed to \${channel}\`)
-      }
+      presenceData: (socketId, channel, ctx) => ({
+        userId: ctx.auth?.principal,
+        channel,
+      })
     }
   })
 
@@ -339,9 +345,39 @@ const members = server.channels?.getMembers('presence-room-1')`,
       {
         name: 'port',
         type: 'number',
-        required: false,
-        default: '50051',
+        required: true,
         description: 'gRPC server port',
+      },
+      {
+        name: 'host',
+        type: 'string',
+        required: false,
+        default: "'0.0.0.0'",
+        description: 'Host to bind to',
+      },
+      {
+        name: 'protoPath',
+        type: 'string | string[]',
+        required: true,
+        description: 'Path to .proto files',
+      },
+      {
+        name: 'packageName',
+        type: 'string',
+        required: false,
+        description: 'Package name to scope services',
+      },
+      {
+        name: 'serviceNames',
+        type: 'string[]',
+        required: false,
+        description: 'Subset of services to register',
+      },
+      {
+        name: 'loaderOptions',
+        type: 'ProtoLoaderOptions',
+        required: false,
+        description: 'Proto loader options',
       },
       {
         name: 'tls',
@@ -353,32 +389,22 @@ const members = server.channels?.getMembers('presence-room-1')`,
         name: 'maxReceiveMessageLength',
         type: 'number',
         required: false,
-        default: '4194304',
-        description: 'Maximum message size (4MB default)',
+        description: 'Maximum receive message size in bytes',
       },
       {
-        name: 'reflection',
-        type: 'boolean',
+        name: 'maxSendMessageLength',
+        type: 'number',
         required: false,
-        default: 'true',
-        description: 'Enable gRPC reflection for tools like grpcurl',
-      },
-      {
-        name: 'protoPath',
-        type: 'string',
-        required: false,
-        description: 'Path to .proto files (auto-generates if not provided)',
+        description: 'Maximum send message size in bytes',
       },
     ],
     features: [
       'HTTP/2 multiplexing',
       'Protobuf binary serialization',
       'All streaming modes (unary, server, client, bidi)',
-      'gRPC reflection',
       'Deadline/timeout propagation',
       'Metadata (headers) support',
       'TLS/mTLS encryption',
-      'Health check protocol',
     ],
     mapping: `
 ## gRPC Mapping
@@ -407,7 +433,7 @@ gRPC:   /raffel.Orders/GetById
 | gRPC Metadata | Raffel Context |
 |---------------|----------------|
 | authorization | ctx.auth |
-| x-request-id | envelope.id |
+| x-request-id | ctx.requestId |
 | grpc-timeout | ctx.deadline |
 | traceparent | ctx.tracing |
 `,
@@ -417,7 +443,7 @@ gRPC:   /raffel.Orders/GetById
         code: `import { createServer } from 'raffel'
 
 const server = createServer()
-  .grpc({ port: 50051, reflection: true })
+  .grpc({ port: 50051, protoPath: './proto/service.proto' })
 
   .procedure('users.Create')
     .handler(async (input) => db.users.create({ data: input }))
@@ -474,22 +500,34 @@ const server = createServer()
         name: 'path',
         type: 'string',
         required: false,
-        default: "'/jsonrpc'",
+        default: "'/rpc'",
         description: 'JSON-RPC endpoint path',
       },
       {
-        name: 'batchLimit',
+        name: 'timeout',
         type: 'number',
         required: false,
-        default: '100',
-        description: 'Maximum requests in a batch',
+        default: '30000',
+        description: 'Request timeout in milliseconds',
       },
       {
-        name: 'strictMode',
-        type: 'boolean',
+        name: 'maxBodySize',
+        type: 'number',
         required: false,
-        default: 'true',
-        description: 'Strict JSON-RPC 2.0 compliance',
+        default: '1048576',
+        description: 'Maximum request body size in bytes (1MB default)',
+      },
+      {
+        name: 'codecs',
+        type: 'Codec[]',
+        required: false,
+        description: 'Additional codecs for content negotiation',
+      },
+      {
+        name: 'port',
+        type: 'number',
+        required: false,
+        description: 'JSON-RPC port (defaults to HTTP port when shared)',
       },
     ],
     features: [
@@ -539,7 +577,7 @@ const server = createServer()
         code: `import { createServer } from 'raffel'
 
 const server = createServer()
-  .enableJsonRpc({ path: '/rpc' })
+  .jsonrpc({ path: '/rpc' })
 
   .procedure('math.add')
     .handler(async ({ a, b }) => a + b)
@@ -644,7 +682,7 @@ Input/Output schemas automatically generate GraphQL types.
 import { z } from 'zod'
 
 const server = createServer()
-  .enableGraphQL({ path: '/graphql', playground: true })
+  .configureGraphQL({ path: '/graphql', playground: true })
 
   // Becomes Query.usersList
   .procedure('users.list')
@@ -670,7 +708,7 @@ await server.start()
         code: `import { createServer, createStream } from 'raffel'
 
 const server = createServer()
-  .enableGraphQL({ subscriptions: true })
+  .configureGraphQL({ subscriptions: true })
 
   // Becomes Subscription.messagesNew
   .stream('messages.new')
@@ -703,40 +741,37 @@ const server = createServer()
         description: 'TCP server port',
       },
       {
-        name: 'framing',
-        type: "'length-prefixed' | 'newline' | 'custom'",
+        name: 'host',
+        type: 'string',
         required: false,
-        default: "'length-prefixed'",
-        description: 'Message framing strategy',
+        default: "'0.0.0.0'",
+        description: 'Host to bind to',
       },
       {
         name: 'maxMessageSize',
         type: 'number',
         required: false,
-        default: '1048576',
-        description: 'Maximum message size (1MB default)',
+        default: '16777216',
+        description: 'Maximum message size (16MB default)',
       },
       {
-        name: 'serialization',
-        type: "'json' | 'msgpack' | 'cbor' | 'custom'",
+        name: 'keepAliveInterval',
+        type: 'number',
         required: false,
-        default: "'json'",
-        description: 'Message serialization format',
+        default: '30000',
+        description: 'Keep-alive interval in ms (0 to disable)',
       },
       {
-        name: 'tls',
-        type: 'TlsOptions',
+        name: 'contextFactory',
+        type: '(socket) => Partial<Context>',
         required: false,
-        description: 'TLS configuration for secure connections',
+        description: 'Extend context from incoming sockets',
       },
     ],
     features: [
       'Length-prefixed framing',
-      'Multiple serialization formats',
-      'TLS encryption',
       'Keep-alive support',
-      'Connection pooling (client)',
-      'Binary protocol support',
+      'Metadata propagation',
     ],
     mapping: `
 ## TCP Protocol
@@ -750,10 +785,6 @@ const server = createServer()
 ### Message Format (JSON)
 
 Same as WebSocket envelope format.
-
-### Binary Serialization
-
-MessagePack and CBOR supported for reduced bandwidth.
 `,
     examples: [
       {
@@ -763,28 +794,13 @@ MessagePack and CBOR supported for reduced bandwidth.
 const server = createServer()
   .tcp({
     port: 9000,
-    framing: 'length-prefixed',
-    serialization: 'msgpack'
+    keepAliveInterval: 30000
   })
 
   .procedure('data.process')
     .handler(async (input) => processData(input))
 
 await server.start()`,
-      },
-      {
-        title: 'TCP with TLS',
-        code: `import { createServer } from 'raffel'
-import { readFileSync } from 'fs'
-
-const server = createServer()
-  .tcp({
-    port: 9443,
-    tls: {
-      cert: readFileSync('server.crt'),
-      key: readFileSync('server.key')
-    }
-  })`,
       },
     ],
   },
@@ -795,23 +811,16 @@ const server = createServer()
       'Auto-generates CRUD endpoints from s3db.js resources. Maps HTTP verbs to S3DB operations.',
     options: [
       {
-        name: 'database',
-        type: 'S3DBDatabaseLike',
-        required: true,
-        description: 's3db.js database instance',
-      },
-      {
-        name: 'resources',
-        type: 'string[]',
-        required: false,
-        description: 'Resource names to expose (all if not specified)',
-      },
-      {
-        name: 'prefix',
+        name: 'basePath',
         type: 'string',
         required: false,
-        default: "'/api'",
-        description: 'API prefix for generated routes',
+        description: 'Base path prefix for generated procedures',
+      },
+      {
+        name: 'methods',
+        type: "Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD'>",
+        required: false,
+        description: 'HTTP methods to enable',
       },
       {
         name: 'guards',
@@ -819,27 +828,53 @@ const server = createServer()
         required: false,
         description: 'Flexible guards system for authorization (roles, scopes, custom functions)',
       },
+      {
+        name: 'protectedFields',
+        type: 'string[]',
+        required: false,
+        description: 'Fields to filter from responses',
+      },
+      {
+        name: 'enableETag',
+        type: 'boolean',
+        required: false,
+        default: 'true',
+        description: 'Enable ETag support for caching and concurrency',
+      },
+      {
+        name: 'enablePaginationHeaders',
+        type: 'boolean',
+        required: false,
+        default: 'true',
+        description: 'Enable pagination headers',
+      },
+      {
+        name: 'getResource',
+        type: '(name) => S3DBResourceLike | undefined',
+        required: false,
+        description: 'Resolver for populate validation across relations',
+      },
     ],
     features: [
       'Auto-CRUD from s3db.js resources',
       'Filtering, sorting, pagination',
       'Relation expansion',
       'Authorization hooks',
-      'OpenAPI spec generation',
+      'ETag + Prefer header support',
     ],
     mapping: `
 ## S3DB HTTP Mapping
 
 | HTTP | Path | S3DB Operation |
 |------|------|----------------|
-| GET | /api/users | resource.list() |
-| GET | /api/users/:id | resource.get(id) |
-| POST | /api/users | resource.create(data) |
-| PUT | /api/users/:id | resource.update(id, data) |
-| PATCH | /api/users/:id | resource.update(id, data, {partial: true}) |
-| DELETE | /api/users/:id | resource.delete(id) |
-| HEAD | /api/users/:id | resource.exists(id) |
-| OPTIONS | /api/users | resource.schema() |
+| GET | {basePath}/users | resource.list() |
+| GET | {basePath}/users/:id | resource.get(id) |
+| POST | {basePath}/users | resource.create(data) |
+| PUT | {basePath}/users/:id | resource.update(id, data) |
+| PATCH | {basePath}/users/:id | resource.update(id, data, {partial: true}) |
+| DELETE | {basePath}/users/:id | resource.delete(id) |
+| HEAD | {basePath}/users/:id | resource.exists(id) |
+| OPTIONS | {basePath}/users | resource.schema() |
 
 ### Query Parameters
 
@@ -867,16 +902,11 @@ const users = createResource(db, 'users', {
 })
 
 const server = createServer()
-  .use(createS3DBAdapter({
-    database: db,
-    resources: ['users'],
-    prefix: '/api',
-    authorize: async (operation, resource, ctx) => {
-      if (operation === 'delete' && !ctx.auth?.roles?.includes('admin')) {
-        throw new Error('Only admins can delete')
-      }
-      return true
-    }
+  .mount('api', createS3DBAdapter(users, {
+    guards: {
+      read: true,
+      write: { role: 'admin' },
+    },
   }))
 
 await server.start()

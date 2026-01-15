@@ -453,6 +453,52 @@ describe('createServer', () => {
     })
   })
 
+  describe('protocol extensions', () => {
+    it('should start and stop custom protocol adapters', async () => {
+      const port = await getFreePort()
+      let started = false
+      let stopped = false
+      let receivedOptions: unknown = null
+
+      server = createServer({
+        port,
+        protocolExtensions: [
+          {
+            name: 'custom',
+            options: { mode: 'test' },
+            factory: async (ctx, options) => {
+              receivedOptions = options
+              return {
+                async start() {
+                  started = true
+                },
+                async stop() {
+                  stopped = true
+                },
+                address: {
+                  host: ctx.host,
+                  port: ctx.port,
+                  path: '/custom',
+                  shared: true,
+                },
+              }
+            },
+          },
+        ],
+      })
+
+      await server.start()
+
+      expect(started).toBe(true)
+      expect(receivedOptions).toEqual({ mode: 'test' })
+      expect(server.addresses?.protocols?.custom?.path).toBe('/custom')
+      expect(server.addresses?.protocols?.custom?.port).toBe(port)
+
+      await server.stop()
+      expect(stopped).toBe(true)
+    })
+  })
+
   describe('channel auth discovery', () => {
     let tempDir: string | null = null
 

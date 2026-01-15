@@ -48,6 +48,11 @@ export type {
   StreamSourceHandler,
   StreamSinkHandler,
   StreamDuplexHandler,
+  ProtocolAdapterContext,
+  ProtocolAdapter,
+  ProtocolAdapterFactory,
+  ProtocolExtensionConfig,
+  ProtocolAddress,
 
   // Declarative Definition Types
   ProcedureDef,

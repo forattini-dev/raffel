@@ -376,6 +376,11 @@ async function handleLogin<E extends Record<string, unknown>>(
     ...(pkce ? { codeVerifier: pkce.codeVerifier } : {}),
   }
 
+  const session = resolveSession(c, sessionKey)
+  if (session) {
+    session.set(sessionKey, stateData)
+  }
+
   // Build callback URL
   const callbackUrl = getCallbackUrl
     ? getCallbackUrl(provider, c)
@@ -461,6 +466,37 @@ async function handleCallback<E extends Record<string, unknown>>(
       provider,
       c
     )
+  }
+
+  const session = resolveSession(c, sessionKey)
+  if (session) {
+    const storedState = session.get(sessionKey) as Record<string, unknown> | undefined
+    const storedProvider = storedState?.provider as string | undefined
+    const storedNonce = storedState?.state as string | undefined
+
+    if (storedProvider && storedProvider !== provider.name) {
+      return onError(
+        { code: 'INVALID_STATE', message: 'Invalid state parameter' },
+        provider,
+        c
+      )
+    }
+
+    if (storedNonce && storedNonce !== stateData.state) {
+      return onError(
+        { code: 'INVALID_STATE', message: 'Invalid state parameter' },
+        provider,
+        c
+      )
+    }
+
+    if (storedState?.codeVerifier) {
+      stateData.codeVerifier = storedState.codeVerifier
+    }
+
+    if (session.delete) {
+      session.delete(sessionKey)
+    }
   }
 
   // Build callback URL for token exchange
@@ -550,6 +586,8 @@ function handleLogout<E extends Record<string, unknown>>(
 ): Response {
   // Clear OAuth session data
   // Note: Actual session clearing depends on session middleware
+  const session = resolveSession(c, sessionKey)
+  session?.delete?.(sessionKey)
   return new Response(
     JSON.stringify({ success: true, message: 'Logged out' }),
     {
@@ -626,6 +664,32 @@ async function generatePkceChallenge(): Promise<PkceChallenge> {
 function base64UrlEncode(bytes: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...bytes))
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+type SessionLike = {
+  get: (key: string) => unknown
+  set: (key: string, value: unknown) => void
+  delete?: (key: string) => void
+}
+
+function resolveSession<E extends Record<string, unknown>>(
+  c: HttpContextInterface<E>,
+  sessionKey: string
+): SessionLike | null {
+  const direct = c.get(sessionKey as keyof E)
+  if (isSessionLike(direct)) return direct
+
+  const fallback = c.get('session' as keyof E)
+  if (isSessionLike(fallback)) return fallback
+
+  return null
+}
+
+function isSessionLike(value: unknown): value is SessionLike {
+  return !!value &&
+    typeof value === 'object' &&
+    typeof (value as SessionLike).get === 'function' &&
+    typeof (value as SessionLike).set === 'function'
 }
 
 /**

@@ -512,6 +512,7 @@ export class MemoryDriver implements CacheDriver {
     return {
       currentMemoryBytes: this.currentMemoryBytes,
       maxMemoryBytes: this.maxMemoryBytes,
+      maxMemoryPercent: this.maxMemoryPercent || undefined,
       memoryUsagePercent: parseFloat(memoryUsagePercent.toFixed(2)),
       totalItems,
       maxSize: this.maxSize,

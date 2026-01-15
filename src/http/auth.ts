@@ -1041,6 +1041,22 @@ export function pathAuth<E extends Record<string, unknown> = Record<string, unkn
       return defaultAuth(c, next)
     }
 
+    if (errorMessage) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            message: errorMessage,
+            code: 'UNAUTHORIZED',
+          },
+        }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
     // No default - pass through
     await next()
   }
@@ -1338,12 +1354,14 @@ export function createLoginThrottle(options: LoginThrottleOptions = {}): LoginTh
     const record = attempts.get(key)
     if (!record?.blockedUntil) return false
 
-    if (record.blockedUntil < Date.now()) {
+    const now = Date.now()
+    if (record.blockedUntil < now) {
       // Block expired
       attempts.delete(key)
       return false
     }
 
+    onBlockedAttempt?.(key, record.blockedUntil - now)
     return true
   }
 

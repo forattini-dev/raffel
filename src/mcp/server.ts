@@ -19,20 +19,17 @@ import { JsonRpcErrorCode } from './types.js'
 import { tools, getToolsByCategory, handlers } from './tools/index.js'
 import { getStaticResources, getResourceTemplates, readResource } from './resources/index.js'
 import { prompts, getPromptResult } from './prompts/index.js'
-
-// Package version
-const VERSION = '0.1.0'
+import { MCP_VERSION } from './version.js'
 
 export class MCPServer {
   private options: MCPServerOptions
   private debug: boolean
-  private _initialized = false
   private enabledTools: string[]
 
   constructor(options: MCPServerOptions = {}) {
     this.options = {
       name: options.name || 'raffel-mcp',
-      version: options.version || VERSION,
+      version: options.version || MCP_VERSION,
       port: options.port || 3200,
       transport: options.transport || 'stdio',
       debug: options.debug || false,
@@ -154,7 +151,7 @@ export class MCPServer {
 
       if (req.method === 'GET' && req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'ok', version: VERSION }))
+        res.end(JSON.stringify({ status: 'ok', version: MCP_VERSION }))
         return
       }
 
@@ -232,7 +229,7 @@ export class MCPServer {
 
       if (req.method === 'GET' && req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'ok', version: VERSION, clients: clients.length }))
+        res.end(JSON.stringify({ status: 'ok', version: MCP_VERSION, clients: clients.length }))
         return
       }
 

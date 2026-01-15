@@ -29,7 +29,6 @@ import {
   createError,
   createWarning,
   mergeResults,
-  createSuccessResult,
 } from './errors.js'
 
 /**

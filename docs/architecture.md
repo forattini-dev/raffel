@@ -67,6 +67,9 @@ interface Envelope {
   // Os dados enviados pelo cliente
   payload: unknown
 
+  // Metadados do protocolo (headers, etc.)
+  metadata: Record<string, string>
+
   // Metadados e estado
   context: Context
 }
@@ -91,7 +94,8 @@ Vira:
   procedure: "users.create",
   type: "request",
   payload: { name: "Alice", email: "alice@example.com" },
-  context: { /* headers, auth, etc */ }
+  metadata: { /* headers, etc */ },
+  context: { /* auth, tracing, etc */ }
 }
 ```
 
@@ -122,49 +126,51 @@ O Context carrega informações sobre o request que não são os dados em si:
 ```typescript
 interface Context {
   // Identificador único do request
-  id: string
+  requestId: string
 
   // Informações de autenticação (se houver)
   auth?: {
     authenticated: boolean
-    principal: string      // ID do usuário
-    claims: Record<string, unknown>  // Dados do token
-    roles: string[]
+    principal?: string      // ID do usuario
+    claims?: Record<string, unknown>  // Dados do token
   }
 
-  // Headers HTTP (quando aplicável)
-  headers: Record<string, string>
-
-  // Parâmetros de rota (ex: /users/:id)
-  params: Record<string, string>
-
-  // Query string (ex: ?page=1)
-  query: Record<string, string>
+  // Contexto de tracing distribuído
+  tracing: {
+    traceId: string
+    spanId: string
+    parentSpanId?: string
+  }
 
   // Sinal de cancelamento (AbortSignal)
   signal: AbortSignal
 
-  // Deadline (quando o request expira)
-  deadline?: Date
+  // Deadline (ms desde epoch)
+  deadline?: number
 
-  // Metadados customizados
-  metadata: Record<string, unknown>
+  // Extensões customizadas
+  extensions: Map<symbol, unknown>
+
+  // Chamar outro procedimento mantendo contexto
+  call?: (procedure: string, input: unknown) => Promise<unknown>
+
+  // Nível de chamada em cascata (0 = top-level)
+  callingLevel?: number
 }
 ```
 
 O Context é passado para seu handler como segundo argumento:
 
 ```typescript
-await createServer({
-  routes: {
-    'users.me': (input, ctx) => {
-      // ctx.auth contém dados do usuário autenticado
-      // ctx.headers contém headers HTTP
-      // ctx.params contém parâmetros de rota
-      return { userId: ctx.auth?.principal }
-    }
-  }
-})
+const server = createServer({ port: 3000 })
+
+server.procedure('users.me')
+  .handler(async (input, ctx) => {
+    // ctx.auth contém dados do usuário autenticado
+    // ctx.tracing contém trace/span IDs
+    // ctx.extensions guarda dados customizados
+    return { userId: ctx.auth?.principal }
+  })
 ```
 
 ---
@@ -246,24 +252,11 @@ class Router {
       return createErrorEnvelope('PROCEDURE_NOT_FOUND')
     }
 
-    // 2. Executa interceptors (antes)
-    const ctx = await this.runBeforeInterceptors(envelope)
+    // 2. Executa interceptors (onion model)
+    const ctx = envelope.context
+    const result = await this.runInterceptors(envelope, ctx, handler.fn)
 
-    // 3. Valida input (se tiver schema)
-    if (handler.inputSchema) {
-      const validation = handler.inputSchema.safeParse(envelope.payload)
-      if (!validation.success) {
-        return createErrorEnvelope('VALIDATION_ERROR', validation.error)
-      }
-    }
-
-    // 4. Executa o handler
-    const result = await handler.fn(envelope.payload, ctx)
-
-    // 5. Executa interceptors (depois)
-    await this.runAfterInterceptors(envelope, result)
-
-    // 6. Retorna resposta
+    // 3. Retorna resposta
     return createResponseEnvelope(result)
   }
 }
@@ -273,94 +266,55 @@ class Router {
 
 ## Interceptors
 
-Interceptors são funções que rodam antes e/ou depois do handler. Eles têm acesso ao Envelope completo.
+Interceptors são funções que envolvem o handler no estilo "onion" e têm acesso
+ao Envelope completo.
 
 ```typescript
-interface Interceptor {
-  // Roda ANTES do handler
-  before?: (envelope: Envelope) => Promise<Envelope | void>
-
-  // Roda DEPOIS do handler
-  after?: (envelope: Envelope, result: unknown) => Promise<unknown>
-
-  // Roda em caso de ERRO
-  onError?: (envelope: Envelope, error: Error) => Promise<void>
-}
+type Interceptor = (
+  envelope: Envelope,
+  ctx: Context,
+  next: () => Promise<unknown>
+) => Promise<unknown>
 ```
 
-### Ordem de Execução
+### Ordem de Execucao
 
 ```
 Request chega
     │
     ▼
 ┌─────────────────┐
-│ Interceptor 1   │ ← before()
+│ Interceptor 1   │
 │   (logging)     │
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│ Interceptor 2   │ ← before()
+│ Interceptor 2   │
 │   (rateLimit)   │
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│ Interceptor 3   │ ← before()
+│ Interceptor 3   │
 │    (auth)       │
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│    Handler      │ ← Sua lógica
+│    Handler      │
 └────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Interceptor 3   │ ← after()
-│    (auth)       │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Interceptor 2   │ ← after()
-│   (rateLimit)   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Interceptor 1   │ ← after()
-│   (logging)     │
-└────────┬────────┘
-         │
          ▼
     Response sai
 ```
 
-A ordem é: `before()` na ordem definida, handler, `after()` na ordem inversa.
-
-### Exemplo: Como o Logging Interceptor Funciona
+Cada interceptor pode executar logica antes e depois de `await next()`:
 
 ```typescript
-function createLoggingInterceptor() {
-  return {
-    before: async (envelope) => {
-      // Marca o tempo de início
-      envelope.context.metadata.startTime = Date.now()
-      console.log(`→ ${envelope.procedure} started`)
-    },
-
-    after: async (envelope, result) => {
-      // Calcula duração
-      const duration = Date.now() - envelope.context.metadata.startTime
-      console.log(`← ${envelope.procedure} completed in ${duration}ms`)
-    },
-
-    onError: async (envelope, error) => {
-      const duration = Date.now() - envelope.context.metadata.startTime
-      console.error(`✗ ${envelope.procedure} failed in ${duration}ms:`, error)
-    }
+const logging: Interceptor = async (envelope, ctx, next) => {
+  const start = Date.now()
+  try {
+    return await next()
+  } finally {
+    const duration = Date.now() - start
+    console.log(`← ${envelope.procedure} ${duration}ms`)
   }
 }
 ```
@@ -389,16 +343,15 @@ const envelope = {
   procedure: "users.create",
   type: "request",
   payload: { name: "Alice", email: "alice@example.com" },
+  metadata: {
+    'content-type': 'application/json',
+    'authorization': 'Bearer eyJ...'
+  },
   context: {
-    id: "req_7x8y9z",
-    headers: {
-      'content-type': 'application/json',
-      'authorization': 'Bearer eyJ...'
-    },
-    params: {},
-    query: {},
+    requestId: "req_7x8y9z",
+    tracing: { traceId: "req_7x8y9z", spanId: "req_7x8y9z" },
     signal: AbortSignal,
-    metadata: {}
+    extensions: new Map()
   }
 }
 ```
@@ -408,20 +361,17 @@ const envelope = {
 ```typescript
 // Router.handle(envelope)
 
-// 3a. Executa interceptors (before)
+// 3a. Executa interceptors (onion model)
 // logging: marca startTime
 // auth: decodifica JWT, preenche ctx.auth
+// validation: valida input
 
-// 3b. Valida input
-// Zod valida { name, email }
-
-// 3c. Executa handler
+// 3b. Executa handler
 const result = await handler(envelope.payload, envelope.context)
 // result = { id: "usr_abc", name: "Alice", email: "alice@example.com" }
 
-// 3d. Executa interceptors (after)
-// auth: nada a fazer
-// logging: loga duração
+// 3c. Interceptors finalizam
+// logging: loga duracao
 ```
 
 ### 4. HTTP Adapter Responde
@@ -493,23 +443,16 @@ O Registry é onde todos os handlers, interceptors e configurações ficam armaz
 
 ```typescript
 interface Registry {
-  // Handlers de procedimentos
-  procedures: Map<string, ProcedureHandler>
+  // Registro de handlers
+  procedure(name: string, handler: ProcedureHandler, options?: ProcedureOptions): void
+  stream(name: string, handler: StreamHandler, options?: StreamOptions): void
+  event(name: string, handler: EventHandler, options?: EventOptions): void
 
-  // Handlers de streams
-  streams: Map<string, StreamHandler>
-
-  // Handlers de eventos
-  events: Map<string, EventHandler>
-
-  // Interceptors globais
-  interceptors: Interceptor[]
-
-  // Configurações de auth
-  auth?: AuthConfig
-
-  // Adapters ativos
-  adapters: Adapter[]
+  // Introspecao
+  list(): HandlerMeta[]
+  listProcedures(): HandlerMeta[]
+  listStreams(): HandlerMeta[]
+  listEvents(): HandlerMeta[]
 }
 ```
 
@@ -517,21 +460,12 @@ Quando você chama `createServer()`, internamente estamos populando o Registry:
 
 ```typescript
 // Isso:
-await createServer({
-  port: 3000,
-  routes: {
-    'hello': ({ name }) => `Hello, ${name}!`
-  }
-})
+const server = createServer({ port: 3000 })
+server.procedure('hello').handler(({ name }) => `Hello, ${name}!`)
 
 // Faz isso internamente:
-const registry = new Registry()
-registry.procedures.set('hello', {
-  handler: ({ name }) => `Hello, ${name}!`,
-  inputSchema: undefined,
-  outputSchema: undefined,
-  interceptors: []
-})
+const registry = createRegistry()
+registry.procedure('hello', ({ name }) => `Hello, ${name}!`)
 
 const httpAdapter = new HttpAdapter(registry, { port: 3000 })
 const wsAdapter = new WebSocketAdapter(registry, { port: 3000 })
@@ -545,7 +479,7 @@ await wsAdapter.start()
 ## Resumo
 
 1. **Envelope** - Formato normalizado que representa qualquer request
-2. **Context** - Metadados do request (auth, headers, params)
+2. **Context** - Metadados do request (auth, tracing, cancelamento, extensões)
 3. **Adapters** - Convertem protocolos específicos para/de Envelope
 4. **Router** - Encontra e executa o handler correto
 5. **Interceptors** - Lógica que roda antes/depois de todo handler

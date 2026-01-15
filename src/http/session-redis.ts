@@ -152,6 +152,9 @@ export class RedisSessionStore implements SessionStore {
    */
   private calculateTtl(session: Session): number {
     const now = Date.now()
+    if (!Number.isFinite(session.expiresAt) || session.expiresAt <= now) {
+      return this.ttl
+    }
     const remaining = Math.ceil((session.expiresAt - now) / 1000)
     return Math.max(remaining, 1) // At least 1 second
   }

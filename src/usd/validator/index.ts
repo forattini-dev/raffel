@@ -8,13 +8,11 @@
  */
 
 import type { USDDocument, USDValidationResult } from '../spec/types.js'
-import { validateSchema, getSchema } from './schema.js'
+import { validateSchema } from './schema.js'
 import { validateSemantic } from './semantic.js'
 import {
   mergeResults,
-  createSuccessResult,
   formatValidationResult,
-  ValidationErrorCodes,
 } from './errors.js'
 
 // Re-export

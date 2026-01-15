@@ -25,7 +25,7 @@ import type {
 } from '../types/index.js'
 import type { EventDeliveryOptions } from '../core/event-delivery.js'
 import type { ChannelOptions, ChannelManager } from '../channels/index.js'
-import type { HttpMiddleware } from '../adapters/http.js'
+import type { HttpAdapter, HttpMiddleware } from '../adapters/http.js'
 import type {
   DiscoveryConfig,
   DiscoveryWatcher,
@@ -43,6 +43,7 @@ import type { TracingConfig, Tracer } from '../tracing/index.js'
 import type { Codec } from '../utils/content-codecs.js'
 import type { USDDocument, USDProtocol, USDTag, USDExternalDocs, USDServer, USDSecurityScheme } from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
+import type { SchemaRegistry } from '../validation/index.js'
 
 // === Providers (Dependency Injection) ===
 
@@ -184,6 +185,11 @@ export interface ServerOptions {
    * ```
    */
   graphql?: GraphQLOptions | boolean
+
+  /**
+   * Custom protocol adapters registered at startup.
+   */
+  protocolExtensions?: ProtocolExtensionConfig[]
 
   // === Middleware ===
 
@@ -441,6 +447,8 @@ export interface AddressInfo {
   port: number
 }
 
+export type ProtocolAddress = AddressInfo & { path?: string; shared?: boolean }
+
 export interface ServerAddresses {
   http: AddressInfo
   websocket?: AddressInfo & { path: string; shared: boolean }
@@ -448,6 +456,8 @@ export interface ServerAddresses {
   graphql?: AddressInfo & { path: string; shared: boolean }
   grpc?: AddressInfo
   tcp?: AddressInfo
+  udp?: AddressInfo
+  protocols?: Record<string, ProtocolAddress>
 }
 
 // === Procedure Hooks ===
@@ -1329,6 +1339,34 @@ export interface UnifiedProtocolConfig {
   grpc?: GrpcOptions
 }
 
+export interface ProtocolAdapterContext {
+  router: Router
+  registry: Registry
+  schemaRegistry: SchemaRegistry
+  httpServer: HttpAdapter | null
+  basePath: string
+  host: string
+  port: number
+  providers: ResolvedProviders
+}
+
+export interface ProtocolAdapter {
+  start(): Promise<void>
+  stop(): Promise<void>
+  address?: ProtocolAddress
+}
+
+export type ProtocolAdapterFactory<TOptions = unknown> = (
+  context: ProtocolAdapterContext,
+  options: TOptions
+) => ProtocolAdapter | Promise<ProtocolAdapter>
+
+export interface ProtocolExtensionConfig<TOptions = unknown> {
+  name: string
+  factory: ProtocolAdapterFactory<TOptions>
+  options?: TOptions
+}
+
 export interface RaffelServer {
   // === Protocol Configuration ===
 
@@ -1347,6 +1385,15 @@ export interface RaffelServer {
    * ```
    */
   protocols(config: UnifiedProtocolConfig): this
+
+  /**
+   * Register a custom protocol adapter to start with the server.
+   */
+  registerProtocol<TOptions = unknown>(
+    name: string,
+    factory: ProtocolAdapterFactory<TOptions>,
+    options?: TOptions
+  ): this
 
   /** Enable WebSocket on same HTTP port (upgrade) */
   enableWebSocket(path?: string): this

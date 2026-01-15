@@ -2,7 +2,7 @@
  * Reference utilities for USD documents
  */
 
-import type { USDDocument, USDSchema } from '../spec/types.js'
+import type { USDDocument } from '../spec/types.js'
 
 /**
  * Resolve a $ref path to the target object

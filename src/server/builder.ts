@@ -34,6 +34,9 @@ import type {
   ProviderDefinition,
   ResolvedProviders,
   GlobalHooksConfig,
+  ProtocolAdapter,
+  ProtocolAdapterContext,
+  ProtocolExtensionConfig,
 } from './types.js'
 import type { GraphQLOptions } from '../graphql/index.js'
 import type { MetricsConfig, MetricRegistry } from '../metrics/index.js'
@@ -109,6 +112,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     discovery,
     hotReload = isDevelopment(),
     providers: initialProviders,
+    protocolExtensions: initialProtocolExtensions,
   } = options
 
   // Core components
@@ -166,6 +170,9 @@ export function createServer(options: ServerOptions): RaffelServer {
   const rpcInterceptors: Interceptor[] = []
   const tcpInterceptors: Interceptor[] = []
   const udpInterceptors: Interceptor[] = []
+  let wsSubscribeHandler: import('./types.js').WebSocketSubscribeHandler | null = null
+  let wsMessageHandler: import('./types.js').WebSocketMessageHandler | null = null
+  let wsUnsubscribeHandler: import('./types.js').WebSocketUnsubscribeHandler | null = null
 
   // Global hooks configuration (added via .hooks())
   let globalHooks: GlobalHooksConfig = {}
@@ -182,6 +189,8 @@ export function createServer(options: ServerOptions): RaffelServer {
   let graphqlAdapter: GraphQLAdapter | null = null
   let graphqlMiddleware: GraphQLMiddleware | null = null
   let graphqlSubscriptionServer: ReturnType<GraphQLMiddleware['createSubscriptionServer']> | null = null
+  const protocolExtensionConfigs: ProtocolExtensionConfig[] = []
+  const protocolAdapters = new Map<string, ProtocolAdapter>()
 
   // Metrics
   let metricsConfig: MetricsConfig | null = null
@@ -212,6 +221,19 @@ export function createServer(options: ServerOptions): RaffelServer {
       } else {
         providerDefinitions.set(name, config)
       }
+    }
+  }
+
+  function registerProtocolExtension(config: ProtocolExtensionConfig): void {
+    if (protocolExtensionConfigs.some((extension) => extension.name === config.name)) {
+      throw new Error(`Protocol adapter "${config.name}" already registered`)
+    }
+    protocolExtensionConfigs.push(config)
+  }
+
+  if (initialProtocolExtensions) {
+    for (const extension of initialProtocolExtensions) {
+      registerProtocolExtension(extension)
     }
   }
 
@@ -463,6 +485,22 @@ export function createServer(options: ServerOptions): RaffelServer {
       }
 
       logger.info({ protocols: Object.keys(config).filter((k) => (config as Record<string, unknown>)[k]) }, 'Protocols configured')
+      return server
+    },
+
+    registerProtocol<TOptions = unknown>(
+      name: string,
+      factory: ProtocolExtensionConfig<TOptions>['factory'],
+      options?: TOptions
+    ) {
+      if (running) {
+        throw new Error('Cannot register protocol adapter after the server has started')
+      }
+      registerProtocolExtension({
+        name,
+        factory,
+        options,
+      })
       return server
     },
 
@@ -1270,7 +1308,11 @@ export function createServer(options: ServerOptions): RaffelServer {
       // Start WebSocket adapter
       if (protocols.websocket?.enabled) {
         const wsOpts = protocols.websocket.options
-        const channels = buildChannelOptions(channelRegistry, wsOpts.channels)
+        const channels = buildChannelOptions(
+          channelRegistry,
+          wsOpts.channels,
+          wsMessageHandler ?? undefined
+        )
         if (protocols.websocket.shared) {
           // Share HTTP port - attach to HTTP server
           wsAdapter = createWebSocketAdapter(router, {
@@ -1384,6 +1426,34 @@ export function createServer(options: ServerOptions): RaffelServer {
         }
       }
 
+      if (protocolExtensionConfigs.length > 0) {
+        const protocolContext: ProtocolAdapterContext = {
+          router,
+          registry,
+          schemaRegistry,
+          httpServer,
+          basePath,
+          host,
+          port,
+          providers: resolvedProviders,
+        }
+
+        for (const extension of protocolExtensionConfigs) {
+          const adapter = await extension.factory(protocolContext, extension.options)
+          protocolAdapters.set(extension.name, adapter)
+          await adapter.start()
+
+          if (adapter.address) {
+            if (!addresses.protocols) {
+              addresses.protocols = {}
+            }
+            addresses.protocols[extension.name] = adapter.address
+          }
+
+          logger.info({ name: extension.name }, 'Protocol adapter started')
+        }
+      }
+
       // Start custom TCP handlers (added via .addTcpHandler())
       for (const handler of tcpHandlers) {
         const { createTcpServer } = await import('./fs-routes/tcp/index.js')
@@ -1399,6 +1469,9 @@ export function createServer(options: ServerOptions): RaffelServer {
         const udpServer = createUdpServer(handler)
         await udpServer.start()
         udpServers.push(udpServer)
+        if (!addresses.udp) {
+          addresses.udp = { host: udpServer.host, port: udpServer.port }
+        }
         logger.info({ name: handler.name, port: handler.config.port }, 'UDP handler started')
       }
 
@@ -1409,6 +1482,14 @@ export function createServer(options: ServerOptions): RaffelServer {
       if (!running) return
 
       const stops: Promise<void>[] = []
+
+      if (protocolAdapters.size > 0) {
+        for (const [name, adapter] of protocolAdapters) {
+          logger.info({ name }, 'Protocol adapter stopping')
+          stops.push(adapter.stop())
+        }
+        protocolAdapters.clear()
+      }
 
       if (tcpAdapter) {
         stops.push(tcpAdapter.stop())
@@ -1532,11 +1613,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     },
 
     get ws(): import('./types.js').WebSocketNamespace {
-      // Handler state for chained API - these are local since channel() consumes them
-      let subscribeHandler: import('./types.js').WebSocketSubscribeHandler | null = null
-      let messageHandler: import('./types.js').WebSocketMessageHandler | null = null
-      let unsubscribeHandler: import('./types.js').WebSocketUnsubscribeHandler | null = null
-      // Uses persistent wsInterceptors from outer scope for shared middleware chain
+      // Uses persistent wsInterceptors/handlers from outer scope for shared middleware chain
 
       const wsNamespace: import('./types.js').WebSocketNamespace = {
         channel(channelName: string, options?: import('./types.js').WebSocketChannelOptions) {
@@ -1544,11 +1621,11 @@ export function createServer(options: ServerOptions): RaffelServer {
           const authRequirement = options?.type === 'public' ? 'none' : 'required'
 
           // Wrap handlers to match ChannelExports signature
-          const wrappedOnJoin = subscribeHandler
-            ? (member: { userId: string; socketId: string }, ctx: import('../types/index.js').Context) => subscribeHandler!(channelName, ctx)
+          const wrappedOnJoin = wsSubscribeHandler
+            ? (member: { userId: string; socketId: string }, ctx: import('../types/index.js').Context) => wsSubscribeHandler!(channelName, ctx)
             : undefined
-          const wrappedOnLeave = unsubscribeHandler
-            ? (member: { userId: string; socketId: string }, ctx: import('../types/index.js').Context) => unsubscribeHandler!(channelName, ctx)
+          const wrappedOnLeave = wsUnsubscribeHandler
+            ? (member: { userId: string; socketId: string }, ctx: import('../types/index.js').Context) => wsUnsubscribeHandler!(channelName, ctx)
             : undefined
 
           // Register channel with the channel registry using correct LoadedChannel structure
@@ -1567,15 +1644,15 @@ export function createServer(options: ServerOptions): RaffelServer {
           return wsNamespace
         },
         onSubscribe(handler: import('./types.js').WebSocketSubscribeHandler) {
-          subscribeHandler = handler
+          wsSubscribeHandler = handler
           return wsNamespace
         },
         onMessage(handler: import('./types.js').WebSocketMessageHandler) {
-          messageHandler = handler
+          wsMessageHandler = handler
           return wsNamespace
         },
         onUnsubscribe(handler: import('./types.js').WebSocketUnsubscribeHandler) {
-          unsubscribeHandler = handler
+          wsUnsubscribeHandler = handler
           return wsNamespace
         },
         use(interceptor: Interceptor) {

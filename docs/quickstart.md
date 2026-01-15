@@ -17,12 +17,15 @@ pnpm add raffel
 ```typescript
 import { createServer } from 'raffel'
 
-await createServer({
+const server = createServer({
   port: 3000,
-  routes: {
-    'hello': ({ name }) => `Hello, ${name}!`
-  }
+  websocket: { path: '/ws' },
 })
+
+server.procedure('hello')
+  .handler(async ({ name }) => `Hello, ${name}!`)
+
+await server.start()
 ```
 
 Pronto. Você tem um servidor HTTP + WebSocket funcionando.
@@ -45,15 +48,21 @@ wscat -c ws://localhost:3000/ws
 ## Várias Rotas
 
 ```typescript
-await createServer({
-  port: 3000,
-  routes: {
-    'hello': ({ name }) => `Hello, ${name}!`,
-    'users.create': async (input) => ({ id: crypto.randomUUID(), ...input }),
-    'users.list': async () => db.users.findMany(),
-    'health': () => ({ ok: true })
-  }
-})
+const server = createServer({ port: 3000 })
+
+server.procedure('hello')
+  .handler(async ({ name }) => `Hello, ${name}!`)
+
+server.procedure('users.create')
+  .handler(async (input) => ({ id: crypto.randomUUID(), ...input }))
+
+server.procedure('users.list')
+  .handler(async () => db.users.findMany())
+
+server.procedure('health')
+  .handler(async () => ({ ok: true }))
+
+await server.start()
 ```
 
 Cada chave vira um endpoint:
@@ -70,19 +79,20 @@ Cada chave vira um endpoint:
 
 ```typescript
 import { z } from 'zod'
+import { createZodAdapter, registerValidator } from 'raffel'
 
-await createServer({
-  port: 3000,
-  routes: {
-    'users.create': {
-      input: z.object({
-        name: z.string().min(2),
-        email: z.string().email()
-      }),
-      handler: async (input) => ({ id: crypto.randomUUID(), ...input })
-    }
-  }
-})
+registerValidator(createZodAdapter(z))
+
+const server = createServer({ port: 3000 })
+
+server.procedure('users.create')
+  .input(z.object({
+    name: z.string().min(2),
+    email: z.string().email(),
+  }))
+  .handler(async (input) => ({ id: crypto.randomUUID(), ...input }))
+
+await server.start()
 ```
 
 Dados inválidos? Erro automático:
@@ -103,10 +113,10 @@ await createServer({ port: 3000, discovery: true })
 ```
 
 ```typescript
-// routes/hello.ts
+// src/rpc/hello.ts
 export default ({ name }) => `Hello, ${name}!`
 
-// routes/users/create.ts
+// src/rpc/users/create.ts
 export default async (input) => ({ id: crypto.randomUUID(), ...input })
 ```
 
@@ -117,16 +127,16 @@ A estrutura de pastas define os endpoints automaticamente.
 ## Streaming
 
 ```typescript
-await createServer({
-  port: 3000,
-  streams: {
-    'logs.tail': async function* ({ file }) {
-      for await (const line of readLines(file)) {
-        yield { line, ts: Date.now() }
-      }
+const server = createServer({ port: 3000 })
+
+server.stream('logs.tail')
+  .handler(async function* ({ file }) {
+    for await (const line of readLines(file)) {
+      yield { line, ts: Date.now() }
     }
-  }
-})
+  })
+
+await server.start()
 ```
 
 Cada `yield` envia dados em tempo real para o cliente.

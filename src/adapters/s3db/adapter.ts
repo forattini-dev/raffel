@@ -190,15 +190,11 @@ function registerResourceProcedures(
 
         // Validate populate paths if provided
         const populatePaths = parsePopulate(populate)
-        let _includeOptions: { include?: string[] } | undefined
-
         if (populatePaths.length > 0) {
           const populateResult = resolvePopulate(resource, populatePaths, getResource)
           if (populateResult.errors?.length) {
             throw Errors.badRequest(populateResult.errors.join('; '))
           }
-          // Convert to s3db include format (just relation names for now)
-          _includeOptions = { include: populatePaths }
         }
 
         let items: Record<string, unknown>[]

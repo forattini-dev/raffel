@@ -7,8 +7,12 @@ export { createHttpAdapter } from './http.js'
 export type { HttpAdapter, HttpAdapterOptions, HttpMiddleware } from './http.js'
 
 // TCP adapter
-export { createTcpAdapter } from './tcp.js'
+export { createTcpAdapter, createTcpClient } from './tcp.js'
 export type { TcpAdapter, TcpAdapterOptions } from './tcp.js'
+
+// UDP adapter
+export { createUdpAdapter, createUdpClient } from './udp.js'
+export type { UdpAdapter, UdpAdapterOptions } from './udp.js'
 
 // JSON-RPC 2.0 adapter
 export { createJsonRpcAdapter, JsonRpcErrorCode, HttpMetadataKey } from './jsonrpc.js'

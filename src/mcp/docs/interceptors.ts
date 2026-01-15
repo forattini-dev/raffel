@@ -1,7 +1,7 @@
 /**
  * Raffel MCP - Interceptor Documentation
  *
- * All built-in interceptors with options, examples, and use cases.
+ * Built-in interceptors with options, examples, and use cases.
  */
 
 import type { InterceptorDoc } from '../types.js'
@@ -48,39 +48,9 @@ const server = createServer()
     })]
   }))
   .procedure('users.me')
-    .handler(async (input, ctx) => {
-      // ctx.auth.principal contains the authenticated user
-      return ctx.auth.principal
+    .handler(async (_input, ctx) => {
+      return { userId: ctx.auth?.principal }
     })`,
-      },
-      {
-        title: 'API Key Authentication',
-        code: `import { createServer, createAuthMiddleware, createApiKeyStrategy } from 'raffel'
-
-const server = createServer()
-  .use(createAuthMiddleware({
-    strategies: [createApiKeyStrategy({
-      verify: async (key) => {
-        const app = await db.apiKeys.findByKey(key)
-        return app ? { authenticated: true, principal: app.id } : null
-      },
-      headerName: 'x-api-key'
-    })]
-  }))`,
-      },
-      {
-        title: 'Static API Key (Development)',
-        code: `import { createServer, createAuthMiddleware, createStaticApiKeyStrategy } from 'raffel'
-
-const keys = new Map([
-  ['dev-key-123', { authenticated: true, principal: 'dev' }],
-  ['test-key-456', { authenticated: true, principal: 'test' }]
-])
-
-const server = createServer()
-  .use(createAuthMiddleware({
-    strategies: [createStaticApiKeyStrategy(keys)]
-  }))`,
       },
     ],
   },
@@ -106,14 +76,14 @@ const server = createServer()
     examples: [
       {
         title: 'Role-Based Access Control',
-        code: `import { createServer, createAuthzMiddleware, hasRole, hasAnyRole } from 'raffel'
+        code: `import { createServer, createAuthzMiddleware, hasRole, hasAnyRole, requireAuth } from 'raffel'
 
 const server = createServer()
   .use(createAuthzMiddleware({
     rules: [
       { pattern: 'admin.*', check: hasRole('admin') },
       { pattern: 'users.delete', check: hasAnyRole(['admin', 'moderator']) },
-      { pattern: 'users.*', check: requireAuth() },
+      { pattern: 'users.*', check: requireAuth },
     ]
   }))`,
       },
@@ -142,10 +112,22 @@ const server = createServer()
         description: 'Maximum requests per window',
       },
       {
+        name: 'maxUniqueKeys',
+        type: 'number',
+        required: false,
+        description: 'Maximum unique keys to track',
+      },
+      {
+        name: 'skipSuccessfulRequests',
+        type: 'boolean',
+        required: false,
+        description: 'If true, successful requests are not counted',
+      },
+      {
         name: 'keyGenerator',
         type: '(envelope, ctx) => string',
         required: false,
-        description: 'Function to generate rate limit key (default: user or IP)',
+        description: 'Function to generate rate limit key (default: user or metadata)',
       },
       {
         name: 'rules',
@@ -155,9 +137,8 @@ const server = createServer()
       },
       {
         name: 'driver',
-        type: 'string | RateLimitDriver',
+        type: 'RateLimitDriverConfig | RateLimitDriver',
         required: false,
-        default: 'memory',
         description: 'Storage driver (memory, filesystem, redis, or custom)',
       },
     ],
@@ -169,28 +150,15 @@ const server = createServer()
 const server = createServer()
   .use(createRateLimitInterceptor({
     windowMs: 60 * 1000, // 1 minute
-    maxRequests: 100,    // 100 requests per minute
-  }))`,
-      },
-      {
-        title: 'Per-Procedure Rules',
-        code: `import { createServer, createRateLimitInterceptor } from 'raffel'
-
-const server = createServer()
-  .use(createRateLimitInterceptor({
     maxRequests: 100,
-    rules: [
-      { id: 'auth', pattern: 'auth.*', maxRequests: 5, windowMs: 60000 },
-      { id: 'reports', pattern: 'reports.*', maxRequests: 10, windowMs: 3600000 },
-    ]
   }))`,
       },
     ],
   },
   {
-    name: 'retry',
+    name: 'createRetryInterceptor',
     description:
-      'Automatic retry with exponential backoff for transient failures. Use for downstream service calls.',
+      'Automatic retry with backoff for transient failures. Use for downstream service calls.',
     category: 'resilience',
     options: [
       {
@@ -201,50 +169,55 @@ const server = createServer()
         description: 'Maximum retry attempts',
       },
       {
-        name: 'initialDelay',
+        name: 'initialDelayMs',
         type: 'number',
         required: false,
-        default: '1000',
+        default: '100',
         description: 'Initial delay in ms before first retry',
       },
       {
-        name: 'maxDelay',
+        name: 'maxDelayMs',
         type: 'number',
         required: false,
-        default: '30000',
+        default: '10000',
         description: 'Maximum delay between retries',
       },
       {
-        name: 'backoffMultiplier',
-        type: 'number',
+        name: 'backoffStrategy',
+        type: "'linear' | 'exponential' | 'decorrelated'",
         required: false,
-        default: '2',
-        description: 'Multiplier for exponential backoff',
+        default: "'exponential'",
+        description: 'Backoff strategy',
       },
       {
-        name: 'retryOn',
-        type: '(error) => boolean',
+        name: 'retryableCodes',
+        type: 'string[]',
         required: false,
-        description: 'Predicate to decide if error is retryable',
+        description: 'Error codes that should trigger retry',
+      },
+      {
+        name: 'shouldRetry',
+        type: '(error, attempt) => boolean',
+        required: false,
+        description: 'Custom retry predicate',
       },
     ],
     examples: [
       {
-        title: 'Retry with Exponential Backoff',
-        code: `import { createServer, forPattern, retry } from 'raffel'
+        title: 'Retry External Calls',
+        code: `import { createServer, forPattern, createRetryInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(forPattern('external.*', retry({
+  .use(forPattern('external.*', createRetryInterceptor({
     maxAttempts: 3,
-    initialDelay: 1000,
-    backoffMultiplier: 2,
-    retryOn: (err) => err.code === 'ECONNREFUSED' || err.status >= 500
+    initialDelayMs: 200,
+    retryableCodes: ['UNAVAILABLE', 'DEADLINE_EXCEEDED'],
   })))`,
       },
     ],
   },
   {
-    name: 'circuitBreaker',
+    name: 'createCircuitBreakerInterceptor',
     description:
       'Circuit breaker pattern to prevent cascading failures. Opens circuit after threshold failures.',
     category: 'resilience',
@@ -260,19 +233,32 @@ const server = createServer()
         name: 'successThreshold',
         type: 'number',
         required: false,
-        default: '2',
+        default: '3',
         description: 'Successes before circuit closes',
       },
       {
-        name: 'timeout',
+        name: 'resetTimeoutMs',
         type: 'number',
         required: false,
         default: '30000',
-        description: 'Time in ms before attempting to close',
+        description: 'Time in ms before attempting recovery',
+      },
+      {
+        name: 'windowMs',
+        type: 'number',
+        required: false,
+        default: '60000',
+        description: 'Failure counting window in ms',
+      },
+      {
+        name: 'failureCodes',
+        type: 'string[]',
+        required: false,
+        description: 'Error codes that count as failures',
       },
       {
         name: 'onStateChange',
-        type: '(state) => void',
+        type: '(state, procedure) => void',
         required: false,
         description: 'Callback when circuit state changes',
       },
@@ -280,71 +266,65 @@ const server = createServer()
     examples: [
       {
         title: 'Circuit Breaker for External Service',
-        code: `import { createServer, forPattern, circuitBreaker } from 'raffel'
+        code: `import { createServer, forPattern, createCircuitBreakerInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(forPattern('payments.*', circuitBreaker({
-    failureThreshold: 5,   // Open after 5 failures
-    successThreshold: 2,   // Close after 2 successes in half-open
-    timeout: 30000,        // Try half-open after 30s
-    onStateChange: (state) => {
-      console.log(\`Circuit breaker state: \${state}\`)
-      if (state === 'open') alertOps('Payment service circuit open!')
-    }
+  .use(forPattern('payments.*', createCircuitBreakerInterceptor({
+    failureThreshold: 5,
+    resetTimeoutMs: 30000,
   })))`,
       },
     ],
   },
   {
-    name: 'timeout',
-    description: 'Enforces deadline on handler execution. Rejects with DEADLINE_EXCEEDED if exceeded.',
+    name: 'createTimeoutInterceptor',
+    description: 'Enforces deadline on handler execution (DEADLINE_EXCEEDED on timeout).',
     category: 'resilience',
     options: [
       {
-        name: 'ms',
+        name: 'defaultMs',
         type: 'number',
-        required: true,
-        description: 'Timeout in milliseconds',
+        required: false,
+        default: '30000',
+        description: 'Default timeout in ms',
       },
       {
-        name: 'onTimeout',
-        type: '(ctx) => void',
+        name: 'procedures',
+        type: 'Record<string, number>',
         required: false,
-        description: 'Callback when timeout occurs',
+        description: 'Per-procedure timeouts',
+      },
+      {
+        name: 'patterns',
+        type: 'Record<string, number>',
+        required: false,
+        description: 'Pattern-based timeouts',
       },
     ],
     examples: [
       {
         title: 'Global Timeout',
-        code: `import { createServer, timeout } from 'raffel'
+        code: `import { createServer, createTimeoutInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(timeout({ ms: 30000 })) // 30 second timeout for all procedures`,
-      },
-      {
-        title: 'Per-Procedure Timeout',
-        code: `import { createServer, forPattern, timeout } from 'raffel'
-
-const server = createServer()
-  .use(forPattern('reports.*', timeout({ ms: 120000 }))) // 2 min for reports
-  .use(timeout({ ms: 10000 })) // 10s default`,
+  .use(createTimeoutInterceptor({ defaultMs: 30000 }))`,
       },
     ],
   },
   {
-    name: 'bulkhead',
+    name: 'createBulkheadInterceptor',
     description:
       'Limits concurrent executions to isolate failures. Prevents one slow procedure from consuming all resources.',
     category: 'resilience',
     options: [
       {
-        name: 'maxConcurrent',
+        name: 'concurrency',
         type: 'number',
         required: true,
         description: 'Maximum concurrent executions',
       },
       {
-        name: 'maxQueue',
+        name: 'maxQueueSize',
         type: 'number',
         required: false,
         default: '0',
@@ -354,37 +334,50 @@ const server = createServer()
         name: 'queueTimeout',
         type: 'number',
         required: false,
+        default: '0',
         description: 'Max time to wait in queue (ms)',
+      },
+      {
+        name: 'onReject',
+        type: '(procedure) => void',
+        required: false,
+        description: 'Callback when a request is rejected',
       },
     ],
     examples: [
       {
         title: 'Limit Concurrent Database Queries',
-        code: `import { createServer, forPattern, bulkhead } from 'raffel'
+        code: `import { createServer, forPattern, createBulkheadInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(forPattern('db.*', bulkhead({
-    maxConcurrent: 10, // Max 10 concurrent DB queries
-    maxQueue: 50,      // Queue up to 50 more
-    queueTimeout: 5000 // Wait max 5s in queue
+  .use(forPattern('db.*', createBulkheadInterceptor({
+    concurrency: 10,
+    maxQueueSize: 50,
+    queueTimeout: 5000,
   })))`,
       },
     ],
   },
   {
-    name: 'fallback',
+    name: 'createFallbackInterceptor',
     description:
       'Provides fallback response when handler fails. Useful for graceful degradation.',
     category: 'resilience',
     options: [
       {
-        name: 'fallback',
-        type: '(error, ctx) => unknown',
-        required: true,
-        description: 'Function returning fallback value',
+        name: 'response',
+        type: 'unknown',
+        required: false,
+        description: 'Static fallback response',
       },
       {
-        name: 'shouldFallback',
+        name: 'handler',
+        type: '(ctx, error) => unknown',
+        required: false,
+        description: 'Dynamic fallback handler',
+      },
+      {
+        name: 'when',
         type: '(error) => boolean',
         required: false,
         description: 'Predicate to decide if fallback should be used',
@@ -393,15 +386,14 @@ const server = createServer()
     examples: [
       {
         title: 'Fallback to Cached Data',
-        code: `import { createServer, forPattern, fallback } from 'raffel'
+        code: `import { createServer, forPattern, createFallbackInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(forPattern('prices.*', fallback({
-    fallback: async (error, ctx) => {
-      // Return cached data on failure
-      return await cache.get(\`prices:\${ctx.procedure}\`) || { prices: [], stale: true }
+  .use(forPattern('prices.*', createFallbackInterceptor({
+    handler: async (_ctx, error) => {
+      return await cache.get('prices') || { prices: [], stale: true, reason: error.message }
     },
-    shouldFallback: (err) => err.code === 'SERVICE_UNAVAILABLE'
+    when: (err) => (err as any).code === 'UNAVAILABLE',
   })))`,
       },
     ],
@@ -411,7 +403,7 @@ const server = createServer()
   {
     name: 'createMetricsInterceptor',
     description:
-      'Auto-instruments all procedures with Prometheus-compatible metrics (latency, count, errors).',
+      'Auto-instruments procedures with metrics (latency, count, errors).',
     category: 'observability',
     options: [
       {
@@ -419,18 +411,6 @@ const server = createServer()
         type: 'MetricRegistry',
         required: true,
         description: 'Metric registry for storing metrics',
-      },
-      {
-        name: 'buckets',
-        type: 'number[]',
-        required: false,
-        description: 'Histogram buckets for latency',
-      },
-      {
-        name: 'labels',
-        type: '(ctx) => Record<string, string>',
-        required: false,
-        description: 'Additional labels to add to metrics',
       },
     ],
     examples: [
@@ -440,15 +420,7 @@ const server = createServer()
 
 const metrics = createMetricRegistry()
 const server = createServer()
-  .use(createMetricsInterceptor({ registry: metrics }))
-
-// Metrics automatically collected:
-// - raffel_procedure_duration_seconds (histogram)
-// - raffel_procedure_total (counter)
-// - raffel_procedure_errors_total (counter)
-
-server.procedure('metrics.export')
-  .handler(async () => exportPrometheus(metrics))`,
+  .use(createMetricsInterceptor(metrics))`,
       },
     ],
   },
@@ -464,18 +436,6 @@ server.procedure('metrics.export')
         required: true,
         description: 'Tracer instance for creating spans',
       },
-      {
-        name: 'spanName',
-        type: '(ctx) => string',
-        required: false,
-        description: 'Custom span name generator',
-      },
-      {
-        name: 'attributes',
-        type: '(ctx) => SpanAttributes',
-        required: false,
-        description: 'Additional span attributes',
-      },
     ],
     examples: [
       {
@@ -489,22 +449,22 @@ server.procedure('metrics.export')
 
 const tracer = createTracer({
   serviceName: 'my-api',
-  exporter: createJaegerExporter({ endpoint: 'http://localhost:14268/api/traces' })
+  exporters: [createJaegerExporter({ serviceName: 'my-api' })],
 })
 
 const server = createServer()
-  .use(createTracingInterceptor({ tracer }))`,
+  .use(createTracingInterceptor(tracer))`,
       },
     ],
   },
   {
-    name: 'logging',
+    name: 'createLoggingInterceptor',
     description: 'Structured logging for request/response with configurable levels and formats.',
     category: 'observability',
     options: [
       {
         name: 'level',
-        type: "'debug' | 'info' | 'warn' | 'error'",
+        type: "'trace' | 'debug' | 'info' | 'warn' | 'error'",
         required: false,
         default: "'info'",
         description: 'Log level',
@@ -513,35 +473,47 @@ const server = createServer()
         name: 'format',
         type: "'json' | 'pretty'",
         required: false,
-        default: "'json'",
+        default: "'pretty'",
         description: 'Log output format',
       },
       {
-        name: 'includeInput',
+        name: 'includePayload',
         type: 'boolean',
         required: false,
         default: 'false',
-        description: 'Include request input in logs (careful with PII)',
+        description: 'Include request payload in logs',
       },
       {
-        name: 'includeOutput',
+        name: 'includeResponse',
         type: 'boolean',
         required: false,
         default: 'false',
-        description: 'Include response output in logs',
+        description: 'Include response payload in logs',
+      },
+      {
+        name: 'includeMetadata',
+        type: 'boolean',
+        required: false,
+        default: 'false',
+        description: 'Include metadata (headers) in logs',
+      },
+      {
+        name: 'excludeProcedures',
+        type: 'string[]',
+        required: false,
+        description: 'Procedure patterns to exclude',
       },
     ],
     examples: [
       {
         title: 'Production Logging',
-        code: `import { createServer, logging, forPattern, except } from 'raffel'
+        code: `import { createServer, createLoggingInterceptor, except } from 'raffel'
 
 const server = createServer()
-  .use(except('health.*', logging({
+  .use(except(['health.*'], createLoggingInterceptor({
     level: 'info',
     format: 'json',
-    includeInput: false,  // Don't log PII
-    includeOutput: false
+    includeMetadata: false,
   })))`,
       },
     ],
@@ -551,158 +523,121 @@ const server = createServer()
   {
     name: 'createValidationInterceptor',
     description:
-      'Validates input/output against registered schemas. Supports Zod, Yup, Joi, Ajv, fastest-validator.',
+      'Validates input/output against a schema for a specific handler.',
     category: 'validation',
     options: [
       {
-        name: 'validateInput',
-        type: 'boolean',
-        required: false,
-        default: 'true',
-        description: 'Validate request input',
-      },
-      {
-        name: 'validateOutput',
-        type: 'boolean',
-        required: false,
-        default: 'false',
-        description: 'Validate response output',
-      },
-      {
-        name: 'onError',
-        type: '(errors) => void',
-        required: false,
-        description: 'Callback on validation error',
+        name: 'schema',
+        type: 'HandlerSchema',
+        required: true,
+        description: 'Schema with input/output validators',
       },
     ],
     examples: [
       {
         title: 'Zod Validation',
-        code: `import { createServer, createValidationInterceptor, registerValidator, createZodAdapter } from 'raffel'
+        code: `import { createServer, createValidationInterceptor } from 'raffel'
 import { z } from 'zod'
 
-registerValidator(createZodAdapter(z))
+const schema = {
+  input: z.object({ email: z.string().email() }),
+  output: z.object({ id: z.string(), email: z.string() }),
+}
 
 const server = createServer()
-  .use(createValidationInterceptor({ validateInput: true, validateOutput: true }))
   .procedure('users.create')
-    .input(z.object({
-      email: z.string().email(),
-      name: z.string().min(2).max(100),
-      age: z.number().min(18).optional()
-    }))
-    .output(z.object({
-      id: z.string(),
-      email: z.string(),
-      name: z.string()
-    }))
-    .handler(async (input, ctx) => {
-      // Input is already validated and typed!
-      return await db.users.create(input)
-    })`,
+    .use(createValidationInterceptor(schema))
+    .handler(async (input) => createUser(input))`,
       },
     ],
   },
 
   // === Caching ===
   {
-    name: 'cache',
+    name: 'createCacheInterceptor',
     description:
-      'Response caching with pluggable drivers (memory, file, Redis, S3DB). Supports TTL and invalidation.',
+      'Response caching with pluggable drivers. Supports TTL, stale-while-revalidate, and invalidation.',
     category: 'caching',
     options: [
       {
-        name: 'driver',
-        type: 'CacheDriver',
-        required: true,
-        description: 'Cache driver instance',
-      },
-      {
-        name: 'ttl',
+        name: 'ttlMs',
         type: 'number',
         required: false,
         default: '60000',
         description: 'Time-to-live in milliseconds',
       },
       {
-        name: 'keyGenerator',
-        type: '(ctx, input) => string',
+        name: 'driver',
+        type: 'CacheDriver',
         required: false,
-        description: 'Custom cache key generator',
+        description: 'Cache driver instance (memory, redis, file, s3db)',
       },
       {
-        name: 'shouldCache',
-        type: '(ctx, result) => boolean',
+        name: 'procedures',
+        type: 'string[]',
         required: false,
-        description: 'Predicate to decide if response should be cached',
+        description: 'Procedures to include (glob patterns supported)',
+      },
+      {
+        name: 'excludeProcedures',
+        type: 'string[]',
+        required: false,
+        description: 'Procedures to exclude',
+      },
+      {
+        name: 'keyGenerator',
+        type: '(envelope) => string',
+        required: false,
+        description: 'Custom cache key generator',
       },
     ],
     examples: [
       {
-        title: 'In-Memory Caching',
-        code: `import { createServer, forPattern, cache, createCacheMemoryDriver } from 'raffel'
+        title: 'Redis Cache',
+        code: `import { createServer } from 'raffel'
+import { createCacheInterceptor } from 'raffel/middleware'
+import { createDriver } from 'raffel/cache'
 
-const memoryCache = createCacheMemoryDriver({
-  maxSize: 1000,
-  evictionPolicy: 'lru'
-})
+const redisDriver = await createDriver('redis', { client: redis })
+const cache = createCacheInterceptor({ ttlMs: 60000, driver: redisDriver })
 
-const server = createServer()
-  .use(forPattern('products.list', cache({
-    driver: memoryCache,
-    ttl: 5 * 60 * 1000, // 5 minutes
-    keyGenerator: (ctx, input) => \`products:\${JSON.stringify(input)}\`
-  })))`,
-      },
-      {
-        title: 'Redis Distributed Cache',
-        code: `import { createServer, forPattern, cache, createCacheRedisDriver } from 'raffel'
-import Redis from 'ioredis'
-
-const redisCache = createCacheRedisDriver({
-  client: new Redis(process.env.REDIS_URL),
-  prefix: 'cache:'
-})
-
-const server = createServer()
-  .use(forPattern('*', cache({
-    driver: redisCache,
-    ttl: 60000,
-    shouldCache: (ctx, result) => !ctx.auth // Don't cache authenticated responses
-  })))`,
+const server = createServer().use(cache)`,
       },
     ],
   },
   {
-    name: 'dedup',
+    name: 'createDedupInterceptor',
     description:
       'Request deduplication to prevent duplicate processing of identical concurrent requests.',
     category: 'caching',
     options: [
       {
-        name: 'windowMs',
+        name: 'ttlMs',
         type: 'number',
         required: false,
-        default: '1000',
-        description: 'Deduplication window in milliseconds',
+        default: '30000',
+        description: 'TTL for pending requests',
       },
       {
         name: 'keyGenerator',
-        type: '(ctx, input) => string',
+        type: '(envelope, ctx) => string',
         required: false,
         description: 'Custom dedup key generator',
+      },
+      {
+        name: 'procedures',
+        type: 'string[]',
+        required: false,
+        description: 'Procedures to deduplicate (glob patterns)',
       },
     ],
     examples: [
       {
         title: 'Prevent Double Submit',
-        code: `import { createServer, forPattern, dedup } from 'raffel'
+        code: `import { createServer, forPattern, createDedupInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(forPattern('orders.create', dedup({
-    windowMs: 5000, // 5 second window
-    keyGenerator: (ctx, input) => \`order:\${ctx.auth.principal.id}:\${input.idempotencyKey}\`
-  })))`,
+  .use(forPattern('orders.create', createDedupInterceptor()))`,
       },
     ],
   },
@@ -723,16 +658,14 @@ const server = createServer()
     examples: [
       {
         title: 'Compose Production Stack',
-        code: `import { createServer, compose, timeout, logging, cache } from 'raffel'
+        code: `import { createServer, compose, createTimeoutInterceptor, createLoggingInterceptor } from 'raffel'
 
 const productionStack = compose(
-  timeout({ ms: 30000 }),
-  logging({ level: 'info', format: 'json' }),
-  cache({ driver: memoryCache, ttl: 60000 })
+  createTimeoutInterceptor({ defaultMs: 30000 }),
+  createLoggingInterceptor({ level: 'info', format: 'json' })
 )
 
-const server = createServer()
-  .use(productionStack)`,
+const server = createServer().use(productionStack)`,
       },
     ],
   },
@@ -743,7 +676,7 @@ const server = createServer()
     options: [
       {
         name: 'predicate',
-        type: '(ctx) => boolean',
+        type: '(envelope, ctx) => boolean',
         required: true,
         description: 'Condition to evaluate',
       },
@@ -756,13 +689,13 @@ const server = createServer()
     ],
     examples: [
       {
-        title: 'Environment-Based Middleware',
-        code: `import { createServer, when, logging } from 'raffel'
+        title: 'Environment-Based Logging',
+        code: `import { createServer, when, createLoggingInterceptor } from 'raffel'
 
 const server = createServer()
   .use(when(
     () => process.env.NODE_ENV === 'development',
-    logging({ level: 'debug', format: 'pretty', includeInput: true })
+    createLoggingInterceptor({ level: 'debug', format: 'pretty' })
   ))`,
       },
     ],
@@ -774,9 +707,9 @@ const server = createServer()
     options: [
       {
         name: 'pattern',
-        type: 'string | string[]',
+        type: 'string',
         required: true,
-        description: 'Glob pattern(s) to match (e.g., "users.*", "admin.**")',
+        description: 'Glob pattern to match (e.g., "users.*", "admin.**")',
       },
       {
         name: 'interceptor',
@@ -799,14 +732,14 @@ const server = createServer()
   },
   {
     name: 'except',
-    description: 'Applies interceptor to all procedures except those matching patterns.',
+    description: 'Applies interceptor to all procedures except those matching names.',
     category: 'composition',
     options: [
       {
-        name: 'pattern',
-        type: 'string | string[]',
+        name: 'procedures',
+        type: 'string[]',
         required: true,
-        description: 'Pattern(s) to exclude',
+        description: 'Procedures to exclude',
       },
       {
         name: 'interceptor',
@@ -818,10 +751,10 @@ const server = createServer()
     examples: [
       {
         title: 'Exclude Health Checks from Logging',
-        code: `import { createServer, except, logging } from 'raffel'
+        code: `import { createServer, except, createLoggingInterceptor } from 'raffel'
 
 const server = createServer()
-  .use(except('health.*', logging({ level: 'info' })))`,
+  .use(except(['health.check'], createLoggingInterceptor({ level: 'info' })))`,
       },
     ],
   },
@@ -832,7 +765,7 @@ const server = createServer()
     options: [
       {
         name: 'predicate',
-        type: '(ctx) => boolean',
+        type: '(envelope, ctx) => boolean',
         required: true,
         description: 'Condition to branch on',
       },
@@ -852,13 +785,13 @@ const server = createServer()
     examples: [
       {
         title: 'Different Caching by Auth Status',
-        code: `import { createServer, branch, cache } from 'raffel'
+        code: `import { createServer, branch, createCacheInterceptor } from 'raffel'
 
 const server = createServer()
   .use(branch(
-    (ctx) => !ctx.auth?.authenticated,
-    cache({ driver: publicCache, ttl: 300000 }),  // 5 min for public
-    cache({ driver: privateCache, ttl: 60000 })   // 1 min for authenticated
+    (_env, ctx) => !ctx.auth?.authenticated,
+    createCacheInterceptor({ ttlMs: 300000 }),  // 5 min for public
+    createCacheInterceptor({ ttlMs: 60000 })    // 1 min for authenticated
   ))`,
       },
     ],

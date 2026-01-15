@@ -54,8 +54,8 @@ registerValidator(createZodAdapter(z))
 
 const server = createServer({
   port: 3000,
-  websocket: true,
-  jsonrpc: '/rpc',
+  websocket: { path: '/ws' },
+  jsonrpc: { path: '/rpc' },
 })
 
 server
@@ -70,6 +70,24 @@ await server.start()
 # Test all protocols
 curl -X POST localhost:3000/hello -d '{"name":"World"}'
 wscat -c ws://localhost:3000/ws -x '{"procedure":"hello","payload":{"name":"World"}}'
+```
+
+---
+
+## Custom Protocols
+
+Need a transport Raffel does not ship with? Register a protocol adapter:
+
+```typescript
+server.registerProtocol('custom', ({ router, host, port }) => ({
+  async start() {
+    // Start your server and translate requests into Raffel envelopes
+  },
+  async stop() {
+    // Clean shutdown
+  },
+  address: { host, port, path: '/custom', shared: true },
+}))
 ```
 
 ---
@@ -474,7 +492,7 @@ pnpm tsx examples/03-rpc-server.ts
 
 ## License
 
-MIT
+ISC
 
 ---
 

@@ -317,9 +317,6 @@ export interface DiscoverOidcProviderOptions {
 /**
  * Backchannel logout request
  */
-interface BackchannelLogoutRequest {
-  logout_token: string
-}
 
 /**
  * Decoded logout token claims
@@ -803,6 +800,7 @@ function defaultErrorHandler<E extends Record<string, unknown>>(
   provider: OidcProvider | null,
   c: HttpContextInterface<E>
 ): Response {
+  const path = new URL(c.req.url).pathname
   return new Response(
     JSON.stringify({
       success: false,
@@ -810,6 +808,7 @@ function defaultErrorHandler<E extends Record<string, unknown>>(
         code: error.code,
         message: error.message,
         provider: provider?.name,
+        path,
       },
     }),
     { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -823,8 +822,14 @@ function defaultLogoutHandler<E extends Record<string, unknown>>(
   provider: OidcProvider | null,
   c: HttpContextInterface<E>
 ): Response {
+  const path = new URL(c.req.url).pathname
   return new Response(
-    JSON.stringify({ success: true, message: 'Logged out' }),
+    JSON.stringify({
+      success: true,
+      message: 'Logged out',
+      provider: provider?.name,
+      path,
+    }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }
   )
 }
