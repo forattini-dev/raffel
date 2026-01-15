@@ -20,6 +20,7 @@ export type EnvelopeType =
   | 'stream:error'  // Stream error
   | 'event'         // Fire-and-forget event
   | 'error'         // Generic error
+  | 'ack'           // Acknowledgment (UDP)
 
 /**
  * Base Envelope structure

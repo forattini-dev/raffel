@@ -20,6 +20,21 @@ import { createServer as createHttpServer } from 'node:http'
 
 const TEST_PORT = 23463
 
+// Default config for GraphQL adapter tests (satisfies Required fields)
+const DEFAULT_CONFIG = {
+  path: '/graphql',
+  maxBodySize: 1024 * 1024,
+  timeout: 30000,
+  playground: false,
+  introspection: true,
+} as const
+
+// Type for GraphQL response
+interface GraphQLResponse {
+  data?: Record<string, unknown>
+  errors?: Array<{ message: string; [key: string]: unknown }>
+}
+
 // =============================================================================
 // Schema Generator Tests
 // =============================================================================
@@ -155,10 +170,10 @@ describe('GraphQL Schema Generator', () => {
         const result = generateGraphQLSchema({
           registry,
           schemaRegistry,
-          options: { procedureMapping: 'pattern' },
+          options: { procedureMapping: 'prefix' },
         })
 
-        // By default, pattern mode uses patterns like /\.get|\.list|\.find/
+        // By default, prefix mode uses prefixes like get, list, find
         expect(result.queries.length).toBeGreaterThanOrEqual(0)
       })
     })
@@ -433,10 +448,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-          playground: false,
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -455,9 +467,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -471,9 +481,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -490,9 +498,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -506,9 +512,9 @@ describe('GraphQL Adapter', () => {
       })
 
       expect(response.status).toBe(200)
-      const result = await response.json()
+      const result = await response.json() as GraphQLResponse
       expect(result.data).toBeDefined()
-      expect(result.data.usersGet).toEqual({ id: '1', name: 'Test' })
+      expect(result.data!.usersGet).toEqual({ id: '1', name: 'Test' })
     })
 
     it('should handle _health query when no other queries exist', async () => {
@@ -529,9 +535,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry: mutationsOnlySchemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -545,8 +549,8 @@ describe('GraphQL Adapter', () => {
       })
 
       expect(response.status).toBe(200)
-      const result = await response.json()
-      expect(result.data._health).toBe(true)
+      const result = await response.json() as GraphQLResponse
+      expect(result.data!._health).toBe(true)
     })
 
     it('should return errors for invalid queries', async () => {
@@ -556,9 +560,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -572,9 +574,9 @@ describe('GraphQL Adapter', () => {
       })
 
       expect(response.status).toBe(200)
-      const result = await response.json()
+      const result = await response.json() as GraphQLResponse
       expect(result.errors).toBeDefined()
-      expect(result.errors.length).toBeGreaterThan(0)
+      expect(result.errors!.length).toBeGreaterThan(0)
     })
   })
 
@@ -586,10 +588,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-          cors: true,
-        },
+        config: { ...DEFAULT_CONFIG, cors: true },
       })
 
       await adapter.start()
@@ -609,10 +608,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-          cors: false,
-        },
+        config: { ...DEFAULT_CONFIG, cors: false },
       })
 
       await adapter.start()
@@ -634,9 +630,7 @@ describe('GraphQL Adapter', () => {
         schemaRegistry,
         host: '127.0.0.1',
         port: TEST_PORT,
-        config: {
-          path: '/graphql',
-        },
+        config: { ...DEFAULT_CONFIG },
       })
 
       await adapter.start()
@@ -677,9 +671,7 @@ describe('GraphQL Middleware', () => {
       router,
       registry,
       schemaRegistry,
-      config: {
-        path: '/graphql',
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     expect(middleware.middleware).toBeInstanceOf(Function)
@@ -691,9 +683,7 @@ describe('GraphQL Middleware', () => {
       router,
       registry,
       schemaRegistry,
-      config: {
-        path: '/graphql',
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     expect(middleware.schema).toBeDefined()
@@ -707,9 +697,7 @@ describe('GraphQL Middleware', () => {
       router,
       registry,
       schemaRegistry,
-      config: {
-        path: '/graphql',
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     const server: Server = createHttpServer(async (req, res) => {
@@ -735,8 +723,8 @@ describe('GraphQL Middleware', () => {
       })
 
       expect(response.status).toBe(200)
-      const result = await response.json()
-      expect(result.data.testPing.pong).toBe(true)
+      const result = await response.json() as GraphQLResponse
+      expect((result.data!.testPing as { pong: boolean }).pong).toBe(true)
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
@@ -747,9 +735,7 @@ describe('GraphQL Middleware', () => {
       router,
       registry,
       schemaRegistry,
-      config: {
-        path: '/graphql',
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     const mockReq = {
@@ -801,9 +787,7 @@ describe('GraphQL Error Handling', () => {
       schemaRegistry,
       host: '127.0.0.1',
       port: TEST_PORT,
-      config: {
-        path: '/graphql',
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     await adapter.start()
@@ -818,9 +802,9 @@ describe('GraphQL Error Handling', () => {
     })
 
     expect(response.status).toBe(200)
-    const result = await response.json()
+    const result = await response.json() as GraphQLResponse
     expect(result.errors).toBeDefined()
-    expect(result.errors[0].message).toContain('Intentional error')
+    expect(result.errors![0].message).toContain('Intentional error')
   })
 
   it('should handle invalid JSON body', async () => {
@@ -830,9 +814,7 @@ describe('GraphQL Error Handling', () => {
       schemaRegistry,
       host: '127.0.0.1',
       port: TEST_PORT,
-      config: {
-        path: '/graphql',
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     await adapter.start()
@@ -844,7 +826,7 @@ describe('GraphQL Error Handling', () => {
     })
 
     expect(response.status).toBe(400)
-    const result = await response.json()
+    const result = await response.json() as GraphQLResponse
     expect(result.errors).toBeDefined()
   })
 
@@ -855,10 +837,7 @@ describe('GraphQL Error Handling', () => {
       schemaRegistry,
       host: '127.0.0.1',
       port: TEST_PORT,
-      config: {
-        path: '/graphql',
-        playground: false,
-      },
+      config: { ...DEFAULT_CONFIG },
     })
 
     await adapter.start()

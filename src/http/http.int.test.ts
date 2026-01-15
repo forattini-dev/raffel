@@ -387,7 +387,6 @@ describe('CORS Middleware', () => {
           headers: Object.fromEntries(requestHeaders.entries()),
         },
       },
-      res: null as Response | null,
       set res(r: Response | null) {
         response = r
       },
@@ -606,9 +605,9 @@ describe('Body Limit Middleware', () => {
     })
 
     it('should be case insensitive', () => {
-      expect(parseSize('1KB')).toBe(1024)
-      expect(parseSize('1Mb')).toBe(1024 * 1024)
-      expect(parseSize('1GB')).toBe(1024 * 1024 * 1024)
+      expect(parseSize('1KB' as SizeString)).toBe(1024)
+      expect(parseSize('1Mb' as SizeString)).toBe(1024 * 1024)
+      expect(parseSize('1GB' as SizeString)).toBe(1024 * 1024 * 1024)
     })
 
     it('should throw for invalid format', () => {
@@ -671,7 +670,6 @@ describe('Body Limit Middleware', () => {
               : undefined,
           }),
         },
-        res,
         set res(r: Response | null) {
           res = r
         },

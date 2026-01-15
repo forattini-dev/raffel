@@ -16,7 +16,7 @@
 import { createSocket, type Socket as UdpSocket, type RemoteInfo } from 'node:dgram'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context } from '../types/index.js'
+import type { Envelope, EnvelopeType, Context } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
@@ -251,7 +251,7 @@ export function createUdpAdapter(
     const envelope: Envelope = {
       id: requestId,
       procedure: String(parsed.procedure),
-      type: String(parsed.type),
+      type: String(parsed.type) as EnvelopeType,
       payload: parsed.payload ?? {},
       metadata: sanitizeMetadataRecord(parsed.metadata as Record<string, unknown> | undefined),
       context: ctx,

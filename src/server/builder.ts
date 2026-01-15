@@ -498,7 +498,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       }
       registerProtocolExtension({
         name,
-        factory,
+        factory: factory as ProtocolExtensionConfig['factory'],
         options,
       })
       return server

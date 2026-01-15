@@ -25,6 +25,7 @@ export class MCPServer {
   private options: MCPServerOptions
   private debug: boolean
   private enabledTools: string[]
+  private _initialized: boolean = false
 
   constructor(options: MCPServerOptions = {}) {
     this.options = {
@@ -371,7 +372,7 @@ export class MCPServer {
       capabilities,
       serverInfo: {
         name: this.options.name || 'raffel-mcp',
-        version: this.options.version || VERSION,
+        version: this.options.version || MCP_VERSION,
       },
       instructions: `Raffel MCP Server - Unified Multi-Protocol Server Runtime
 
