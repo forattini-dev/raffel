@@ -1,10 +1,10 @@
 # Quickstart
 
-Veja como é fácil criar um servidor com Raffel.
+Build your first API in 5 minutes. No jargon, just code.
 
 ---
 
-## Instalação
+## Installation
 
 ```bash
 pnpm add raffel
@@ -12,140 +12,386 @@ pnpm add raffel
 
 ---
 
-## O Mais Simples Possível
+## Your First API
 
 ```typescript
 import { createServer } from 'raffel'
 
-const server = createServer({
-  port: 3000,
-  websocket: { path: '/ws' },
+const app = createServer({ port: 3000 })
+
+app.get('/hello/:name', async ({ name }) => {
+  return { message: `Hello, ${name}!` }
 })
 
-server.procedure('hello')
-  .handler(async ({ name }) => `Hello, ${name}!`)
-
-await server.start()
+await app.start()
 ```
-
-Pronto. Você tem um servidor HTTP + WebSocket funcionando.
 
 ```bash
-# HTTP
-curl localhost:3000/hello -d '{"name":"World"}'
-# → "Hello, World!"
-
-# WebSocket
-wscat -c ws://localhost:3000/ws
-> {"procedure":"hello","payload":{"name":"World"}}
-< {"success":true,"data":"Hello, World!"}
+curl http://localhost:3000/hello/World
+# → {"message":"Hello, World!"}
 ```
 
-**Uma linha de código, dois protocolos.**
+**That's it.** If you've used Express, Fastify, or Hono, this should feel familiar.
 
 ---
 
-## Várias Rotas
+## REST CRUD (5 min)
+
+Let's build a complete users API:
 
 ```typescript
-const server = createServer({ port: 3000 })
+import { createServer } from 'raffel'
 
-server.procedure('hello')
-  .handler(async ({ name }) => `Hello, ${name}!`)
+const app = createServer({ port: 3000 })
 
-server.procedure('users.create')
-  .handler(async (input) => ({ id: crypto.randomUUID(), ...input }))
+// In-memory store (swap with your DB)
+const users = new Map()
 
-server.procedure('users.list')
-  .handler(async () => db.users.findMany())
+// LIST - GET /users
+app.get('/users', async () => {
+  return [...users.values()]
+})
 
-server.procedure('health')
-  .handler(async () => ({ ok: true }))
+// READ - GET /users/:id
+app.get('/users/:id', async ({ id }) => {
+  const user = users.get(id)
+  if (!user) throw app.errors.notFound('User not found')
+  return user
+})
 
-await server.start()
+// CREATE - POST /users
+app.post('/users', async (body) => {
+  const user = { id: crypto.randomUUID(), ...body }
+  users.set(user.id, user)
+  return user
+})
+
+// UPDATE - PUT /users/:id
+app.put('/users/:id', async ({ id, ...body }) => {
+  if (!users.has(id)) throw app.errors.notFound('User not found')
+  const user = { id, ...body }
+  users.set(id, user)
+  return user
+})
+
+// DELETE - DELETE /users/:id
+app.delete('/users/:id', async ({ id }) => {
+  if (!users.delete(id)) throw app.errors.notFound('User not found')
+  return { success: true }
+})
+
+await app.start()
 ```
 
-Cada chave vira um endpoint:
+Test it:
 
-| Rota | HTTP | WebSocket |
-|:-----|:-----|:----------|
-| `hello` | `POST /hello` | `{ procedure: 'hello' }` |
-| `users.create` | `POST /users.create` | `{ procedure: 'users.create' }` |
-| `users.list` | `POST /users.list` | `{ procedure: 'users.list' }` |
+```bash
+# Create
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","email":"alice@example.com"}'
+
+# List
+curl http://localhost:3000/users
+
+# Get one
+curl http://localhost:3000/users/{id}
+
+# Update
+curl -X PUT http://localhost:3000/users/{id} \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice Updated"}'
+
+# Delete
+curl -X DELETE http://localhost:3000/users/{id}
+```
 
 ---
 
-## Com Validação
+## Add Validation
+
+Want type-safe input? Add Zod:
 
 ```typescript
+import { createServer } from 'raffel'
 import { z } from 'zod'
-import { createZodAdapter, registerValidator } from 'raffel'
 
-registerValidator(createZodAdapter(z))
+const app = createServer({ port: 3000 })
 
-const server = createServer({ port: 3000 })
+const CreateUserSchema = z.object({
+  name: z.string().min(2, 'Name too short'),
+  email: z.string().email('Invalid email'),
+  age: z.number().min(18).optional(),
+})
 
-server.procedure('users.create')
-  .input(z.object({
-    name: z.string().min(2),
-    email: z.string().email(),
-  }))
-  .handler(async (input) => ({ id: crypto.randomUUID(), ...input }))
+app.post('/users', {
+  body: CreateUserSchema,
+  handler: async (body) => {
+    // body is typed: { name: string, email: string, age?: number }
+    return { id: crypto.randomUUID(), ...body }
+  }
+})
 
-await server.start()
+await app.start()
 ```
 
-Dados inválidos? Erro automático:
+Bad input? Automatic error:
+
+```bash
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"A","email":"not-an-email"}'
+```
 
 ```json
-{ "error": "VALIDATION_ERROR", "details": [...] }
+{
+  "error": "VALIDATION_ERROR",
+  "message": "Validation failed",
+  "details": [
+    { "path": "name", "message": "Name too short" },
+    { "path": "email", "message": "Invalid email" }
+  ]
+}
 ```
 
 ---
 
-## File-Based (Zero Config)
+## Add Middleware
 
-Prefere organizar por arquivos?
+```typescript
+import { createServer } from 'raffel'
+
+const app = createServer({ port: 3000 })
+
+// Logging middleware
+app.use(async (req, next) => {
+  console.log(`→ ${req.method} ${req.path}`)
+  const start = Date.now()
+  const result = await next()
+  console.log(`← ${req.method} ${req.path} (${Date.now() - start}ms)`)
+  return result
+})
+
+// Auth middleware
+const requireAuth = async (req, next) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  if (!token) throw app.errors.unauthorized('Missing token')
+
+  // Verify token (use your JWT library)
+  req.user = verifyToken(token)
+  return next()
+}
+
+// Public route
+app.get('/health', async () => ({ status: 'ok' }))
+
+// Protected route
+app.get('/profile', requireAuth, async (_, req) => {
+  return req.user
+})
+
+await app.start()
+```
+
+---
+
+## The Magic: Multi-Protocol
+
+Here's where Raffel shines. **Your REST API already works over WebSocket:**
+
+```typescript
+const app = createServer({
+  port: 3000,
+  websocket: { path: '/ws' },  // ← Enable WebSocket
+})
+
+app.get('/users/:id', async ({ id }) => {
+  return db.users.findById(id)
+})
+
+await app.start()
+```
+
+```bash
+# HTTP works as usual
+curl http://localhost:3000/users/123
+
+# WebSocket works too!
+wscat -c ws://localhost:3000/ws
+> {"procedure":"GET /users/:id","payload":{"id":"123"}}
+< {"success":true,"data":{"id":"123","name":"Alice"}}
+```
+
+**Same handler. Same validation. Same auth. Different protocols.**
+
+---
+
+## Query Parameters
+
+```typescript
+app.get('/users', async ({ page, limit, search }) => {
+  // GET /users?page=1&limit=10&search=alice
+  return db.users.findMany({
+    skip: (page - 1) * limit,
+    take: limit,
+    where: search ? { name: { contains: search } } : undefined,
+  })
+})
+```
+
+With validation:
+
+```typescript
+app.get('/users', {
+  query: z.object({
+    page: z.coerce.number().min(1).default(1),
+    limit: z.coerce.number().min(1).max(100).default(20),
+    search: z.string().optional(),
+  }),
+  handler: async ({ page, limit, search }) => {
+    // page and limit are numbers (coerced from query string)
+    return db.users.findMany({ ... })
+  }
+})
+```
+
+---
+
+## Error Handling
+
+Throw errors, Raffel handles the rest:
+
+```typescript
+app.get('/users/:id', async ({ id }) => {
+  const user = await db.users.findById(id)
+
+  if (!user) {
+    throw app.errors.notFound('User not found')
+  }
+
+  return user
+})
+```
+
+Built-in errors:
+- `app.errors.notFound(message)` → 404
+- `app.errors.badRequest(message)` → 400
+- `app.errors.unauthorized(message)` → 401
+- `app.errors.forbidden(message)` → 403
+- `app.errors.conflict(message)` → 409
+- `app.errors.internal(message)` → 500
+
+Or throw custom errors:
+
+```typescript
+throw app.errors.create('CUSTOM_ERROR', 422, 'Something went wrong', {
+  field: 'email',
+  reason: 'already_exists',
+})
+```
+
+---
+
+## File-based Routing (Zero Config)
+
+Don't want to define routes manually? Use file-based discovery:
 
 ```typescript
 // server.ts
-await createServer({ port: 3000, discovery: true })
+import { createServer } from 'raffel'
+
+const app = createServer({
+  port: 3000,
+  discovery: true,  // ← Enable auto-discovery
+})
+
+await app.start()
 ```
+
+Create route files:
 
 ```typescript
-// src/rpc/hello.ts
-export default ({ name }) => `Hello, ${name}!`
+// src/routes/users/index.ts → GET /users
+export const GET = async () => {
+  return db.users.findMany()
+}
 
-// src/rpc/users/create.ts
-export default async (input) => ({ id: crypto.randomUUID(), ...input })
+// src/routes/users/[id].ts → GET/PUT/DELETE /users/:id
+export const GET = async ({ id }) => db.users.findById(id)
+export const PUT = async ({ id, ...body }) => db.users.update(id, body)
+export const DELETE = async ({ id }) => db.users.delete(id)
+
+// src/routes/users/index.ts → POST /users
+export const POST = async (body) => db.users.create(body)
 ```
 
-A estrutura de pastas define os endpoints automaticamente.
+Directory structure = API structure:
+
+```
+src/routes/
+├── users/
+│   ├── index.ts      → /users (GET, POST)
+│   └── [id].ts       → /users/:id (GET, PUT, DELETE)
+├── posts/
+│   ├── index.ts      → /posts
+│   └── [id]/
+│       ├── index.ts  → /posts/:id
+│       └── comments.ts → /posts/:id/comments
+└── health.ts         → /health
+```
 
 ---
 
-## Streaming
+## Next Steps
 
-```typescript
-const server = createServer({ port: 3000 })
+You've got the basics. Now explore:
 
-server.stream('logs.tail')
-  .handler(async function* ({ file }) {
-    for await (const line of readLines(file)) {
-      yield { line, ts: Date.now() }
-    }
-  })
-
-await server.start()
-```
-
-Cada `yield` envia dados em tempo real para o cliente.
+| Topic | What You'll Learn |
+|-------|-------------------|
+| [HTTP Deep Dive](/protocols/http) | Headers, cookies, file uploads, streaming responses |
+| [Authentication](/auth/overview) | JWT, API Key, OAuth2, OIDC, sessions |
+| [Validation](/validation) | Zod, Yup, Joi - full integration |
+| [WebSocket](/protocols/websocket) | Real-time, channels, presence |
+| [Interceptors](/interceptors) | Rate limiting, caching, retry, circuit breaker |
+| [Procedure API](/handlers/procedures) | Full control with the native API |
 
 ---
 
-## Próximos Passos
+## Quick Reference
 
-- **[HTTP em Detalhes](/protocols/http.md)** - REST, middlewares, controle total
-- **[Arquitetura](/architecture.md)** - Como o Raffel funciona por baixo
-- **[Interceptors](/interceptors.md)** - Rate limit, cache, retry
-- **[Auth](/auth/overview.md)** - JWT, API Key, OAuth2
+```typescript
+// HTTP Methods
+app.get('/path', handler)
+app.post('/path', handler)
+app.put('/path', handler)
+app.patch('/path', handler)
+app.delete('/path', handler)
+
+// With validation
+app.post('/path', {
+  body: zodSchema,
+  query: zodSchema,
+  params: zodSchema,
+  handler: async (input) => { ... }
+})
+
+// Middleware
+app.use(middleware)                    // Global
+app.get('/path', middleware, handler)  // Per-route
+
+// Error helpers
+app.errors.notFound(message)
+app.errors.badRequest(message)
+app.errors.unauthorized(message)
+app.errors.forbidden(message)
+app.errors.conflict(message)
+app.errors.internal(message)
+
+// Multi-protocol
+const app = createServer({
+  port: 3000,
+  websocket: { path: '/ws' },
+  jsonrpc: { path: '/rpc' },
+  graphql: { path: '/graphql' },
+})
+```
