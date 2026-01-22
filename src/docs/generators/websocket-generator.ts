@@ -106,15 +106,17 @@ function convertChannel(
   channel: LoadedChannel,
   schemaRegistry: ConvertedSchemaRegistry
 ): USDChannel {
-  const type = inferChannelType(channel.name)
+  // Use explicit type if provided, otherwise infer from channel name
+  const type = channel.type ?? inferChannelType(channel.name)
 
   const usdChannel: USDChannel = {
     type,
-    description: `Channel: ${channel.name}`,
+    // Use explicit description if provided, otherwise generate from name
+    description: channel.description ?? `Channel: ${channel.name}`,
   }
 
-  // Add tags based on channel name
-  const tags = extractChannelTags(channel.name)
+  // Use explicit tags if provided, otherwise extract from channel name
+  const tags = channel.tags ?? extractChannelTags(channel.name)
   if (tags.length > 0) {
     usdChannel.tags = tags
   }

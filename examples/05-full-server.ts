@@ -166,6 +166,39 @@ const server = createServer({
     },
   })
 
+// =============================================================================
+// WebSocket Channels (explicit definitions for documentation)
+// =============================================================================
+
+// Define channels explicitly so they appear in USD documentation
+server.ws
+  .channel('general', {
+    type: 'public',
+    description: 'General public chat channel. Anyone can join.',
+    tags: ['chat'],
+  })
+  .channel('announcements', {
+    type: 'public',
+    description: 'Server announcements and notifications.',
+    tags: ['chat'],
+  })
+  .channel('presence-lobby', {
+    type: 'presence',
+    description: 'Lobby with presence tracking. Shows who is online.',
+    tags: ['presence'],
+  })
+  .channel('private-admins', {
+    type: 'private',
+    description: 'Private channel for administrators only.',
+    tags: ['admin'],
+  })
+  .channel('private-premium', {
+    type: 'private',
+    description: 'Private channel for premium users.',
+    tags: ['premium'],
+  })
+
+const serverConfig = server
   // JSON-RPC
   .enableJsonRpc('/rpc')
 

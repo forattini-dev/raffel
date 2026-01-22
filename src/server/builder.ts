@@ -575,6 +575,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         tags: config.tags,
         externalDocs: config.externalDocs,
         ui: config.ui,
+        documentation: config.documentation,
         includeErrorSchemas: config.includeErrorSchemas,
         includeStreamEventSchemas: config.includeStreamEventSchemas,
         jsonrpc: config.jsonrpc,
@@ -1187,6 +1188,7 @@ export function createServer(options: ServerOptions): RaffelServer {
             tags: usdDocsConfig.tags,
             externalDocs: usdDocsConfig.externalDocs,
             ui: usdDocsConfig.ui,
+            documentation: usdDocsConfig.documentation,
             includeErrorSchemas: usdDocsConfig.includeErrorSchemas,
             includeStreamEventSchemas: usdDocsConfig.includeStreamEventSchemas,
             jsonrpc: usdDocsConfig.jsonrpc,
@@ -1637,6 +1639,10 @@ export function createServer(options: ServerOptions): RaffelServer {
               onJoin: wrappedOnJoin as any,
               onLeave: wrappedOnLeave as any,
             },
+            // Include documentation metadata
+            type: options?.type ?? 'public',
+            description: options?.description,
+            tags: options?.tags,
           }
           channelRegistry.set(channelName, channelDef)
           logger.debug({ name: channelName, type: options?.type ?? 'public', auth: authRequirement }, 'Added WebSocket channel')

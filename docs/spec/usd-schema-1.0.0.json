@@ -1,0 +1,1392 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raffel.dev/schemas/usd/1.0.0/usd-schema.json",
+  "title": "USD Document",
+  "description": "Universal Service Documentation (USD) Specification v1.0.0 - A multi-protocol API documentation format extending OpenAPI 3.1",
+  "type": "object",
+  "required": ["usd", "openapi", "info"],
+  "properties": {
+    "usd": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "USD specification version. MUST be '1.0.0'."
+    },
+    "openapi": {
+      "type": "string",
+      "const": "3.1.0",
+      "description": "OpenAPI specification version. MUST be '3.1.0'."
+    },
+    "info": {
+      "$ref": "#/$defs/Info"
+    },
+    "servers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Server"
+      },
+      "description": "HTTP server endpoints."
+    },
+    "paths": {
+      "$ref": "#/$defs/Paths"
+    },
+    "components": {
+      "$ref": "#/$defs/Components"
+    },
+    "security": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SecurityRequirement"
+      },
+      "description": "Global security requirements."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Tag"
+      },
+      "description": "Tags for organization."
+    },
+    "x-tagGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TagGroup"
+      },
+      "description": "Hierarchical tag grouping."
+    },
+    "externalDocs": {
+      "$ref": "#/$defs/ExternalDocs"
+    },
+    "x-usd": {
+      "$ref": "#/$defs/USDX"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "Info": {
+      "type": "object",
+      "required": ["title", "version"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The title of the API."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version of the API document."
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the API. CommonMark syntax MAY be used."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Short summary of the API."
+        },
+        "termsOfService": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the Terms of Service."
+        },
+        "contact": {
+          "$ref": "#/$defs/Contact"
+        },
+        "license": {
+          "$ref": "#/$defs/License"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Contact": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The identifying name of the contact."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL pointing to the contact information."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Email address of the contact."
+        }
+      },
+      "additionalProperties": true
+    },
+    "License": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The license name."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the license."
+        },
+        "identifier": {
+          "type": "string",
+          "description": "SPDX license expression."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Server": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Server URL. MAY contain variables."
+        },
+        "description": {
+          "type": "string",
+          "description": "Server description."
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ServerVariable"
+          },
+          "description": "URL template variables."
+        }
+      },
+      "additionalProperties": true
+    },
+    "ServerVariable": {
+      "type": "object",
+      "required": ["default"],
+      "properties": {
+        "enum": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Enumeration of allowed values."
+        },
+        "default": {
+          "type": "string",
+          "description": "Default value."
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the variable."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Paths": {
+      "type": "object",
+      "description": "HTTP paths and operations (OpenAPI standard).",
+      "additionalProperties": {
+        "$ref": "#/$defs/PathItem"
+      }
+    },
+    "PathItem": {
+      "type": "object",
+      "properties": {
+        "$ref": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "get": {
+          "$ref": "#/$defs/Operation"
+        },
+        "put": {
+          "$ref": "#/$defs/Operation"
+        },
+        "post": {
+          "$ref": "#/$defs/Operation"
+        },
+        "delete": {
+          "$ref": "#/$defs/Operation"
+        },
+        "options": {
+          "$ref": "#/$defs/Operation"
+        },
+        "head": {
+          "$ref": "#/$defs/Operation"
+        },
+        "patch": {
+          "$ref": "#/$defs/Operation"
+        },
+        "trace": {
+          "$ref": "#/$defs/Operation"
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Server"
+          }
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Parameter"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Operation": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deprecated": {
+          "type": "boolean"
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityRequirement"
+          }
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Server"
+          }
+        },
+        "externalDocs": {
+          "$ref": "#/$defs/ExternalDocs"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Parameter"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/$defs/RequestBody"
+        },
+        "responses": {
+          "$ref": "#/$defs/Responses"
+        },
+        "callbacks": {
+          "type": "object"
+        },
+        "x-usd-streaming": {
+          "type": "boolean",
+          "description": "Mark as streaming response."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Parameter": {
+      "type": "object",
+      "required": ["name", "in"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string",
+          "enum": ["query", "header", "path", "cookie"]
+        },
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "deprecated": {
+          "type": "boolean"
+        },
+        "allowEmptyValue": {
+          "type": "boolean"
+        },
+        "schema": {
+          "$ref": "#/$defs/Schema"
+        },
+        "example": {},
+        "examples": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "RequestBody": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "content": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/MediaType"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Responses": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Response"
+      }
+    },
+    "Response": {
+      "type": "object",
+      "required": ["description"],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "content": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/MediaType"
+          }
+        },
+        "links": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "MediaType": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/Schema"
+        },
+        "example": {},
+        "examples": {
+          "type": "object"
+        },
+        "encoding": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Schema": {
+      "type": "object",
+      "description": "JSON Schema Draft 2020-12 subset with OpenAPI extensions.",
+      "additionalProperties": true
+    },
+    "Components": {
+      "type": "object",
+      "properties": {
+        "schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Schema"
+          }
+        },
+        "responses": {
+          "type": "object"
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "examples": {
+          "type": "object"
+        },
+        "requestBodies": {
+          "type": "object"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "securitySchemes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/SecurityScheme"
+          }
+        },
+        "links": {
+          "type": "object"
+        },
+        "callbacks": {
+          "type": "object"
+        },
+        "pathItems": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "SecurityScheme": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["apiKey", "http", "oauth2", "openIdConnect", "mutualTLS"]
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "in": {
+          "type": "string",
+          "enum": ["query", "header", "cookie"]
+        },
+        "scheme": {
+          "type": "string"
+        },
+        "bearerFormat": {
+          "type": "string"
+        },
+        "flows": {
+          "$ref": "#/$defs/OAuthFlows"
+        },
+        "openIdConnectUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "x-usd-websocket": {
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "string",
+              "enum": ["query", "header", "cookie"]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["in", "name"]
+        },
+        "x-usd-streams": {
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["query", "header", "cookie"]
+              }
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": ["in", "name"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "OAuthFlows": {
+      "type": "object",
+      "properties": {
+        "implicit": {
+          "$ref": "#/$defs/OAuthFlow"
+        },
+        "password": {
+          "$ref": "#/$defs/OAuthFlow"
+        },
+        "clientCredentials": {
+          "$ref": "#/$defs/OAuthFlow"
+        },
+        "authorizationCode": {
+          "$ref": "#/$defs/OAuthFlow"
+        }
+      },
+      "additionalProperties": true
+    },
+    "OAuthFlow": {
+      "type": "object",
+      "properties": {
+        "authorizationUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "refreshUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "scopes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "SecurityRequirement": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "Tag": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "externalDocs": {
+          "$ref": "#/$defs/ExternalDocs"
+        },
+        "x-displayName": {
+          "type": "string",
+          "description": "Display name if different from name."
+        }
+      },
+      "additionalProperties": true
+    },
+    "TagGroup": {
+      "type": "object",
+      "required": ["name", "tags"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Group name displayed in sidebar."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags included in this group."
+        },
+        "description": {
+          "type": "string"
+        },
+        "expanded": {
+          "type": "boolean",
+          "description": "Whether expanded by default."
+        }
+      },
+      "additionalProperties": true
+    },
+    "ExternalDocs": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "USDX": {
+      "type": "object",
+      "description": "USD extension namespace containing multi-protocol definitions.",
+      "properties": {
+        "protocols": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Protocol"
+          },
+          "description": "List of protocols used in this service."
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProtocolServer"
+          },
+          "description": "Protocol-specific servers (non-HTTP)."
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "messages": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Message"
+          },
+          "description": "Reusable message definitions."
+        },
+        "websocket": {
+          "$ref": "#/$defs/WebSocket"
+        },
+        "streams": {
+          "$ref": "#/$defs/Streams"
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpc"
+        },
+        "grpc": {
+          "$ref": "#/$defs/Grpc"
+        },
+        "tcp": {
+          "$ref": "#/$defs/Tcp"
+        },
+        "udp": {
+          "$ref": "#/$defs/Udp"
+        },
+        "errors": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Error"
+          },
+          "description": "Unified error definitions."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Protocol": {
+      "type": "string",
+      "enum": ["http", "websocket", "streams", "jsonrpc", "grpc", "tcp", "udp"],
+      "description": "Supported protocol types."
+    },
+    "ProtocolServer": {
+      "type": "object",
+      "required": ["url", "protocol"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Server URL."
+        },
+        "protocol": {
+          "$ref": "#/$defs/Protocol"
+        },
+        "description": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ServerVariable"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "ContentTypes": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Default content type when not specified."
+        },
+        "supported": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional supported content types."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/Schema"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "example": {},
+        "examples": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "WebSocket": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "WebSocket endpoint path."
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "channels": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Channel"
+          },
+          "description": "Channel definitions."
+        },
+        "authentication": {
+          "type": "object",
+          "required": ["in", "name"],
+          "properties": {
+            "in": {
+              "type": "string",
+              "enum": ["query", "header", "cookie"]
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        },
+        "events": {
+          "type": "object",
+          "properties": {
+            "onConnect": {
+              "$ref": "#/$defs/Message"
+            },
+            "onDisconnect": {
+              "$ref": "#/$defs/Message"
+            },
+            "onError": {
+              "$ref": "#/$defs/Message"
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Channel": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["public", "private", "presence"],
+          "description": "Channel type."
+        },
+        "description": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ChannelParameter"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "subscribe": {
+          "$ref": "#/$defs/ChannelOperation"
+        },
+        "publish": {
+          "$ref": "#/$defs/ChannelOperation"
+        },
+        "x-usd-presence": {
+          "type": "object",
+          "properties": {
+            "memberSchema": {
+              "$ref": "#/$defs/Schema"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["member_added", "member_removed", "member_updated"]
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "ChannelParameter": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "schema": {
+          "$ref": "#/$defs/Schema"
+        },
+        "example": {}
+      },
+      "additionalProperties": true
+    },
+    "ChannelOperation": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "message": {
+          "$ref": "#/$defs/Message"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityRequirement"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Streams": {
+      "type": "object",
+      "properties": {
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "endpoints": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/StreamEndpoint"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "StreamEndpoint": {
+      "type": "object",
+      "required": ["direction", "message"],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["server-to-client", "client-to-server", "bidirectional"],
+          "description": "Stream direction."
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "message": {
+          "$ref": "#/$defs/Message"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityRequirement"
+          }
+        },
+        "x-usd-backpressure": {
+          "type": "boolean",
+          "description": "Whether backpressure is supported."
+        }
+      },
+      "additionalProperties": true
+    },
+    "JsonRpc": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "JSON-RPC endpoint path."
+        },
+        "version": {
+          "type": "string",
+          "const": "2.0",
+          "description": "JSON-RPC version. MUST be '2.0'."
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "methods": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonRpcMethod"
+          }
+        },
+        "batch": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxSize": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "JsonRpcMethod": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "params": {
+          "$ref": "#/$defs/Schema"
+        },
+        "result": {
+          "$ref": "#/$defs/Schema"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonRpcError"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityRequirement"
+          }
+        },
+        "x-usd-streaming": {
+          "type": "boolean",
+          "description": "Whether method supports streaming responses."
+        },
+        "x-usd-notification": {
+          "type": "boolean",
+          "description": "Whether method is a notification (no response)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "JsonRpcError": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "description": "JSON-RPC error code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Error message."
+        },
+        "description": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/Schema"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Grpc": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string",
+          "description": "Proto package name."
+        },
+        "syntax": {
+          "type": "string",
+          "enum": ["proto3", "proto2"],
+          "description": "Proto syntax version."
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/GrpcService"
+          }
+        },
+        "options": {
+          "type": "object",
+          "description": "Proto file options."
+        }
+      },
+      "additionalProperties": true
+    },
+    "GrpcService": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "methods": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/GrpcMethod"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "GrpcMethod": {
+      "type": "object",
+      "required": ["input", "output"],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "input": {
+          "$ref": "#/$defs/Schema"
+        },
+        "output": {
+          "$ref": "#/$defs/Schema"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "x-usd-client-streaming": {
+          "type": "boolean",
+          "description": "Client streaming enabled."
+        },
+        "x-usd-server-streaming": {
+          "type": "boolean",
+          "description": "Server streaming enabled."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Tcp": {
+      "type": "object",
+      "properties": {
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "servers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TcpServer"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "TcpServer": {
+      "type": "object",
+      "required": ["host", "port"],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "host": {
+          "type": "string",
+          "description": "Host address."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port number."
+        },
+        "tls": {
+          "$ref": "#/$defs/TcpTls"
+        },
+        "framing": {
+          "$ref": "#/$defs/TcpFraming"
+        },
+        "messages": {
+          "type": "object",
+          "properties": {
+            "inbound": {
+              "$ref": "#/$defs/Message"
+            },
+            "outbound": {
+              "$ref": "#/$defs/Message"
+            }
+          }
+        },
+        "lifecycle": {
+          "type": "object",
+          "properties": {
+            "onConnect": {
+              "type": "string"
+            },
+            "onDisconnect": {
+              "type": "string"
+            },
+            "keepAlive": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "intervalMs": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityRequirement"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "TcpTls": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "cert": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "ca": {
+          "type": "string"
+        },
+        "clientAuth": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "TcpFraming": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["length-prefixed", "delimiter", "fixed", "none"],
+          "description": "Framing type."
+        },
+        "lengthBytes": {
+          "type": "integer",
+          "enum": [1, 2, 4, 8],
+          "description": "Bytes for length prefix."
+        },
+        "byteOrder": {
+          "type": "string",
+          "enum": ["big-endian", "little-endian"]
+        },
+        "delimiter": {
+          "type": "string",
+          "description": "Delimiter string."
+        },
+        "fixedSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Fixed frame size in bytes."
+        }
+      },
+      "additionalProperties": true
+    },
+    "Udp": {
+      "type": "object",
+      "properties": {
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "endpoints": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UdpEndpoint"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "UdpEndpoint": {
+      "type": "object",
+      "required": ["host", "port"],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "contentTypes": {
+          "$ref": "#/$defs/ContentTypes"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "multicast": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "group": {
+              "type": "string"
+            },
+            "ttl": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "maxPacketSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65507,
+          "description": "Maximum packet size in bytes."
+        },
+        "messages": {
+          "type": "object",
+          "properties": {
+            "inbound": {
+              "$ref": "#/$defs/Message"
+            },
+            "outbound": {
+              "$ref": "#/$defs/Message"
+            }
+          }
+        },
+        "message": {
+          "$ref": "#/$defs/Message",
+          "description": "Legacy inbound message schema."
+        },
+        "reliability": {
+          "type": "object",
+          "properties": {
+            "checksumValidation": {
+              "type": "boolean"
+            },
+            "duplicateDetection": {
+              "type": "boolean"
+            }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityRequirement"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Error": {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "status": {
+          "type": "integer",
+          "description": "HTTP status code."
+        },
+        "code": {
+          "type": "integer",
+          "description": "JSON-RPC error code."
+        },
+        "grpcCode": {
+          "type": "integer",
+          "description": "gRPC status code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Error message."
+        },
+        "description": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/Schema"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

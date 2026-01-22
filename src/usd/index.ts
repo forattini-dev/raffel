@@ -105,6 +105,11 @@ export type {
   USDValidationResult,
   USDValidationError,
   USDExportOptions,
+  USDDocumentation,
+  USDHero,
+  USDHeroButton,
+  USDQuickLink,
+  USDExternalLink,
 } from './spec/types.js'
 
 // Type guards

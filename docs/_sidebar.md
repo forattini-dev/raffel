@@ -47,3 +47,8 @@
   - [Core Model](/core-model.md)
   - [Error Codes](/error-codes.md)
   - [MCP Server](/mcp.md)
+
+- **USD Specification**
+  - [Overview](/spec/README.md)
+  - [USD 1.0.0](/spec/usd-1.0.0.md)
+  - [JSON Schema](/spec/usd-schema-1.0.0.json)

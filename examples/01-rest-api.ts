@@ -153,6 +153,58 @@ const server = createServer({
       version: '1.0.0',
       description: 'Complete REST API with authentication, authorization, metrics, tracing, and GraphQL support.',
     },
+    // Documentation config is portable (included in x-usd.documentation)
+    documentation: {
+      hero: {
+        tagline: 'A powerful REST API with Auth, Metrics, and GraphQL',
+        features: [
+          'Bearer Token Authentication',
+          'Role-based Access Control',
+          'OpenMetrics & Tracing',
+          'GraphQL Support',
+        ],
+        buttons: [
+          { text: 'Get Started', href: '#docs', primary: true },
+          { text: 'GitHub', href: 'https://github.com/tetis-io/raffel' },
+        ],
+        github: 'https://github.com/tetis-io/raffel',
+      },
+      introduction: `
+## Welcome to the REST API
+
+This API provides a complete solution for managing **users** and **posts** with enterprise-grade features.
+
+### Quick Start
+
+1. **Authenticate** - Get a token using one of the test accounts
+2. **Explore Endpoints** - Browse the API documentation below
+3. **Try It Out** - Use the interactive testing feature
+
+### Authentication
+
+All endpoints except \`/health\` require authentication. Include your token in the \`Authorization\` header:
+
+\`\`\`bash
+curl -H "Authorization: Bearer your-token" http://localhost:3001/me
+\`\`\`
+
+### Test Accounts
+
+| Token | Role | Description |
+|-------|------|-------------|
+| \`admin-token\` | Admin | Full access to all endpoints |
+| \`alice-token\` | User | Standard user permissions |
+| \`bob-token\` | Moderator | Extended moderation permissions |
+
+### Rate Limiting
+
+This API implements rate limiting to ensure fair usage. See the response headers for current limits.
+      `.trim(),
+    },
+    // UI config overrides documentation config at runtime
+    ui: {
+      primaryColor: '#6366f1',
+    },
   })
 
   // GraphQL

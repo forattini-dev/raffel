@@ -1,0 +1,57 @@
+// Protocol Buffer definitions for Raffel gRPC example
+syntax = "proto3";
+
+package raffel.example;
+
+// === User Service ===
+
+service UserService {
+  // Get a user by ID
+  rpc GetUser (GetUserRequest) returns (User);
+  // List all users
+  rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);
+  // Create a new user
+  rpc CreateUser (CreateUserRequest) returns (User);
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  string created_at = 4;
+}
+
+message ListUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  int32 total = 2;
+}
+
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+}
+
+// === Calculator Service ===
+
+service CalculatorService {
+  rpc Add (CalculationRequest) returns (CalculationResponse);
+  rpc Multiply (CalculationRequest) returns (CalculationResponse);
+}
+
+message CalculationRequest {
+  double a = 1;
+  double b = 2;
+}
+
+message CalculationResponse {
+  double result = 1;
+}

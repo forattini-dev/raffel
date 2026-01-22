@@ -19,6 +19,7 @@ import type {
   USDSecurityScheme,
   USDExternalDocs,
   USDContentTypes,
+  USDDocumentation,
 } from '../../usd/index.js'
 import { DEFAULT_USD_CONTENT_TYPES } from '../../usd/index.js'
 import type { Registry } from '../../core/registry.js'
@@ -101,6 +102,9 @@ export interface USDGeneratorOptions {
 
   /** External documentation */
   externalDocs?: USDExternalDocs
+
+  /** Documentation customization (hero, introduction, etc.) */
+  documentation?: USDDocumentation
 
   /** Include standard error schemas */
   includeErrorSchemas?: boolean
@@ -209,6 +213,7 @@ export function generateUSD(
     defaultSecurity,
     tags: customTags = [],
     externalDocs,
+    documentation,
     includeErrorSchemas = true,
     includeStreamEventSchemas = true,
   } = options
@@ -228,6 +233,7 @@ export function generateUSD(
   const xUsd: USDX = {
     protocols: detectedProtocols,
     contentTypes: globalContentTypes ?? DEFAULT_USD_CONTENT_TYPES,
+    documentation,
   }
 
   // Initialize document

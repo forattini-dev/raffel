@@ -539,6 +539,15 @@ export interface LoadedChannel {
 
   /** Auth config */
   authConfig?: AuthConfig
+
+  /** Channel type for documentation */
+  type?: 'public' | 'private' | 'presence'
+
+  /** Description for documentation */
+  description?: string
+
+  /** Tags for documentation grouping */
+  tags?: string[]
 }
 
 // === Internal ===

@@ -62,6 +62,9 @@ export interface USDX {
   /** Shared message definitions */
   messages?: Record<string, USDMessage>
 
+  /** Documentation customization (hero, introduction, etc.) */
+  documentation?: USDDocumentation
+
   /** WebSocket channels */
   websocket?: USDWebSocket
 
@@ -82,6 +85,104 @@ export interface USDX {
 
   /** Unified error definitions */
   errors?: USDErrors
+}
+
+// =============================================================================
+// Documentation Extension (x-usd.documentation)
+// =============================================================================
+
+/**
+ * Documentation customization for USD UI
+ * This allows the spec to define hero section, introduction markdown, and other UI elements
+ */
+export interface USDDocumentation {
+  /** Hero section configuration (Docsify-inspired cover page) */
+  hero?: USDHero
+
+  /** Introduction markdown content (displayed after hero, before endpoints) */
+  introduction?: string
+
+  /** External documentation links */
+  externalLinks?: USDExternalLink[]
+
+  /** Custom favicon URL */
+  favicon?: string
+
+  /** Custom logo URL */
+  logo?: string
+}
+
+/**
+ * Hero section configuration (Docsify-style cover page)
+ */
+export interface USDHero {
+  /** Override title from info.title */
+  title?: string
+
+  /** Version badge (defaults to info.version) */
+  version?: string
+
+  /** Tagline/description below title */
+  tagline?: string
+
+  /** Feature list with checkmark bullets */
+  features?: string[]
+
+  /** Background style */
+  background?: 'gradient' | 'solid' | 'pattern' | 'image'
+
+  /** Custom background image URL (for 'image' background) */
+  backgroundImage?: string
+
+  /** Custom background color (for 'solid' background) */
+  backgroundColor?: string
+
+  /** Call-to-action buttons */
+  buttons?: USDHeroButton[]
+
+  /** Quick links grid below buttons */
+  quickLinks?: USDQuickLink[]
+
+  /** GitHub repository URL (shows corner octocat) */
+  github?: string
+}
+
+/**
+ * Hero button configuration
+ */
+export interface USDHeroButton {
+  /** Button text */
+  text: string
+  /** Button link URL */
+  href?: string
+  /** Whether this is a primary (highlighted) button */
+  primary?: boolean
+}
+
+/**
+ * Quick link configuration
+ */
+export interface USDQuickLink {
+  /** Link title */
+  title: string
+  /** Optional description */
+  description?: string
+  /** Link URL */
+  href: string
+  /** Optional icon (emoji or icon class) */
+  icon?: string
+}
+
+/**
+ * External link configuration
+ */
+export interface USDExternalLink {
+  /** Link title */
+  title: string
+  /** Link URL */
+  url: string
+  /** Optional description */
+  description?: string
 }
 
 // =============================================================================

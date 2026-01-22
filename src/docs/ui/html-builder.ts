@@ -12,9 +12,35 @@
  * 3. JSON data is escaped for script embedding to prevent XSS
  */
 
-import type { UIConfig, UIGeneratorOptions } from './types.js'
+import type { UIConfig, UIGeneratorOptions, HeroConfig } from './types.js'
+import type { USDDocumentation, USDHero } from '../../usd/spec/types.js'
 import { generateStyles } from './styles.js'
 import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS } from './utils.js'
+
+/**
+ * Merge USD documentation config with UI config (UI config takes precedence)
+ */
+function mergeHeroConfig(
+  usdDocumentation: USDDocumentation | undefined,
+  uiHero: HeroConfig | undefined
+): HeroConfig | undefined {
+  const usdHero = usdDocumentation?.hero
+  if (!usdHero && !uiHero) return undefined
+
+  // UI config takes precedence over USD spec config
+  return {
+    title: uiHero?.title ?? usdHero?.title,
+    version: uiHero?.version ?? usdHero?.version,
+    tagline: uiHero?.tagline ?? usdHero?.tagline,
+    features: uiHero?.features ?? usdHero?.features,
+    background: uiHero?.background ?? usdHero?.background,
+    backgroundImage: uiHero?.backgroundImage ?? usdHero?.backgroundImage,
+    backgroundColor: uiHero?.backgroundColor ?? usdHero?.backgroundColor,
+    buttons: uiHero?.buttons ?? usdHero?.buttons,
+    quickLinks: uiHero?.quickLinks ?? usdHero?.quickLinks,
+    github: uiHero?.github ?? usdHero?.github,
+  }
+}
 
 /**
  * Generate HTML for USD documentation UI
@@ -22,19 +48,29 @@ import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS } from './ut
 export function generateUIHTML(options: UIGeneratorOptions): string {
   const { doc, basePath: _basePath, ui, tagGroups } = options
 
+  // Get USD documentation config from spec
+  const usdDocumentation = doc['x-usd']?.documentation
+
   const theme = ui?.theme ?? 'auto'
   const primaryColor = ui?.primaryColor ?? '#6366f1'
-  const logo = ui?.logo
-  const favicon = ui?.favicon
+  const logo = ui?.logo ?? usdDocumentation?.logo
+  const favicon = ui?.favicon ?? usdDocumentation?.favicon
   const title = doc.info.title
-  const hero = ui?.hero
+  const version = doc.info.version
   const sidebar = ui?.sidebar
+
+  // Merge hero config from USD spec and UI config
+  const hero = mergeHeroConfig(usdDocumentation, ui?.hero)
+
+  // Get introduction markdown from USD spec
+  const introduction = usdDocumentation?.introduction
 
   // Escape data for embedding in script tag (prevents XSS)
   const escapedSpec = escapeJsonForScript(doc)
   const escapedTagGroups = escapeJsonForScript(tagGroups ?? [])
   const escapedHero = escapeJsonForScript(hero ?? null)
   const escapedSidebar = escapeJsonForScript(sidebar ?? {})
+  const escapedIntroduction = escapeJsonForScript(introduction ?? null)
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -59,25 +95,71 @@ ${styles}
   </style>
 </head>
 <body>
-  ${generateHeroSection(hero, logo, title)}
+  ${generateHeroSection(hero, logo, title, version)}
+  ${generateIntroductionSection(introduction)}
   ${generateAppContainer(logo, title, sidebar)}
   <script>
-${generateClientScript(escapedSpec, escapedTagGroups, escapedHero, escapedSidebar)}
+${generateClientScript(escapedSpec, escapedTagGroups, escapedHero, escapedSidebar, escapedIntroduction)}
   </script>
 </body>
 </html>`
 }
 
 /**
- * Generate hero section HTML
+ * Generate introduction section HTML (markdown content)
+ * This renders after the hero and before the main docs content
+ */
+function generateIntroductionSection(introduction: string | undefined): string {
+  if (!introduction) return ''
+
+  return `
+  <section class="introduction" id="introduction">
+    <div class="introduction-content" id="introductionContent">
+      <!-- Markdown will be rendered by client-side script -->
+    </div>
+  </section>
+  `
+}
+
+/**
+ * Generate GitHub corner SVG (Docsify-style)
+ */
+function generateGitHubCorner(url: string): string {
+  return `
+    <a href="${escapeHtml(url)}" target="_blank" class="github-corner" aria-label="View source on GitHub">
+      <svg viewBox="0 0 250 250" aria-hidden="true">
+        <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path>
+        <path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path>
+        <path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path>
+      </svg>
+    </a>
+  `
+}
+
+/**
+ * Generate hero section HTML (Docsify-inspired)
  */
 function generateHeroSection(
   hero: UIConfig['hero'],
   logo: string | undefined,
-  title: string
+  title: string,
+  version?: string
 ): string {
   if (!hero) return ''
 
+  // Version badge
+  const versionHtml = hero.version || version
+    ? `<span class="hero-version">${escapeHtml(hero.version || version || '')}</span>`
+    : ''
+
+  // Features list
+  const featuresHtml = hero.features && hero.features.length > 0
+    ? `<ul class="hero-features">
+        ${hero.features.map(feature => `<li>${escapeHtml(feature)}</li>`).join('')}
+      </ul>`
+    : ''
+
+  // Action buttons
   const buttonsHtml = hero.buttons && hero.buttons.length > 0
     ? `<div class="hero-buttons">
         ${hero.buttons.map(btn => `
@@ -88,6 +170,7 @@ function generateHeroSection(
       </div>`
     : ''
 
+  // Quick links grid
   const quickLinksHtml = hero.quickLinks && hero.quickLinks.length > 0
     ? `<div class="hero-quicklinks">
         ${hero.quickLinks.map(link => `
@@ -100,12 +183,17 @@ function generateHeroSection(
       </div>`
     : ''
 
+  // GitHub corner
+  const githubHtml = hero.github ? generateGitHubCorner(hero.github) : ''
+
   return `
   <header class="hero">
+    ${githubHtml}
     <div class="hero-content">
       ${logo ? `<img class="hero-logo" src="${escapeHtml(logo)}" alt="Logo">` : ''}
-      <h1 class="hero-title">${escapeHtml(hero.title || title)}</h1>
+      <h1 class="hero-title">${escapeHtml(hero.title || title)}${versionHtml}</h1>
       ${hero.tagline ? `<p class="hero-tagline">${escapeHtml(hero.tagline)}</p>` : ''}
+      ${featuresHtml}
       ${buttonsHtml}
       ${quickLinksHtml}
     </div>
@@ -151,7 +239,8 @@ function generateClientScript(
   escapedSpec: string,
   escapedTagGroups: string,
   escapedHero: string,
-  escapedSidebar: string
+  escapedSidebar: string,
+  escapedIntroduction: string
 ): string {
   return `
     // Trusted data from server
@@ -159,6 +248,7 @@ function generateClientScript(
     const tagGroups = ${escapedTagGroups};
     const heroConfig = ${escapedHero};
     const sidebarConfig = ${escapedSidebar};
+    const introductionMarkdown = ${escapedIntroduction};
 
     // Helper to escape text for display
     function esc(str) {
@@ -1534,7 +1624,9 @@ function generateClientScript(
       container.className = 'code-example';
 
       const baseUrl = (spec.servers && spec.servers[0]?.url) || 'http://localhost:3000';
-      const wsUrl = baseUrl.replace(/^http/, 'ws') + (ep.path || '/' + ep.id);
+      // WebSocket URL uses the ws:// scheme and the configured WebSocket path (default: /ws)
+      const wsPath = wsSpec?.path || '/ws';
+      const wsUrl = baseUrl.replace(/^http/, 'ws') + wsPath;
 
       // Language tabs
       const languages = ['wscat', 'javascript', 'python'];
@@ -1577,41 +1669,69 @@ function generateClientScript(
     }
 
     function generateWsCodeSample(lang, url, ep) {
-      const data = ep.data || {};
-      let exampleMsg = {};
-      if (data.subscribe?.message?.payload) {
-        exampleMsg = buildExampleFromSchema(data.subscribe.message.payload);
-      } else if (data.publish?.message?.payload) {
-        exampleMsg = buildExampleFromSchema(data.publish.message.payload);
+      const channelName = ep.path;
+      const channelType = ep.data?.type || 'public';
+
+      // Build subscribe message
+      const subscribeMsg = { type: 'subscribe', channel: channelName, id: '1' };
+      const subscribeMsgStr = JSON.stringify(subscribeMsg, null, 2);
+
+      // Build example publish message if channel supports it
+      let publishMsg = null;
+      if (ep.data?.publish?.message?.payload) {
+        const payload = buildExampleFromSchema(ep.data.publish.message.payload);
+        publishMsg = { type: 'publish', channel: channelName, event: 'message', data: payload, id: '2' };
       }
-      const msgStr = JSON.stringify(exampleMsg || {}, null, 2);
+      const publishMsgStr = publishMsg ? JSON.stringify(publishMsg, null, 2) : null;
+
+      // For private/presence channels, add token to URL
+      const needsAuth = channelType === 'private' || channelType === 'presence';
+      const authUrl = needsAuth ? url + '?token=YOUR_TOKEN' : url;
 
       switch (lang) {
         case 'wscat':
-          return 'wscat -c "' + url + '"\\n\\n# Once connected, send messages:\\n> ' + msgStr.replace(/\\n/g, '');
+          let wscatCode = 'wscat -c "' + authUrl + '"\\n\\n';
+          wscatCode += '# Subscribe to channel:\\n> ' + JSON.stringify(subscribeMsg);
+          if (publishMsgStr) {
+            wscatCode += '\\n\\n# Publish a message:\\n> ' + JSON.stringify(publishMsg);
+          }
+          return wscatCode;
 
         case 'javascript':
-          return 'const ws = new WebSocket("' + url + '");\\n\\n' +
-            'ws.onopen = () => {\\n' +
-            '  console.log("Connected");\\n' +
-            '  ws.send(JSON.stringify(' + msgStr.split('\\n').map((l, i) => i === 0 ? l : '    ' + l).join('\\n') + '));\\n' +
-            '};\\n\\n' +
-            'ws.onmessage = (event) => {\\n' +
-            '  console.log("Received:", event.data);\\n' +
-            '};\\n\\n' +
-            'ws.onclose = () => {\\n' +
-            '  console.log("Disconnected");\\n' +
-            '};';
+          let jsCode = 'const ws = new WebSocket("' + authUrl + '");\\n\\n';
+          jsCode += 'ws.onopen = () => {\\n';
+          jsCode += '  console.log("Connected");\\n';
+          jsCode += '  // Subscribe to channel\\n';
+          jsCode += '  ws.send(JSON.stringify(' + subscribeMsgStr.split('\\n').map((l, i) => i === 0 ? l : '    ' + l).join('\\n') + '));\\n';
+          jsCode += '};\\n\\n';
+          jsCode += 'ws.onmessage = (event) => {\\n';
+          jsCode += '  const msg = JSON.parse(event.data);\\n';
+          jsCode += '  console.log("Received:", msg);\\n';
+          if (publishMsgStr) {
+            jsCode += '\\n  // After subscribed, you can publish:\\n';
+            jsCode += '  // ws.send(JSON.stringify(' + JSON.stringify(publishMsg) + '));\\n';
+          }
+          jsCode += '};\\n\\n';
+          jsCode += 'ws.onclose = () => {\\n';
+          jsCode += '  console.log("Disconnected");\\n';
+          jsCode += '};';
+          return jsCode;
 
         case 'python':
-          return 'import asyncio\\n' +
-            'import websockets\\n\\n' +
-            'async def connect():\\n' +
-            '    async with websockets.connect("' + url + '") as ws:\\n' +
-            '        await ws.send(\\'\\'\\'\\n' + msgStr + '\\n\\'\\'\\')\\n' +
-            '        response = await ws.recv()\\n' +
-            '        print(f"Received: {response}")\\n\\n' +
-            'asyncio.run(connect())';
+          let pyCode = 'import asyncio\\n';
+          pyCode += 'import websockets\\n';
+          pyCode += 'import json\\n\\n';
+          pyCode += 'async def connect():\\n';
+          pyCode += '    async with websockets.connect("' + authUrl + '") as ws:\\n';
+          pyCode += '        # Subscribe to channel\\n';
+          pyCode += '        await ws.send(json.dumps(' + subscribeMsgStr.split('\\n').map((l, i) => i === 0 ? l : '        ' + l).join('\\n') + '))\\n';
+          pyCode += '        \\n';
+          pyCode += '        # Wait for messages\\n';
+          pyCode += '        async for message in ws:\\n';
+          pyCode += '            data = json.loads(message)\\n';
+          pyCode += '            print(f"Received: {data}")\\n\\n';
+          pyCode += 'asyncio.run(connect())';
+          return pyCode;
 
         default:
           return '// Not implemented';
@@ -1624,7 +1744,8 @@ function generateClientScript(
       container.className = 'code-example';
 
       const baseUrl = (spec.servers && spec.servers[0]?.url) || 'http://localhost:3000';
-      const streamUrl = baseUrl + (ep.path || '/' + ep.id);
+      // SSE streams are accessed via GET /streams/<procedure-name>
+      const streamUrl = baseUrl + '/streams/' + ep.path;
 
       // Language tabs
       const languages = ['curl', 'javascript', 'python'];
@@ -1722,15 +1843,43 @@ function generateClientScript(
       const method = ep.method.toUpperCase();
       const path = ep.path;
       const baseUrl = (spec.servers && spec.servers[0]?.url) || 'http://localhost:3000';
-      const fullUrl = baseUrl + path;
 
-      // Get request body if exists
+      // Handle JSON-RPC methods specially
+      const isJsonRpc = method === 'RPC';
+      let fullUrl;
       let exampleBody = null;
-      const opData = ep.data;
-      if (opData && opData.requestBody && opData.requestBody.content) {
-        const jsonContent = opData.requestBody.content['application/json'];
-        if (jsonContent && jsonContent.schema) {
-          exampleBody = buildExampleFromSchema(jsonContent.schema);
+      let actualMethod = method;
+
+      if (isJsonRpc) {
+        // For JSON-RPC, use the /rpc endpoint and POST method
+        const rpcEndpoint = jsonrpcSpec?.endpoint || '/rpc';
+        fullUrl = baseUrl + rpcEndpoint;
+        actualMethod = 'POST';
+
+        // Build JSON-RPC request body
+        const opData = ep.data;
+        let params = {};
+        if (opData && opData.params) {
+          params = buildExampleFromSchema(opData.params);
+        }
+        exampleBody = {
+          jsonrpc: '2.0',
+          method: path,  // The method name like "tasks.list"
+          params: params,
+          id: 1
+        };
+      } else {
+        // Ensure path has leading slash for proper URL construction
+        const normalizedPath = path.startsWith('/') ? path : '/' + path;
+        fullUrl = baseUrl + normalizedPath;
+
+        // Get request body if exists
+        const opData = ep.data;
+        if (opData && opData.requestBody && opData.requestBody.content) {
+          const jsonContent = opData.requestBody.content['application/json'];
+          if (jsonContent && jsonContent.schema) {
+            exampleBody = buildExampleFromSchema(jsonContent.schema);
+          }
         }
       }
 
@@ -1762,7 +1911,7 @@ function generateClientScript(
 
         const pre = document.createElement('pre');
         const code = document.createElement('code');
-        code.textContent = generateCodeSample(lang, method, fullUrl, exampleBody);
+        code.textContent = generateCodeSample(lang, actualMethod, fullUrl, exampleBody);
         pre.appendChild(code);
         content.appendChild(pre);
         contents.appendChild(content);
@@ -3086,7 +3235,17 @@ function generateClientScript(
       return message;
     }
 
+    // Render introduction markdown if provided
+    // Note: introductionMarkdown is server-generated trusted content from USD spec
+    // parseMarkdown() escapes text before processing markdown syntax
+    function renderIntroduction() {
+      const container = document.getElementById('introductionContent');
+      if (!container || !introductionMarkdown) return;
+      container.innerHTML = parseMarkdown(introductionMarkdown);
+    }
+
     // Initial render
+    renderIntroduction();
     renderProtocolTabs();
     renderSidebar();
     renderContent();

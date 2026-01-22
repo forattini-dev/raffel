@@ -11,7 +11,7 @@
 import type { Registry } from '../core/index.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { LoadedChannel, LoadedRestResource } from '../server/fs-routes/index.js'
-import type { USDDocument } from '../usd/index.js'
+import type { USDDocument, USDDocumentation } from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
 import {
   generateUSD,
@@ -140,6 +140,9 @@ export interface USDMiddlewareConfig {
 
   /** gRPC generation options */
   grpc?: USDGeneratorOptions['grpc']
+
+  /** Documentation customization (portable with the spec) */
+  documentation?: USDDocumentation
 }
 
 /**
@@ -204,6 +207,7 @@ export function createUSDHandlers(
     jsonrpc,
     grpc,
     ui,
+    documentation,
     includeErrorSchemas = true,
     includeStreamEventSchemas = true,
   } = config
@@ -243,6 +247,7 @@ export function createUSDHandlers(
         defaultSecurity,
         tags,
         externalDocs,
+        documentation,
         jsonrpc,
         grpc,
         includeErrorSchemas,

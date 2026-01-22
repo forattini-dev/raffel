@@ -22,24 +22,38 @@ export interface UIConfig {
 }
 
 /**
- * Hero section configuration
+ * Hero section configuration (Docsify-inspired cover page)
  */
 export interface HeroConfig {
+  /** Override title from spec.info.title */
   title?: string
+  /** Version badge next to title */
+  version?: string
+  /** Tagline/description below title */
   tagline?: string
+  /** Feature list bullets */
+  features?: string[]
+  /** Background style */
   background?: 'gradient' | 'solid' | 'pattern' | 'image'
+  /** Custom background image URL */
   backgroundImage?: string
+  /** Custom background color (for solid) */
+  backgroundColor?: string
+  /** Call-to-action buttons */
   buttons?: Array<{
     text: string
     href?: string
     primary?: boolean
   }>
+  /** Quick links grid below buttons */
   quickLinks?: Array<{
     title: string
     description?: string
     href: string
     icon?: string
   }>
+  /** GitHub corner link */
+  github?: string
 }
 
 /**

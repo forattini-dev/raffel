@@ -2216,6 +2216,8 @@ export interface USDDocsConfig {
     primaryColor?: string
     /** Logo URL */
     logo?: string
+    /** Favicon URL */
+    favicon?: string
     /** Enable "Try It Out" feature */
     tryItOut?: boolean
     /** Code generation options */
@@ -2223,6 +2225,60 @@ export interface USDDocsConfig {
       enabled?: boolean
       languages?: ('typescript' | 'python' | 'go' | 'curl')[]
     }
+    /** Hero section configuration (Docsify-style cover page) */
+    hero?: {
+      /** Override title from info.title */
+      title?: string
+      /** Version badge */
+      version?: string
+      /** Tagline/description */
+      tagline?: string
+      /** Feature list */
+      features?: string[]
+      /** Background style */
+      background?: 'gradient' | 'solid' | 'pattern' | 'image'
+      /** Background image URL */
+      backgroundImage?: string
+      /** Background color (for solid) */
+      backgroundColor?: string
+      /** CTA buttons */
+      buttons?: Array<{ text: string; href?: string; primary?: boolean }>
+      /** Quick links */
+      quickLinks?: Array<{ title: string; description?: string; href: string; icon?: string }>
+      /** GitHub URL (corner octocat) */
+      github?: string
+    }
+    /** Sidebar configuration */
+    sidebar?: {
+      search?: boolean
+      expandAll?: boolean
+      showCounts?: boolean
+    }
+  }
+
+  /** Documentation customization for USD spec (portable, included in x-usd) */
+  documentation?: {
+    /** Hero section configuration */
+    hero?: {
+      title?: string
+      version?: string
+      tagline?: string
+      features?: string[]
+      background?: 'gradient' | 'solid' | 'pattern' | 'image'
+      backgroundImage?: string
+      backgroundColor?: string
+      buttons?: Array<{ text: string; href?: string; primary?: boolean }>
+      quickLinks?: Array<{ title: string; description?: string; href: string; icon?: string }>
+      github?: string
+    }
+    /** Introduction markdown (displayed after hero) */
+    introduction?: string
+    /** Logo URL */
+    logo?: string
+    /** Favicon URL */
+    favicon?: string
+    /** External links */
+    externalLinks?: Array<{ title: string; url: string; description?: string }>
   }
 
   /** Include standard error schemas */
