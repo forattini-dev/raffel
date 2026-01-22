@@ -1629,18 +1629,25 @@ function generateClientScript(
       const wsUrl = baseUrl.replace(/^http/, 'ws') + wsPath;
 
       // Language tabs
-      const languages = ['wscat', 'javascript', 'python'];
+      const languages = ['wscat', 'javascript', 'recker', 'python'];
       const tabs = document.createElement('div');
       tabs.className = 'code-tabs';
 
       const contents = document.createElement('div');
       contents.className = 'code-contents';
 
+      const langLabels = {
+        wscat: 'wscat',
+        javascript: 'WebSocket',
+        recker: 'Recker',
+        python: 'Python'
+      };
+
       languages.forEach((lang, i) => {
         // Tab button
         const tab = document.createElement('button');
         tab.className = 'code-tab' + (i === 0 ? ' active' : '');
-        tab.textContent = lang === 'wscat' ? 'wscat' : lang === 'javascript' ? 'JavaScript' : 'Python';
+        tab.textContent = langLabels[lang] || lang;
         tab.onclick = () => {
           tabs.querySelectorAll('.code-tab').forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
@@ -1717,6 +1724,27 @@ function generateClientScript(
           jsCode += '};';
           return jsCode;
 
+        case 'recker':
+          let reckerCode = 'import { ws } from "recker";\\n\\n';
+          if (needsAuth) {
+            reckerCode += 'const socket = await ws("' + url + '", {\\n';
+            reckerCode += '  query: { token: "YOUR_TOKEN" }\\n';
+            reckerCode += '});\\n\\n';
+          } else {
+            reckerCode += 'const socket = await ws("' + url + '");\\n\\n';
+          }
+          reckerCode += '// Subscribe to channel\\n';
+          reckerCode += 'socket.send(' + subscribeMsgStr.split('\\n').map((l, i) => i === 0 ? l : '  ' + l).join('\\n') + ');\\n\\n';
+          reckerCode += '// Listen for messages\\n';
+          reckerCode += 'socket.on("message", (data) => {\\n';
+          reckerCode += '  console.log("Received:", data);\\n';
+          reckerCode += '});\\n';
+          if (publishMsgStr) {
+            reckerCode += '\\n// Publish a message\\n';
+            reckerCode += '// socket.send(' + JSON.stringify(publishMsg) + ');\\n';
+          }
+          return reckerCode;
+
         case 'python':
           let pyCode = 'import asyncio\\n';
           pyCode += 'import websockets\\n';
@@ -1748,18 +1776,25 @@ function generateClientScript(
       const streamUrl = baseUrl + '/streams/' + ep.path;
 
       // Language tabs
-      const languages = ['curl', 'javascript', 'python'];
+      const languages = ['curl', 'eventsource', 'recker', 'python'];
       const tabs = document.createElement('div');
       tabs.className = 'code-tabs';
 
       const contents = document.createElement('div');
       contents.className = 'code-contents';
 
+      const langLabels = {
+        curl: 'cURL',
+        eventsource: 'EventSource',
+        recker: 'Recker',
+        python: 'Python'
+      };
+
       languages.forEach((lang, i) => {
         // Tab button
         const tab = document.createElement('button');
         tab.className = 'code-tab' + (i === 0 ? ' active' : '');
-        tab.textContent = lang === 'curl' ? 'cURL' : lang === 'javascript' ? 'JavaScript' : 'Python';
+        tab.textContent = langLabels[lang] || lang;
         tab.onclick = () => {
           tabs.querySelectorAll('.code-tab').forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
@@ -1792,7 +1827,7 @@ function generateClientScript(
         case 'curl':
           return 'curl -N "' + url + '"\\n\\n# -N disables buffering for streaming output';
 
-        case 'javascript':
+        case 'eventsource':
           return 'const eventSource = new EventSource("' + url + '");\\n\\n' +
             'eventSource.onmessage = (event) => {\\n' +
             '  console.log("Received:", event.data);\\n' +
@@ -1803,6 +1838,13 @@ function generateClientScript(
             '};\\n\\n' +
             '// To close the connection:\\n' +
             '// eventSource.close();';
+
+        case 'recker':
+          return 'import { sse } from "recker";\\n\\n' +
+            'const stream = sse("' + url + '");\\n\\n' +
+            'for await (const event of stream) {\\n' +
+            '  console.log("Received:", event.data);\\n' +
+            '}';
 
         case 'python':
           return 'import sseclient\\n' +
@@ -1884,18 +1926,26 @@ function generateClientScript(
       }
 
       // Language tabs
-      const languages = ['curl', 'typescript', 'python', 'go'];
+      const languages = ['curl', 'fetch', 'recker', 'python', 'go'];
       const tabs = document.createElement('div');
       tabs.className = 'code-tabs';
 
       const contents = document.createElement('div');
       contents.className = 'code-contents';
 
+      const langLabels = {
+        curl: 'cURL',
+        fetch: 'Fetch',
+        recker: 'Recker',
+        python: 'Python',
+        go: 'Go'
+      };
+
       languages.forEach((lang, i) => {
         // Tab button
         const tab = document.createElement('button');
         tab.className = 'code-tab' + (i === 0 ? ' active' : '');
-        tab.textContent = lang === 'typescript' ? 'TypeScript' : lang === 'curl' ? 'cURL' : lang.charAt(0).toUpperCase() + lang.slice(1);
+        tab.textContent = langLabels[lang] || lang;
         tab.onclick = () => {
           tabs.querySelectorAll('.code-tab').forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
@@ -1938,7 +1988,7 @@ function generateClientScript(
           }
           return curlLines.join(' \\\\\\n');
 
-        case 'typescript':
+        case 'fetch':
           if (hasBody) {
             return 'const response = await fetch("' + url + '", {\\n' +
               '  method: "' + method + '",\\n' +
@@ -1953,6 +2003,18 @@ function generateClientScript(
           return 'const response = await fetch("' + url + '"' +
             (method !== 'GET' ? ', {\\n  method: "' + method + '",\\n}' : '') + ');\\n\\n' +
             'const data = await response.json();\\n' +
+            'console.log(data);';
+
+        case 'recker':
+          if (hasBody) {
+            return 'import { ' + method.toLowerCase() + ' } from "recker";\\n\\n' +
+              'const data = await ' + method.toLowerCase() + '("' + url + '")\\n' +
+              '  .json(' + bodyStr.split('\\n').map((l, i) => i === 0 ? l : '  ' + l).join('\\n') + ')\\n' +
+              '  .json();\\n\\n' +
+              'console.log(data);';
+          }
+          return 'import { ' + method.toLowerCase() + ' } from "recker";\\n\\n' +
+            'const data = await ' + method.toLowerCase() + '("' + url + '").json();\\n\\n' +
             'console.log(data);';
 
         case 'python':
