@@ -49,6 +49,20 @@ export const docs = {
 `inboundSchema` and `outboundSchema` map to `messages.inbound`/`messages.outbound`
 in USD. `messageSchema` is treated as a legacy inbound alias.
 
+## Front-Door support
+
+UDP handlers are not demultiplexed by the HTTP front-door socket.
+If `udp` is explicitly listed in `frontDoor.protocols`, metadata marks it as
+`frontDoor: true` with `strategy: 'offload'`, while the socket remains on its
+dedicated UDP port.
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 8443, protocols: ['http', 'udp'] },
+}).udp('metrics', { port: 9001 })
+```
+
 ## USD Content Types
 
 USD defaults to `application/octet-stream` for UDP. Use `contentType` or

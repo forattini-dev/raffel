@@ -54,3 +54,13 @@ export {
   type OpenAPITag,
   type GeneratorOptions,
 } from '../docs/index.js'
+
+export {
+  createServerScenario,
+} from './scenarios.js'
+
+export type {
+  DevelopmentScenario,
+  DevelopmentScenarioInput,
+  DevelopmentScenarioOutput,
+} from './scenarios.js'

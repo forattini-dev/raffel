@@ -25,6 +25,21 @@ For streams, the server sends a sequence of envelopes with `stream:start`,
 createServer({ port: 3000 }).enableWebSocket('/ws')
 ```
 
+## Front-Door support
+
+When front-door is enabled and `websocket` is included in
+`frontDoor.protocols` (or omitted, since it is included by default), the
+socket upgrade is handled on the shared front-door listener using the configured
+`path`.
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 3001, protocols: ['websocket', 'http'] },
+  websocket: '/ws',
+})
+```
+
 ## Options
 
 | Option | Type | Default | Description |

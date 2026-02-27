@@ -9,7 +9,7 @@ import type { LoadedRestResource } from './fs-routes/index.js'
 import type { Router } from '../core/router.js'
 import type { Registry } from '../core/registry.js'
 import type { Context, Envelope } from '../types/index.js'
-import { createContext } from '../types/context.js'
+import { createAbortableContext } from '../utils/context-utils.js'
 import { getStatusForCode } from '../errors/codes.js'
 import { sid } from '../utils/id/index.js'
 import { createLogger } from '../utils/logger.js'
@@ -41,32 +41,6 @@ class BodyParseError extends Error {
   }
 }
 
-function createAbortableContext(
-  requestId: string,
-  overrides: Partial<Context> | undefined,
-  abortController: AbortController
-): Context {
-  const { signal: upstreamSignal, ...rest } = overrides ?? {}
-
-  if (upstreamSignal) {
-    if (upstreamSignal.aborted) {
-      abortController.abort(upstreamSignal.reason)
-    } else {
-      upstreamSignal.addEventListener(
-        'abort',
-        () => {
-          abortController.abort(upstreamSignal.reason)
-        },
-        { once: true }
-      )
-    }
-  }
-
-  return createContext(
-    requestId,
-    { ...(rest as Partial<Omit<Context, 'requestId' | 'extensions'>>), signal: abortController.signal }
-  )
-}
 
 function getRateLimitInfo(ctx: Context, details?: unknown): RateLimitHeaderInfo | null {
   const ctxInfo = (ctx as { rateLimitInfo?: RateLimitHeaderInfo }).rateLimitInfo

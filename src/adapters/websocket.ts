@@ -11,6 +11,7 @@ import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context } from '../types/index.js'
 import { createContext } from '../types/context.js'
+import { createAbortableContext } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import {
   extractMetadataFromHeaders,
@@ -147,32 +148,6 @@ export function createWebSocketAdapter(
       })
     : null
 
-  function createAbortableContext(
-    requestId: string,
-    overrides: Partial<Context> | undefined,
-    abortController: AbortController
-  ): Context {
-    const { signal: upstreamSignal, ...rest } = overrides ?? {}
-
-    if (upstreamSignal) {
-      if (upstreamSignal.aborted) {
-        abortController.abort(upstreamSignal.reason)
-      } else {
-        upstreamSignal.addEventListener(
-          'abort',
-          () => {
-            abortController.abort(upstreamSignal.reason)
-          },
-          { once: true }
-        )
-      }
-    }
-
-    return createContext(
-      requestId,
-      { ...(rest as Partial<Omit<Context, 'requestId' | 'extensions'>>), signal: abortController.signal }
-    )
-  }
 
   /**
    * Send a raw message to client (for channel responses)

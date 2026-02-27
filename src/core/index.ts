@@ -1,6 +1,6 @@
 // Registry
 export { createRegistry } from './registry.js'
-export type { Registry, ProcedureOptions, StreamOptions, EventOptions } from './registry.js'
+export type { Registry, ProcedureOptions, StreamRegistryOptions, EventOptions } from './registry.js'
 
 // Router
 export { createRouter, RaffelError } from './router.js'

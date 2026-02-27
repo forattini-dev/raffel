@@ -40,6 +40,20 @@ so the gRPC adapter can match them.
 src/rpc/User.Create.ts -> User.Create
 ```
 
+## Front-Door support
+
+`gRPC` is not parsed by the HTTP-based front-door detector in this release.
+When listed in `frontDoor.protocols`, it is marked as `offload` and continues to
+run on its own port.
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 443, protocols: ['http', 'grpc'] },
+  grpc: { port: 50051, protoPath: './proto/app.proto' },
+})
+```
+
 ## Options
 
 | Option | Type | Default | Description |

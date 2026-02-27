@@ -22,6 +22,9 @@ import {
 } from './event-delivery.js'
 import { getStatusForCode } from '../errors/codes.js'
 import { sid as generateId } from '../utils/id/index.js'
+import { createLogger } from '../utils/logger.js'
+
+const logger = createLogger('router')
 
 /**
  * Raffel error - thrown by handlers to signal known errors
@@ -130,15 +133,14 @@ function createContextWithCall(
 ): Context {
   const callingLevel = (parentCtx.callingLevel ?? 0) + 1
 
-  // Create the context first with a placeholder
+  // Build context base; call is assigned after callFn is created
   const ctxWithCall: Context = {
     ...parentCtx,
     extensions: new Map(parentCtx.extensions),
     callingLevel,
-    call: undefined as unknown as CallFunction,
   }
 
-  // Now create the call function with reference to this context
+  // Create the call function with reference to this context
   const callFn: CallFunction = async <TInput = unknown, TOutput = unknown>(
     procedure: string,
     input: TInput
@@ -377,7 +379,7 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
 
             if (delivery === 'best-effort') {
               deliveryPromise.catch((err) => {
-                console.error(`Event handler error for '${procedure}':`, err)
+                logger.error({ err, procedure }, 'Event handler error')
               })
             } else {
               await deliveryPromise

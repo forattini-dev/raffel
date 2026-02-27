@@ -9,6 +9,20 @@ auto-generated from the registry + handler schemas.
 createServer({ port: 3000 }).enableGraphQL('/graphql')
 ```
 
+## Front-Door support
+
+GraphQL is supported as a shared front-door protocol and is served from the same
+listener as HTTP when included in `frontDoor.protocols` (or when omitted from
+the protocol list).
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 3001, protocols: ['http', 'graphql'] },
+  graphql: '/graphql',
+})
+```
+
 Or with options:
 
 ```ts

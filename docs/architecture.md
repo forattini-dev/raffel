@@ -1,18 +1,18 @@
-# Arquitetura
+# Architecture
 
-Esta página explica como o Raffel funciona por baixo dos panos. Entender a arquitetura vai te ajudar a usar o framework de forma mais eficiente e debugar problemas.
+This page explains how Raffel works under the hood. Understanding the architecture will help you use the framework more efficiently and debug issues.
 
 ---
 
-## A Ideia Central
+## The Core Idea
 
-O Raffel resolve um problema comum: você quer expor a mesma lógica de negócio em múltiplos protocolos (HTTP, WebSocket, gRPC, etc), mas não quer duplicar código.
+Raffel solves a common problem: you want to expose the same business logic over multiple protocols (HTTP, WebSocket, gRPC, etc), but you don't want to duplicate code.
 
-A solução é simples: **normalizar tudo para um formato único**.
+The solution is simple: **normalize everything to a single format**.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Cliente   │     │   Cliente   │     │   Cliente   │
+│   Client    │     │   Client    │     │   Client    │
 │    HTTP     │     │  WebSocket  │     │    gRPC     │
 └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
        │                   │                   │
@@ -26,12 +26,12 @@ A solução é simples: **normalizar tudo para um formato único**.
                            │
                            ▼
                     ┌─────────────┐
-                    │   Envelope  │  ← Formato normalizado
+                    │   Envelope  │  ← Normalized format
                     └──────┬──────┘
                            │
                            ▼
                     ┌─────────────┐
-                    │   Router    │  ← Encontra o handler
+                    │   Router    │  ← Finds the handler
                     └──────┬──────┘
                            │
                            ▼
@@ -41,41 +41,41 @@ A solução é simples: **normalizar tudo para um formato único**.
                            │
                            ▼
                     ┌─────────────┐
-                    │   Handler   │  ← Sua lógica de negócio
+                    │   Handler   │  ← Your business logic
                     └─────────────┘
 ```
 
-Não importa de onde veio o request - HTTP, WebSocket, gRPC - ele é convertido para um **Envelope** e processado da mesma forma.
+No matter where the request came from — HTTP, WebSocket, gRPC — it is converted to an **Envelope** and processed the same way.
 
 ---
 
-## O Envelope
+## The Envelope
 
-O Envelope é o coração do Raffel. É a estrutura de dados que representa qualquer request, independente do protocolo:
+The Envelope is the heart of Raffel. It is the data structure that represents any request, regardless of protocol:
 
 ```typescript
 interface Envelope {
-  // Identificador único do request (para tracing/correlação)
+  // Unique request identifier (for tracing/correlation)
   id: string
 
-  // Nome do procedimento (ex: 'users.create')
+  // Procedure name (e.g. 'users.create')
   procedure: string
 
-  // Tipo da mensagem
+  // Message type
   type: 'request' | 'response' | 'stream:data' | 'stream:end' | 'event'
 
-  // Os dados enviados pelo cliente
+  // Data sent by the client
   payload: unknown
 
-  // Metadados do protocolo (headers, etc.)
+  // Protocol metadata (headers, etc.)
   metadata: Record<string, string>
 
-  // Metadados e estado
+  // Metadata and state
   context: Context
 }
 ```
 
-### Exemplos de Conversão
+### Conversion Examples
 
 **HTTP Request → Envelope:**
 
@@ -86,7 +86,7 @@ Content-Type: application/json
 {"name": "Alice", "email": "alice@example.com"}
 ```
 
-Vira:
+Becomes:
 
 ```typescript
 {
@@ -105,7 +105,7 @@ Vira:
 {"procedure": "users.create", "payload": {"name": "Alice"}}
 ```
 
-Vira o mesmo Envelope! A diferença é só o transporte.
+Becomes the same Envelope! The only difference is the transport.
 
 **gRPC Call → Envelope:**
 
@@ -115,60 +115,60 @@ service Users {
 }
 ```
 
-Também vira o mesmo Envelope. O nome do procedimento é `Users.Create`.
+Also becomes the same Envelope. The procedure name is `Users.Create`.
 
 ---
 
-## O Context
+## The Context
 
-O Context carrega informações sobre o request que não são os dados em si:
+The Context carries information about the request that is not the data itself:
 
 ```typescript
 interface Context {
-  // Identificador único do request
+  // Unique request identifier
   requestId: string
 
-  // Informações de autenticação (se houver)
+  // Authentication information (if present)
   auth?: {
     authenticated: boolean
-    principal?: string      // ID do usuario
-    claims?: Record<string, unknown>  // Dados do token
+    principal?: string      // User ID
+    claims?: Record<string, unknown>  // Token data
   }
 
-  // Contexto de tracing distribuído
+  // Distributed tracing context
   tracing: {
     traceId: string
     spanId: string
     parentSpanId?: string
   }
 
-  // Sinal de cancelamento (AbortSignal)
+  // Cancellation signal (AbortSignal)
   signal: AbortSignal
 
-  // Deadline (ms desde epoch)
+  // Deadline (ms since epoch)
   deadline?: number
 
-  // Extensões customizadas
+  // Custom extensions
   extensions: Map<symbol, unknown>
 
-  // Chamar outro procedimento mantendo contexto
+  // Call another procedure while preserving context
   call?: (procedure: string, input: unknown) => Promise<unknown>
 
-  // Nível de chamada em cascata (0 = top-level)
+  // Cascading call level (0 = top-level)
   callingLevel?: number
 }
 ```
 
-O Context é passado para seu handler como segundo argumento:
+The Context is passed to your handler as the second argument:
 
 ```typescript
 const server = createServer({ port: 3000 })
 
 server.procedure('users.me')
   .handler(async (input, ctx) => {
-    // ctx.auth contém dados do usuário autenticado
-    // ctx.tracing contém trace/span IDs
-    // ctx.extensions guarda dados customizados
+    // ctx.auth contains authenticated user data
+    // ctx.tracing contains trace/span IDs
+    // ctx.extensions stores custom data
     return { userId: ctx.auth?.principal }
   })
 ```
@@ -177,20 +177,20 @@ server.procedure('users.me')
 
 ## Adapters
 
-Adapters são responsáveis por converter requests do protocolo específico para Envelope e vice-versa.
+Adapters are responsible for converting requests from the specific protocol to an Envelope and back.
 
-### Como um Adapter Funciona
+### How an Adapter Works
 
 ```typescript
-// Simplificado - o adapter HTTP faz isso internamente
+// Simplified - the HTTP adapter does this internally
 class HttpAdapter {
   async handleRequest(req: Request): Promise<Response> {
-    // 1. Extrai informações do request HTTP
+    // 1. Extract information from the HTTP request
     const procedure = req.url.pathname.slice(1)  // /users.create → users.create
     const payload = await req.json()
     const headers = Object.fromEntries(req.headers)
 
-    // 2. Cria o Envelope
+    // 2. Create the Envelope
     const envelope: Envelope = {
       id: generateId(),
       procedure,
@@ -206,10 +206,10 @@ class HttpAdapter {
       }
     }
 
-    // 3. Passa para o Router
+    // 3. Pass to the Router
     const result = await this.router.handle(envelope)
 
-    // 4. Converte resposta de volta para HTTP
+    // 4. Convert response back to HTTP
     return new Response(JSON.stringify(result.payload), {
       status: result.type === 'error' ? 400 : 200,
       headers: { 'Content-Type': 'application/json' }
@@ -218,12 +218,12 @@ class HttpAdapter {
 }
 ```
 
-### Adapters Disponíveis
+### Available Adapters
 
-| Adapter | Protocolo | Porta Padrão |
-|:--------|:----------|:-------------|
+| Adapter | Protocol | Default Port |
+|:--------|:---------|:-------------|
 | `HttpAdapter` | HTTP/HTTPS | 3000 |
-| `WebSocketAdapter` | WebSocket | 3000 (mesmo que HTTP) |
+| `WebSocketAdapter` | WebSocket | 3000 (same as HTTP) |
 | `JsonRpcAdapter` | JSON-RPC 2.0 | 3000/rpc |
 | `GraphQLAdapter` | GraphQL | 3000/graphql |
 | `GrpcAdapter` | gRPC | 50051 |
@@ -234,10 +234,10 @@ class HttpAdapter {
 
 ## Router
 
-O Router recebe um Envelope e encontra o handler correto para processá-lo.
+The Router receives an Envelope and finds the correct handler to process it.
 
 ```typescript
-// Internamente, o Router mantém um registro de handlers
+// Internally, the Router maintains a registry of handlers
 class Router {
   private handlers: Map<string, Handler> = new Map()
 
@@ -246,17 +246,17 @@ class Router {
   }
 
   async handle(envelope: Envelope): Promise<Envelope> {
-    // 1. Encontra o handler
+    // 1. Find the handler
     const handler = this.handlers.get(envelope.procedure)
     if (!handler) {
       return createErrorEnvelope('PROCEDURE_NOT_FOUND')
     }
 
-    // 2. Executa interceptors (onion model)
+    // 2. Execute interceptors (onion model)
     const ctx = envelope.context
     const result = await this.runInterceptors(envelope, ctx, handler.fn)
 
-    // 3. Retorna resposta
+    // 3. Return response
     return createResponseEnvelope(result)
   }
 }
@@ -266,8 +266,8 @@ class Router {
 
 ## Interceptors
 
-Interceptors são funções que envolvem o handler no estilo "onion" e têm acesso
-ao Envelope completo.
+Interceptors are functions that wrap the handler in an "onion" style and have access
+to the full Envelope.
 
 ```typescript
 type Interceptor = (
@@ -277,10 +277,10 @@ type Interceptor = (
 ) => Promise<unknown>
 ```
 
-### Ordem de Execucao
+### Execution Order
 
 ```
-Request chega
+Request arrives
     │
     ▼
 ┌─────────────────┐
@@ -302,10 +302,10 @@ Request chega
 │    Handler      │
 └────────┬────────┘
          ▼
-    Response sai
+    Response leaves
 ```
 
-Cada interceptor pode executar logica antes e depois de `await next()`:
+Each interceptor can execute logic before and after `await next()`:
 
 ```typescript
 const logging: Interceptor = async (envelope, ctx, next) => {
@@ -321,11 +321,11 @@ const logging: Interceptor = async (envelope, ctx, next) => {
 
 ---
 
-## Fluxo Completo
+## Full Flow
 
-Vamos seguir um request do início ao fim:
+Let's follow a request from start to finish:
 
-### 1. Cliente Faz Request HTTP
+### 1. Client Makes HTTP Request
 
 ```bash
 curl -X POST http://localhost:3000/users.create \
@@ -334,7 +334,7 @@ curl -X POST http://localhost:3000/users.create \
   -d '{"name": "Alice", "email": "alice@example.com"}'
 ```
 
-### 2. HTTP Adapter Recebe
+### 2. HTTP Adapter Receives
 
 ```typescript
 // HttpAdapter.handleRequest()
@@ -356,28 +356,28 @@ const envelope = {
 }
 ```
 
-### 3. Router Processa
+### 3. Router Processes
 
 ```typescript
 // Router.handle(envelope)
 
-// 3a. Executa interceptors (onion model)
-// logging: marca startTime
-// auth: decodifica JWT, preenche ctx.auth
-// validation: valida input
+// 3a. Execute interceptors (onion model)
+// logging: marks startTime
+// auth: decodes JWT, populates ctx.auth
+// validation: validates input
 
-// 3b. Executa handler
+// 3b. Execute handler
 const result = await handler(envelope.payload, envelope.context)
 // result = { id: "usr_abc", name: "Alice", email: "alice@example.com" }
 
-// 3c. Interceptors finalizam
-// logging: loga duracao
+// 3c. Interceptors finalize
+// logging: logs duration
 ```
 
-### 4. HTTP Adapter Responde
+### 4. HTTP Adapter Responds
 
 ```typescript
-// Converte resultado para HTTP Response
+// Converts result to HTTP Response
 return new Response(JSON.stringify({
   id: "usr_abc",
   name: "Alice",
@@ -388,7 +388,7 @@ return new Response(JSON.stringify({
 })
 ```
 
-### 5. Cliente Recebe
+### 5. Client Receives
 
 ```json
 {"id": "usr_abc", "name": "Alice", "email": "alice@example.com"}
@@ -398,10 +398,10 @@ return new Response(JSON.stringify({
 
 ## Streaming
 
-Para streams, o fluxo é um pouco diferente. Em vez de um único response, o handler é um generator que yield múltiplos valores:
+For streams, the flow is slightly different. Instead of a single response, the handler is a generator that yields multiple values:
 
 ```typescript
-// Handler de stream
+// Stream handler
 async function* logsHandler({ file }) {
   yield { line: "Log 1", ts: 1234 }
   yield { line: "Log 2", ts: 1235 }
@@ -409,7 +409,7 @@ async function* logsHandler({ file }) {
 }
 ```
 
-O Adapter converte cada `yield` para o formato do protocolo:
+The Adapter converts each `yield` to the protocol's format:
 
 **WebSocket:**
 ```
@@ -432,23 +432,23 @@ event: end
 
 **gRPC:**
 ```
-ServerStream<LogEntry> → múltiplas mensagens protobuf
+ServerStream<LogEntry> → multiple protobuf messages
 ```
 
 ---
 
 ## Registry
 
-O Registry é onde todos os handlers, interceptors e configurações ficam armazenados:
+The Registry is where all handlers, interceptors, and configurations are stored:
 
 ```typescript
 interface Registry {
-  // Registro de handlers
+  // Handler registration
   procedure(name: string, handler: ProcedureHandler, options?: ProcedureOptions): void
   stream(name: string, handler: StreamHandler, options?: StreamOptions): void
   event(name: string, handler: EventHandler, options?: EventOptions): void
 
-  // Introspecao
+  // Introspection
   list(): HandlerMeta[]
   listProcedures(): HandlerMeta[]
   listStreams(): HandlerMeta[]
@@ -456,14 +456,14 @@ interface Registry {
 }
 ```
 
-Quando você chama `createServer()`, internamente estamos populando o Registry:
+When you call `createServer()`, internally we are populating the Registry:
 
 ```typescript
-// Isso:
+// This:
 const server = createServer({ port: 3000 })
 server.procedure('hello').handler(({ name }) => `Hello, ${name}!`)
 
-// Faz isso internamente:
+// Does this internally:
 const registry = createRegistry()
 registry.procedure('hello', ({ name }) => `Hello, ${name}!`)
 
@@ -476,21 +476,72 @@ await wsAdapter.start()
 
 ---
 
-## Resumo
+## Front-Door
 
-1. **Envelope** - Formato normalizado que representa qualquer request
-2. **Context** - Metadados do request (auth, tracing, cancelamento, extensões)
-3. **Adapters** - Convertem protocolos específicos para/de Envelope
-4. **Router** - Encontra e executa o handler correto
-5. **Interceptors** - Lógica que roda antes/depois de todo handler
-6. **Registry** - Armazena toda a configuração do servidor
+The Front-Door is a routing layer at the edge of the HTTP server that classifies each incoming request by application protocol before dispatching it to the correct handler.
 
-A beleza do design é que sua lógica de negócio (o handler) não sabe nada sobre protocolos. Ela recebe dados, processa, retorna. Os adapters cuidam do resto.
+```
+[HTTP Connection] → [Front-Door] → detects protocol → dispatches
+                                    ├── HTTP       → HttpAdapter
+                                    ├── WebSocket  → WebSocketAdapter (Upgrade)
+                                    ├── JSON-RPC   → JsonRpcAdapter (POST /rpc)
+                                    └── GraphQL    → GraphQLAdapter (POST/GET /graphql)
+```
+
+Enable it with the `frontDoor` option in `createServer()`. TCP/gRPC protocols remain on dedicated ports with the `offload` strategy.
 
 ---
 
-## Próximos Passos
+## Single-Port Detection
 
-- **[HTTP em Detalhes](/protocols/http.md)** - Customização do adapter HTTP
-- **[Interceptors](/interceptors.md)** - Todos os interceptors disponíveis
-- **[Streaming](/streams.md)** - Como streams funcionam em detalhes
+The Single-Port subsystem operates at the transport layer (TCP), even before any HTTP parsing. It reads the first bytes of each new connection and decides the protocol:
+
+```
+[TCP Socket] → [Single-Port Sniffer] → detects protocol → dispatches
+                                         ├── TLS     → TLS termination
+                                         ├── HTTP/2  → HTTP/2 handler
+                                         ├── HTTP    → HttpAdapter
+                                         └── TCP     → TcpAdapter
+```
+
+Useful when only one port is available (restricted firewall) and you need to serve multiple protocols simultaneously. Configure via `singlePort` in `createServer()`.
+
+---
+
+## Internal Builder Modules
+
+The server builder is composed of independent modules:
+
+| Module | Responsibility |
+|:-------|:---------------|
+| `front-door.ts` | Application protocol detection at the HTTP edge |
+| `single-port/` | Transport protocol detection (TCP sniffing) |
+| `protocol-aliases.ts` | Shared alias maps (standard/extended) |
+| `discovery-bootstrap.ts` | Lifecycle of filesystem-based route discovery |
+| `telemetry-bootstrap.ts` | Metrics and tracing initialization |
+| `protocol-config.ts` | Protocol option normalization |
+| `handler-builders.ts` | Fluent API for registering procedures, streams, events |
+
+---
+
+## Summary
+
+1. **Envelope** - Normalized format that represents any request
+2. **Context** - Request metadata (auth, tracing, cancellation, extensions)
+3. **Adapters** - Convert specific protocols to/from Envelope
+4. **Router** - Finds and executes the correct handler
+5. **Interceptors** - Logic that runs before/after every handler
+6. **Registry** - Stores all server configuration
+7. **Front-Door** - Application protocol routing at the HTTP edge
+8. **Single-Port** - Protocol detection at the TCP transport level
+
+The beauty of the design is that your business logic (the handler) knows nothing about protocols. It receives data, processes it, and returns a result. The adapters take care of the rest.
+
+---
+
+## Next Steps
+
+- **[HTTP in Detail](/protocols/http.md)** - HTTP adapter customization
+- **[Single-Port Detection](/single-port.md)** - Multiplexing protocols on one port
+- **[Interceptors](/interceptors.md)** - All available interceptors
+- **[Streaming](/streams.md)** - How streams work in detail

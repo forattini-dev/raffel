@@ -17,6 +17,9 @@
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
 import type { CacheConfig, CacheStore } from '../types.js'
 import type { CacheDriver, CacheDriverType, MemoryDriverOptions } from '../../cache/types.js'
+import { createLogger } from '../../utils/logger.js'
+
+const logger = createLogger('cache-interceptor')
 
 /**
  * Cache event context for callbacks
@@ -443,7 +446,7 @@ export function createCacheInterceptor(config: ExtendedCacheConfig = {}): Interc
             })
             .catch((error) => {
               // On error, keep the stale value
-              console.error(`Cache revalidation failed for ${key}:`, error)
+              logger.error({ key, error }, 'Cache revalidation failed')
             })
             .finally(() => {
               pendingRevalidations.delete(key)

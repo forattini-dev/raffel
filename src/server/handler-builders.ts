@@ -7,8 +7,8 @@
 import type { z } from 'zod'
 import type { Registry } from '../core/registry.js'
 import type { Interceptor, StreamDirection, JsonRpcMeta, GrpcMeta } from '../types/index.js'
-import { createValidationInterceptor } from '../validation/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
+import { normalizeInterceptors } from './interceptor-utils.js'
 import type {
   ProcedureBuilder,
   StreamBuilder,
@@ -34,15 +34,54 @@ export interface ProcedureBuilderOptions {
   }
 }
 
+export interface ProcedureRegistrationMeta {
+  summary?: string
+  description?: string
+  tags?: string[]
+  graphql?: { type: 'query' | 'mutation' }
+  httpPath?: string
+  httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+  jsonrpc?: JsonRpcMeta
+  grpc?: GrpcMeta
+  interceptors: Interceptor[]
+  schema?: HandlerSchema
+  beforeHooks?: BeforeHook<any>[]
+  afterHooks?: AfterHook<any, any>[]
+  errorHooks?: ErrorHook<any>[]
+}
+
+export type ProcedureRegistration = (
+  name: string,
+  handler: (input: unknown, ctx: any) => any,
+  registration: ProcedureRegistrationMeta
+) => void
+
 /**
  * Create a procedure builder for fluent registration
  */
 export function createProcedureBuilder(
-  registry: Registry,
-  schemaRegistry: SchemaRegistry,
+  registry: Registry | undefined,
+  schemaRegistry: SchemaRegistry | undefined,
   name: string,
   inheritedInterceptors: Interceptor[] = [],
-  globalHooksResolver?: ProcedureBuilderOptions['globalHooksResolver']
+  globalHooksResolver?: ProcedureBuilderOptions['globalHooksResolver'],
+  envelopeInterceptor?: Interceptor,
+  registerProcedure: ProcedureRegistration = (procedureName, handler, registration) => {
+    if (!registry) {
+      throw new Error('createProcedureBuilder requires a registry unless a custom registerProcedure is provided')
+    }
+    registry.procedure(procedureName, handler as any, {
+      summary: registration.summary,
+      description: registration.description,
+      tags: registration.tags,
+      graphql: registration.graphql,
+      httpPath: registration.httpPath,
+      httpMethod: registration.httpMethod,
+      jsonrpc: registration.jsonrpc,
+      grpc: registration.grpc,
+      interceptors: registration.interceptors,
+    })
+  }
 ): ProcedureBuilder {
   let inputSchema: z.ZodType | undefined
   let outputSchema: z.ZodType | undefined
@@ -116,14 +155,22 @@ export function createProcedureBuilder(
       return builder
     },
     handler(fn) {
+      const hasSchema = inputSchema || outputSchema
+
       // Register schema
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
       if (outputSchema) schema.output = outputSchema
-      if (Object.keys(schema).length > 0) {
-        schemaRegistry.register(name, schema)
-        interceptors.unshift(createValidationInterceptor(schema))
+      if (schema.input || schema.output) {
+        if (schemaRegistry) {
+          schemaRegistry.register(name, schema)
+        }
       }
+
+      const normalizedInterceptors = normalizeInterceptors(
+        [...interceptors],
+        { envelopeInterceptor, schema: hasSchema ? schema : undefined }
+      )
 
       // Resolve global hooks for this procedure
       const globalHooks = globalHooksResolver ? globalHooksResolver(name) : { before: [], after: [], error: [] }
@@ -135,7 +182,7 @@ export function createProcedureBuilder(
 
       // If no hooks defined, use original handler
       if (allBeforeHooks.length === 0 && allAfterHooks.length === 0 && allErrorHooks.length === 0) {
-        registry.procedure(name, fn, {
+        registerProcedure(name, fn as any, {
           summary,
           description,
           tags: procedureTags,
@@ -144,7 +191,8 @@ export function createProcedureBuilder(
           httpMethod,
           jsonrpc: jsonrpcMeta,
           grpc: grpcMeta,
-          interceptors: interceptors.length > 0 ? interceptors : undefined,
+          interceptors: normalizedInterceptors,
+          schema: hasSchema ? schema : undefined,
         })
         return
       }
@@ -181,7 +229,7 @@ export function createProcedureBuilder(
         return result
       }
 
-      registry.procedure(name, wrappedHandler, {
+      registerProcedure(name, wrappedHandler as any, {
         summary,
         description,
         tags: procedureTags,
@@ -190,7 +238,11 @@ export function createProcedureBuilder(
         httpMethod,
         jsonrpc: jsonrpcMeta,
         grpc: grpcMeta,
-        interceptors: interceptors.length > 0 ? interceptors : undefined,
+        interceptors: normalizedInterceptors,
+        schema: hasSchema ? schema : undefined,
+        beforeHooks: allBeforeHooks,
+        afterHooks: allAfterHooks,
+        errorHooks: allErrorHooks,
       })
     },
   }
@@ -238,7 +290,7 @@ export function createStreamBuilder(
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
       if (outputSchema) schema.output = outputSchema
-      if (Object.keys(schema).length > 0) {
+      if (schema.input || schema.output) {
         schemaRegistry.register(name, schema)
       }
 
@@ -297,7 +349,7 @@ export function createEventBuilder(
     handler(fn) {
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
-      if (Object.keys(schema).length > 0) {
+      if (schema.input || schema.output) {
         schemaRegistry.register(name, schema)
       }
 
@@ -323,7 +375,8 @@ export function createGroupBuilder(
   schemaRegistry: SchemaRegistry,
   prefix: string,
   inheritedInterceptors: Interceptor[] = [],
-  globalHooksResolver?: ProcedureBuilderOptions['globalHooksResolver']
+  globalHooksResolver?: ProcedureBuilderOptions['globalHooksResolver'],
+  envelopeInterceptor?: Interceptor
 ): GroupBuilder {
   const groupInterceptors: Interceptor[] = [...inheritedInterceptors]
 
@@ -334,7 +387,14 @@ export function createGroupBuilder(
     },
     procedure(name) {
       const fullName = prefix ? `${prefix}.${name}` : name
-      return createProcedureBuilder(registry, schemaRegistry, fullName, groupInterceptors, globalHooksResolver)
+      return createProcedureBuilder(
+        registry,
+        schemaRegistry,
+        fullName,
+        groupInterceptors,
+        globalHooksResolver,
+        envelopeInterceptor
+      )
     },
     stream(name) {
       const fullName = prefix ? `${prefix}.${name}` : name
@@ -346,7 +406,14 @@ export function createGroupBuilder(
     },
     group(name) {
       const nestedPrefix = prefix ? `${prefix}.${name}` : name
-      return createGroupBuilder(registry, schemaRegistry, nestedPrefix, groupInterceptors, globalHooksResolver)
+      return createGroupBuilder(
+        registry,
+        schemaRegistry,
+        nestedPrefix,
+        groupInterceptors,
+        globalHooksResolver,
+        envelopeInterceptor
+      )
     },
   }
 

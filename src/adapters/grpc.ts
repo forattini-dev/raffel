@@ -9,7 +9,7 @@ import * as protoLoader from '@grpc/proto-loader'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Context, Envelope } from '../types/index.js'
-import { createContext } from '../types/context.js'
+import { createAbortableContext } from '../utils/context-utils.js'
 import { createStream } from '../stream/raffel-stream.js'
 import { createLogger } from '../utils/logger.js'
 
@@ -64,32 +64,6 @@ export interface GrpcAdapter {
   readonly address: { host: string; port: number } | null
 }
 
-function createAbortableContext(
-  requestId: string,
-  overrides: Partial<Context> | undefined,
-  abortController: AbortController
-): Context {
-  const { signal: upstreamSignal, ...rest } = overrides ?? {}
-
-  if (upstreamSignal) {
-    if (upstreamSignal.aborted) {
-      abortController.abort(upstreamSignal.reason)
-    } else {
-      upstreamSignal.addEventListener(
-        'abort',
-        () => {
-          abortController.abort(upstreamSignal.reason)
-        },
-        { once: true }
-      )
-    }
-  }
-
-  return createContext(
-    requestId,
-    { ...(rest as Partial<Omit<Context, 'requestId' | 'extensions'>>), signal: abortController.signal }
-  )
-}
 
 function metadataToRecord(metadata: grpc.Metadata): Record<string, string> {
   const map = metadata.getMap()

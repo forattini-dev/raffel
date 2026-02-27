@@ -25,6 +25,20 @@ await server.start()
 // HTTP on 3000, TCP on 4000
 ```
 
+## Front-Door support
+
+TCP is not multiplexed inside the HTTP front-door socket.
+If `tcp` is added to `frontDoor.protocols`, it is treated as `offload` and still
+listens on the dedicated TCP port while preserving metadata.
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 8443, protocols: ['http', 'tcp'] },
+  tcp: { port: 4000 },
+})
+```
+
 ## Options
 
 | Option | Type | Default | Description |

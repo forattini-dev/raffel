@@ -19,6 +19,7 @@
   - [GraphQL](/protocols/graphql.md)
   - [TCP](/protocols/tcp.md)
   - [UDP](/protocols/udp.md)
+  - [Single-Port Detection](/single-port.md)
 
 - **Interceptors**
   - [Overview](/interceptors.md)

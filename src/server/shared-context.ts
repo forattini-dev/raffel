@@ -25,6 +25,9 @@
 import type { IncomingMessage } from 'node:http'
 import type { Context, AuthContext } from '../types/index.js'
 import type { Session, SessionTracker } from '../http/session.js'
+import { createLogger } from '../utils/logger.js'
+
+const logger = createLogger('server-shared-context')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -216,7 +219,7 @@ export function createSharedContextFactory(
         }
       } catch (error) {
         // Session lookup failed - continue without auth
-        console.error('Failed to load session:', error)
+        logger.error({ error }, 'Failed to load session')
       }
     }
 

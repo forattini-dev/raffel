@@ -26,7 +26,7 @@ export type {
   Router,
   RouterResult,
   ProcedureOptions,
-  StreamOptions,
+  StreamRegistryOptions,
   EventOptions,
   EventDeliveryOptions,
   EventDeliveryStore,
@@ -43,6 +43,7 @@ export type {
 
   // Context
   Context,
+  CallFunction,
   AuthContext,
   TracingContext,
   ExtensionKey,
@@ -290,6 +291,11 @@ export {
   createTcpServer,
   loadUdpHandlers,
   createUdpServer,
+  detectSinglePortProtocolFromChunk,
+  detectSinglePortProtocolFromStream,
+  normalizeSinglePortDefaults,
+  getSinglePortConcurrencyState,
+  SinglePortRegistry,
 } from './server/index.js'
 export type {
   ServerOptions,
@@ -308,6 +314,16 @@ export type {
   ProtocolAdapterFactory,
   ProtocolExtensionConfig,
   ProtocolAddress,
+  ProtocolSniffer,
+  ProtocolDecisionPayload,
+  ProtocolSnifferContext,
+  SinglePortProtocolKind,
+  SinglePortDecisionReason,
+  SinglePortConfig,
+  SinglePortDetectorOptions,
+  SinglePortStreamDetectInput,
+  SinglePortChunkDetectInput,
+  SinglePortDefaults,
   ProcedureBuilder,
   StreamBuilder,
   EventBuilder,
@@ -567,6 +583,7 @@ export {
   LOG_FORMATS,
   // USD Documentation
   createUSDHandlers,
+  createServerScenario,
 } from './dx/index.js'
 export type {
   // Health Check types
@@ -587,7 +604,13 @@ export type {
   USDMiddlewareConfig,
   USDHandlers,
   USDMiddlewareContext,
+  DevelopmentScenario,
+  DevelopmentScenarioInput,
+  DevelopmentScenarioOutput,
 } from './dx/index.js'
+
+// === Testing Mocks ===
+export * from './testing/index.js'
 
 // === MCP (Model Context Protocol) ===
 export {

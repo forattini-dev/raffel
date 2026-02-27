@@ -5,6 +5,9 @@
  */
 
 import type { RetryPolicy } from '../types/handlers.js'
+import { createLogger } from '../utils/logger.js'
+
+const logger = createLogger('event-delivery')
 
 export interface EventDeliveryOptions {
   /** Delivery state store (default: in-memory) */
@@ -103,7 +106,7 @@ export function createEventDeliveryEngine(options: EventDeliveryOptions = {}): E
     try {
       await execute(() => {})
     } catch (err) {
-      console.error('Event handler error (best-effort):', err)
+      logger.error({ err }, 'Event handler error (best-effort)')
     }
   }
 
@@ -121,7 +124,7 @@ export function createEventDeliveryEngine(options: EventDeliveryOptions = {}): E
     try {
       await execute(() => {})
     } catch (err) {
-      console.error('Event handler error (at-most-once):', err)
+      logger.error({ err }, 'Event handler error (at-most-once)')
     }
   }
 
@@ -142,7 +145,7 @@ export function createEventDeliveryEngine(options: EventDeliveryOptions = {}): E
       try {
         await execute(ack)
       } catch (err) {
-        console.error('Event handler error (at-least-once):', err)
+        logger.error({ err }, 'Event handler error (at-least-once)')
       }
 
       if (acked) {

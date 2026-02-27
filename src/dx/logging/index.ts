@@ -8,6 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { HttpLoggingConfig, LogContext } from './types.js'
 import { compileFormat, getFormatString } from './formats.js'
+import { createLogger } from '../../utils/logger.js'
 
 export * from './types.js'
 export { LOG_FORMATS } from './formats.js'
@@ -21,12 +22,14 @@ const DEFAULTS = {
   redactHeaders: ['authorization', 'cookie', 'set-cookie', 'x-api-key', 'x-auth-token'],
 } as const
 
+const defaultLoggerInstance = createLogger('http-logging')
+
 /**
- * Default logger using console.
+ * Default logger wrapper for HTTP logging format.
  */
 const defaultLogger = {
-  info: (message: string) => console.log(message),
-  error: (message: string) => console.error(message),
+  info: (message: string) => defaultLoggerInstance.info(message),
+  error: (message: string) => defaultLoggerInstance.error(message),
 }
 
 /**

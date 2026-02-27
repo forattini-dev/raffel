@@ -191,9 +191,9 @@ export const STANDARD_ERROR_CODES = {
     category: 'network' as ErrorCategory,
     retryable: true,
     mappings: {
-      http: { status: 504 },
+      http: { status: 408 },
       grpc: { code: 4 as GrpcStatusCode, codeName: 'DEADLINE_EXCEEDED' as GrpcStatusName },
-      websocket: { close: 4504 },
+      websocket: { close: 4408 },
       jsonrpc: { code: -32008 },
     },
   },

@@ -201,19 +201,23 @@ export function createEnvelopeInterceptor(config: EnvelopeConfig = {}): Intercep
       meta.requestId = ctx.requestId
     }
 
+    let result: unknown
+    let error: unknown
     try {
-      const result = await next()
-
-      // Calculate duration
+      result = await next()
+    } catch (err) {
+      error = err
+    } finally {
       if (includeDuration) {
         const startTime = timers.get(envelope)
         if (startTime) {
-          const endTime = process.hrtime.bigint()
-          meta.duration = Math.round(Number(endTime - startTime) / 1_000_000)
+          meta.duration = Math.round(Number(process.hrtime.bigint() - startTime) / 1_000_000)
           timers.delete(envelope)
         }
       }
+    }
 
+    if (error === undefined) {
       // Success response
       const response: EnvelopeSuccess = {
         success: true,
@@ -222,18 +226,8 @@ export function createEnvelopeInterceptor(config: EnvelopeConfig = {}): Intercep
       }
 
       return response
-    } catch (error) {
+    } else {
       const err = error as Error
-
-      // Calculate duration for error responses too
-      if (includeDuration) {
-        const startTime = timers.get(envelope)
-        if (startTime) {
-          const endTime = process.hrtime.bigint()
-          meta.duration = Math.round(Number(endTime - startTime) / 1_000_000)
-          timers.delete(envelope)
-        }
-      }
 
       // Build error response
       const errorPayload: EnvelopeError['error'] = {

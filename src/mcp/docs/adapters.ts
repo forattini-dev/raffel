@@ -92,7 +92,7 @@ export const adapters: AdapterDoc[] = [
 | RESOURCE_EXHAUSTED | 429 |
 | INTERNAL | 500 |
 | UNAVAILABLE | 503 |
-| DEADLINE_EXCEEDED | 504 |
+| DEADLINE_EXCEEDED | 408 |
 `,
     examples: [
       {

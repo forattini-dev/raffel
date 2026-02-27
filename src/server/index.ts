@@ -13,6 +13,12 @@ export type {
   HttpOptions,
   CorsOptions,
   RaffelServer,
+  ServerConfigPreview,
+  ServerPreset,
+  ServerPresetOptions,
+  ServerProfile,
+  ExtendedProtocolConfig,
+  ProtocolPreviewConfig,
   ServerAddresses,
   AddressInfo,
 
@@ -231,6 +237,15 @@ export {
   createGlobalErrorHandler,
 } from './errors.js'
 
+// === Single-port transport utilities ===
+export {
+  detectSinglePortProtocolFromChunk,
+  detectSinglePortProtocolFromStream,
+  normalizeSinglePortDefaults,
+  getSinglePortConcurrencyState,
+  SinglePortRegistry,
+} from './single-port/index.js'
+
 export type {
   ErrorInterceptorOptions,
 } from './errors.js'
@@ -240,3 +255,18 @@ export type {
   GlobalErrorHandler,
   ErrorProtocol,
 } from './types.js'
+
+export type {
+  ProtocolSniffer,
+  ProtocolDecisionPayload,
+  ProtocolSnifferContext,
+  SinglePortProtocolKind,
+  SinglePortDecisionReason,
+  SinglePortConfig,
+} from './types.js'
+export type {
+  SinglePortDetectorOptions,
+  SinglePortStreamDetectInput,
+  SinglePortChunkDetectInput,
+  SinglePortDefaults,
+} from './single-port/index.js'

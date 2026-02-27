@@ -13,16 +13,22 @@
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
 import type { LoggingConfig, LogFilterContext } from '../types.js'
+import { createLogger } from '../../utils/logger.js'
 
 /**
- * Default logger that uses console
+ * Shared default logger.
+ */
+const defaultLoggerInstance = createLogger('request-logging')
+
+/**
+ * Default logger used by the interceptor.
  */
 const defaultLogger = {
-  trace: (obj: object, msg?: string) => console.debug(msg, obj),
-  debug: (obj: object, msg?: string) => console.debug(msg, obj),
-  info: (obj: object, msg?: string) => console.info(msg, obj),
-  warn: (obj: object, msg?: string) => console.warn(msg, obj),
-  error: (obj: object, msg?: string) => console.error(msg, obj),
+  trace: (obj: object, msg?: string) => defaultLoggerInstance.trace(obj, msg),
+  debug: (obj: object, msg?: string) => defaultLoggerInstance.debug(obj, msg),
+  info: (obj: object, msg?: string) => defaultLoggerInstance.info(obj, msg),
+  warn: (obj: object, msg?: string) => defaultLoggerInstance.warn(obj, msg),
+  error: (obj: object, msg?: string) => defaultLoggerInstance.error(obj, msg),
 }
 
 /**

@@ -8,6 +8,8 @@ import type { Interceptor, Envelope } from '../types/index.js'
 import type { MetricRegistry } from './types.js'
 import { AUTO_METRICS } from './types.js'
 
+const processCpuState = new WeakMap<MetricRegistry, number>()
+
 /**
  * Create an interceptor that collects request metrics
  */
@@ -132,8 +134,17 @@ export function registerProcessMetrics(registry: MetricRegistry): void {
 export function collectProcessMetrics(registry: MetricRegistry): void {
   // CPU usage
   const cpuUsage = process.cpuUsage()
-  const cpuSeconds = (cpuUsage.user + cpuUsage.system) / 1_000_000
-  registry.set(AUTO_METRICS.PROCESS_CPU, cpuSeconds)
+  const totalCpuSeconds = (cpuUsage.user + cpuUsage.system) / 1_000_000
+  const previousCpuSeconds = processCpuState.get(registry)
+
+  if (typeof previousCpuSeconds === 'number') {
+    const delta = Math.max(0, totalCpuSeconds - previousCpuSeconds)
+    if (delta > 0) {
+      registry.increment(AUTO_METRICS.PROCESS_CPU, {}, delta)
+    }
+  }
+
+  processCpuState.set(registry, totalCpuSeconds)
 
   // Memory usage
   const memUsage = process.memoryUsage()

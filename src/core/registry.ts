@@ -42,9 +42,9 @@ export interface ProcedureOptions {
 }
 
 /**
- * Stream registration options
+ * Stream registration options (low-level registry API)
  */
-export interface StreamOptions {
+export interface StreamRegistryOptions {
   description?: string
   direction?: StreamDirection
   /** Content type shorthand */
@@ -86,7 +86,7 @@ export interface Registry {
   stream<TInput, TOutput>(
     name: string,
     handler: StreamHandler<TInput, TOutput>,
-    options?: StreamOptions
+    options?: StreamRegistryOptions
   ): void
 
   /** Register an event handler */
@@ -168,7 +168,7 @@ export function createRegistry(): Registry {
     stream<TInput, TOutput>(
       name: string,
       handler: StreamHandler<TInput, TOutput>,
-      options: StreamOptions = {}
+      options: StreamRegistryOptions = {}
     ): void {
       if (procedures.has(name) || streams.has(name) || events.has(name)) {
         throw new Error(`Handler '${name}' already registered`)
@@ -234,23 +234,47 @@ export function createRegistry(): Registry {
     // === Introspection ===
 
     list(): HandlerMeta[] {
-      return [
-        ...Array.from(procedures.values()).map((h) => h.meta),
-        ...Array.from(streams.values()).map((h) => h.meta),
-        ...Array.from(events.values()).map((h) => h.meta),
-      ]
+      const results: HandlerMeta[] = new Array(procedures.size + streams.size + events.size)
+      let index = 0
+
+      for (const { meta } of procedures.values()) {
+        results[index++] = meta
+      }
+      for (const { meta } of streams.values()) {
+        results[index++] = meta
+      }
+      for (const { meta } of events.values()) {
+        results[index++] = meta
+      }
+
+      return index === results.length ? results : results.slice(0, index)
     },
 
     listProcedures(): HandlerMeta[] {
-      return Array.from(procedures.values()).map((h) => h.meta)
+      const results: HandlerMeta[] = new Array(procedures.size)
+      let index = 0
+      for (const { meta } of procedures.values()) {
+        results[index++] = meta
+      }
+      return index === results.length ? results : results.slice(0, index)
     },
 
     listStreams(): HandlerMeta[] {
-      return Array.from(streams.values()).map((h) => h.meta)
+      const results: HandlerMeta[] = new Array(streams.size)
+      let index = 0
+      for (const { meta } of streams.values()) {
+        results[index++] = meta
+      }
+      return index === results.length ? results : results.slice(0, index)
     },
 
     listEvents(): HandlerMeta[] {
-      return Array.from(events.values()).map((h) => h.meta)
+      const results: HandlerMeta[] = new Array(events.size)
+      let index = 0
+      for (const { meta } of events.values()) {
+        results[index++] = meta
+      }
+      return index === results.length ? results : results.slice(0, index)
     },
   }
 }

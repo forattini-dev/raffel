@@ -29,6 +29,33 @@ Protocol configuration:
 - `server.grpc(options)`
 - `server.tcp(options)`
 - `server.udp(options)`
+- `frontDoor` option on `createServer(...)` for unified protocol entrypoint
+- `singlePort` option on `createServer(...)` for single-TCP-port protocol multiplexing
+
+```typescript
+createServer({
+  port: 3000,
+  frontDoor: {
+    enabled: true,
+    port: 443,
+    protocols: ['http', 'websocket', 'jsonrpc', 'graphql', 'tcp'],
+    strategy: {
+      tcp: 'offload',
+    },
+  },
+  singlePort: {
+    enabled: true,
+    protocols: ['http', 'tls', 'websocket'],
+    sniffMaxBytes: 4096,
+    sniffTimeoutMs: 75,
+  },
+  websocket: '/ws',
+  jsonrpc: '/rpc',
+  graphql: '/graphql',
+  tcp: { port: 9000 },
+  protocolAliasMode: 'standard', // 'standard' | 'extended'
+})
+```
 
 ---
 
@@ -85,6 +112,28 @@ Middleware and helpers live under:
 - `rateLimitMiddleware`, `validate`
 - `serveStatic`, `serveStaticS3`
 - `success`, `error`, `list`, `created`, `validationError`
+
+---
+
+## Single-Port Detection
+
+```typescript
+import {
+  detectSinglePortProtocolFromChunk,
+  detectSinglePortProtocolFromStream,
+  SinglePortRegistry,
+  normalizeSinglePortDefaults,
+  getSinglePortConcurrencyState,
+} from 'raffel'
+```
+
+- `detectSinglePortProtocolFromChunk(input)` — detect from `Buffer` synchronously
+- `detectSinglePortProtocolFromStream(input)` — detect from async stream with timeout
+- `SinglePortRegistry` — register per-protocol socket handlers
+- `normalizeSinglePortDefaults(options?)` — apply defaults to detector options
+- `getSinglePortConcurrencyState()` — `{ activeDetections, concurrencyLimit }`
+
+See [Single-Port Detection](single-port.md).
 
 ---
 

@@ -15,6 +15,18 @@ await server.start()
 // HTTP server running on :3000
 ```
 
+## Front-Door support
+
+HTTP is the primary protocol for front-door routing. When `frontDoor.enabled` is
+`true`, HTTP traffic is treated as the default shared entrypoint.
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 3001 },
+})
+```
+
 ## Options
 
 When you use `createServer`, HTTP adapter options live under `http`:

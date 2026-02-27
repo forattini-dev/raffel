@@ -247,7 +247,7 @@ export function createResourceBuilder<TOutput = unknown>(
       if (inputSchema) schema.input = inputSchema
       if (outputSchema) schema.output = outputSchema
 
-      if (Object.keys(schema).length > 0) {
+      if (schema.input || schema.output) {
         schemaRegistry.register(procedureName, schema)
       }
 
@@ -276,7 +276,7 @@ export function createResourceBuilder<TOutput = unknown>(
       const schema: HandlerSchema = {}
       if (outputSchema) schema.output = outputSchema
 
-      if (Object.keys(schema).length > 0) {
+      if (schema.input || schema.output) {
         schemaRegistry.register(procedureName, schema)
       }
 
@@ -431,7 +431,7 @@ export function createResourceBuilder<TOutput = unknown>(
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
 
-      if (Object.keys(schema).length > 0) {
+      if (schema.input || schema.output) {
         schemaRegistry.register(procedureName, schema)
       }
 

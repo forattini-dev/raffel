@@ -25,6 +25,20 @@ await server.start()
 // Both HTTP and JSON-RPC on 3000
 ```
 
+## Front-Door support
+
+JSON-RPC shares front-door naturally on the same HTTP listener when the protocol
+is present in `frontDoor.protocols` (or when `frontDoor.protocols` is omitted).
+`rpc` and `jrpc` can be used as aliases for `jsonrpc` in `frontDoor.protocols`.
+
+```ts
+createServer({
+  port: 3000,
+  frontDoor: { enabled: true, port: 3001, protocols: ['http', 'jsonrpc', 'websocket'] },
+  jsonrpc: '/rpc',
+})
+```
+
 When JSON-RPC shares the HTTP server, `basePath` prefixes the JSON-RPC path
 (for example `basePath: '/api'` + `path: '/rpc'` → `/api/rpc`).
 

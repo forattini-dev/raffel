@@ -181,7 +181,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new GraphQLAdapterError('DEADLINE_EXCEEDED', 504, 'Request deadline exceeded'))
+      reject(new GraphQLAdapterError('DEADLINE_EXCEEDED', 408, 'Request deadline exceeded'))
     }, timeoutMs)
 
     promise.then(

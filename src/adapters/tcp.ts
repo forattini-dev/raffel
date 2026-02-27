@@ -14,7 +14,7 @@ import { createServer, createConnection, type Server, type Socket } from 'node:n
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context } from '../types/index.js'
-import { createContext } from '../types/context.js'
+import { createAbortableContext } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
 
@@ -24,7 +24,7 @@ const logger = createLogger('tcp-adapter')
 const LENGTH_HEADER_SIZE = 4
 
 // Maximum message size (16MB default)
-const DEFAULT_MAX_MESSAGE_SIZE = 16 * 1024 * 1024
+export const DEFAULT_MAX_MESSAGE_SIZE = 16 * 1024 * 1024
 
 /**
  * TCP adapter configuration
@@ -52,71 +52,44 @@ export interface TcpAdapterOptions {
 interface ClientConnection {
   id: string
   socket: Socket
+  /** Accumulated incoming data chunks (coalesced lazily) */
   buffer: Buffer
+  /** Pending chunks not yet merged into buffer */
+  pendingChunks: Buffer[]
+  /** Total bytes across buffer + pendingChunks */
+  bufferLength: number
   activeStreams: Map<string, AbortController>
   activeRequests: Map<string, AbortController>
 }
 
 /**
- * TCP Adapter interface
+ * TCP connection handler for an established socket.
  */
-export interface TcpAdapter {
-  /** Start the server */
-  start(): Promise<void>
+export interface TcpConnectionHandler {
+  /** Handle an already-accepted socket */
+  handleConnection(socket: Socket): void
 
-  /** Stop the server */
-  stop(): Promise<void>
+  /** Close all active connections */
+  closeAllConnections(): void
 
   /** Get connected client count */
   readonly clientCount: number
-
-  /** Get the underlying server (for testing) */
-  readonly server: Server | null
 }
 
 /**
- * Create a TCP adapter
+ * Create a reusable TCP connection handler
  */
-export function createTcpAdapter(
+export function createTcpConnectionHandler(
   router: Router,
-  options: TcpAdapterOptions
-): TcpAdapter {
+  options: Pick<TcpAdapterOptions, 'maxMessageSize' | 'keepAliveInterval' | 'contextFactory'>
+): TcpConnectionHandler {
   const {
-    port,
-    host = '0.0.0.0',
     maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
     keepAliveInterval = 30000,
   } = options
 
-  let server: Server | null = null
   const clients = new Map<string, ClientConnection>()
 
-  function createAbortableContext(
-    requestId: string,
-    overrides: Partial<Context> | undefined,
-    abortController: AbortController
-  ): Context {
-    const { signal: upstreamSignal, ...rest } = overrides ?? {}
-
-    if (upstreamSignal) {
-      if (upstreamSignal.aborted) {
-        abortController.abort(upstreamSignal.reason)
-      } else {
-        upstreamSignal.addEventListener(
-          'abort',
-          () => {
-            abortController.abort(upstreamSignal.reason)
-          },
-          { once: true }
-        )
-      }
-    }
-
-    return createContext(
-      requestId,
-      { ...(rest as Partial<Omit<Context, 'requestId' | 'extensions'>>), signal: abortController.signal }
-    )
-  }
 
   /**
    * Frame a message with length prefix
@@ -289,15 +262,32 @@ export function createTcpAdapter(
   }
 
   /**
+   * Coalesce pendingChunks into client.buffer (only when needed).
+   */
+  function flushPendingChunks(client: ClientConnection): void {
+    if (client.pendingChunks.length === 0) return
+    if (client.buffer.length === 0) {
+      client.buffer = Buffer.concat(client.pendingChunks, client.bufferLength - client.buffer.length)
+    } else {
+      client.buffer = Buffer.concat([client.buffer, ...client.pendingChunks])
+    }
+    client.pendingChunks = []
+  }
+
+  /**
    * Handle incoming data from client
    * Implements length-prefixed framing
    */
   function handleData(client: ClientConnection, chunk: Buffer): void {
-    // Append to buffer
-    client.buffer = Buffer.concat([client.buffer, chunk])
+    // Accumulate without immediate concat
+    client.pendingChunks.push(chunk)
+    client.bufferLength += chunk.length
 
     // Process complete messages
-    while (client.buffer.length >= LENGTH_HEADER_SIZE) {
+    while (client.bufferLength >= LENGTH_HEADER_SIZE) {
+      // Merge pending chunks into buffer only when we need to read from it
+      flushPendingChunks(client)
+
       // Read length header
       const messageLength = client.buffer.readUInt32BE(0)
 
@@ -311,7 +301,7 @@ export function createTcpAdapter(
 
       // Check if we have the complete message
       const totalLength = LENGTH_HEADER_SIZE + messageLength
-      if (client.buffer.length < totalLength) {
+      if (client.bufferLength < totalLength) {
         // Wait for more data
         break
       }
@@ -320,7 +310,9 @@ export function createTcpAdapter(
       const messageData = client.buffer.subarray(LENGTH_HEADER_SIZE, totalLength)
 
       // Remove processed data from buffer
-      client.buffer = client.buffer.subarray(totalLength)
+      const remaining = client.buffer.subarray(totalLength)
+      client.buffer = remaining
+      client.bufferLength = remaining.length
 
       // Process message asynchronously
       processMessage(client, messageData).catch((err) => {
@@ -338,6 +330,8 @@ export function createTcpAdapter(
       id: clientId,
       socket,
       buffer: Buffer.alloc(0),
+      pendingChunks: [],
+      bufferLength: 0,
       activeStreams: new Map(),
       activeRequests: new Map(),
     }
@@ -391,6 +385,67 @@ export function createTcpAdapter(
   }
 
   return {
+    handleConnection(socket: Socket): void {
+      handleConnection(socket)
+    },
+
+    closeAllConnections(): void {
+      for (const [, client] of clients) {
+        client.socket.destroy()
+      }
+      clients.clear()
+    },
+
+    get clientCount(): number {
+      return clients.size
+    },
+  }
+}
+
+/**
+ * TCP Adapter interface
+ */
+export interface TcpAdapter {
+  /** Start the server */
+  start(): Promise<void>
+
+  /** Stop the server */
+  stop(): Promise<void>
+
+  /** Get connected client count */
+  readonly clientCount: number
+
+  /** Get the underlying server (for testing) */
+  readonly server: Server | null
+}
+
+/**
+ * Create a TCP adapter
+ */
+export function createTcpAdapter(
+  router: Router,
+  options: TcpAdapterOptions
+): TcpAdapter {
+  const {
+    port,
+    host = '0.0.0.0',
+    maxMessageSize,
+    keepAliveInterval,
+    contextFactory,
+  } = options
+
+  let server: Server | null = null
+  const connectionHandler = createTcpConnectionHandler(router, {
+    maxMessageSize,
+    keepAliveInterval,
+    contextFactory,
+  })
+
+  function handleConnection(socket: Socket): void {
+    connectionHandler.handleConnection(socket)
+  }
+
+  return {
     async start(): Promise<void> {
       return new Promise((resolve, reject) => {
         server = createServer(handleConnection)
@@ -409,13 +464,8 @@ export function createTcpAdapter(
 
     async stop(): Promise<void> {
       return new Promise((resolve) => {
-        // Close all client connections
-        for (const [_, client] of clients) {
-          client.socket.destroy()
-        }
-        clients.clear()
+        connectionHandler.closeAllConnections()
 
-        // Close server
         if (server) {
           server.close(() => {
             logger.info('TCP server stopped')
@@ -429,7 +479,7 @@ export function createTcpAdapter(
     },
 
     get clientCount(): number {
-      return clients.size
+      return connectionHandler.clientCount
     },
 
     get server(): Server | null {
@@ -446,10 +496,24 @@ export function createTcpClient(options: { host: string; port: number }) {
   const { host, port } = options
   let socket: Socket | null = null
   let buffer = Buffer.alloc(0)
+  let pendingBufferChunks: Buffer[] = []
+  let pendingBufferLength = 0
   const pendingRequests = new Map<string, {
     resolve: (value: unknown) => void
     reject: (error: Error) => void
   }>()
+
+  function flushPendingChunks(): void {
+    if (pendingBufferChunks.length === 0) return
+    if (buffer.length === 0) {
+      buffer = Buffer.concat(pendingBufferChunks, pendingBufferLength)
+    } else {
+      const totalLength = buffer.length + pendingBufferLength
+      buffer = Buffer.concat([buffer, ...pendingBufferChunks], totalLength)
+    }
+    pendingBufferLength = 0
+    pendingBufferChunks = []
+  }
 
   return {
     async connect(): Promise<void> {
@@ -462,10 +526,16 @@ export function createTcpClient(options: { host: string; port: number }) {
 
         socket.on('data', (chunk) => {
           const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-          buffer = Buffer.concat([buffer, data])
+          pendingBufferChunks.push(data)
+          pendingBufferLength += data.length
 
           // Process complete messages
-          while (buffer.length >= LENGTH_HEADER_SIZE) {
+          while (buffer.length + pendingBufferLength >= LENGTH_HEADER_SIZE) {
+            if (pendingBufferLength > 0) {
+              flushPendingChunks()
+            }
+            if (buffer.length < LENGTH_HEADER_SIZE) break
+
             const messageLength = buffer.readUInt32BE(0)
             const totalLength = LENGTH_HEADER_SIZE + messageLength
 

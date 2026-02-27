@@ -133,7 +133,7 @@ export const ErrorCodes = {
   /** Request timeout / deadline exceeded (local) */
   DEADLINE_EXCEEDED: {
     code: 'DEADLINE_EXCEEDED',
-    status: 504,
+    status: 408,
     message: 'Deadline exceeded',
   },
 

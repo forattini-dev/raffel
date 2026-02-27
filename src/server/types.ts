@@ -44,6 +44,7 @@ import type { Codec } from '../utils/content-codecs.js'
 import type { USDDocument, USDProtocol, USDTag, USDExternalDocs, USDServer, USDSecurityScheme } from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
 import type { SchemaRegistry } from '../validation/index.js'
+import type { EnvelopeConfig } from '../middleware/types.js'
 
 // === Providers (Dependency Injection) ===
 
@@ -113,6 +114,193 @@ export type GlobalErrorHandler = (
 
 // === Server Options ===
 
+export type FrontDoorTransport = 
+  | 'http'
+  | 'websocket'
+  | 'jsonrpc'
+  | 'tcp'
+  | 'udp'
+  | 'grpc'
+  | 'graphql'
+  | 'rpc'
+  | 'jrpc'
+  | (string & {})
+
+export type SinglePortProtocolKind =
+  | 'http'
+  | 'websocket'
+  | 'jsonrpc'
+  | 'tcp'
+  | 'udp'
+  | 'grpc'
+  | 'graphql'
+  | 'tls'
+  | 'http2'
+  | 'unknown'
+  | (string & {})
+
+export type SinglePortDecisionReason =
+  | 'matched'
+  | 'unsupported'
+  | 'timeout'
+  | 'limit_exceeded'
+  | 'concurrency_limit'
+  | 'unknown'
+
+export interface ProtocolDecisionPayload {
+  protocol: SinglePortProtocolKind
+  detector: string
+  reason: SinglePortDecisionReason
+  elapsedMs: number
+  bytesRead: number
+  timedOut: boolean
+}
+
+export interface ProtocolSnifferContext {
+  remoteAddress?: string
+  remotePort?: number
+  connectionId?: string
+  protocol?: string
+  bytesRead: number
+}
+
+export interface ProtocolSniffer {
+  name: string
+  detect(input: {
+    chunk: Buffer
+    bytesRead: number
+    context?: ProtocolSnifferContext
+  }): SinglePortProtocolKind | null
+}
+
+export type ProtocolAliasMode = 'standard' | 'extended'
+
+export interface SinglePortConfig {
+  /** Enable single-port transport fusion mode */
+  enabled?: boolean
+  /** Alias for enabled */
+  protocolFusion?: boolean
+  /** TLS key for HTTPS on single-port */
+  cert?: string | Buffer
+  /** TLS certificate chain for single-port */
+  key?: string | Buffer
+  /** Optional ALPN values to pass to TLS handshakes */
+  alpn?: string[]
+  /** Max bytes read before protocol fallback/timeout */
+  sniffMaxBytes?: number
+  /** Max ms allowed per detection cycle */
+  sniffTimeoutMs?: number
+  /** Max concurrent detections in progress */
+  maxConcurrentDetections?: number
+  /** Custom protocol sniffers for shared TCP listener */
+  sniffers?: ProtocolSniffer[]
+  /** Optional protocol allowlist for single-port detection.
+   * If omitted, all default detectors are executed.
+   */
+  protocols?: SinglePortProtocolKind[]
+
+  /**
+   * Alias expansion mode for single-port protocol names.
+   * `standard` keeps built-in aliases minimal and strict.
+   * `extended` enables the full alias set (`icmp`, `whois`, `telnet`, etc.).
+   * If omitted, inherits from `protocolAliasMode` in `ServerOptions`.
+   */
+  protocolAliasMode?: ProtocolAliasMode
+}
+
+export interface ProtocolPreviewConfig {
+  enabled: boolean
+  shared?: boolean
+  frontDoor?: boolean
+  strategy?: FrontDoorStrategy
+  path?: string
+  host?: string
+  port?: number
+  source?: 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown'
+}
+
+export interface ServerPresetOptions {
+  websocketPath?: string
+  jsonrpcPath?: string
+  graphqlPath?: string
+}
+
+export type ServerPreset = 'api' | 'realtime' | 'rpc' | 'dev' | 'full'
+
+export interface ServerConfigPreview {
+  entrypoint: {
+    host: string
+    port: number
+    source: 'frontDoor' | 'native'
+  }
+  frontDoor: {
+    enabled: boolean
+    host: string
+    port: number
+    protocols: FrontDoorTransport[] | null
+    protocolAliasMode: ProtocolAliasMode
+  }
+  singlePort: {
+    enabled: boolean
+    protocolFusion: boolean
+    protocolAliasMode: ProtocolAliasMode
+    sniffMaxBytes: number
+    sniffTimeoutMs: number
+    maxConcurrentDetections: number
+    protocols?: SinglePortProtocolKind[]
+  }
+  protocols: {
+    http: {
+      enabled: true
+      shared: true
+      source: 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown'
+    }
+    websocket?: ProtocolPreviewConfig
+    jsonrpc?: ProtocolPreviewConfig
+    graphql?: ProtocolPreviewConfig
+    tcp?: ProtocolPreviewConfig
+    grpc?: ProtocolPreviewConfig
+    streams?: {
+      enabled: boolean
+    }
+  }
+  warnings: string[]
+}
+
+/**
+ * Strategy for how a protocol is handled by the server entrypoint.
+ */
+export type FrontDoorStrategy = 'shared' | 'native' | 'offload'
+
+/**
+ * Front-door configuration for single entrypoint composition.
+ */
+export interface FrontDoorConfig {
+  /** Enable unified front-door orchestration */
+  enabled: boolean
+  /** Port for the front-door listener */
+  port?: number
+  /** Host for the front-door listener */
+  host?: string
+  /**
+   * Protocols allowed on the front-door.
+   * If omitted, HTTP + WebSocket + JSON-RPC + GraphQL are included by default.
+   * TCP/gRPC/UDP require explicit inclusion when front-door is enabled.
+   */
+  protocols?: FrontDoorTransport[]
+
+  /**
+   * Alias expansion mode for front-door protocol names.
+   * `standard` keeps built-in aliases minimal and strict.
+   * `extended` enables the full alias set (`icmp`, `whois`, `telnet`, etc.).
+   * If omitted, inherits from `protocolAliasMode` in `ServerOptions`.
+   */
+  protocolAliasMode?: ProtocolAliasMode
+
+  /** Optional per-protocol strategy */
+  strategy?: Partial<Record<FrontDoorTransport, FrontDoorStrategy>>
+}
+
 export interface ServerOptions {
   // === Core ===
 
@@ -126,6 +314,21 @@ export interface ServerOptions {
   cors?: CorsOptions | boolean
   /** HTTP adapter options */
   http?: HttpOptions
+
+  /** Front-door entrypoint options */
+  frontDoor?: FrontDoorConfig
+
+  /** Unified single-port transport options */
+  singlePort?: SinglePortConfig
+
+  /**
+   * Global protocol alias expansion mode.
+   * `standard` keeps aliasing strict and predictable.
+   * `extended` enables more permissive alias resolution (`icmp`, `whois`, `telnet`, etc.).
+   *
+   * Defaults to `standard`.
+   */
+  protocolAliasMode?: ProtocolAliasMode
 
   // === Protocols ===
 
@@ -187,11 +390,36 @@ export interface ServerOptions {
   graphql?: GraphQLOptions | boolean
 
   /**
+   * gRPC configuration (requires a separate port).
+   */
+  grpc?: GrpcOptions
+
+  /**
    * Custom protocol adapters registered at startup.
    */
   protocolExtensions?: ProtocolExtensionConfig[]
 
   // === Middleware ===
+
+  /**
+   * Enable response envelope wrapper for all protocol responses.
+   * - `true` enables default Standard envelope config.
+   * - Object provides custom envelope settings.
+   *
+   * @example
+   * ```typescript
+   * createServer({
+   *   port: 3000,
+   *   envelope: true,
+   * })
+   *
+   * createServer({
+   *   port: 3000,
+   *   envelope: { includeDuration: true },
+   * })
+   * ```
+   */
+  envelope?: boolean | EnvelopeConfig
 
   /**
    * Global middleware applied to all handlers.
@@ -447,16 +675,21 @@ export interface AddressInfo {
   port: number
 }
 
-export type ProtocolAddress = AddressInfo & { path?: string; shared?: boolean }
+export type ProtocolAddress = AddressInfo & { path?: string; shared?: boolean; source?: 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown' }
+
+export type FrontDoorProtocolAddress = ProtocolAddress & {
+  frontDoor?: boolean
+  strategy?: FrontDoorStrategy
+}
 
 export interface ServerAddresses {
-  http: AddressInfo
-  websocket?: AddressInfo & { path: string; shared: boolean }
-  jsonrpc?: AddressInfo & { path: string; shared: boolean }
-  graphql?: AddressInfo & { path: string; shared: boolean }
-  grpc?: AddressInfo
-  tcp?: AddressInfo
-  udp?: AddressInfo
+  http: FrontDoorProtocolAddress
+  websocket?: FrontDoorProtocolAddress & { path: string; shared: boolean }
+  jsonrpc?: FrontDoorProtocolAddress & { path: string; shared: boolean }
+  graphql?: FrontDoorProtocolAddress & { path: string; shared: boolean }
+  grpc?: FrontDoorProtocolAddress
+  tcp?: FrontDoorProtocolAddress
+  udp?: FrontDoorProtocolAddress
   protocols?: Record<string, ProtocolAddress>
 }
 
@@ -533,15 +766,6 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
   use?: Interceptor[]
 }
 
-/**
- * Helper type to infer input type from HttpRouteOptions
- */
-export type InferHttpInput<T> = T extends HttpRouteOptions<infer I, unknown> ? I : unknown
-
-/**
- * Helper type to infer output type from HttpRouteOptions
- */
-export type InferHttpOutput<T> = T extends HttpRouteOptions<unknown, infer O> ? O : unknown
 
 // === Protocol Namespace Types ===
 
@@ -1339,6 +1563,37 @@ export interface UnifiedProtocolConfig {
   grpc?: GrpcOptions
 }
 
+/**
+ * Extended protocol configuration with per-protocol `enabled` toggle and UDP support.
+ * Used by `withProtocols()` for richer DX.
+ */
+export interface ExtendedProtocolConfig {
+  /** HTTP is enabled by default */
+  http?: boolean | { enabled: boolean }
+  /** WebSocket: toggle + optional path/options */
+  websocket?: boolean | string | WebSocketOptions | ({ enabled: boolean } & Partial<WebSocketOptions>)
+  /** JSON-RPC: toggle + optional path/options */
+  jsonrpc?: boolean | string | JsonRpcOptions | ({ enabled: boolean } & Partial<JsonRpcOptions>)
+  /** SSE Streams: toggle + optional path */
+  streams?: boolean | string
+  /** GraphQL: toggle + optional path/options */
+  graphql?: boolean | string | GraphQLOptions | ({ enabled: boolean } & Partial<GraphQLOptions>)
+  /** TCP: toggle + optional port/options (port required when enabled) */
+  tcp?: TcpOptions | ({ enabled: boolean } & Partial<TcpOptions>)
+  /** UDP: test-scope marker only, no production adapter */
+  udp?: boolean | { enabled: boolean }
+  /** gRPC: toggle + optional options (protoPath required when enabled) */
+  grpc?: GrpcOptions | ({ enabled: boolean } & Partial<GrpcOptions>)
+}
+
+/**
+ * Environment profile for `withProfile()`.
+ * - `local`: development/mock mode with extended protocol aliases
+ * - `staging`: neutral defaults
+ * - `production`: production hardening with warnings for dev-only options
+ */
+export type ServerProfile = 'local' | 'staging' | 'production'
+
 export interface ProtocolAdapterContext {
   router: Router
   registry: Registry
@@ -1371,8 +1626,10 @@ export interface RaffelServer {
   // === Protocol Configuration ===
 
   /**
+   * @deprecated Prefer {@link withProtocols} for extended protocol options and
+   * explicit disable support.
    * Enable multiple protocols with a single configuration object.
-   * This is the recommended way to configure protocols for multi-protocol servers.
+   * Legacy compatibility alias that maps to {@link withProtocols()}.
    *
    * @example
    * ```typescript
@@ -1385,6 +1642,57 @@ export interface RaffelServer {
    * ```
    */
   protocols(config: UnifiedProtocolConfig): this
+
+  /**
+   * Enable multiple protocols with per-protocol `enabled` toggle, UDP marker, and eager
+   * conflict warnings logged via `logger.warn()`.
+   *
+   * @example
+   * ```typescript
+   * createServer({ port: 3000 })
+   *   .withProtocols({
+   *     websocket: { enabled: true, path: '/ws' },
+   *     tcp: { enabled: false },
+   *   })
+   * ```
+   */
+  withProtocols(config: ExtendedProtocolConfig): this
+
+  /**
+   * Apply environment-specific server profile.
+   * - `local`: extended protocol aliases for mocks
+   * - `staging`: neutral defaults
+ * - `production`: production hardening + dev-option warnings
+   *
+   * @param profile - Target environment
+   * @param overrides - Optional protocol overrides applied after profile defaults
+   *
+   * @example
+   * ```typescript
+   * createServer({ port: 3000 })
+   *   .withProfile('production')
+   *   .withProtocols({ websocket: true })
+   *
+   * // With overrides
+   * createServer({ port: 3000 })
+   *   .withProfile('local', { protocols: { tcp: { port: 9000 } } })
+   * ```
+   */
+  withProfile(profile: ServerProfile, overrides?: { protocols?: ExtendedProtocolConfig }): this
+
+  /**
+   * Apply a common protocol preset to speed up setup.
+   * Presets:
+   * - api / dev / full: enable shared websocket + jsonrpc + graphql
+   * - realtime: enable websocket only
+   * - rpc: enable jsonrpc only
+   */
+  withPreset(preset: ServerPreset, options?: ServerPresetOptions): this
+
+  /**
+   * Enable or disable single-port transport fusion after server creation.
+   */
+  enableSinglePort(config?: SinglePortConfig | boolean): this
 
   /**
    * Register a custom protocol adapter to start with the server.
@@ -2101,6 +2409,11 @@ export interface RaffelServer {
   readonly providers: ResolvedProviders
 
   /**
+   * Preview final protocol bootstrap decision graph without starting the server.
+   */
+  previewConfig(): ServerConfigPreview
+
+  /**
    * GraphQL adapter info.
    * Only available when `graphql` option is enabled.
    *
@@ -2333,24 +2646,34 @@ export interface ProtocolConfig {
     enabled: boolean
     options: WebSocketOptions
     shared: boolean
+    frontDoor?: boolean
+    strategy?: FrontDoorStrategy
   }
   jsonrpc?: {
     enabled: boolean
     options: JsonRpcOptions
     shared: boolean
+    frontDoor?: boolean
+    strategy?: FrontDoorStrategy
   }
   graphql?: {
     enabled: boolean
     options: GraphQLOptions
     shared: boolean
+    frontDoor?: boolean
+    strategy?: FrontDoorStrategy
   }
   tcp?: {
     enabled: boolean
     options: TcpOptions
+    frontDoor?: boolean
+    strategy?: FrontDoorStrategy
   }
   grpc?: {
     enabled: boolean
     options: GrpcOptions
+    frontDoor?: boolean
+    strategy?: FrontDoorStrategy
   }
 }
 

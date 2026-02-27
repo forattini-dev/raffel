@@ -11,7 +11,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context } from '../types/index.js'
-import { createContext } from '../types/context.js'
+import { createAbortableContext } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import {
@@ -84,6 +84,13 @@ export interface HttpAdapterOptions {
    * Middleware that returns true indicates it handled the request.
    */
   middleware?: HttpMiddleware[]
+
+  /**
+   * When false, start() creates the http.Server but does not call listen().
+   * Useful when an external TCP server manages connection dispatch (single-port mode).
+   * Default: true
+   */
+  listenOnStart?: boolean
 }
 
 /**
@@ -270,7 +277,7 @@ function mapErrorCodeToStatus(code: string): number {
     case 'RESOURCE_EXHAUSTED':
       return 429
     case 'DEADLINE_EXCEEDED':
-      return 504
+      return 408
     case 'BAD_GATEWAY':
       return 502
     case 'UNIMPLEMENTED':
@@ -335,35 +342,6 @@ function setCorsHeaders(
   }
 }
 
-/**
- * Create a context with an abort signal tied to connection lifecycle
- */
-function createAbortableContext(
-  requestId: string,
-  overrides: Partial<Context> | undefined,
-  abortController: AbortController
-): Context {
-  const { signal: upstreamSignal, ...rest } = overrides ?? {}
-
-  if (upstreamSignal) {
-    if (upstreamSignal.aborted) {
-      abortController.abort(upstreamSignal.reason)
-    } else {
-      upstreamSignal.addEventListener(
-        'abort',
-        () => {
-          abortController.abort(upstreamSignal.reason)
-        },
-        { once: true }
-      )
-    }
-  }
-
-  return createContext(
-    requestId,
-    { ...(rest as Partial<Omit<Context, 'requestId' | 'extensions'>>), signal: abortController.signal }
-  )
-}
 
 /**
  * Create an HTTP adapter
@@ -474,9 +452,6 @@ export function createHttpAdapter(
         // Regular procedure call
         await handleProcedure(req, res, procedure, ctx)
       } else {
-        if (ctx) {
-          applyRateLimitHeaders(res, ctx)
-        }
         sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method ${req.method} not allowed`)
       }
     } catch (err) {
@@ -492,39 +467,27 @@ export function createHttpAdapter(
   }
 
   /**
-   * Handle procedure request (POST /procedure.name)
+   * Resolve request codec and parse body.
+   * Returns parsed payload on success, or null if an error response was already sent.
    */
-  async function handleProcedure(
+  async function resolveRequestBody(
     req: IncomingMessage,
-    res: ServerResponse,
-    procedure: string,
-    ctx: Context
-  ): Promise<void> {
-    const accept = getHeaderValue(req.headers.accept)
-    const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
-    if (!responseCodec) {
-      applyRateLimitHeaders(res, ctx)
-      sendError(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
-      return
-    }
-
+    res: ServerResponse
+  ): Promise<{ payload: unknown } | null> {
     const contentType = getHeaderValue(req.headers['content-type'])
     let requestCodec = jsonCodec
     if (contentType) {
       const selected = selectCodecForContentType(contentType, codecs)
       if (!selected) {
-        applyRateLimitHeaders(res, ctx)
         sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-        return
+        return null
       }
       requestCodec = selected
     } else if (requestHasBody(req)) {
-      applyRateLimitHeaders(res, ctx)
       sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-      return
+      return null
     }
 
-    // Parse body
     let payload: unknown
     let bodySize = 0
     try {
@@ -535,21 +498,49 @@ export function createHttpAdapter(
       const error = err as Error
       if (error instanceof BodyParseError) {
         const status = mapErrorCodeToStatus(error.code)
-        applyRateLimitHeaders(res, ctx)
         sendError(res, status, error.code, error.message)
-        return
+        return null
       }
-
-      applyRateLimitHeaders(res, ctx)
       sendError(res, 400, 'INVALID_ARGUMENT', error.message)
-      return
+      return null
     }
 
     if (!contentType && bodySize > 0) {
-      applyRateLimitHeaders(res, ctx)
       sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-      return
+      return null
     }
+
+    return { payload }
+  }
+
+  /**
+   * Handle procedure request (POST /procedure.name)
+   */
+  function resolveResponseCodec(
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Codec | null {
+    const accept = getHeaderValue(req.headers.accept)
+    const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
+    if (!responseCodec) {
+      sendError(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
+      return null
+    }
+    return responseCodec
+  }
+
+  async function handleProcedure(
+    req: IncomingMessage,
+    res: ServerResponse,
+    procedure: string,
+    ctx: Context
+  ): Promise<void> {
+    const responseCodec = resolveResponseCodec(req, res)
+    if (!responseCodec) return
+
+    const bodyResult = await resolveRequestBody(req, res)
+    if (!bodyResult) return
+    const { payload } = bodyResult
 
     // Build envelope
     const envelope: Envelope = {
@@ -678,55 +669,13 @@ export function createHttpAdapter(
     procedure: string,
     ctx: Context
   ): Promise<void> {
-    const accept = getHeaderValue(req.headers.accept)
-    if (!selectCodecForAccept(accept, codecs, jsonCodec)) {
-      applyRateLimitHeaders(res, ctx)
-      sendError(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
+    if (!resolveResponseCodec(req, res)) {
       return
     }
 
-    const contentType = getHeaderValue(req.headers['content-type'])
-    let requestCodec = jsonCodec
-    if (contentType) {
-      const selected = selectCodecForContentType(contentType, codecs)
-      if (!selected) {
-        applyRateLimitHeaders(res, ctx)
-        sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-        return
-      }
-      requestCodec = selected
-    } else if (requestHasBody(req)) {
-      applyRateLimitHeaders(res, ctx)
-      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-      return
-    }
-
-    // Parse body
-    let payload: unknown
-    let bodySize = 0
-    try {
-      const parsed = await parseBody(req, maxBodySize, requestCodec)
-      payload = parsed.payload
-      bodySize = parsed.size
-    } catch (err) {
-      const error = err as Error
-      if (error instanceof BodyParseError) {
-        const status = mapErrorCodeToStatus(error.code)
-        applyRateLimitHeaders(res, ctx)
-        sendError(res, status, error.code, error.message)
-        return
-      }
-
-      applyRateLimitHeaders(res, ctx)
-      sendError(res, 400, 'INVALID_ARGUMENT', error.message)
-      return
-    }
-
-    if (!contentType && bodySize > 0) {
-      applyRateLimitHeaders(res, ctx)
-      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-      return
-    }
+    const bodyResult = await resolveRequestBody(req, res)
+    if (!bodyResult) return
+    const { payload } = bodyResult
 
     // Build envelope
     const envelope: Envelope = {
@@ -768,6 +717,27 @@ export function createHttpAdapter(
           logger.error({ err }, 'HTTP server error')
           reject(err)
         })
+        server.on('clientError', (err, socket) => {
+          const netSocket = socket as unknown as import('node:net').Socket
+          logger.warn(
+            {
+              err: err.message,
+              remoteAddress: netSocket.remoteAddress,
+              remotePort: netSocket.remotePort,
+              host,
+              port,
+            },
+            'HTTP client error on front-door listener'
+          )
+          if (!socket.destroyed) {
+            socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+          }
+        })
+
+        if (options.listenOnStart === false) {
+          resolve()
+          return
+        }
 
         server.listen(port, host, () => {
           logger.info({ port, host, basePath }, 'HTTP server listening')

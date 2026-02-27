@@ -17,6 +17,7 @@ import type {
   GrpcMeta,
 } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
+import { createProcedureBuilder } from './handler-builders.js'
 import type {
   ProcedureBuilder,
   StreamBuilder,
@@ -76,111 +77,6 @@ function buildName(prefix: string, name: string): string {
   if (!prefix) return name
   if (!name) return prefix
   return `${prefix}.${name}`
-}
-
-function createProcedureBuilder(
-  definition: RouterModuleDefinition,
-  name: string,
-  moduleInterceptors: Interceptor[]
-): ProcedureBuilder {
-  let inputSchema: z.ZodType | undefined
-  let outputSchema: z.ZodType | undefined
-  let summary: string | undefined
-  let description: string | undefined
-  let procedureTags: string[] | undefined
-  let httpPath: string | undefined
-  let httpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | undefined
-  const interceptors: Interceptor[] = []
-  const beforeHooks: BeforeHook<any>[] = []
-  const afterHooks: AfterHook<any, any>[] = []
-  const errorHooks: ErrorHook<any>[] = []
-
-  let graphqlMeta: { type: 'query' | 'mutation' } | undefined
-  let jsonrpcMeta: JsonRpcMeta | undefined
-  let grpcMeta: GrpcMeta | undefined
-
-  const builder: ProcedureBuilder = {
-    input(schema) {
-      inputSchema = schema
-      return builder as ProcedureBuilder<z.infer<typeof schema>, unknown>
-    },
-    output(schema) {
-      outputSchema = schema
-      return builder as ProcedureBuilder<unknown, z.infer<typeof schema>>
-    },
-    summary(sum) {
-      summary = sum
-      return builder
-    },
-    tags(tagsArr) {
-      procedureTags = tagsArr
-      return builder
-    },
-    description(desc) {
-      description = desc
-      return builder
-    },
-    http(path, method) {
-      httpPath = path
-      httpMethod = method
-      return builder
-    },
-    use(interceptor) {
-      interceptors.push(interceptor)
-      return builder
-    },
-    graphql(type) {
-      graphqlMeta = { type }
-      return builder
-    },
-    jsonrpc(meta) {
-      jsonrpcMeta = meta
-      return builder
-    },
-    grpc(meta) {
-      grpcMeta = meta
-      return builder
-    },
-    before(hook) {
-      beforeHooks.push(hook)
-      return builder
-    },
-    after(hook) {
-      afterHooks.push(hook)
-      return builder
-    },
-    error(hook) {
-      errorHooks.push(hook)
-      return builder
-    },
-    handler(fn) {
-      const schema: HandlerSchema = {}
-      if (inputSchema) schema.input = inputSchema
-      if (outputSchema) schema.output = outputSchema
-
-      definition.routes.push({
-        kind: 'procedure',
-        name,
-        handler: fn as ProcedureHandler,
-        summary,
-        description,
-        tags: procedureTags,
-        httpPath,
-        httpMethod,
-        jsonrpc: jsonrpcMeta,
-        grpc: grpcMeta,
-        moduleInterceptors: [...moduleInterceptors],
-        interceptors: [...interceptors],
-        schema: schema.input || schema.output ? schema : undefined,
-        beforeHooks: beforeHooks.length > 0 ? [...beforeHooks] : undefined,
-        afterHooks: afterHooks.length > 0 ? [...afterHooks] : undefined,
-        errorHooks: errorHooks.length > 0 ? [...errorHooks] : undefined,
-        graphql: graphqlMeta,
-      })
-    },
-  }
-
-  return builder
 }
 
 function createStreamBuilder(
@@ -309,7 +205,35 @@ function createModuleView(
     },
     procedure(name) {
       const fullName = buildName(prefix, name)
-      return createProcedureBuilder(definition, fullName, [...moduleInterceptors])
+      return createProcedureBuilder(
+        undefined,
+        undefined,
+        fullName,
+        [],
+        undefined,
+        undefined,
+        (procedureName, handler, registration) => {
+          definition.routes.push({
+            kind: 'procedure',
+            name: procedureName,
+            handler: handler as ProcedureHandler,
+            summary: registration.summary,
+            description: registration.description,
+            tags: registration.tags,
+            httpPath: registration.httpPath,
+            httpMethod: registration.httpMethod,
+            jsonrpc: registration.jsonrpc,
+            grpc: registration.grpc,
+            moduleInterceptors: [...moduleInterceptors],
+            interceptors: registration.interceptors.length > 0 ? [...registration.interceptors] : [],
+            schema: registration.schema?.input || registration.schema?.output ? registration.schema : undefined,
+            beforeHooks: registration.beforeHooks?.length ? [...registration.beforeHooks] : undefined,
+            afterHooks: registration.afterHooks?.length ? [...registration.afterHooks] : undefined,
+            errorHooks: registration.errorHooks?.length ? [...registration.errorHooks] : undefined,
+            graphql: registration.graphql,
+          })
+        }
+      )
     },
     stream(name) {
       const fullName = buildName(prefix, name)
