@@ -32,10 +32,6 @@ importers:
       ws:
         specifier: ^8.19.0
         version: 8.19.0
-    optionalDependencies:
-      marked:
-        specifier: ^15.0.0
-        version: 15.0.12
     devDependencies:
       '@types/js-yaml':
         specifier: ^4.0.9
@@ -50,7 +46,7 @@ importers:
         specifier: ^8.18.1
         version: 8.18.1
       '@vitest/coverage-v8':
-        specifier: ^4.0.18
+        specifier: ^4.0.16
         version: 4.0.18(vitest@4.0.16(@types/node@25.0.3)(tsx@4.21.0))
       ajv:
         specifier: ^8.17.1
@@ -82,6 +78,10 @@ importers:
       zod-to-json-schema:
         specifier: ^3.25.1
         version: 3.25.1(zod@4.3.5)
+    optionalDependencies:
+      marked:
+        specifier: ^15.0.0
+        version: 15.0.12
 
 packages:
 
