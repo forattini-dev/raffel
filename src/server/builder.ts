@@ -5,7 +5,7 @@
  */
 
 import type { z } from 'zod'
-import { Socket, Server as NetServer } from 'node:net'
+import type { PortBinding } from './port-binding.js'
 import { createRegistry } from '../core/registry.js'
 import { createRouter } from '../core/router.js'
 import type { createHttpAdapter } from '../adapters/http.js'
@@ -93,7 +93,6 @@ import {
 import {
   isSinglePortTcpRouteEnabled as detectSinglePortTcpRouteEnabled,
   isSinglePortUdpRouteEnabled as detectSinglePortUdpRouteEnabled,
-  handleSinglePortConnection as processSinglePortConnection,
 } from './builder/single-port-utils.js'
 
 const logger = createLogger('server')
@@ -323,8 +322,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     running: { value: false },
     addresses: { value: null as ServerAddresses | null },
     providerMiddlewareInstalled: { value: false },
-    singlePortConnectionListener: { value: null as ((socket: Socket) => void) | null },
-    singlePortNetServer: { value: null as NetServer | null },
+    portBinding: { value: null as PortBinding | null },
     singlePortTcpConnectionHandler: { value: null as ReturnType<typeof createTcpConnectionHandler> | null },
     httpServer: { value: null as ReturnType<typeof createHttpAdapter> | null },
     wsAdapter: { value: null as ReturnType<typeof createWebSocketAdapter> | null },
@@ -483,41 +481,6 @@ export function createServer(options: ServerOptions): RaffelServer {
     effectivePort
   )
 
-  async function handleSinglePortConnection(socket: Socket): Promise<void> {
-    return processSinglePortConnection({
-      socket,
-      singlePortConfig,
-      getSinglePortAliasMode,
-      getSinglePortTcpConnectionHandler: () => serverState.singlePortTcpConnectionHandler.value,
-      onHttp: (s: Socket, chunk: Buffer) => {
-        const httpServer = serverState.httpServer.value?.server
-        if (httpServer) {
-          s.unshift(chunk)
-          httpServer.emit('connection', s)
-        } else {
-          s.destroy()
-        }
-      },
-      logger: {
-        debug: (context, message) => logger.debug(context, message),
-        warn: (context, message) => logger.warn(context, message),
-      },
-    })
-  }
-
-  function attachSinglePortConnectionListener() {
-    const existingListener = serverState.singlePortConnectionListener.value
-    if (existingListener) {
-      return existingListener
-    }
-
-    const listener: (socket: Socket) => void = (socket) => {
-      void handleSinglePortConnection(socket)
-    }
-    serverState.singlePortConnectionListener.value = listener
-    return listener
-  }
-
   const serverLifecycle = createServerLifecycle({
     logger,
     state: serverState,
@@ -544,8 +507,8 @@ export function createServer(options: ServerOptions): RaffelServer {
     isSinglePortTcpRouteEnabled,
     isSinglePortUdpRouteEnabled,
     getSinglePortSource,
+    getSinglePortAliasMode,
     createFrontDoorDecisionMiddleware,
-    attachSinglePortConnectionListener,
     applyDiscoveryResult,
     logSinglePortConfig: logSinglePortConfiguration,
     host,

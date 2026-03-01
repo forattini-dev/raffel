@@ -18,6 +18,8 @@ import type {
   MockIcmpServer,
   MockIcmpServerOptions,
 } from './service-types.js'
+import type { MockDnsServer, MockDnsServerOptions } from './mock-dns-server.js'
+import type { MockSSEServer, MockSSEServerOptions } from './mock-sse-server.js'
 
 export interface MockServiceSuite {
   http: MockHttpServer
@@ -29,6 +31,8 @@ export interface MockServiceSuite {
   ftp: MockFtpServer
   ping: MockPingServer
   icmp: MockIcmpServer
+  dns: MockDnsServer
+  sse: MockSSEServer
 }
 
 export interface MockServiceSuiteOptions {
@@ -42,6 +46,8 @@ export interface MockServiceSuiteOptions {
   ftp?: MockFtpServerOptions
   ping?: MockPingServerOptions
   icmp?: MockIcmpServerOptions
+  dns?: MockDnsServerOptions
+  sse?: MockSSEServerOptions
 }
 
 interface MockServiceSuiteFactories {
@@ -54,6 +60,8 @@ interface MockServiceSuiteFactories {
   ftp: (options: MockFtpServerOptions) => Promise<MockFtpServer>
   ping: (options: MockPingServerOptions) => Promise<MockPingServer>
   icmp: (options: MockIcmpServerOptions) => Promise<MockIcmpServer>
+  dns: (options: MockDnsServerOptions) => Promise<MockDnsServer>
+  sse: (options: MockSSEServerOptions) => Promise<MockSSEServer>
 }
 
 function normalizeHost(host?: string): string {
@@ -107,6 +115,14 @@ export async function createMockServiceSuiteInternal(
       key: 'icmp',
       run: () => factories.icmp({ host, port: options.icmp?.port ?? 0, ...(options.icmp ?? {}) }),
     },
+    {
+      key: 'dns',
+      run: () => factories.dns({ host, port: options.dns?.port ?? 0, ...(options.dns ?? {}) }),
+    },
+    {
+      key: 'sse',
+      run: () => factories.sse({ host, port: options.sse?.port ?? 0, ...(options.sse ?? {}) }),
+    },
   ]
 
   try {
@@ -134,5 +150,7 @@ export async function stopMockServiceSuiteInternal(suite: MockServiceSuite): Pro
     suite.ftp.stop(),
     suite.ping.stop(),
     suite.icmp.stop(),
+    suite.dns.stop(),
+    suite.sse.stop(),
   ])
 }

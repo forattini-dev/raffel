@@ -1,6 +1,7 @@
-import { createServer as createNetServer, type Socket, type Server as NetServer } from 'node:net'
+import type { Socket } from 'node:net'
 
 import { createHttpAdapter, type HttpAdapterOptions, type HttpMiddleware } from '../../adapters/http.js'
+import { createPortBinding, type PortBinding } from '../port-binding.js'
 import { createWebSocketAdapter } from '../../adapters/websocket.js'
 import { createTcpAdapter, createTcpConnectionHandler } from '../../adapters/tcp.js'
 import { createJsonRpcAdapter, createJsonRpcMiddleware } from '../../adapters/jsonrpc.js'
@@ -75,8 +76,7 @@ export interface ServerLifecycleContext {
     running: MutableRef<boolean>
     addresses: MutableRef<ServerAddresses | null>
     providerMiddlewareInstalled: MutableRef<boolean>
-    singlePortConnectionListener: MutableRef<((socket: Socket) => void) | null>
-    singlePortNetServer: MutableRef<NetServer | null>
+    portBinding: MutableRef<PortBinding | null>
     singlePortTcpConnectionHandler: MutableRef<ReturnType<typeof createTcpConnectionHandler> | null>
     httpServer: MutableRef<ReturnType<typeof createHttpAdapter> | null>
     wsAdapter: MutableRef<ReturnType<typeof createWebSocketAdapter> | null>
@@ -117,8 +117,8 @@ export interface ServerLifecycleContext {
   isSinglePortUdpRouteEnabled: (handler: LoadedUdpHandler) => boolean
   getSinglePortSource: () => 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown'
 
+  getSinglePortAliasMode: () => 'standard' | 'extended'
   createFrontDoorDecisionMiddleware: () => any
-  attachSinglePortConnectionListener: () => (socket: Socket) => void
   applyDiscoveryResult: (result: DiscoveryResult) => void
   logSinglePortConfig: () => void
 
@@ -160,8 +160,8 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     isSinglePortTcpRouteEnabled,
     isSinglePortUdpRouteEnabled,
     getSinglePortSource,
+    getSinglePortAliasMode,
     createFrontDoorDecisionMiddleware,
-    attachSinglePortConnectionListener,
     applyDiscoveryResult,
     logSinglePortConfig,
     host,
@@ -418,6 +418,28 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
         }
       }
 
+      // Create the PortBinding — always used regardless of singlePort mode.
+      // It owns the OS port via a net.Server and dispatches connections.
+      const portBinding = createPortBinding({
+        port: effectivePort,
+        host: effectiveHost,
+        logger: {
+          debug: (context, message) => logger.debug(context, message),
+          warn: (context, message) => logger.warn(context, message),
+        },
+      })
+
+      // Attach TCP handler when it shares the HTTP port.
+      if (state.singlePortTcpConnectionHandler.value) {
+        portBinding.attachTcpHandler(state.singlePortTcpConnectionHandler.value)
+      }
+
+      // Activate protocol sniffing whenever singlePort mode is enabled.
+      // Without a TCP handler, unknown protocols still get rejected (HTTP 400).
+      if (singlePortConfig.enabled) {
+        portBinding.setSinglePortConfig(singlePortConfig, getSinglePortAliasMode)
+      }
+
       state.httpServer.value = createHttpAdapter(router, {
         port: effectivePort,
         host: effectiveHost,
@@ -433,7 +455,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
             }
           : cors,
         middleware: httpMiddleware.length > 0 ? httpMiddleware : undefined,
-        listenOnStart: !singlePortConfig.enabled,
+        listenOnStart: false,
       })
       await state.httpServer.value.start()
       startupStopTasks.push({
@@ -445,29 +467,20 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
         },
       })
 
-      if (singlePortConfig.enabled) {
-        const listener = attachSinglePortConnectionListener()
-        const netServer = createNetServer()
-        netServer.on('connection', listener)
-        await new Promise<void>((resolve, reject) => {
-          netServer.once('error', reject)
-          netServer.listen(effectivePort, effectiveHost, () => {
-            logger.info({ port: effectivePort, host: effectiveHost }, 'Single-port net server listening')
-            resolve()
-          })
-        })
-        state.singlePortNetServer.value = netServer
-        startupStopTasks.push({
-          name: 'single-port-connection-dispatcher',
-          stop: async () => {
-            await new Promise<void>((resolve) => {
-              netServer.close(() => resolve())
-            })
-            state.singlePortNetServer.value = null
-            state.singlePortConnectionListener.value = null
-          },
-        })
-      }
+      // Forward HTTP connections from the PortBinding's net.Server.
+      portBinding.attachHttpServer(state.httpServer.value.server!)
+
+      // Bind the port. The PortBinding's net.Server now owns the OS port.
+      const boundPort = await portBinding.start()
+      logger.info({ port: boundPort, host: effectiveHost }, 'Port binding listening')
+      state.portBinding.value = portBinding
+      startupStopTasks.push({
+        name: 'port-binding',
+        stop: async () => {
+          await portBinding.stop()
+          state.portBinding.value = null
+        },
+      })
 
       if (protocols.websocket?.enabled) {
         const wsOpts = protocols.websocket.options
@@ -857,16 +870,13 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       })
     }
 
-    if (state.singlePortNetServer.value) {
-      const netServer = state.singlePortNetServer.value
+    if (state.portBinding.value) {
+      const pb = state.portBinding.value
       stopTasks.push({
-        name: 'single-port-connection-dispatcher',
+        name: 'port-binding',
         stop: async () => {
-          await new Promise<void>((resolve) => {
-            netServer.close(() => resolve())
-          })
-          state.singlePortNetServer.value = null
-          state.singlePortConnectionListener.value = null
+          await pb.stop()
+          state.portBinding.value = null
         },
       })
     }

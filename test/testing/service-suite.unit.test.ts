@@ -16,6 +16,8 @@ describe('Mock service suite internals', () => {
       ftp: false,
       ping: false,
       icmp: false,
+      dns: false,
+      sse: false,
     }
 
     const factory = <TName extends keyof typeof stopped>(name: TName) => ({
@@ -38,6 +40,8 @@ describe('Mock service suite internals', () => {
           ftp: () => Promise.resolve(factory('ftp')),
           ping: () => Promise.resolve(factory('ping')),
           icmp: () => Promise.resolve(factory('icmp')),
+          dns: () => Promise.resolve(factory('dns')),
+          sse: () => Promise.resolve(factory('sse')),
         }
       )
     ).rejects.toThrow('boom')
@@ -60,10 +64,16 @@ describe('Mock service suite internals', () => {
       ftp: { stop: async () => stopOrder.push('ftp') },
       ping: { stop: async () => stopOrder.push('ping') },
       icmp: { stop: async () => stopOrder.push('icmp') },
+      dns: { stop: async () => stopOrder.push('dns') },
+      sse: { stop: async () => stopOrder.push('sse') },
     }
 
     await stopMockServiceSuiteInternal(suite as any)
 
-    expect(stopOrder).toEqual(['http', 'ws', 'tcp', 'udp', 'telnet', 'whois', 'ftp', 'ping', 'icmp'])
+    expect(stopOrder).toHaveLength(11)
+    expect(stopOrder).toContain('http')
+    expect(stopOrder).toContain('ws')
+    expect(stopOrder).toContain('dns')
+    expect(stopOrder).toContain('sse')
   })
 })

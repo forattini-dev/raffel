@@ -19,6 +19,9 @@ import type {
   MockIcmpServerOptions,
 } from './index.js'
 
+import type { MockDnsServer, MockDnsServerOptions } from './mock-dns-server.js'
+import type { MockSSEServer, MockSSEServerOptions } from './mock-sse-server.js'
+
 export type {
   MockHttpServer,
   MockHttpServerOptions,
@@ -38,6 +41,10 @@ export type {
   MockPingServerOptions,
   MockIcmpServer,
   MockIcmpServerOptions,
+  MockDnsServer,
+  MockDnsServerOptions,
+  MockSSEServer,
+  MockSSEServerOptions,
 }
 
 export interface MockServiceSuite {
@@ -50,6 +57,8 @@ export interface MockServiceSuite {
   ftp: MockFtpServer
   ping: MockPingServer
   icmp: MockIcmpServer
+  dns: MockDnsServer
+  sse: MockSSEServer
 }
 
 export interface MockServiceSuiteOptions {
@@ -63,4 +72,6 @@ export interface MockServiceSuiteOptions {
   ftp?: MockFtpServerOptions
   ping?: MockPingServerOptions
   icmp?: MockIcmpServerOptions
+  dns?: MockDnsServerOptions
+  sse?: MockSSEServerOptions
 }
