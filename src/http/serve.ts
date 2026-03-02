@@ -31,6 +31,22 @@ export interface ServeOptions {
 
   /** Callback when server encounters an error */
   onError?: (err: Error) => void
+
+  /**
+   * Keep-alive timeout in milliseconds.
+   * Time the server waits for additional requests on a persistent connection.
+   * Recommended: slightly above load balancer idle timeout (e.g., 65000 for ALB/nginx).
+   * @default Node.js default (5000ms in Node 18+)
+   */
+  keepAliveTimeout?: number
+
+  /**
+   * Headers timeout in milliseconds.
+   * Time allowed to receive the request headers after a connection is established.
+   * Should be greater than keepAliveTimeout.
+   * @default Node.js default (60000ms)
+   */
+  headersTimeout?: number
 }
 
 /** Extended server interface with graceful shutdown */
@@ -173,6 +189,8 @@ export function serve(options: ServeOptions): RaffelServer {
     hostname = '0.0.0.0',
     onListen,
     onError,
+    keepAliveTimeout,
+    headersTimeout,
   } = options
 
   let inFlightCount = 0
@@ -220,6 +238,14 @@ export function serve(options: ServeOptions): RaffelServer {
 
   // Create server
   const server = createServer(handleRequest) as RaffelServer
+
+  // Apply production timeouts if specified
+  if (keepAliveTimeout !== undefined) {
+    server.keepAliveTimeout = keepAliveTimeout
+  }
+  if (headersTimeout !== undefined) {
+    server.headersTimeout = headersTimeout
+  }
 
   // Add graceful shutdown methods
   server.stopAcceptingRequests = function () {

@@ -536,6 +536,23 @@ export type {
 } from './templates.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
+// OpenAPI Documentation UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  serveRedoc,
+  serveSwaggerUI,
+  mountOpenApiDocs,
+} from './openapi-ui.js'
+export type {
+  RedocOptions,
+  SwaggerUIOptions,
+  DocsUI,
+  MountOpenApiDocsOptions,
+  HttpAppWithRoutes,
+} from './openapi-ui.js'
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stream Authentication
 // ─────────────────────────────────────────────────────────────────────────────
 
