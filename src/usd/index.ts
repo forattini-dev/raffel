@@ -110,6 +110,7 @@ export type {
   USDHeroButton,
   USDQuickLink,
   USDExternalLink,
+  USDCodeSample,
 } from './spec/types.js'
 
 // Type guards

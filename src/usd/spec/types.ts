@@ -310,6 +310,18 @@ export interface USDPathItem {
   parameters?: USDParameter[]
 }
 
+/**
+ * Code sample for an operation (compatible with Redoc, Swagger UI extensions)
+ */
+export interface USDCodeSample {
+  /** Language identifier (e.g. 'curl', 'typescript', 'python', 'go', 'php', 'javascript', 'rust') */
+  lang: string
+  /** Display label shown in the UI (e.g. 'cURL', 'TypeScript') */
+  label?: string
+  /** Generated source code */
+  source: string
+}
+
 export interface USDOperation {
   operationId?: string
   summary?: string
@@ -326,6 +338,9 @@ export interface USDOperation {
 
   /** Mark as streaming response */
   'x-usd-streaming'?: boolean
+
+  /** Code samples in multiple languages (rendered by Redoc and compatible UIs) */
+  'x-codeSamples'?: USDCodeSample[]
 }
 
 export interface USDParameter {

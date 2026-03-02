@@ -11,7 +11,10 @@
 import type { Registry } from '../core/index.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { LoadedChannel, LoadedRestResource } from '../server/fs-routes/index.js'
-import type { USDDocument, USDDocumentation } from '../usd/index.js'
+import type {
+  USDDocument, USDDocumentation, USDTagGroup,
+  USDPathItem, USDSchema, USDSecurityScheme, USDParameter, USDResponse, USDRequestBody, USDExample,
+} from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
 import {
   generateUSD,
@@ -76,12 +79,7 @@ export interface USDMiddlewareConfig {
   externalDocs?: USDGeneratorOptions['externalDocs']
 
   /** Tag groups for hierarchical organization (like Redoc) */
-  tagGroups?: Array<{
-    name: string
-    tags: string[]
-    description?: string
-    expanded?: boolean
-  }>
+  tagGroups?: USDTagGroup[]
 
   /** UI configuration */
   ui?: {
@@ -143,6 +141,26 @@ export interface USDMiddlewareConfig {
 
   /** Documentation customization (portable with the spec) */
   documentation?: USDDocumentation
+
+  /**
+   * External paths to merge into the generated document.
+   * Useful for injecting paths from plugins (e.g. s3db.js, auth routes).
+   * Keys are OpenAPI path strings (e.g. '/users/{id}').
+   */
+  externalPaths?: Record<string, USDPathItem>
+
+  /**
+   * External components to merge into the generated document.
+   * Each key is shallow-merged with the generated components of the same type.
+   */
+  externalComponents?: {
+    schemas?: Record<string, USDSchema>
+    securitySchemes?: Record<string, USDSecurityScheme | { $ref: string }>
+    parameters?: Record<string, USDParameter | { $ref: string }>
+    responses?: Record<string, USDResponse | { $ref: string }>
+    requestBodies?: Record<string, USDRequestBody | { $ref: string }>
+    examples?: Record<string, USDExample | { $ref: string }>
+  }
 }
 
 /**
@@ -210,6 +228,8 @@ export function createUSDHandlers(
     documentation,
     includeErrorSchemas = true,
     includeStreamEventSchemas = true,
+    externalPaths,
+    externalComponents,
   } = config
 
   // Cache for generated documents
@@ -248,10 +268,13 @@ export function createUSDHandlers(
         tags,
         externalDocs,
         documentation,
+        tagGroups: config.tagGroups,
         jsonrpc,
         grpc,
         includeErrorSchemas,
         includeStreamEventSchemas,
+        externalPaths,
+        externalComponents,
       }
     )
 

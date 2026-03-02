@@ -12,6 +12,7 @@ import type {
   USDInfo,
   USDServer,
   USDTag,
+  USDTagGroup,
   USDSchema,
   USDProtocol,
   USDX,
@@ -20,6 +21,11 @@ import type {
   USDExternalDocs,
   USDContentTypes,
   USDDocumentation,
+  USDPathItem,
+  USDParameter,
+  USDResponse,
+  USDRequestBody,
+  USDExample,
 } from '../../usd/index.js'
 import { DEFAULT_USD_CONTENT_TYPES } from '../../usd/index.js'
 import type { Registry } from '../../core/registry.js'
@@ -106,11 +112,32 @@ export interface USDGeneratorOptions {
   /** Documentation customization (hero, introduction, etc.) */
   documentation?: USDDocumentation
 
+  /** Tag groups for sidebar/documentation organization */
+  tagGroups?: USDTagGroup[]
+
   /** Include standard error schemas */
   includeErrorSchemas?: boolean
 
   /** Include stream event schemas */
   includeStreamEventSchemas?: boolean
+
+  /**
+   * External paths to merge into the document after generation.
+   * Keys are OpenAPI-style paths (e.g. '/users/{id}').
+   */
+  externalPaths?: Record<string, USDPathItem>
+
+  /**
+   * External components to shallow-merge into the generated document components.
+   */
+  externalComponents?: {
+    schemas?: Record<string, USDSchema>
+    securitySchemes?: Record<string, USDSecurityScheme | { $ref: string }>
+    parameters?: Record<string, USDParameter | { $ref: string }>
+    responses?: Record<string, USDResponse | { $ref: string }>
+    requestBodies?: Record<string, USDRequestBody | { $ref: string }>
+    examples?: Record<string, USDExample | { $ref: string }>
+  }
 }
 
 /**
@@ -212,10 +239,13 @@ export function generateUSD(
     securitySchemes,
     defaultSecurity,
     tags: customTags = [],
+    tagGroups: customTagGroups = [],
     externalDocs,
     documentation,
     includeErrorSchemas = true,
     includeStreamEventSchemas = true,
+    externalPaths,
+    externalComponents,
   } = options
 
   const jsonrpcOptions = jsonrpc ?? {}
@@ -461,9 +491,28 @@ export function generateUSD(
     })
   }
 
+  if (customTagGroups.length > 0) {
+    document['x-tagGroups'] = customTagGroups
+  }
+
   // Add external docs
   if (externalDocs) {
     document.externalDocs = externalDocs
+  }
+
+  // Merge external paths
+  if (externalPaths && Object.keys(externalPaths).length > 0) {
+    document.paths = { ...document.paths, ...externalPaths }
+  }
+
+  // Merge external components (shallow per category)
+  if (externalComponents) {
+    if (!document.components) document.components = {}
+    const components = document.components as Record<string, Record<string, unknown>>
+    const ext = externalComponents as Record<string, Record<string, unknown>>
+    for (const key of Object.keys(externalComponents)) {
+      components[key] = { ...(components[key] ?? {}), ...ext[key] }
+    }
   }
 
   // Clean up empty components

@@ -19,6 +19,7 @@ import {
   extractParameters,
   type ConvertedSchemaRegistry,
 } from './schema-converter.js'
+import { generateCodeSamples, type CodeSampleContext } from './code-samples.js'
 
 /**
  * HTTP generation options
@@ -32,6 +33,14 @@ export interface HttpGeneratorOptions {
   includeErrorResponses?: boolean
   /** Include security requirement */
   defaultSecurity?: Array<Record<string, string[]>>
+  /**
+   * Code sample generation.
+   * - `false` disables code samples entirely
+   * - `{ languages }` enables specific languages (default: ['curl', 'typescript', 'python', 'go'])
+   */
+  codeSamples?: false | { languages?: string[] }
+  /** Base URL for code samples (default: first server URL or 'https://api.example.com') */
+  baseUrl?: string
 }
 
 /**
@@ -70,15 +79,18 @@ export function generateHttpPaths(
     groupByNamespace = true,
     includeErrorResponses = true,
     defaultSecurity,
+    codeSamples,
+    baseUrl = 'https://api.example.com',
   } = options
 
   const paths: USDPaths = {}
   const tags = new Set<string>()
   const schemaRegistry = createSchemaRegistry()
 
-  // Add standard error schema
+  // Add standard error schemas
   if (includeErrorResponses) {
     schemaRegistry.add('ApiError', createErrorSchema())
+    schemaRegistry.add('ValidationError', createValidationErrorSchema())
   }
 
   // Track REST operation IDs to avoid duplicates
@@ -169,6 +181,21 @@ export function generateHttpPaths(
       path,
       method
     )
+
+    // Add code samples
+    if (codeSamples !== false) {
+      const languages = (codeSamples as { languages?: string[] } | undefined)?.languages ?? ['curl', 'typescript', 'python', 'go']
+      const sampleCtx: CodeSampleContext = {
+        method: method.toUpperCase(),
+        path,
+        baseUrl,
+        requestBodySchema: operation.requestBody?.content?.['application/json']?.schema as USDSchema | undefined,
+        parameters: operation.parameters,
+        hasSecurity: (operation.security ?? defaultSecurity ?? []).length > 0,
+      }
+      const samples = generateCodeSamples(sampleCtx, languages)
+      if (samples.length > 0) operation['x-codeSamples'] = samples
+    }
 
     // Initialize path if needed
     if (!paths[path]) {
@@ -388,7 +415,7 @@ function createProcedureResponses(
   if (includeErrorResponses) {
     const errorRef = createRef('ApiError')
     responses['400'] = {
-      description: 'Validation error',
+      description: 'Bad request',
       content: { 'application/json': { schema: errorRef } },
     }
     responses['401'] = {
@@ -403,6 +430,31 @@ function createProcedureResponses(
       description: 'Not found',
       content: { 'application/json': { schema: errorRef } },
     }
+
+    // 422 Validation error — only for operations with a request body schema
+    if (handlerSchema?.input) {
+      const inputSchema = convertSchema(handlerSchema.input)
+      const hasRequired = Array.isArray(inputSchema.required) && inputSchema.required.length > 0
+      if (hasRequired) {
+        responses['422'] = {
+          description: 'Validation Error',
+          content: {
+            'application/json': {
+              schema: createRef('ValidationError'),
+              example: {
+                success: false,
+                error: {
+                  code: 'VALIDATION_ERROR',
+                  message: 'Validation failed',
+                  details: generateValidationErrorExample(inputSchema),
+                },
+              },
+            },
+          },
+        }
+      }
+    }
+
     responses['500'] = {
       description: 'Internal server error',
       content: { 'application/json': { schema: errorRef } },
@@ -697,6 +749,64 @@ function getRestOperationSummary(resourceName: string, operation: string): strin
     options: `Get allowed methods for ${resourceName}`,
   }
   return summaries[operation] || `${capitalizeFirst(operation)} ${singular}`
+}
+
+/**
+ * Build ValidationError component schema
+ */
+function createValidationErrorSchema(): USDSchema {
+  return {
+    type: 'object',
+    required: ['success', 'error'],
+    properties: {
+      success: { type: 'boolean', description: 'Always false for errors' },
+      error: {
+        type: 'object',
+        required: ['code', 'message'],
+        properties: {
+          code: { type: 'string', description: 'Error code, e.g. VALIDATION_ERROR' },
+          message: { type: 'string', description: 'Human-readable error message' },
+          details: {
+            type: 'array',
+            description: 'Per-field validation errors',
+            items: {
+              type: 'object',
+              required: ['field', 'message'],
+              properties: {
+                field: { type: 'string', description: 'Field name that failed validation' },
+                message: { type: 'string', description: 'Validation error message for this field' },
+                value: { description: 'The invalid value that was provided' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+}
+
+/**
+ * Generate per-field validation error examples from a schema's required fields
+ */
+function generateValidationErrorExample(schema: USDSchema): Array<{ field: string; message: string }> {
+  const required = Array.isArray(schema.required) ? schema.required : []
+  const properties = (schema as { properties?: Record<string, USDSchema> }).properties ?? {}
+
+  return required.slice(0, 5).map(field => {
+    const propSchema = properties[field]
+    const format = (propSchema as { format?: string } | undefined)?.format
+    let message = `${field} is required`
+
+    if (format === 'email') message = 'Invalid email format'
+    else if (format === 'uuid') message = 'Must be a valid UUID'
+    else if (format === 'date-time') message = 'Must be a valid ISO 8601 date-time'
+    else if (format === 'uri' || format === 'url') message = 'Must be a valid URL'
+    else if (propSchema?.type === 'string' && (propSchema as { minLength?: number }).minLength) {
+      message = `Must be at least ${(propSchema as { minLength: number }).minLength} characters`
+    }
+
+    return { field, message }
+  })
 }
 
 /**
