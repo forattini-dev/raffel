@@ -91,6 +91,8 @@ export {
   createGrpcAdapter,
   JsonRpcErrorCode,
   HttpMetadataKey,
+  checkConnectionFilter,
+  checkWebSocketConnectionFilter,
 } from './adapters/index.js'
 export type {
   WebSocketAdapter,
@@ -108,6 +110,8 @@ export type {
   GrpcAdapterOptions,
   GrpcTlsOptions,
   GrpcMethodInfo,
+  ConnectionFilter,
+  WebSocketConnectionFilter,
 } from './adapters/index.js'
 
 // === Validation ===
@@ -640,10 +644,12 @@ export type {
   HttpForwardProxy,
   ForwardProxyRequest,
   ForwardProxyResponse,
+  ProxyValidateOptions,
   Socks5Options,
   Socks5ConnectionInfo,
   TransparentProxyMode,
   TransparentProxyOptions,
+  ProxyFilter,
 } from './proxy/index.js'
 
 // === Testing Mocks ===

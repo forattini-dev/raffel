@@ -27,3 +27,7 @@ export type {
 // gRPC adapter
 export { createGrpcAdapter } from './grpc.js'
 export type { GrpcAdapter, GrpcAdapterOptions, GrpcTlsOptions, GrpcMethodInfo } from './grpc.js'
+
+// Connection Filter (TCP, UDP, WebSocket)
+export { checkConnectionFilter, checkWebSocketConnectionFilter } from './utils/connection-filter.js'
+export type { ConnectionFilter, WebSocketConnectionFilter } from './utils/connection-filter.js'

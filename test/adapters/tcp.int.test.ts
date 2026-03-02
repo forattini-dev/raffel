@@ -7,6 +7,7 @@ import { createConnection, type Socket } from 'node:net'
 import { createTcpAdapter, createTcpClient } from '../../src/adapters/tcp.js'
 import { createRegistry } from '../../src/core/registry.js'
 import { createRouter, RaffelError } from '../../src/core/router.js'
+import type { ConnectionFilter } from '../../src/adapters/utils/connection-filter.js'
 
 const TEST_PORT = 23458
 const LENGTH_HEADER_SIZE = 4
@@ -482,6 +483,109 @@ describe('TcpAdapter', () => {
       await Promise.all(closePromises)
 
       expect(adapter.clientCount).toBe(0)
+    })
+  })
+
+  describe('Connection filter', () => {
+    // Helpers that connect to a specific port (for port-0 dynamic tests)
+    function connectToPort(port: number): Promise<Socket> {
+      return new Promise((resolve, reject) => {
+        const socket = createConnection({ port, host: '127.0.0.1' }, () => resolve(socket))
+        socket.on('error', reject)
+      })
+    }
+
+    it('denyHosts — socket destroyed, clientCount stays 0', async () => {
+      const denied: string[] = []
+      const filter: ConnectionFilter = {
+        denyHosts: ['127.0.0.1'],
+        onDenied: ({ host }) => { denied.push(host) },
+      }
+      adapter = createTcpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const port = (adapter.server!.address() as { port: number }).port
+
+      const socket = createConnection({ port, host: '127.0.0.1' })
+      socket.on('error', () => {}) // suppress ECONNRESET
+      await new Promise<void>(resolve => socket.on('close', resolve))
+
+      await new Promise(r => setTimeout(r, 50))
+      expect(adapter.clientCount).toBe(0)
+      expect(denied.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('allowHosts exclusive — non-listed IP denied', async () => {
+      // allowHosts: ['10.0.0.1'] but we connect from 127.0.0.1 → denied
+      const filter: ConnectionFilter = { allowHosts: ['10.0.0.1'] }
+      adapter = createTcpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const port = (adapter.server!.address() as { port: number }).port
+
+      const socket = createConnection({ port, host: '127.0.0.1' })
+      socket.on('error', () => {})
+      await new Promise<void>(resolve => socket.on('close', resolve))
+
+      await new Promise(r => setTimeout(r, 50))
+      expect(adapter.clientCount).toBe(0)
+    })
+
+    it('allowHosts matching — connection accepted', async () => {
+      const filter: ConnectionFilter = { allowHosts: ['127.0.0.1'] }
+      adapter = createTcpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const port = (adapter.server!.address() as { port: number }).port
+
+      const socket = await connectToPort(port)
+      await new Promise(r => setTimeout(r, 50))
+      expect(adapter.clientCount).toBe(1)
+
+      socket.destroy()
+    })
+
+    it('onDenied callback called on denied connection', async () => {
+      const deniedCalls: Array<{ host: string; reason: string }> = []
+      const filter: ConnectionFilter = {
+        denyHosts: ['127.0.0.1'],
+        onDenied: (info) => { deniedCalls.push(info) },
+      }
+      adapter = createTcpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const port = (adapter.server!.address() as { port: number }).port
+
+      const socket = createConnection({ port, host: '127.0.0.1' })
+      socket.on('error', () => {})
+      await new Promise<void>(resolve => socket.on('close', resolve))
+
+      await new Promise(r => setTimeout(r, 50))
+      expect(deniedCalls.length).toBeGreaterThanOrEqual(1)
+      expect(deniedCalls[0].reason).toContain('denyHosts')
+    })
+
+    it('custom async check — denies connection', async () => {
+      const filter: ConnectionFilter = {
+        check: async () => false,
+      }
+      adapter = createTcpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const port = (adapter.server!.address() as { port: number }).port
+
+      const socket = createConnection({ port, host: '127.0.0.1' })
+      socket.on('error', () => {})
+      await new Promise<void>(resolve => socket.on('close', resolve))
+
+      expect(adapter.clientCount).toBe(0)
+    })
+
+    it('no filter — accepts all connections', async () => {
+      adapter = createTcpAdapter(router, { port: 0, host: '127.0.0.1' })
+      await adapter.start()
+      const port = (adapter.server!.address() as { port: number }).port
+
+      const socket = await connectToPort(port)
+      await new Promise(r => setTimeout(r, 50))
+      expect(adapter.clientCount).toBe(1)
+
+      socket.destroy()
     })
   })
 })

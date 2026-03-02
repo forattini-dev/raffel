@@ -17,6 +17,7 @@ import type { Envelope, Context } from '../types/index.js'
 import { createAbortableContext } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
+import { checkConnectionFilter, type ConnectionFilter } from './utils/connection-filter.js'
 
 const logger = createLogger('tcp-adapter')
 
@@ -44,6 +45,9 @@ export interface TcpAdapterOptions {
 
   /** Context factory for creating request context */
   contextFactory?: (socket: Socket) => Partial<Context>
+
+  /** Inbound connection filter — controls which source IPs may connect */
+  filter?: ConnectionFilter
 }
 
 /**
@@ -442,6 +446,20 @@ export function createTcpAdapter(
   })
 
   function handleConnection(socket: Socket): void {
+    if (options.filter) {
+      const filter = options.filter
+      const host = socket.remoteAddress ?? ''
+      const port = socket.remotePort ?? 0
+      checkConnectionFilter(filter, host, port).then(({ allowed, reason }) => {
+        if (!allowed) {
+          filter.onDenied?.({ host, port, reason: reason! })
+          socket.destroy()
+          return
+        }
+        connectionHandler.handleConnection(socket)
+      }).catch(() => { socket.destroy() })
+      return
+    }
     connectionHandler.handleConnection(socket)
   }
 

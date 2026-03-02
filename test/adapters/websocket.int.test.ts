@@ -7,6 +7,7 @@ import { WebSocket } from 'ws'
 import { createWebSocketAdapter } from '../../src/adapters/websocket.js'
 import { createRegistry } from '../../src/core/registry.js'
 import { createRouter, RaffelError } from '../../src/core/router.js'
+import type { WebSocketConnectionFilter } from '../../src/adapters/utils/connection-filter.js'
 
 const TEST_PORT = 23456
 
@@ -475,6 +476,80 @@ describe('WebSocketAdapter', () => {
       await adapter.stop()
       adapter = null
       await Promise.all(closePromises)
+    })
+  })
+
+  describe('Connection filter', () => {
+    // Helper: connect with optional custom headers; resolves with close code
+    function connectAndGetCloseCode(
+      headers?: Record<string, string>,
+    ): Promise<number> {
+      return new Promise((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`, headers ? { headers } : undefined)
+        ws.on('error', () => {})
+        ws.on('close', (code) => resolve(code))
+      })
+    }
+
+    it('denyHosts — connection closed with 1008', async () => {
+      const filter: WebSocketConnectionFilter = { denyHosts: ['127.0.0.1'] }
+      adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
+      await adapter.start()
+
+      const code = await connectAndGetCloseCode()
+      expect(code).toBe(1008)
+      expect(adapter.clientCount).toBe(0)
+    })
+
+    it('allowHosts matching — connection accepted', async () => {
+      const filter: WebSocketConnectionFilter = { allowHosts: ['127.0.0.1'] }
+      adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
+      await adapter.start()
+
+      const ws = await createClient()
+      expect(adapter.clientCount).toBe(1)
+      ws.close()
+    })
+
+    it('denyOrigins with blocked origin — connection closed with 1008', async () => {
+      const filter: WebSocketConnectionFilter = { denyOrigins: ['http://evil.com'] }
+      adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
+      await adapter.start()
+
+      const code = await connectAndGetCloseCode({ Origin: 'http://evil.com' })
+      expect(code).toBe(1008)
+    })
+
+    it('allowOrigins with correct origin — connection accepted', async () => {
+      const filter: WebSocketConnectionFilter = { allowOrigins: ['http://allowed.origin'] }
+      adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
+      await adapter.start()
+
+      const ws = await new Promise<WebSocket>((resolve, reject) => {
+        const w = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`, {
+          headers: { Origin: 'http://allowed.origin' },
+        })
+        w.on('open', () => resolve(w))
+        w.on('error', reject)
+      })
+      expect(adapter.clientCount).toBe(1)
+      ws.close()
+    })
+
+    it('onDenied called on denied connection', async () => {
+      const deniedCalls: Array<{ host: string; reason: string }> = []
+      const filter: WebSocketConnectionFilter = {
+        denyHosts: ['127.0.0.1'],
+        onDenied: (info) => { deniedCalls.push(info) },
+      }
+      adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
+      await adapter.start()
+
+      await connectAndGetCloseCode()
+      await new Promise(r => setTimeout(r, 50))
+
+      expect(deniedCalls.length).toBeGreaterThanOrEqual(1)
+      expect(deniedCalls[0].reason).toContain('denyHosts')
     })
   })
 })

@@ -27,6 +27,10 @@ import {
   type UnsubscribeMessage,
   type PublishMessage,
 } from '../channels/index.js'
+import {
+  checkWebSocketConnectionFilter,
+  type WebSocketConnectionFilter,
+} from './utils/connection-filter.js'
 
 const logger = createLogger('ws-adapter')
 
@@ -79,6 +83,9 @@ export interface WebSocketAdapterOptions {
    * ```
    */
   channels?: ChannelOptions
+
+  /** Inbound connection filter — controls which source IPs/origins may connect */
+  filter?: WebSocketConnectionFilter
 }
 
 /**
@@ -423,6 +430,28 @@ export function createWebSocketAdapter(
    * Handle new client connection
    */
   function handleConnection(ws: WebSocket, req: IncomingMessage): void {
+    if (options.filter) {
+      const filter = options.filter
+      const host = req.socket.remoteAddress ?? ''
+      const port = req.socket.remotePort ?? 0
+      const origin = req.headers['origin'] as string | undefined
+      checkWebSocketConnectionFilter(filter, host, port, origin).then(({ allowed, reason }) => {
+        if (!allowed) {
+          filter.onDenied?.({ host, port, reason: reason! })
+          ws.close(1008, 'Policy Violation')
+          return
+        }
+        _doConnect(ws, req)
+      }).catch(() => { ws.close(1008, 'Policy Violation') })
+      return
+    }
+    _doConnect(ws, req)
+  }
+
+  /**
+   * Perform the actual client connection setup (after filter passes).
+   */
+  function _doConnect(ws: WebSocket, req: IncomingMessage): void {
     const clientId = sid()
     const client: ClientConnection = {
       id: clientId,

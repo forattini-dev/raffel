@@ -7,6 +7,7 @@ import { createSocket, type Socket as UdpSocket } from 'node:dgram'
 import { createUdpAdapter, createUdpClient } from '../../src/adapters/udp.js'
 import { createRegistry } from '../../src/core/registry.js'
 import { createRouter, RaffelError } from '../../src/core/router.js'
+import type { ConnectionFilter } from '../../src/adapters/utils/connection-filter.js'
 
 const TEST_PORT = 23459
 const TEST_HOST = '127.0.0.1'
@@ -478,6 +479,112 @@ describe('UdpAdapter', () => {
       expect(adapter.socket).toBeTruthy()
 
       await adapter.stop()
+    })
+  })
+
+  describe('Connection filter', () => {
+    // Helper that sends a datagram to a specific port and waits for a response (or timeout)
+    function sendAndWaitFor(
+      clientSocket: UdpSocket,
+      message: object,
+      serverPort: number,
+      timeoutMs = 500,
+    ): Promise<Record<string, unknown> | null> {
+      return new Promise((resolve) => {
+        const t = setTimeout(() => {
+          clientSocket.off('message', handler)
+          resolve(null) // null = timeout (dropped)
+        }, timeoutMs)
+
+        const handler = (msg: Buffer) => {
+          clearTimeout(t)
+          clientSocket.off('message', handler)
+          try {
+            resolve(JSON.parse(msg.toString('utf-8')))
+          } catch {
+            resolve(null)
+          }
+        }
+
+        clientSocket.on('message', handler)
+        const data = Buffer.from(JSON.stringify(message))
+        clientSocket.send(data, serverPort, '127.0.0.1')
+      })
+    }
+
+    it('denyHosts — datagram silently dropped, messageCount not incremented', async () => {
+      const filter: ConnectionFilter = { denyHosts: ['127.0.0.1'] }
+      adapter = createUdpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const serverPort = (adapter.socket!.address() as { port: number }).port
+
+      // Register a procedure so we'd normally get a response
+      registry.procedure('ping', async () => ({ pong: true }))
+
+      const { socket, close } = await createRawClient()
+
+      try {
+        const response = await sendAndWaitFor(socket, {
+          id: 'req-filter-1',
+          procedure: 'ping',
+          type: 'request',
+          payload: {},
+        }, serverPort)
+
+        expect(response).toBeNull() // dropped
+        expect(adapter.messageCount).toBe(0)
+      } finally {
+        close()
+      }
+    })
+
+    it('allowHosts matching — datagram processed', async () => {
+      const filter: ConnectionFilter = { allowHosts: ['127.0.0.1'] }
+      registry.procedure('ping', async () => ({ pong: true }))
+
+      adapter = createUdpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const serverPort = (adapter.socket!.address() as { port: number }).port
+
+      const { socket, close } = await createRawClient()
+
+      try {
+        const response = await sendAndWaitFor(socket, {
+          id: 'req-filter-2',
+          procedure: 'ping',
+          type: 'request',
+          payload: {},
+        }, serverPort, 2000)
+
+        expect(response).not.toBeNull()
+        expect(adapter.messageCount).toBe(1)
+      } finally {
+        close()
+      }
+    })
+
+    it('onDenied called for each denied datagram', async () => {
+      const deniedCalls: string[] = []
+      const filter: ConnectionFilter = {
+        denyHosts: ['127.0.0.1'],
+        onDenied: ({ host }) => { deniedCalls.push(host) },
+      }
+      adapter = createUdpAdapter(router, { port: 0, host: '127.0.0.1', filter })
+      await adapter.start()
+      const serverPort = (adapter.socket!.address() as { port: number }).port
+
+      const { socket, close } = await createRawClient()
+
+      try {
+        const data = Buffer.from(JSON.stringify({ id: 'e1', procedure: 'x', type: 'event', payload: {} }))
+        socket.send(data, serverPort, '127.0.0.1')
+        await new Promise(r => setTimeout(r, 200))
+
+        expect(deniedCalls.length).toBe(1)
+        expect(deniedCalls[0]).toBe('127.0.0.1')
+      } finally {
+        close()
+      }
     })
   })
 })

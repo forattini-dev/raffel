@@ -20,6 +20,7 @@ import type { Envelope, EnvelopeType, Context } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
+import { checkConnectionFilter, type ConnectionFilter } from './utils/connection-filter.js'
 
 const logger = createLogger('udp-adapter')
 
@@ -62,6 +63,9 @@ export interface UdpAdapterOptions {
 
   /** Context factory for creating request context */
   contextFactory?: (rinfo: RemoteInfo) => Partial<Context>
+
+  /** Inbound connection filter — controls which source IPs may send datagrams */
+  filter?: ConnectionFilter
 }
 
 /**
@@ -111,6 +115,7 @@ export function createUdpAdapter(
     multicast,
     enableAck = false,
     ackTimeout = 5000,
+    filter,
   } = options
 
   let socket: UdpSocket | null = null
@@ -209,6 +214,13 @@ export function createUdpAdapter(
    * Process incoming message
    */
   async function processMessage(data: Buffer, rinfo: RemoteInfo): Promise<void> {
+    if (filter) {
+      const { allowed, reason } = await checkConnectionFilter(filter, rinfo.address, rinfo.port)
+      if (!allowed) {
+        filter.onDenied?.({ host: rinfo.address, port: rinfo.port, reason: reason! })
+        return // silent drop — UDP has no connection to close
+      }
+    }
     messageCount++
     let parsed: Record<string, unknown>
 
