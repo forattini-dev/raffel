@@ -26,7 +26,7 @@ function loadMemoryRateLimitDriver(): typeof import('./drivers/memory.js').Memor
     MemoryRateLimitDriverClass = MemoryRateLimitDriver
   }
 
-  return MemoryRateLimitDriverClass
+  return MemoryRateLimitDriverClass as typeof import('./drivers/memory.js').MemoryRateLimitDriver
 }
 
 function loadFilesystemRateLimitDriver(): typeof import('./drivers/filesystem.js').FilesystemRateLimitDriver {
@@ -36,7 +36,7 @@ function loadFilesystemRateLimitDriver(): typeof import('./drivers/filesystem.js
     FilesystemRateLimitDriverClass = FilesystemRateLimitDriver
   }
 
-  return FilesystemRateLimitDriverClass
+  return FilesystemRateLimitDriverClass as typeof import('./drivers/filesystem.js').FilesystemRateLimitDriver
 }
 
 function loadRedisRateLimitDriver(): typeof import('./drivers/redis.js').RedisRateLimitDriver {
@@ -46,7 +46,7 @@ function loadRedisRateLimitDriver(): typeof import('./drivers/redis.js').RedisRa
     RedisRateLimitDriverClass = RedisRateLimitDriver
   }
 
-  return RedisRateLimitDriverClass
+  return RedisRateLimitDriverClass as typeof import('./drivers/redis.js').RedisRateLimitDriver
 }
 
 export function createDriver(type: 'memory', options?: MemoryRateLimitDriverOptions): RateLimitDriver
