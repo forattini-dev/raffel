@@ -645,6 +645,14 @@ describe('Driver Interface Compliance', () => {
             const existing = store.get(key)
             return existing?.ttl ? Math.max(0, existing.ttl - Date.now()) : -1
           },
+          async del(...keys: string[]) {
+            for (const key of keys) store.delete(key)
+            return keys.length
+          },
+          async keys(pattern: string) {
+            const prefix = pattern.replace(/\*$/, '')
+            return [...store.keys()].filter(k => k.startsWith(prefix))
+          },
         }
         return new RedisRateLimitDriver({ client })
       },
