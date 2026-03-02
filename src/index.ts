@@ -634,6 +634,8 @@ export type {
   ConnectTunnelOptions,
   ConnectTunnel,
   TunnelInfo,
+  MitmRequest,
+  MitmResponse,
   HttpForwardProxyOptions,
   HttpForwardProxy,
   ForwardProxyRequest,

@@ -22,6 +22,8 @@ export type {
   ConnectTunnelOptions,
   ConnectTunnel,
   TunnelInfo,
+  MitmRequest,
+  MitmResponse,
 } from './connect-tunnel.js'
 
 export { createSocks5Proxy } from './socks5.js'

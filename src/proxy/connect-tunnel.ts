@@ -12,10 +12,14 @@
  */
 import { connect as netConnect, type Socket } from 'node:net'
 import { TLSSocket, connect as tlsConnect } from 'node:tls'
-import type { IncomingMessage, Server as HttpServer } from 'node:http'
+import { createServer as createHttpServer } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { X509Certificate } from 'node:crypto'
+import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http'
 import type { ProxyAuth, ProxyStats } from './types.js'
 import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
+import { stripHopByHopHeaders } from './utils/hop-headers.js'
 import { generateCertificate, getDefaultCA } from '../utils/certs.js'
 
 export type ConnectMode = 'forward' | 'mitm'
@@ -24,6 +28,34 @@ export interface TunnelInfo {
   host: string
   port: number
   clientAddress: string
+}
+
+export interface MitmRequest {
+  method: string
+  /** Hostname from the original CONNECT request */
+  host: string
+  /** Port from the original CONNECT request */
+  port: number
+  /** HTTP request-target (e.g. "/api/users?q=1") */
+  path: string
+  headers: Record<string, string>
+  body: Buffer
+}
+
+export interface MitmResponse {
+  statusCode: number
+  statusMessage: string
+  headers: Record<string, string>
+  body: Buffer
+}
+
+interface UpstreamTlsBase {
+  host: string
+  port: number
+  rejectUnauthorized: boolean
+  cert?: string
+  key?: string
+  ca?: string
 }
 
 export interface ConnectTunnelOptions {
@@ -36,6 +68,39 @@ export interface ConnectTunnelOptions {
   ca?: { key: string; cert: string }
   onConnect?: (info: TunnelInfo) => void
   onDisconnect?: (info: TunnelInfo & { reason: string }) => void
+
+  // ── Intercept hooks (MITM mode only) ──────────────────────────────────────
+  /** Inspect/modify the decrypted HTTPS request. Return null to block → 403. */
+  onRequest?: (req: MitmRequest) => MitmRequest | null | Promise<MitmRequest | null>
+  /** Inspect/modify the upstream response before forwarding to the client. */
+  onResponse?: (res: MitmResponse) => MitmResponse | Promise<MitmResponse>
+  /** Max body size to buffer per request in intercept mode. Default: 10MB */
+  maxPayloadSize?: number
+
+  // ── Security (MITM mode only) ──────────────────────────────────────────────
+  /**
+   * Certificate pinning / validation.
+   * Called after the TLS handshake with upstream completes.
+   * Return false to reject the connection → 502 to client.
+   * Use cert.fingerprint256 or cert.raw for pinning.
+   */
+  onUpstreamCert?: (cert: X509Certificate) => boolean | Promise<boolean>
+  /**
+   * Upstream TLS options.
+   * Use cert+key for mutual TLS (mTLS) when upstream requires client authentication.
+   * rejectUnauthorized defaults to false in MITM mode (necessary because the proxy's
+   * own CA is not trusted by upstream; use onUpstreamCert for pinning instead).
+   */
+  upstream?: {
+    /** PEM client certificate for mTLS to upstream */
+    cert?: string
+    /** PEM client private key for mTLS to upstream */
+    key?: string
+    /** Additional PEM CA cert to trust for upstream connections */
+    ca?: string
+    /** Default: false in MITM mode */
+    rejectUnauthorized?: boolean
+  }
 }
 
 export interface ConnectTunnel {
@@ -50,6 +115,16 @@ export interface ConnectTunnel {
   readonly stats: ProxyStats
 }
 
+function flattenHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers)
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : (v as string)]),
+  )
+}
+
 export function createConnectTunnel(options: ConnectTunnelOptions = {}): ConnectTunnel {
   const {
     mode = 'forward',
@@ -58,6 +133,11 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
     ca: customCa,
     onConnect,
     onDisconnect,
+    onRequest,
+    onResponse,
+    maxPayloadSize = 10 * 1024 * 1024,
+    onUpstreamCert,
+    upstream: upstreamOpts,
   } = options
 
   const { mutable, snapshot } = createProxyStats()
@@ -186,26 +266,73 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
       onEnd('tls client error')
     })
 
-    // Connect to real upstream via TLS
-    const tlsUpstream = tlsConnect({
+    const isIntercepting = !!(onRequest || onResponse)
+
+    // Build upstream TLS base options
+    const upstreamTlsBase: UpstreamTlsBase = {
       host,
       port,
-      rejectUnauthorized: false,
-      timeout: connectTimeout,
-    })
+      rejectUnauthorized: upstreamOpts?.rejectUnauthorized ?? false,
+      ...(upstreamOpts?.cert ? { cert: upstreamOpts.cert } : {}),
+      ...(upstreamOpts?.key ? { key: upstreamOpts.key } : {}),
+      ...(upstreamOpts?.ca ? { ca: upstreamOpts.ca } : {}),
+    }
+
+    // Fast path: intercept with no cert pinning — skip probe connection
+    if (isIntercepting && !onUpstreamCert) {
+      handleMitmIntercept(host, port, tlsClient, upstreamTlsBase, onEnd)
+      return
+    }
+
+    // Connect to upstream TLS (for cert pinning check and/or pipe mode)
+    const tlsUpstream = tlsConnect({ ...upstreamTlsBase, timeout: connectTimeout })
 
     tlsUpstream.on('secureConnect', () => {
-      pipeBidirectional(tlsClient as unknown as Socket, tlsUpstream as unknown as Socket, {
-        onStats: (s) => {
-          mutable.bytesFromClient += s.bytesFromA
-          mutable.bytesToClient += s.bytesToA
-        },
-        onEnd: () => onEnd('closed'),
-        onError: (err) => {
-          mutable.connectionsErrored++
-          onEnd(err.message)
-        },
-      })
+      void (async () => {
+        // Cert pinning / validation
+        if (onUpstreamCert) {
+          const raw = tlsUpstream.getPeerCertificate().raw
+          if (!raw || raw.length === 0) {
+            mutable.connectionsErrored++
+            onEnd('cert rejected: no peer certificate')
+            tlsUpstream.destroy()
+            tlsClient.destroy()
+            return
+          }
+          const x509 = new X509Certificate(raw)
+          const ok = await Promise.resolve(onUpstreamCert(x509)).catch(() => false)
+          if (!ok) {
+            mutable.connectionsErrored++
+            onEnd('cert rejected')
+            tlsUpstream.destroy()
+            tlsClient.destroy()
+            return
+          }
+        }
+
+        if (isIntercepting) {
+          // Cert check passed; destroy probe connection, use per-request connections in interceptor
+          tlsUpstream.destroy()
+          handleMitmIntercept(host, port, tlsClient, upstreamTlsBase, onEnd)
+        } else {
+          // Pipe mode: forward decrypted data bidirectionally
+          pipeBidirectional(tlsClient as unknown as Socket, tlsUpstream as unknown as Socket, {
+            onStats: (s) => {
+              mutable.bytesFromClient += s.bytesFromA
+              mutable.bytesToClient += s.bytesToA
+            },
+            onEnd: () => onEnd('closed'),
+            onError: (err) => {
+              mutable.connectionsErrored++
+              onEnd(err.message)
+            },
+          })
+        }
+      })()
+    })
+
+    tlsUpstream.on('timeout', () => {
+      tlsUpstream.destroy(new Error('connect timeout'))
     })
 
     tlsUpstream.on('error', () => {
@@ -217,6 +344,130 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
     clientSocket.on('error', () => {
       tlsUpstream.destroy()
     })
+  }
+
+  function handleMitmIntercept(
+    host: string,
+    port: number,
+    tlsClient: TLSSocket,
+    upstreamTlsBase: UpstreamTlsBase,
+    onEnd: (reason: string) => void,
+  ): void {
+    // Create an in-process HTTP server that reads from the TLS-terminated client socket.
+    // We never call .listen() — we inject the socket via emit('connection').
+    const interceptServer = createHttpServer()
+
+    interceptServer.on('request', (req: IncomingMessage, res: ServerResponse) => {
+      void (async () => {
+        // Buffer request body with size limit
+        const bodyChunks: Buffer[] = []
+        let bodySize = 0
+        try {
+          await new Promise<void>((resolve, reject) => {
+            req.on('data', (chunk: Buffer) => {
+              bodySize += chunk.length
+              if (bodySize > maxPayloadSize) {
+                reject(new Error('BODY_TOO_LARGE'))
+                return
+              }
+              bodyChunks.push(chunk)
+            })
+            req.on('end', resolve)
+            req.on('error', reject)
+          })
+        } catch {
+          res.writeHead(413, { 'Content-Type': 'text/plain' })
+          res.end('Request Entity Too Large')
+          return
+        }
+
+        let mitmReq: MitmRequest | null = {
+          method: req.method ?? 'GET',
+          host,
+          port,
+          path: req.url ?? '/',
+          headers: stripHopByHopHeaders(
+            flattenHeaders(req.headers as Record<string, string | string[] | undefined>),
+          ),
+          body: Buffer.concat(bodyChunks),
+        }
+        mutable.bytesFromClient += mitmReq.body.length
+
+        if (onRequest) {
+          mitmReq = await Promise.resolve(onRequest(mitmReq)).catch(() => null)
+          if (mitmReq === null) {
+            res.writeHead(403, { 'Content-Type': 'text/plain' })
+            res.end('Forbidden')
+            return
+          }
+        }
+
+        // Forward to real upstream via HTTPS
+        let mitmRes: MitmResponse
+        try {
+          mitmRes = await new Promise<MitmResponse>((resolve, reject) => {
+            const upReq = httpsRequest(
+              {
+                ...upstreamTlsBase,
+                path: mitmReq!.path,
+                method: mitmReq!.method,
+                headers: { ...mitmReq!.headers, host },
+                timeout: connectTimeout,
+              },
+              (upRes) => {
+                const chunks: Buffer[] = []
+                upRes.on('data', (c: Buffer) => chunks.push(c))
+                upRes.on('end', () =>
+                  resolve({
+                    statusCode: upRes.statusCode ?? 200,
+                    statusMessage: upRes.statusMessage ?? 'OK',
+                    headers: flattenHeaders(
+                      upRes.headers as Record<string, string | string[] | undefined>,
+                    ),
+                    body: Buffer.concat(chunks),
+                  }),
+                )
+                upRes.on('error', reject)
+              },
+            )
+            upReq.on('timeout', () => upReq.destroy(new Error('upstream timeout')))
+            upReq.on('error', reject)
+            if (mitmReq!.body.length > 0) upReq.write(mitmReq!.body)
+            upReq.end()
+          })
+        } catch {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'text/plain' })
+            res.end('Bad Gateway')
+          }
+          return
+        }
+
+        let finalRes = mitmRes
+        if (onResponse) {
+          finalRes = await Promise.resolve(onResponse(mitmRes)).catch(() => mitmRes)
+        }
+
+        mutable.bytesToClient += finalRes.body.length
+
+        const outHeaders = stripHopByHopHeaders(finalRes.headers)
+        outHeaders['content-length'] = String(finalRes.body.length)
+        res.writeHead(finalRes.statusCode, finalRes.statusMessage, outHeaders)
+        res.end(finalRes.body)
+      })()
+    })
+
+    interceptServer.on('error', () => {
+      onEnd('intercept error')
+    })
+
+    tlsClient.on('close', () => {
+      onEnd('closed')
+    })
+
+    // Inject TLS-terminated client socket as if it were a plain TCP connection.
+    // Node.js HTTP parser will parse decrypted HTTP/1.x requests from it.
+    interceptServer.emit('connection', tlsClient)
   }
 
   const handler = (req: IncomingMessage, socket: Socket, head: Buffer) => {

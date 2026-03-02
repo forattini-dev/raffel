@@ -1,15 +1,19 @@
 /**
  * CONNECT Tunnel — integration tests
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
   request as httpRequest,
 } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
 import { connect as netConnect } from 'node:net'
+import { connect as tlsConnect } from 'node:tls'
 import { createConnectTunnel } from '../../src/proxy/connect-tunnel.js'
+import type { ConnectTunnelOptions } from '../../src/proxy/connect-tunnel.js'
 import { createMockHttpServer } from '../../src/testing/index.js'
+import { generateCA, generateCertificate } from '../../src/utils/certs.js'
 
 type MockHttpServer = Awaited<ReturnType<typeof createMockHttpServer>>
 
@@ -205,6 +209,239 @@ describe('CONNECT Tunnel (mitm mode)', () => {
       expect(tunnel.stats.connectionsTotal).toBe(1)
     } finally {
       await new Promise<void>((r) => srv.close(r))
+    }
+  }, 15_000)
+})
+
+// ---------------------------------------------------------------------------
+// Shared HTTPS upstream factory for intercept + cert-pinning tests
+// ---------------------------------------------------------------------------
+
+async function startHttpsUpstream(
+  handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void,
+): Promise<{ server: import('node:https').Server; port: number }> {
+  const ca = generateCA()
+  const cert = await generateCertificate('127.0.0.1', { caKey: ca.key, caCert: ca.cert })
+  const server = createHttpsServer({ key: cert.key, cert: cert.cert }, handler)
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  const port = (server.address() as { port: number }).port
+  return { server, port }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: CONNECT → TLS (rejectUnauthorized:false) → HTTP GET / → parse response
+// ---------------------------------------------------------------------------
+
+async function connectAndRequest(
+  proxyPort: number,
+  targetHost: string,
+  targetPort: number,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const sock = netConnect(proxyPort, '127.0.0.1')
+    sock.on('error', reject)
+
+    let connectBuf = ''
+    const onConnectData = (chunk: Buffer) => {
+      connectBuf += chunk.toString()
+      if (!connectBuf.includes('\r\n\r\n')) return
+      sock.removeListener('data', onConnectData)
+
+      if (!connectBuf.startsWith('HTTP/1.1 200')) {
+        // Non-200 CONNECT response: parse and return as-is
+        const status = parseInt(connectBuf.split(' ')[1] ?? '0', 10)
+        resolve({ status, body: connectBuf })
+        return
+      }
+
+      // Upgrade to TLS through the MITM tunnel (skip cert verification — we're testing hooks)
+      const tlsSock = tlsConnect({ socket: sock, rejectUnauthorized: false })
+      tlsSock.on('error', reject)
+      tlsSock.on('secureConnect', () => {
+        const chunks: Buffer[] = []
+        tlsSock.on('data', (c: Buffer) => chunks.push(c))
+        tlsSock.on('close', () => {
+          const full = Buffer.concat(chunks).toString()
+          const [headerPart, ...bodyParts] = full.split('\r\n\r\n')
+          const status = parseInt(headerPart.split('\r\n')[0].split(' ')[1] ?? '0', 10)
+          resolve({ status, body: bodyParts.join('\r\n\r\n') })
+        })
+        tlsSock.on('end', () => tlsSock.destroy())
+        tlsSock.write(`GET / HTTP/1.0\r\nHost: ${targetHost}\r\n\r\n`)
+      })
+    }
+
+    sock.on('data', onConnectData)
+    sock.write(
+      `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n\r\n`,
+    )
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Intercept hook tests
+// ---------------------------------------------------------------------------
+
+describe('CONNECT Tunnel (MITM intercept hooks)', () => {
+  let upstreamServer: import('node:https').Server
+  let upstreamPort: number
+  let requestLog: Array<import('node:http').IncomingHttpHeaders> = []
+
+  beforeAll(async () => {
+    const result = await startHttpsUpstream((req, res) => {
+      requestLog.push({ ...req.headers })
+      res.writeHead(200, { 'content-type': 'text/plain', 'x-upstream': 'yes' })
+      res.end('upstream-ok')
+    })
+    upstreamServer = result.server
+    upstreamPort = result.port
+  })
+
+  afterAll(async () => {
+    await new Promise<void>((r) => upstreamServer.close(() => r()))
+  })
+
+  beforeEach(() => {
+    requestLog = []
+  })
+
+  async function interceptRequest(opts: ConnectTunnelOptions): Promise<{ status: number; body: string }> {
+    const tunnel = createConnectTunnel({ mode: 'mitm', ...opts })
+    const srv = createHttpServer()
+    tunnel.attachTo(srv)
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
+    const proxyPort = (srv.address() as { port: number }).port
+    try {
+      return await connectAndRequest(proxyPort, '127.0.0.1', upstreamPort)
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()))
+    }
+  }
+
+  it('onRequest can inject headers visible to upstream', async () => {
+    const result = await interceptRequest({
+      onRequest: (req) => ({ ...req, headers: { ...req.headers, 'x-injected': 'hello' } }),
+    })
+    expect(result.status).toBe(200)
+    expect(requestLog[0]?.['x-injected']).toBe('hello')
+  }, 15_000)
+
+  it('onRequest returning null blocks the request with 403', async () => {
+    const result = await interceptRequest({ onRequest: () => null })
+    expect(result.status).toBe(403)
+  }, 15_000)
+
+  it('onResponse can replace the response body', async () => {
+    const result = await interceptRequest({
+      onResponse: (res) => ({ ...res, body: Buffer.from('replaced-body') }),
+    })
+    expect(result.status).toBe(200)
+    expect(result.body).toBe('replaced-body')
+  }, 15_000)
+
+  it('onResponse can change the status code', async () => {
+    const result = await interceptRequest({
+      onResponse: (res) => ({ ...res, statusCode: 201, statusMessage: 'Created' }),
+    })
+    expect(result.status).toBe(201)
+  }, 15_000)
+
+  it('passes through transparently when no hooks are set', async () => {
+    const result = await interceptRequest({})
+    expect(result.status).toBe(200)
+    expect(result.body).toContain('upstream-ok')
+  }, 15_000)
+})
+
+// ---------------------------------------------------------------------------
+// Certificate pinning tests
+// ---------------------------------------------------------------------------
+
+describe('CONNECT Tunnel (MITM cert pinning)', () => {
+  let upstreamServer: import('node:https').Server
+  let upstreamPort: number
+
+  beforeAll(async () => {
+    const result = await startHttpsUpstream((_req, res) => {
+      res.writeHead(200)
+      res.end('ok')
+    })
+    upstreamServer = result.server
+    upstreamPort = result.port
+  })
+
+  afterAll(async () => {
+    await new Promise<void>((r) => upstreamServer.close(() => r()))
+  })
+
+  it('onUpstreamCert returning false aborts the tunnel after CONNECT 200', async () => {
+    const tunnel = createConnectTunnel({ mode: 'mitm', onUpstreamCert: () => false })
+    const srv = createHttpServer()
+    tunnel.attachTo(srv)
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    const proxyPort = (srv.address() as { port: number }).port
+
+    // After CONNECT 200, the TLS handshake should fail because the proxy destroys
+    // the client socket when cert pinning rejects the upstream certificate.
+    const tunnelAborted = await new Promise<boolean>((resolve) => {
+      const sock = netConnect(proxyPort, '127.0.0.1')
+      sock.on('error', () => resolve(true))
+
+      let connectBuf = ''
+      const onData = (chunk: Buffer) => {
+        connectBuf += chunk.toString()
+        if (!connectBuf.includes('\r\n\r\n')) return
+        sock.removeListener('data', onData)
+
+        const tlsSock = tlsConnect({ socket: sock, rejectUnauthorized: false })
+        // Either TLS errors, or the connection is abruptly closed
+        tlsSock.on('error', () => resolve(true))
+        tlsSock.on('close', () => resolve(true))
+        // If TLS somehow completes and we get a response, the tunnel was NOT aborted
+        tlsSock.on('secureConnect', () => {
+          tlsSock.write('GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n')
+          const chunks: Buffer[] = []
+          tlsSock.on('data', (c: Buffer) => chunks.push(c))
+          tlsSock.on('end', () => {
+            // An upstream response means the tunnel was NOT aborted
+            resolve(!Buffer.concat(chunks).toString().includes('HTTP/1.1 200'))
+            tlsSock.destroy()
+          })
+        })
+      }
+
+      sock.on('data', onData)
+      sock.write(
+        `CONNECT 127.0.0.1:${upstreamPort} HTTP/1.1\r\nHost: 127.0.0.1:${upstreamPort}\r\n\r\n`,
+      )
+    })
+
+    expect(tunnelAborted).toBe(true)
+    expect(tunnel.stats.connectionsErrored).toBeGreaterThanOrEqual(1)
+    await new Promise<void>((r) => srv.close(() => r()))
+  }, 15_000)
+
+  it('onUpstreamCert returning true allows the tunnel', async () => {
+    let certFingerprint = ''
+
+    const tunnel = createConnectTunnel({
+      mode: 'mitm',
+      onUpstreamCert: (cert) => {
+        certFingerprint = cert.fingerprint256
+        return true
+      },
+    })
+    const srv = createHttpServer()
+    tunnel.attachTo(srv)
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    const proxyPort = (srv.address() as { port: number }).port
+
+    try {
+      const result = await connectAndRequest(proxyPort, '127.0.0.1', upstreamPort)
+      expect(result.status).toBe(200)
+      expect(certFingerprint).toMatch(/^[0-9A-F]{2}(:[0-9A-F]{2}){31}$/i)
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()))
     }
   }, 15_000)
 })
