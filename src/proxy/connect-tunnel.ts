@@ -21,6 +21,18 @@ import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/
 import { pipeBidirectional } from './utils/pipe.js'
 import { stripHopByHopHeaders } from './utils/hop-headers.js'
 import { generateCertificate, getDefaultCA } from '../utils/certs.js'
+import type { ProxyFilter } from './utils/access-control.js'
+import { checkProxyFilter } from './utils/access-control.js'
+import type { ValidatorAdapter } from '../validation/types.js'
+
+export interface ProxyValidateOptions {
+  /** ValidatorAdapter instance to use (createZodAdapter, createAjvAdapter, etc.) */
+  adapter: ValidatorAdapter
+  /** Schema to validate the request body (JSON-parsed). Failure → 400. */
+  request?: unknown
+  /** Schema to validate the upstream response body (JSON-parsed). Failure → 502. */
+  response?: unknown
+}
 
 export type ConnectMode = 'forward' | 'mitm'
 
@@ -77,6 +89,11 @@ export interface ConnectTunnelOptions {
   /** Max body size to buffer per request in intercept mode. Default: 10MB */
   maxPayloadSize?: number
 
+  /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
+  filter?: ProxyFilter
+  /** Body validation (MITM mode only — requires intercept hooks to be active) */
+  validate?: ProxyValidateOptions
+
   // ── Security (MITM mode only) ──────────────────────────────────────────────
   /**
    * Certificate pinning / validation.
@@ -131,6 +148,8 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
     auth,
     connectTimeout = 10_000,
     ca: customCa,
+    filter,
+    validate,
     onConnect,
     onDisconnect,
     onRequest,
@@ -171,6 +190,17 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
       )
       clientSocket.destroy()
       return
+    }
+
+    // Filter check
+    if (filter) {
+      const { allowed, reason } = await checkProxyFilter(filter, host, port)
+      if (!allowed) {
+        filter.onDenied?.({ host, port, reason: reason! })
+        clientSocket.write('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
+        clientSocket.destroy()
+        return
+      }
     }
 
     mutable.connectionsTotal++
@@ -402,6 +432,26 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
           }
         }
 
+        // Request body validation (JSON only)
+        if (validate?.request) {
+          const ct = mitmReq.headers['content-type'] ?? ''
+          if (ct.includes('application/json')) {
+            try {
+              const parsed = JSON.parse(mitmReq.body.toString()) as unknown
+              const result = validate.adapter.validate(validate.request, parsed)
+              if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ errors: result.errors }))
+                return
+              }
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ errors: [{ field: '', message: 'Invalid JSON', code: 'invalid_json' }] }))
+              return
+            }
+          }
+        }
+
         // Forward to real upstream via HTTPS
         let mitmRes: MitmResponse
         try {
@@ -441,6 +491,26 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
             res.end('Bad Gateway')
           }
           return
+        }
+
+        // Response body validation (JSON only)
+        if (validate?.response) {
+          const ct = mitmRes.headers['content-type'] ?? ''
+          if (ct.includes('application/json')) {
+            try {
+              const parsed = JSON.parse(mitmRes.body.toString()) as unknown
+              const result = validate.adapter.validate(validate.response, parsed)
+              if (!result.success) {
+                res.writeHead(502, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ errors: result.errors }))
+                return
+              }
+            } catch {
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ errors: [{ field: '', message: 'Invalid JSON from upstream', code: 'invalid_json' }] }))
+              return
+            }
+          }
         }
 
         let finalRes = mitmRes

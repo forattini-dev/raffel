@@ -15,6 +15,8 @@ import { createServer, connect as netConnect, type Socket, type Server as NetSer
 import type { ProxyAuth, ProxyServer, ProxyStats } from './types.js'
 import { verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
+import type { ProxyFilter } from './utils/access-control.js'
+import { checkProxyFilter } from './utils/access-control.js'
 
 export interface Socks5ConnectionInfo {
   host: string
@@ -31,6 +33,8 @@ export interface Socks5Options {
   connectTimeout?: number
   /** Max concurrent connections. 0 = unlimited. Default: 0 */
   maxConnections?: number
+  /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
+  filter?: ProxyFilter
   onConnect?: (info: Socks5ConnectionInfo) => void
   onDisconnect?: (info: Socks5ConnectionInfo & { reason: string }) => void
 }
@@ -70,7 +74,7 @@ function handleSocks5Connection(
   options: Socks5Options,
   mutable: ReturnType<typeof createProxyStats>['mutable'],
 ): void {
-  const { auth, connectTimeout = 10_000, onConnect, onDisconnect } = options
+  const { auth, connectTimeout = 10_000, filter, onConnect, onDisconnect } = options
 
   // Use ArrayBufferLike generic to allow assignment of Buffer.concat / subarray results
   let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0)
@@ -229,6 +233,29 @@ function handleSocks5Connection(
     // Remove data listener — piping takes over
     socket.off('data', onData)
 
+    if (filter) {
+      suspended = true
+      checkProxyFilter(filter, host, port)
+        .then(({ allowed, reason }) => {
+          suspended = false
+          if (!allowed) {
+            filter.onDenied?.({ host, port, reason: reason! })
+            socket.write(socks5Reply(0x02)) // Connection Not Allowed by Ruleset
+            socket.destroy()
+            return
+          }
+          doConnect()
+        })
+        .catch(() => {
+          suspended = false
+          socket.destroy()
+        })
+      return
+    }
+
+    doConnect()
+
+    function doConnect() {
     mutable.connectionsTotal++
     mutable.connectionsActive++
     const info: Socks5ConnectionInfo = { host, port, clientAddress: socket.remoteAddress ?? 'unknown', atype }
@@ -274,6 +301,7 @@ function handleSocks5Connection(
         socket.destroy()
       }
     })
+    } // end doConnect
   }
 }
 

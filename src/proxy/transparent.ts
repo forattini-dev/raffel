@@ -21,6 +21,8 @@ import { createServer, connect as netConnect, type Socket, type Server as NetSer
 import type { ProxyServer, ProxyStats } from './types.js'
 import { createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
+import type { ProxyFilter } from './utils/access-control.js'
+import { checkProxyFilter } from './utils/access-control.js'
 
 export type TransparentProxyMode = 'tproxy' | 'redirect'
 
@@ -31,6 +33,8 @@ export interface TransparentProxyOptions {
   mode?: TransparentProxyMode
   /** Upstream connection timeout in ms. Default: 10_000 */
   connectTimeout?: number
+  /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
+  filter?: ProxyFilter
   onConnection?: (info: {
     clientSocket: Socket
     clientAddress: string
@@ -43,7 +47,7 @@ const IPPROTO_IP = 0
 const IP_TRANSPARENT = 19
 
 export function createTransparentProxy(options: TransparentProxyOptions): ProxyServer {
-  const { port, host = '0.0.0.0', mode = 'tproxy', connectTimeout = 10_000, onConnection } = options
+  const { port, host = '0.0.0.0', mode = 'tproxy', connectTimeout = 10_000, filter, onConnection } = options
   const { mutable, snapshot } = createProxyStats()
 
   let server: NetServer | null = null
@@ -65,11 +69,30 @@ export function createTransparentProxy(options: TransparentProxyOptions): ProxyS
   }
 
   function handleConnection(clientSocket: Socket): void {
-    mutable.connectionsTotal++
-    mutable.connectionsActive++
-
     const originalDest = getOriginalDest(clientSocket)
     const clientAddress = `${clientSocket.remoteAddress}:${clientSocket.remotePort}`
+
+    if (filter) {
+      checkProxyFilter(filter, originalDest.host, originalDest.port)
+        .then(({ allowed, reason }) => {
+          if (!allowed) {
+            filter.onDenied?.({ host: originalDest.host, port: originalDest.port, reason: reason! })
+            clientSocket.destroy()
+            return
+          }
+          doConnect()
+        })
+        .catch(() => {
+          clientSocket.destroy()
+        })
+      return
+    }
+
+    doConnect()
+
+    function doConnect() {
+    mutable.connectionsTotal++
+    mutable.connectionsActive++
 
     onConnection?.({ clientSocket, clientAddress, originalDest })
 
@@ -109,6 +132,7 @@ export function createTransparentProxy(options: TransparentProxyOptions): ProxyS
     clientSocket.on('error', () => {
       upstream.destroy()
     })
+    } // end doConnect
   }
 
   return {

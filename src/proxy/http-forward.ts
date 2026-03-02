@@ -18,6 +18,18 @@ import { request as httpsRequest } from 'node:https'
 import type { ProxyAuth, ProxyStats } from './types.js'
 import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { stripHopByHopHeaders } from './utils/hop-headers.js'
+import type { ProxyFilter } from './utils/access-control.js'
+import { checkProxyFilter } from './utils/access-control.js'
+import type { ValidatorAdapter } from '../validation/types.js'
+
+export interface ProxyValidateOptions {
+  /** ValidatorAdapter instance to use (createZodAdapter, createAjvAdapter, etc.) */
+  adapter: ValidatorAdapter
+  /** Schema to validate the request body (JSON-parsed). Failure → 400. */
+  request?: unknown
+  /** Schema to validate the upstream response body (JSON-parsed). Failure → 502. */
+  response?: unknown
+}
 
 export interface ForwardProxyRequest {
   method: string
@@ -41,6 +53,10 @@ export interface HttpForwardProxyOptions {
   stripHeaders?: string[]
   /** Max request body size in bytes. Default: 10MB */
   maxBodySize?: number
+  /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
+  filter?: ProxyFilter
+  /** Body validation (JSON only — skipped when Content-Type is not application/json) */
+  validate?: ProxyValidateOptions
   /** Hook to inspect/modify outgoing request. Return null to block. */
   onRequest?: (
     req: ForwardProxyRequest,
@@ -77,6 +93,8 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
     timeout = 30_000,
     stripHeaders,
     maxBodySize = 10 * 1024 * 1024,
+    filter,
+    validate,
     onRequest,
     onResponse,
   } = options
@@ -104,6 +122,24 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
       })
       res.end('Proxy Authentication Required')
       return
+    }
+
+    // Parse target URL early to apply filter before reading body
+    const earlyTargetUrl = new URL(url)
+    const earlyPort = earlyTargetUrl.port
+      ? parseInt(earlyTargetUrl.port)
+      : earlyTargetUrl.protocol === 'https:'
+        ? 443
+        : 80
+
+    if (filter) {
+      const { allowed, reason } = await checkProxyFilter(filter, earlyTargetUrl.hostname, earlyPort)
+      if (!allowed) {
+        filter.onDenied?.({ host: earlyTargetUrl.hostname, port: earlyPort, reason: reason! })
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
     }
 
     mutable.connectionsTotal++
@@ -142,6 +178,26 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
           res.writeHead(403, { 'Content-Type': 'text/plain' })
           res.end('Forbidden')
           return
+        }
+      }
+
+      // Request body validation (JSON only)
+      if (validate?.request) {
+        const ct = (proxyReq.headers['content-type'] ?? '').toLowerCase()
+        if (ct.includes('application/json')) {
+          try {
+            const parsed = JSON.parse(proxyReq.body.toString()) as unknown
+            const result = validate.adapter.validate(validate.request, parsed)
+            if (!result.success) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ errors: result.errors }))
+              return
+            }
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ errors: [{ field: '', message: 'Invalid JSON', code: 'invalid_json' }] }))
+            return
+          }
         }
       }
 
@@ -185,6 +241,26 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
         if (proxyReq!.body.length > 0) upstreamReq.write(proxyReq!.body)
         upstreamReq.end()
       })
+
+      // Response body validation (JSON only)
+      if (validate?.response) {
+        const ct = (upstreamRes.headers['content-type'] ?? '').toLowerCase()
+        if (ct.includes('application/json')) {
+          try {
+            const parsed = JSON.parse(upstreamRes.body.toString()) as unknown
+            const result = validate.adapter.validate(validate.response, parsed)
+            if (!result.success) {
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ errors: result.errors }))
+              return
+            }
+          } catch {
+            res.writeHead(502, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ errors: [{ field: '', message: 'Invalid JSON from upstream', code: 'invalid_json' }] }))
+            return
+          }
+        }
+      }
 
       let finalRes = upstreamRes
       if (onResponse) {

@@ -233,3 +233,200 @@ describe('HTTP Forward Proxy', () => {
     expect(true).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Filter (access control)
+// ---------------------------------------------------------------------------
+
+describe('HTTP Forward Proxy — filter', () => {
+  it('filter.denyHosts blocks matching host → 403', async () => {
+    upstream.get('/secret', () => ({ status: 200, body: 'secret' }))
+    await startProxy({ filter: { denyHosts: ['127.0.0.1'] } })
+
+    const res = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/secret`, proxyPort)
+    expect(res.status).toBe(403)
+  })
+
+  it('filter.denyHosts allows non-matching host', async () => {
+    upstream.get('/open', () => ({ status: 200, body: 'open' }))
+    await startProxy({ filter: { denyHosts: ['evil.com'] } })
+
+    const res = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/open`, proxyPort)
+    expect(res.status).toBe(200)
+    expect(res.body).toBe('open')
+  })
+
+  it('filter.denyPorts blocks port → 403', async () => {
+    await startProxy({ filter: { denyPorts: [upstream.port] } })
+
+    const res = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/`, proxyPort)
+    expect(res.status).toBe(403)
+  })
+
+  it('filter.allowPorts blocks unlisted port → 403', async () => {
+    await startProxy({ filter: { allowPorts: [80, 443] } })
+
+    const res = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/`, proxyPort)
+    expect(res.status).toBe(403)
+  })
+
+  it('filter.onDenied callback is invoked on block', async () => {
+    let deniedInfo: { host: string; port: number; reason: string } | null = null
+    upstream.get('/', () => ({ status: 200, body: 'ok' }))
+    await startProxy({
+      filter: {
+        denyHosts: ['127.0.0.1'],
+        onDenied: (info) => { deniedInfo = info },
+      },
+    })
+
+    await fetchViaProxy(`http://127.0.0.1:${upstream.port}/`, proxyPort)
+
+    expect(deniedInfo).not.toBeNull()
+    expect(deniedInfo!.host).toBe('127.0.0.1')
+    expect(deniedInfo!.reason).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Validate (body validation)
+// ---------------------------------------------------------------------------
+
+describe('HTTP Forward Proxy — validate', () => {
+  /** Minimal ValidatorAdapter that validates presence of a 'name' field */
+  function makeAdapter(requireName: boolean) {
+    return {
+      name: 'test',
+      validate(_schema: unknown, data: unknown) {
+        if (!requireName) return { success: true, data }
+        const d = data as Record<string, unknown>
+        if (typeof d?.name === 'string') return { success: true, data }
+        return {
+          success: false,
+          errors: [{ field: 'name', message: 'required', code: 'required' }],
+        }
+      },
+      isValidSchema: () => true,
+    }
+  }
+
+  function fetchWithBody(
+    url: string,
+    proxyPort: number,
+    body: string,
+    contentType = 'application/json',
+  ): Promise<SimpleResponse> {
+    return new Promise((resolve, reject) => {
+      const targetUrl = new URL(url)
+      const req = httpRequest(
+        {
+          host: '127.0.0.1',
+          port: proxyPort,
+          path: url,
+          method: 'POST',
+          headers: {
+            host: targetUrl.host,
+            'content-type': contentType,
+            'content-length': Buffer.byteLength(body),
+          },
+        },
+        (res) => {
+          const chunks: Buffer[] = []
+          res.on('data', (c: Buffer) => chunks.push(c))
+          res.on('end', () => {
+            resolve({
+              status: res.statusCode ?? 0,
+              body: Buffer.concat(chunks).toString(),
+              headers: Object.fromEntries(
+                Object.entries(res.headers).map(([k, v]) => [
+                  k,
+                  Array.isArray(v) ? v.join(', ') : (v ?? ''),
+                ]),
+              ),
+            })
+          })
+        },
+      )
+      req.on('error', reject)
+      req.write(body)
+      req.end()
+    })
+  }
+
+  it('validate.request passes valid JSON → 200', async () => {
+    upstream.post('/data', () => ({ status: 200, body: '{"ok":true}' }))
+    const adapter = makeAdapter(true)
+    await startProxy({ validate: { adapter, request: {} } })
+
+    const res = await fetchWithBody(
+      `http://127.0.0.1:${upstream.port}/data`,
+      proxyPort,
+      '{"name":"alice"}',
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('validate.request rejects invalid JSON body → 400', async () => {
+    upstream.post('/data', () => ({ status: 200, body: '{"ok":true}' }))
+    const adapter = makeAdapter(true)
+    await startProxy({ validate: { adapter, request: {} } })
+
+    const res = await fetchWithBody(
+      `http://127.0.0.1:${upstream.port}/data`,
+      proxyPort,
+      '{"missing_name":true}',
+    )
+    expect(res.status).toBe(400)
+    const parsed = JSON.parse(res.body) as { errors: unknown[] }
+    expect(parsed.errors.length).toBeGreaterThan(0)
+  })
+
+  it('validate.request skips validation for non-JSON content-type', async () => {
+    upstream.post('/text', () => ({ status: 200, body: 'ok' }))
+    const adapter = makeAdapter(true)
+    await startProxy({ validate: { adapter, request: {} } })
+
+    const res = await fetchWithBody(
+      `http://127.0.0.1:${upstream.port}/text`,
+      proxyPort,
+      'plain text with no name',
+      'text/plain',
+    )
+    // Skipped validation → passes through → 200
+    expect(res.status).toBe(200)
+  })
+
+  it('validate.response rejects invalid upstream response → 502', async () => {
+    upstream.post('/bad', () => ({
+      status: 200,
+      body: '{"no_name":true}',
+      headers: { 'content-type': 'application/json' },
+    }))
+    const adapter = makeAdapter(true)
+    await startProxy({ validate: { adapter, response: {} } })
+
+    const res = await fetchWithBody(
+      `http://127.0.0.1:${upstream.port}/bad`,
+      proxyPort,
+      '{"name":"alice"}',
+    )
+    expect(res.status).toBe(502)
+  })
+
+  it('validate.response passes valid upstream response → 200', async () => {
+    upstream.post('/good', () => ({
+      status: 200,
+      body: '{"name":"server"}',
+      headers: { 'content-type': 'application/json' },
+    }))
+    const adapter = makeAdapter(true)
+    await startProxy({ validate: { adapter, response: {} } })
+
+    const res = await fetchWithBody(
+      `http://127.0.0.1:${upstream.port}/good`,
+      proxyPort,
+      '{"name":"alice"}',
+    )
+    expect(res.status).toBe(200)
+  })
+})

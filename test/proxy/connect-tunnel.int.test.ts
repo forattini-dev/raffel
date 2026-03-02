@@ -445,3 +445,82 @@ describe('CONNECT Tunnel (MITM cert pinning)', () => {
     }
   }, 15_000)
 })
+
+// ---------------------------------------------------------------------------
+// Filter (access control) — CONNECT Tunnel
+// ---------------------------------------------------------------------------
+
+describe('CONNECT Tunnel — filter', () => {
+  /** Send a CONNECT request and return the raw HTTP status line from the proxy. */
+  function sendConnectRaw(proxyPort: number, targetHost: string, targetPort: number): Promise<string> {
+    return new Promise((resolve) => {
+      const sock = netConnect(proxyPort, '127.0.0.1', () => {
+        sock.write(
+          `CONNECT ${targetHost}:${targetPort} HTTP/1.0\r\nHost: ${targetHost}:${targetPort}\r\n\r\n`,
+        )
+      })
+      let buf = ''
+      sock.on('data', (c: Buffer) => {
+        buf += c.toString()
+        if (buf.includes('\r\n')) {
+          sock.destroy()
+          resolve(buf.split('\r\n')[0])
+        }
+      })
+      sock.on('error', () => resolve(''))
+      sock.on('close', () => resolve(buf))
+    })
+  }
+
+  it('filter.denyHosts blocks CONNECT → 403 Forbidden', async () => {
+    const tunnel = createConnectTunnel({
+      mode: 'forward',
+      filter: { denyHosts: ['127.0.0.1'] },
+    })
+    proxyServer = createHttpServer()
+    tunnel.attachTo(proxyServer)
+    await new Promise<void>((r) => proxyServer.listen(0, '127.0.0.1', r))
+    proxyPort = (proxyServer.address() as { port: number }).port
+
+    const statusLine = await sendConnectRaw(proxyPort, '127.0.0.1', 9999)
+    expect(statusLine).toContain('403')
+  })
+
+  it('filter.denyTLDs blocks CONNECT → 403', async () => {
+    // We use 'localhost' — TLD is 'localhost' itself (single label). Use denyHosts for hostname match.
+    // Actually test with allowHosts exclusive list so we can control what passes.
+    const tunnel = createConnectTunnel({
+      mode: 'forward',
+      filter: { allowHosts: ['allowed.internal'] },
+    })
+    proxyServer = createHttpServer()
+    tunnel.attachTo(proxyServer)
+    await new Promise<void>((r) => proxyServer.listen(0, '127.0.0.1', r))
+    proxyPort = (proxyServer.address() as { port: number }).port
+
+    const statusLine = await sendConnectRaw(proxyPort, '127.0.0.1', 9999)
+    expect(statusLine).toContain('403')
+  })
+
+  it('filter.onDenied callback is invoked on CONNECT block', async () => {
+    let denied: { host: string; port: number; reason: string } | null = null
+    const tunnel = createConnectTunnel({
+      mode: 'forward',
+      filter: {
+        denyHosts: ['127.0.0.1'],
+        onDenied: (info) => { denied = info },
+      },
+    })
+    proxyServer = createHttpServer()
+    tunnel.attachTo(proxyServer)
+    await new Promise<void>((r) => proxyServer.listen(0, '127.0.0.1', r))
+    proxyPort = (proxyServer.address() as { port: number }).port
+
+    await sendConnectRaw(proxyPort, '127.0.0.1', 9999)
+    // Small wait for async onDenied to have been called
+    await new Promise<void>((r) => setTimeout(r, 50))
+
+    expect(denied).not.toBeNull()
+    expect(denied!.host).toBe('127.0.0.1')
+  })
+})

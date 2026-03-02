@@ -297,3 +297,112 @@ describe('SOCKS5 Proxy', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Filter (access control) — SOCKS5
+// ---------------------------------------------------------------------------
+
+describe('SOCKS5 Proxy — filter', () => {
+  /**
+   * Attempt a SOCKS5 CONNECT and return the REP byte from the server's reply.
+   * REP=0x00 = success, REP=0x02 = not allowed by ruleset.
+   */
+  function socks5ConnectGetRep(
+    proxyPort: number,
+    targetHost: string,
+    targetPort: number,
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const sock = netConnect(proxyPort, '127.0.0.1')
+      sock.on('error', reject)
+
+      const hostBytes = Buffer.from(targetHost, 'utf8')
+      const portBuf = Buffer.alloc(2)
+      portBuf.writeUInt16BE(targetPort, 0)
+      let step: 'greeting' | 'request' = 'greeting'
+      const chunks: Buffer[] = []
+
+      sock.on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+        const buf = Buffer.concat(chunks)
+        chunks.length = 0
+
+        if (step === 'greeting') {
+          if (buf.length < 2) { chunks.push(buf); return }
+          // Server selected no-auth (0x00)
+          step = 'request'
+          // Send CONNECT request
+          const req = Buffer.concat([
+            Buffer.from([0x05, 0x01, 0x00, 0x03, hostBytes.length]),
+            hostBytes,
+            portBuf,
+          ])
+          sock.write(req)
+        } else {
+          // Request reply: VER REP RSV ...
+          if (buf.length < 2) { chunks.push(buf); return }
+          const rep = buf[1]
+          sock.destroy()
+          resolve(rep)
+        }
+      })
+
+      // Greeting: SOCKS5, 1 method, no-auth
+      sock.write(Buffer.from([0x05, 0x01, 0x00]))
+    })
+  }
+
+  it('filter.denyHosts blocks CONNECT → REP 0x02', async () => {
+    const filteredProxy = createSocks5Proxy({
+      port: 0,
+      host: '127.0.0.1',
+      filter: { denyHosts: ['127.0.0.1'] },
+    })
+    const fPort = await filteredProxy.start()
+
+    try {
+      const rep = await socks5ConnectGetRep(fPort, '127.0.0.1', upstream.port)
+      expect(rep).toBe(0x02) // Connection Not Allowed by Ruleset
+    } finally {
+      await filteredProxy.stop()
+    }
+  })
+
+  it('filter allows non-blocked host → REP 0x00 (success)', async () => {
+    const filteredProxy = createSocks5Proxy({
+      port: 0,
+      host: '127.0.0.1',
+      filter: { denyHosts: ['evil.com'] },
+    })
+    const fPort = await filteredProxy.start()
+
+    try {
+      const rep = await socks5ConnectGetRep(fPort, '127.0.0.1', upstream.port)
+      expect(rep).toBe(0x00)
+    } finally {
+      await filteredProxy.stop()
+    }
+  })
+
+  it('filter.onDenied callback is invoked when blocked', async () => {
+    let deniedInfo: { host: string; port: number; reason: string } | null = null
+    const filteredProxy = createSocks5Proxy({
+      port: 0,
+      host: '127.0.0.1',
+      filter: {
+        denyHosts: ['127.0.0.1'],
+        onDenied: (info) => { deniedInfo = info },
+      },
+    })
+    const fPort = await filteredProxy.start()
+
+    try {
+      await socks5ConnectGetRep(fPort, '127.0.0.1', upstream.port)
+      await new Promise<void>((r) => setTimeout(r, 50))
+      expect(deniedInfo).not.toBeNull()
+      expect(deniedInfo!.reason).toBeTruthy()
+    } finally {
+      await filteredProxy.stop()
+    }
+  })
+})

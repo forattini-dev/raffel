@@ -14,6 +14,7 @@ export type {
   HttpForwardProxy,
   ForwardProxyRequest,
   ForwardProxyResponse,
+  ProxyValidateOptions,
 } from './http-forward.js'
 
 export { createConnectTunnel } from './connect-tunnel.js'
@@ -36,3 +37,5 @@ export type {
 } from './transparent.js'
 
 export type { ProxyAuth, ProxyCredentials, ProxyStats, ProxyServer } from './types.js'
+
+export type { ProxyFilter } from './utils/access-control.js'
