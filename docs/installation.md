@@ -54,7 +54,7 @@ Raffel has optional peer dependencies based on features you use:
 | **Yup Validation** | `yup` | `pnpm add yup` |
 | **Joi Validation** | `joi` | `pnpm add joi` |
 | **gRPC** | `@grpc/grpc-js` | `pnpm add @grpc/grpc-js` |
-| **Redis Session** | `ioredis` | `pnpm add ioredis` |
+| **Redis Session** | `redis` or compatible client | `pnpm add redis` |
 | **Prometheus** | `prom-client` | `pnpm add prom-client` |
 | **OpenTelemetry** | `@opentelemetry/api` | `pnpm add @opentelemetry/api` |
 

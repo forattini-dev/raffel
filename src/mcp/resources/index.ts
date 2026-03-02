@@ -42,7 +42,7 @@ export function getStaticResources(): MCPResource[] {
   resources.push({
     uri: 'raffel://guide/sessions',
     name: 'Session Store Guide',
-    description: 'Session management with memory, Redis, s3db, and custom drivers',
+    description: 'Session management with memory and custom drivers (including Redis adapters)',
     mimeType: 'text/markdown',
   })
 
@@ -308,17 +308,6 @@ server.use(createSessionInterceptor({
   ttl: 7200,
   rolling: true,    // sliding window
   secret: process.env.SESSION_SECRET,
-}))
-\`\`\`
-
-## s3db (serverless)
-
-\`\`\`typescript
-import { createS3dbSessionDriver } from 'raffel'
-
-server.use(createSessionInterceptor({
-  driver: createS3dbSessionDriver({ resource: s3db.resource('sessions') }),
-  ttl: 3600,
 }))
 \`\`\`
 

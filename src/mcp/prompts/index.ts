@@ -91,9 +91,9 @@ export const prompts: MCPPrompt[] = [
   },
   {
     name: 'add_sessions',
-    description: 'Add session store to a Raffel server with memory, Redis, or s3db driver',
+    description: 'Add session store to a Raffel server with memory or custom store',
     arguments: [
-      { name: 'driver', description: 'Session driver (memory, redis, s3db)', required: true },
+      { name: 'driver', description: 'Session store strategy (memory, custom)', required: true },
       { name: 'ttl', description: 'Session TTL in seconds', required: false },
       { name: 'rolling', description: 'Use sliding-window TTL (yes/no)', required: false },
     ],
@@ -547,9 +547,8 @@ TTL: ${ttl} seconds
 Rolling window: ${rolling ? 'Yes' : 'No'}
 
 Requirements:
-1. Import createSessionInterceptor${driver !== 'memory' ? ` and create${driver.charAt(0).toUpperCase() + driver.slice(1)}SessionDriver` : ''} from 'raffel'
-${driver === 'redis' ? '2. Accept Redis client as dependency (e.g., ioredis or @redis/client)\n3. Configure connection using REDIS_URL env var' : ''}
-${driver === 's3db' ? '2. Accept s3db resource as dependency\n3. Sessions stored in S3 with manual TTL via expires_at field' : ''}
+1. Import createSessionInterceptor${driver !== 'memory' ? ' and a compatible SessionStore adapter' : ''} from 'raffel'
+${driver !== 'memory' ? '2. Pass a SessionStore instance into session.driver.' : ''}
 4. Register interceptor with server.use()
 5. Show example handlers using ctx.session.data (set, get, destroy)
 ${rolling ? '6. Configure rolling: true for sliding window TTL' : ''}

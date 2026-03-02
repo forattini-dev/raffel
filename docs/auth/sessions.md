@@ -168,7 +168,7 @@ Sign session IDs with HMAC-SHA256 to prevent tampering:
 
 ```typescript
 server.use(createSessionInterceptor({
-  driver: 'redis',
+  driver: 'memory',
   secret: process.env.SESSION_SECRET,  // at least 32 random bytes
   ttl: 3600,
 }))
@@ -180,7 +180,7 @@ Reset the session TTL on every request (keeps active users logged in):
 
 ```typescript
 server.use(createSessionInterceptor({
-  driver: 'redis',
+  driver: 'memory',
   ttl: 1800,      // 30 minutes of inactivity
   rolling: true,  // reset TTL on every request
 }))
@@ -192,7 +192,7 @@ server.use(createSessionInterceptor({
 
 ```typescript
 interface SessionConfig {
-  driver: 'memory' | 'redis' | SessionStore
+  driver: 'memory' | 'custom' | SessionStore
   ttl?: number              // seconds (default: 3600)
   rolling?: boolean         // sliding window (default: false)
   saveUninitialized?: boolean
@@ -206,14 +206,8 @@ interface SessionConfig {
     path?: string           // default: '/'
     domain?: string
   }
-  redis?: {
-    url?: string
-    host?: string
-    port?: number
-    password?: string
-    db?: number
-    keyPrefix?: string      // default: 'raffel:session:'
-  }
+  // For advanced scenarios, pass any custom SessionStore implementation
+  // e.g. createRedisSessionDriver(...) or a database adapter.
 }
 ```
 

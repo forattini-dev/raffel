@@ -45,7 +45,6 @@ export { createSessionInterceptor } from './interceptor.js'
 // Drivers
 export { createMemorySessionDriver } from './drivers/memory.js'
 export { createRedisSessionDriver } from './drivers/redis.js'
-export { createS3dbSessionDriver } from './drivers/s3db.js'
 
 // Types
 export type {
@@ -59,4 +58,3 @@ export type {
 
 export type { MemorySessionDriverOptions } from './drivers/memory.js'
 export type { RedisLikeClient, RedisSessionDriverOptions } from './drivers/redis.js'
-export type { S3dbResource, S3dbSessionDriverOptions } from './drivers/s3db.js'

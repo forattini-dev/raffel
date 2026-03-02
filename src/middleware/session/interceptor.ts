@@ -146,32 +146,19 @@ function resolveStore(config: SessionConfig): SessionStore {
     return createMemorySessionDriver()
   }
 
-  if (driver === 'redis') {
+  if (driver === 'custom') {
     throw new Error(
-      'Session driver "redis" requires a Redis client. Pass a pre-configured ' +
-      'store instance via driver: createRedisSessionDriver({ client }) instead.'
+      'Session driver "custom" requires a store instance. Pass it via driver: myStore (a SessionStore object).'
     )
   }
 
-  if (driver === 's3db') {
-    throw new Error(
-      'Session driver "s3db" requires an s3db resource. Pass a pre-configured ' +
-      'store instance via driver: createS3dbSessionDriver({ resource }) instead.'
-    )
-  }
-
-  if (driver === 'custom' || typeof driver === 'object') {
-    // Explicit 'custom' alias or store instance — must be an object with store methods
-    if (driver === 'custom') {
-      throw new Error(
-        'Session driver "custom" requires a store instance. Pass it via driver: myStore (a SessionStore object).'
-      )
-    }
+  if (typeof driver === 'object' && driver !== null) {
     return driver as SessionStore
   }
 
-  // Fallback: treat as store instance
-  return driver as SessionStore
+  throw new Error(
+    'Invalid session driver. Use "memory" or pass a custom SessionStore instance to session.driver.'
+  )
 }
 
 // ============================================================================

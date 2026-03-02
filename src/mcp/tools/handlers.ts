@@ -1750,8 +1750,8 @@ const tracer = createTracer({
 
       case 'session': {
         let md = `# Implementing Session-Based Authentication\n\n`
-        md += `Sessions store auth state server-side (memory, Redis, s3db) and give the client ` +
-              `an opaque cookie. Nothing sensitive leaves the server.\n\n`
+        md += `Sessions store auth state server-side (memory + custom stores like Redis) and give the client ` +
+          `an opaque cookie. Nothing sensitive leaves the server.\n\n`
         md += `## When to use\n- Traditional web apps with cookie-based auth\n` +
               `- When you need to revoke access instantly (just delete the session)\n` +
               `- After OAuth2/OIDC to persist the authenticated user across requests\n\n`

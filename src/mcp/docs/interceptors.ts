@@ -1042,10 +1042,10 @@ server.procedure('auth.callback').handler(async ({ code }) => {
   {
     name: 'createSessionInterceptor',
     description:
-      'Session store interceptor. Injects ctx.session into every handler with get/set/destroy operations. Backed by memory (dev), Redis (prod), s3db (serverless), or custom stores.',
+      'Session store interceptor. Injects ctx.session into every handler with get/set/destroy operations. Backed by memory (dev), Redis adapters via custom store, or other custom stores.',
     category: 'auth',
     options: [
-      { name: 'driver', type: "'memory' | 'redis' | 's3db' | SessionStore", required: true, description: 'Storage backend' },
+      { name: 'driver', type: "'memory' | 'custom' | SessionStore", required: true, description: 'Storage backend' },
       { name: 'ttl', type: 'number', required: false, default: '3600', description: 'Session TTL in seconds' },
       { name: 'rolling', type: 'boolean', required: false, default: 'false', description: 'Sliding window TTL (reset on each access)' },
       { name: 'secret', type: 'string', required: false, description: 'HMAC signing key for session IDs' },
@@ -1085,17 +1085,6 @@ server.use(createSessionInterceptor({
   rolling: true,
   secret: process.env.SESSION_SECRET,
   cookie: { name: 'sid', secure: true, sameSite: 'lax' },
-}))`,
-      },
-      {
-        title: 's3db store (serverless)',
-        code: `import { createServer, createSessionInterceptor, createS3dbSessionDriver } from 'raffel'
-
-const sessionsResource = s3db.resource('sessions')
-const server = createServer({ port: 3000 })
-server.use(createSessionInterceptor({
-  driver: createS3dbSessionDriver({ resource: sessionsResource }),
-  ttl: 3600,
 }))`,
       },
     ],

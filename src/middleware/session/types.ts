@@ -64,11 +64,9 @@ export interface SessionCookieOptions {
  * Session store driver type (built-in drivers).
  *
  * - `'memory'`  — in-memory Map + TTL (dev, single-instance)
- * - `'redis'`   — Redis with native TTL (production, multi-instance)
- * - `'s3db'`    — s3db Resource (serverless / S3-based deployments)
  * - `'custom'`  — explicit alias for passing any `SessionStore` instance
  */
-export type SessionDriverType = 'memory' | 'redis' | 's3db' | 'custom'
+export type SessionDriverType = 'memory' | 'custom'
 
 /**
  * Session configuration passed to `createServer()`.
@@ -80,10 +78,6 @@ export interface SessionConfig {
    * @example
    * // Built-in memory driver (dev)
    * driver: 'memory'
-   *
-   * @example
-   * // Built-in Redis driver (prod)
-   * driver: 'redis'
    *
    * @example
    * // Custom store
@@ -118,17 +112,6 @@ export interface SessionConfig {
   /** Cookie configuration */
   cookie?: SessionCookieOptions
 
-  /**
-   * Redis connection options (only used when driver: 'redis').
-   */
-  redis?: {
-    url?: string
-    host?: string
-    port?: number
-    password?: string
-    db?: number
-    keyPrefix?: string
-  }
 }
 
 // ============================================================================

@@ -524,8 +524,7 @@ export interface ServerOptions {
    * Injects `ctx.session` into every handler via the session interceptor.
    *
    * - `driver: 'memory'` — in-memory store (dev/single-instance)
-   * - `driver: 'redis'` — Redis store (production; requires creating a store with `createRedisSessionDriver`)
-   * - `driver: store` — custom `SessionStore` instance
+   * - `driver: 'custom'` — custom `SessionStore` instance (e.g. redis/session table adapter)
    *
    * Set to `false` to explicitly disable session support (default: disabled).
    *

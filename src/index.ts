@@ -605,7 +605,6 @@ export {
   createSessionInterceptor,
   createMemorySessionDriver,
   createRedisSessionDriver,
-  createS3dbSessionDriver,
 } from './middleware/session/index.js'
 export type {
   Session,
@@ -617,9 +616,33 @@ export type {
   MemorySessionDriverOptions,
   RedisLikeClient as SessionRedisLikeClient,
   RedisSessionDriverOptions,
-  S3dbResource as SessionS3dbResource,
-  S3dbSessionDriverOptions,
 } from './middleware/session/index.js'
+
+// === Proxy ===
+export {
+  createHttpForwardProxy,
+  createConnectTunnel,
+  createSocks5Proxy,
+  createTransparentProxy,
+} from './proxy/index.js'
+export type {
+  ProxyAuth,
+  ProxyCredentials,
+  ProxyStats,
+  ProxyServer,
+  ConnectMode,
+  ConnectTunnelOptions,
+  ConnectTunnel,
+  TunnelInfo,
+  HttpForwardProxyOptions,
+  HttpForwardProxy,
+  ForwardProxyRequest,
+  ForwardProxyResponse,
+  Socks5Options,
+  Socks5ConnectionInfo,
+  TransparentProxyMode,
+  TransparentProxyOptions,
+} from './proxy/index.js'
 
 // === Testing Mocks ===
 export * from './testing/index.js'
