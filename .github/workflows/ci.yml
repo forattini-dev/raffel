@@ -42,6 +42,9 @@ jobs:
       - name: Run Tests
         run: pnpm test
 
+      - name: Run Coverage Gate (90%)
+        run: pnpm test:coverage
+
   release-next:
     name: Release Next
     needs: quality
