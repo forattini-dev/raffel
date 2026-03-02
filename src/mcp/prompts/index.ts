@@ -47,10 +47,12 @@ export const prompts: MCPPrompt[] = [
   // === Feature Prompts ===
   {
     name: 'add_authentication',
-    description: 'Add authentication to an existing Raffel server with JWT or API key',
+    description: 'Add authentication to an existing Raffel server. Supports: jwt, api-key, oauth2, oidc, session, combined',
     arguments: [
-      { name: 'auth_type', description: 'Authentication type (jwt, api-key, both)', required: true },
+      { name: 'auth_type', description: 'Authentication type: jwt, api-key, oauth2, oidc, session, combined', required: true },
       { name: 'protected_routes', description: 'Routes to protect (e.g., users.*, admin.**)', required: false },
+      { name: 'provider', description: 'OAuth2/OIDC provider: google, github, microsoft (only for oauth2/oidc)', required: false },
+      { name: 'with_session', description: 'Persist OAuth2/OIDC state in sessions (yes/no)', required: false },
     ],
   },
   {
@@ -288,6 +290,27 @@ Use raffel_add_middleware for resilience patterns.`,
     case 'add_authentication': {
       const authType = args.auth_type || 'jwt'
       const protectedRoutes = args.protected_routes || '*'
+      const provider = args.provider || 'google'
+      const withSession = args.with_session !== 'no'
+
+      // Normalize aliases
+      const normalizedType =
+        authType === 'jwt' ? 'bearer-jwt'
+        : authType === 'both' ? 'combined'
+        : authType // api-key, oauth2, oidc, session, combined, bearer-jwt
+
+      // Map prompt type to raffel_implement_auth method
+      const implementMethod =
+        normalizedType === 'bearer-jwt' || normalizedType === 'jwt' ? 'bearer-jwt'
+        : normalizedType === 'api-key' ? 'api-key'
+        : normalizedType === 'oauth2' ? 'oauth2'
+        : normalizedType === 'oidc' ? 'oidc'
+        : normalizedType === 'session' ? 'session'
+        : 'combined'
+
+      const needsProvider = implementMethod === 'oauth2' || implementMethod === 'oidc'
+      const providerLine = needsProvider ? `\nOAuth2/OIDC Provider: ${provider}` : ''
+      const sessionLine = needsProvider ? `\nPersist in session: ${withSession ? 'Yes' : 'No'}` : ''
 
       return {
         description: `Add ${authType} authentication`,
@@ -299,26 +322,53 @@ Use raffel_add_middleware for resilience patterns.`,
               text: `Add authentication to an existing Raffel server.
 
 Authentication Type: ${authType}
-Protected Routes: ${protectedRoutes}
+Protected Routes: ${protectedRoutes}${providerLine}${sessionLine}
 
-Requirements:
-${authType === 'jwt' || authType === 'both' ? `
-JWT Authentication:
-- Bearer token validation
-- Token refresh mechanism
-- Role-based access control
-- Token expiration handling
+Steps:
+1. Call raffel_implement_auth with method: "${implementMethod}"${needsProvider ? `, provider: "${provider}"` : ''}${needsProvider && withSession ? `, withSession: true` : ''} to get the complete implementation guide
+2. Follow the step-by-step instructions: install packages, set env vars, create the auth module, wire it into the server
+3. Apply auth middleware with publicProcedures: [] listing any routes that should stay open
+4. Protect specific routes with requireAuth(ctx) inside handlers or use createAuthzMiddleware for RBAC
+
+${implementMethod === 'bearer-jwt' ? `
+JWT requirements:
+- createBearerStrategy with a verify() function that validates the token
+- jwt.sign() on login, jwt.verify() on each request
+- publicProcedures: ['auth.login', 'health.check']
 ` : ''}
-${authType === 'api-key' || authType === 'both' ? `
-API Key Authentication:
-- Header or query parameter extraction
-- Key validation against database
-- Rate limiting per key
-- Key rotation support
+${implementMethod === 'api-key' ? `
+API key requirements:
+- createApiKeyStrategy with a validate() function (DB lookup or env-var set)
+- Never return the raw key after creation — store only the hash
+- X-API-Key header extraction by default
+` : ''}
+${implementMethod === 'oauth2' ? `
+OAuth2 requirements:
+- Register app on ${provider} developer console, get CLIENT_ID + CLIENT_SECRET
+- auth.authorize → redirects user to ${provider}
+- auth.callback → exchanges code, upserts user${withSession ? ', stores userId in session' : ''}
+- CSRF protection via generateState()
+` : ''}
+${implementMethod === 'oidc' ? `
+OIDC requirements:
+- Same as OAuth2 but createOIDCStrategy auto-discovers endpoints from issuer
+- tokens.idTokenClaims contains verified user identity without extra HTTP call
+- Validate nonce to prevent replay attacks
+` : ''}
+${implementMethod === 'session' ? `
+Session requirements:
+- createSessionInterceptor with driver: 'memory' (dev) or Redis (prod)
+- ctx.session.regenerate() after login (prevents session fixation)
+- ctx.session.destroy() on logout
+` : ''}
+${implementMethod === 'combined' ? `
+Combined requirements:
+- createAuthMiddleware accepts multiple strategies — tried in order
+- Bearer JWT for SPA/mobile, API Key for server-to-server
+- Sessions for OAuth2 callback state, not as the primary auth mechanism
 ` : ''}
 
-Use raffel_add_middleware with type: auth-bearer or auth-apikey.
-Use raffel_get_interceptor for detailed auth middleware options.`,
+Use raffel_get_interceptor to inspect options for any strategy or middleware.`,
             },
           },
         ],

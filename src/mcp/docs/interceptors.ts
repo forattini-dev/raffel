@@ -807,8 +807,157 @@ export const interceptorsByCategory = {
   composition: interceptors.filter((i) => i.category === 'composition'),
 }
 
-// OAuth2 and OIDC strategies are added alongside the auth interceptors
+// Auth strategies and extended interceptors
 ;(interceptors as InterceptorDoc[]).push(
+  {
+    name: 'createBearerStrategy',
+    description:
+      'Bearer token authentication strategy. Extracts Bearer tokens from the Authorization header and calls your verify() function. Works with JWT, opaque tokens, or any string token.',
+    category: 'auth',
+    options: [
+      { name: 'verify', type: '(token: string, envelope, ctx) => Promise<AuthPrincipal | null>', required: true, description: 'Validate the token and return the principal or null' },
+      { name: 'extractFrom', type: "'header' | 'cookie' | ((envelope) => string | null)", required: false, default: "'header'", description: 'Where to extract the token from' },
+      { name: 'headerName', type: 'string', required: false, default: "'Authorization'", description: 'Header to extract token from (prefix Bearer is stripped)' },
+    ],
+    examples: [
+      {
+        title: 'JWT Bearer Auth — complete setup',
+        code: `// Step 1: install deps
+// pnpm add jsonwebtoken @types/jsonwebtoken
+
+// Step 2: set env var
+// JWT_SECRET=at-least-32-char-secret
+
+// Step 3: server setup
+import { createServer, createAuthMiddleware, createBearerStrategy, requireAuth, RaffelError } from 'raffel'
+import jwt from 'jsonwebtoken'
+import bcrypt from 'bcrypt'
+
+const bearer = createBearerStrategy({
+  verify: async (token) => {
+    try {
+      const payload = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload
+      return { authenticated: true, principal: payload.sub!, claims: payload }
+    } catch {
+      return null // invalid or expired token
+    }
+  },
+})
+
+const server = createServer({ port: 3000 })
+server.use(createAuthMiddleware({
+  strategies: [bearer],
+  publicProcedures: ['auth.login', 'health.check'],
+}))
+
+// Login → issue a signed JWT
+server.procedure('auth.login').handler(async ({ email, password }) => {
+  const user = await db.users.findByEmail(email)
+  if (!user || !(await bcrypt.compare(password, user.passwordHash)))
+    throw new RaffelError('UNAUTHENTICATED', 'Invalid credentials')
+
+  const token = jwt.sign(
+    { sub: user.id, email: user.email, roles: user.roles },
+    process.env.JWT_SECRET!,
+    { expiresIn: '1h' }
+  )
+  return { token, expiresIn: 3600 }
+})
+
+// Protected procedure
+server.procedure('users.me').handler(async (_input, ctx) => {
+  requireAuth(ctx) // throws UNAUTHENTICATED if missing
+  return { userId: ctx.auth!.principal, email: ctx.auth!.claims?.email }
+})
+
+await server.start()
+// Client: Authorization: Bearer <token>`,
+      },
+      {
+        title: 'Opaque token (database lookup)',
+        code: `const bearer = createBearerStrategy({
+  verify: async (token) => {
+    const session = await db.sessions.findByToken(token)
+    if (!session || session.expiresAt < new Date()) return null
+    return { authenticated: true, principal: session.userId, claims: { scopes: session.scopes } }
+  },
+})`,
+      },
+    ],
+  },
+  {
+    name: 'createApiKeyStrategy',
+    description:
+      'API key authentication strategy. Extracts keys from headers, query params, or cookies. Keys are validated by your validate() function against a DB, env var, or any store.',
+    category: 'auth',
+    options: [
+      { name: 'validate', type: '(key: string, envelope, ctx) => Promise<AuthPrincipal | null>', required: true, description: 'Validate the API key and return the principal or null' },
+      { name: 'extractFrom', type: "'header' | 'query' | 'cookie'", required: false, default: "'header'", description: 'Where to extract the key from' },
+      { name: 'headerName', type: 'string', required: false, default: "'X-API-Key'", description: 'Header name for key extraction' },
+      { name: 'queryParam', type: 'string', required: false, default: "'api_key'", description: 'Query parameter name for key extraction' },
+      { name: 'cookieName', type: 'string', required: false, default: "'api_key'", description: 'Cookie name for key extraction' },
+    ],
+    examples: [
+      {
+        title: 'API Key Auth — complete setup (DB-backed)',
+        code: `// Step 1: create api_keys table
+// id, owner_id, key_hash, scopes[], revoked_at, created_at
+
+// Step 2: server setup
+import { createServer, createAuthMiddleware, createApiKeyStrategy } from 'raffel'
+import { createHash } from 'crypto'
+
+const apiKey = createApiKeyStrategy({
+  validate: async (key) => {
+    const keyHash = createHash('sha256').update(key).digest('hex')
+    const record = await db.apiKeys.findByHash(keyHash)
+    if (!record || record.revokedAt) return null
+    return {
+      authenticated: true,
+      principal: record.ownerId,
+      claims: { keyId: record.id, scopes: record.scopes },
+    }
+  },
+  extractFrom: 'header',
+  headerName: 'X-API-Key',
+})
+
+const server = createServer({ port: 3000 })
+server.use(createAuthMiddleware({ strategies: [apiKey] }))
+
+server.procedure('items.list').handler(async (_input, ctx) => {
+  // ctx.auth!.principal = ownerId
+  return db.items.findByOwner(ctx.auth!.principal)
+})
+
+await server.start()
+// Client: X-API-Key: <your-key>`,
+      },
+      {
+        title: 'Env-var keys — no database needed',
+        code: `// RAFFEL_API_KEYS=key-abc,key-xyz   (comma-separated)
+const allowed = new Set(
+  (process.env.RAFFEL_API_KEYS || '').split(',').map((k) => k.trim()).filter(Boolean)
+)
+
+const apiKey = createApiKeyStrategy({
+  validate: async (key) =>
+    allowed.has(key)
+      ? { authenticated: true, principal: key }
+      : null,
+})`,
+      },
+      {
+        title: 'Query param extraction',
+        code: `// Client: GET /data?api_key=<key>
+const apiKey = createApiKeyStrategy({
+  validate: async (key) => validateFromDb(key),
+  extractFrom: 'query',
+  queryParam: 'api_key',
+})`,
+      },
+    ],
+  },
   {
     name: 'createOAuth2Strategy',
     description:

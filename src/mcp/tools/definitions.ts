@@ -467,6 +467,36 @@ export const tools: MCPTool[] = [
     },
   },
   {
+    name: 'raffel_implement_auth',
+    description:
+      'Get a complete step-by-step implementation guide for a specific authentication method. Returns all files to create, env vars needed, and working tested code. Methods: bearer-jwt, api-key, oauth2, oidc, session, combined.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        method: {
+          type: 'string',
+          description: 'Authentication method to implement',
+          enum: ['bearer-jwt', 'api-key', 'oauth2', 'oidc', 'session', 'combined'],
+        },
+        provider: {
+          type: 'string',
+          description: 'OAuth2/OIDC provider (only relevant for oauth2 and oidc methods)',
+          enum: ['google', 'github', 'microsoft', 'apple', 'facebook', 'custom'],
+        },
+        withSession: {
+          type: 'boolean',
+          description: 'Persist auth state via session store after OAuth2/OIDC flow',
+        },
+        storage: {
+          type: 'string',
+          description: 'API key storage backend (for api-key method)',
+          enum: ['database', 'env', 'redis'],
+        },
+      },
+      required: ['method'],
+    },
+  },
+  {
     name: 'raffel_version',
     description: 'Get Raffel version information and check compatibility with project dependencies.',
     inputSchema: {
@@ -507,6 +537,7 @@ export const toolCategories = {
     'raffel_get_adapter',
     'raffel_api_patterns',
     'raffel_explain_error',
+    'raffel_implement_auth',
   ],
   codegen: [
     'raffel_create_server',
@@ -514,6 +545,7 @@ export const toolCategories = {
     'raffel_create_stream',
     'raffel_create_event',
     'raffel_add_middleware',
+    'raffel_implement_auth',
     'raffel_create_module',
     'raffel_project_blueprint',
     'raffel_api_endpoint_blueprint',
