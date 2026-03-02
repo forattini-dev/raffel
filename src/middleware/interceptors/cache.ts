@@ -5,7 +5,7 @@
  * Reduces latency and load on downstream services by caching responses.
  *
  * Features:
- * - Pluggable driver system (memory, file, redis, s3db)
+ * - Pluggable driver system (memory, file, redis)
  * - In-memory LRU cache with TTL (default)
  * - Container-aware memory limits (Docker/K8s)
  * - Procedure pattern matching

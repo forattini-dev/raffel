@@ -91,10 +91,6 @@ export {
   createGrpcAdapter,
   JsonRpcErrorCode,
   HttpMetadataKey,
-  // S3DB Resource Adapter
-  createS3DBAdapter,
-  createS3DBContextInterceptor,
-  generateS3DBHttpPaths,
 } from './adapters/index.js'
 export type {
   WebSocketAdapter,
@@ -112,21 +108,6 @@ export type {
   GrpcAdapterOptions,
   GrpcTlsOptions,
   GrpcMethodInfo,
-  // S3DB types
-  S3DBResourceLike,
-  S3DBDatabaseLike,
-  S3DBRelationDefinition,
-  S3DBAdapterOptions,
-  S3DBListInput,
-  S3DBGetInput,
-  S3DBCreateInput,
-  S3DBUpdateInput,
-  S3DBDeleteInput,
-  S3DBListResponse,
-  S3DBSingleResponse,
-  S3DBDeleteResponse,
-  S3DBOptionsResponse,
-  S3DBHeadResponse,
 } from './adapters/index.js'
 
 // === Validation ===
@@ -402,6 +383,20 @@ export {
   generateOpenAPIJson,
   generateOpenAPIYaml,
 } from './docs/openapi/index.js'
+
+// OpenAPI Documentation UI (ReDoc + Swagger UI)
+export {
+  serveRedoc,
+  serveSwaggerUI,
+  mountOpenApiDocs,
+} from './http/openapi-ui.js'
+export type {
+  RedocOptions,
+  SwaggerUIOptions,
+  DocsUI,
+  MountOpenApiDocsOptions,
+  HttpAppWithRoutes,
+} from './http/openapi-ui.js'
 export type {
   OpenAPIDocument,
   OpenAPIInfo,
@@ -472,8 +467,6 @@ export {
   createFileDriver as createCacheFileDriver,
   RedisDriver as CacheRedisDriver,
   createRedisDriver as createCacheRedisDriver,
-  S3DBDriver as CacheS3DBDriver,
-  createS3DBDriver as createCacheS3DBDriver,
 } from './cache/index.js'
 export type {
   CacheDriver,
@@ -488,8 +481,6 @@ export type {
   FileDriverOptions as CacheFileDriverOptions,
   RedisDriverOptions as CacheRedisDriverOptions,
   RedisLikeClient as CacheRedisLikeClient,
-  S3DBDriverOptions as CacheS3DBDriverOptions,
-  S3DBLikeClient,
   CacheDriverType,
   CacheDriverConfig,
   EvictionInfo as CacheEvictionInfo,
@@ -608,6 +599,27 @@ export type {
   DevelopmentScenarioInput,
   DevelopmentScenarioOutput,
 } from './dx/index.js'
+
+// === Session Store ===
+export {
+  createSessionInterceptor,
+  createMemorySessionDriver,
+  createRedisSessionDriver,
+  createS3dbSessionDriver,
+} from './middleware/session/index.js'
+export type {
+  Session,
+  SessionData,
+  SessionStore,
+  SessionConfig,
+  SessionCookieOptions,
+  SessionDriverType,
+  MemorySessionDriverOptions,
+  RedisLikeClient as SessionRedisLikeClient,
+  RedisSessionDriverOptions,
+  S3dbResource as SessionS3dbResource,
+  S3dbSessionDriverOptions,
+} from './middleware/session/index.js'
 
 // === Testing Mocks ===
 export * from './testing/index.js'
