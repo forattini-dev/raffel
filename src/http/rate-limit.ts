@@ -375,7 +375,7 @@ function createInMemoryRateLimitStore(
     reset: (key) => toRateLimitPromise(store.reset(key)),
     clear: () => toRateLimitPromise(store.clear()),
     cleanup: (windowMs) => toRateLimitPromise(store.cleanup(windowMs)),
-    stop: async () => store.shutdown(),
+    stop: async () => Promise.resolve(),
     getKeyCount: () => store.size,
   }
 }
@@ -556,6 +556,10 @@ class InMemoryRateLimitStore {
 
   get size(): number {
     return this.entries.size
+  }
+
+  shutdown(): void {
+    this.entries.clear()
   }
 
   private evictOldest(): void {

@@ -44,7 +44,8 @@ export interface RedisLikeClient {
   decr?(key: string): Promise<number>
   pexpire?(key: string, ttlMs: number): Promise<number>
   pttl?(key: string): Promise<number>
-  del?(key: string): Promise<number>
+  del?(...keys: string[]): Promise<number>
+  keys?(pattern: string): Promise<string[]>
 }
 
 export interface S3dbRateLimitResource {

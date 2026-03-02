@@ -81,11 +81,10 @@ export class RedisRateLimitDriver implements RateLimitDriver {
   }
 
   async clear(): Promise<void> {
-    if (!this.client.keys) return
-    const keys = await this.client.keys(`${this.prefix}*`)
-    if (keys.length > 0) {
-      await this.client.del(...keys)
-    }
+    const keys = await (this.client.keys?.(`${this.prefix}*`) ?? Promise.resolve([]))
+    if (keys.length === 0) return
+    if (!this.client.del) return
+    await Promise.all(keys.map((key) => this.client.del!(key)))
   }
 
   private getFullKey(key: string): string {
