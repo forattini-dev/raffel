@@ -892,6 +892,8 @@ export function createServer(options: ServerOptions): RaffelServer {
         securitySchemes: config.securitySchemes,
         defaultSecurity: config.defaultSecurity,
         tags: config.tags,
+        contentTypes: config.contentTypes,
+        tagGroups: config.tagGroups,
         externalDocs: config.externalDocs,
         ui: config.ui,
         documentation: config.documentation,

@@ -41,10 +41,19 @@ import type { GraphQLOptions, GraphQLAdapter } from '../graphql/index.js'
 import type { MetricsConfig, MetricRegistry } from '../metrics/index.js'
 import type { TracingConfig, Tracer } from '../tracing/index.js'
 import type { Codec } from '../utils/content-codecs.js'
-import type { USDDocument, USDProtocol, USDTag, USDExternalDocs, USDServer, USDSecurityScheme } from '../usd/index.js'
+import type {
+  USDDocument,
+  USDProtocol,
+  USDTag,
+  USDTagGroup,
+  USDExternalDocs,
+  USDServer,
+  USDSecurityScheme,
+} from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { EnvelopeConfig } from '../middleware/types.js'
+import type { SessionConfig } from '../middleware/session/types.js'
 
 // === Providers (Dependency Injection) ===
 
@@ -486,14 +495,14 @@ export interface ServerOptions {
    * @example
    * ```typescript
    * import { PrismaClient } from '@prisma/client'
-   * import { S3DB } from 's3db.js'
+   * import { Redis } from 'ioredis'
    *
    * const server = createServer({
    *   port: 3000,
    *   providers: {
    *     db: () => new PrismaClient(),
-   *     s3db: () => new S3DB({ bucket: 'my-bucket' }),
-   *     config: () => ({
+   *     cacheStore: () => new Redis(),
+    *     config: () => ({
    *       apiKey: process.env.API_KEY,
    *       environment: process.env.NODE_ENV,
    *     }),
@@ -507,6 +516,38 @@ export interface ServerOptions {
    * ```
    */
   providers?: ProvidersConfig
+
+  // === Session ===
+
+  /**
+   * Session store configuration.
+   * Injects `ctx.session` into every handler via the session interceptor.
+   *
+   * - `driver: 'memory'` — in-memory store (dev/single-instance)
+   * - `driver: 'redis'` — Redis store (production; requires creating a store with `createRedisSessionDriver`)
+   * - `driver: store` — custom `SessionStore` instance
+   *
+   * Set to `false` to explicitly disable session support (default: disabled).
+   *
+   * @example
+   * ```typescript
+   * const server = createServer({
+   *   port: 3000,
+   *   session: {
+   *     driver: 'memory',
+   *     ttl: 3600,
+   *     cookie: { name: 'sid', secure: true },
+   *   },
+   * })
+   *
+   * server.procedure('auth.login').handler(async (input, ctx) => {
+   *   ctx.session.data.userId = input.userId
+   *   ctx.session.touch()
+   *   return { ok: true }
+   * })
+   * ```
+   */
+  session?: SessionConfig | false
 
   // === Advanced ===
 
@@ -1852,7 +1893,9 @@ export interface RaffelServer {
    * ```typescript
    * const server = createServer({ port: 3000 })
    *   .provide('db', () => new PrismaClient())
-   *   .provide('s3db', () => new S3DB({ bucket: 'my-bucket' }))
+   *   .provide('cacheStore', () => ({
+   *     host: process.env.CACHE_HOST,
+   *   }))
    *   .provide('config', () => ({ apiKey: process.env.API_KEY }))
    *
    * // In handlers:
@@ -2599,6 +2642,17 @@ export interface USDDocsConfig {
 
   /** Include stream event schemas */
   includeStreamEventSchemas?: boolean
+
+  /** Global content types for documentation and content negotiation */
+  contentTypes?: {
+    /** Default content type */
+    default?: string
+    /** Supported content types */
+    supported?: string[]
+  }
+
+  /** Tag groups for the documentation sidebar */
+  tagGroups?: USDTagGroup[]
 
   /** JSON-RPC generation options */
   jsonrpc?: {
