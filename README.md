@@ -2,7 +2,7 @@
 
 # Raffel
 
-### One Core. Every Protocol.
+### One server. HTTP, WebSocket, gRPC, TCP, UDP — all at once.
 
 [![npm version](https://img.shields.io/npm/v/raffel.svg?style=flat-square&color=8b5cf6)](https://www.npmjs.com/package/raffel)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
