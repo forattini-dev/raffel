@@ -52,6 +52,15 @@ export interface HttpRequest {
   json<T = unknown>(): Promise<T>
 
   /**
+   * Parse request body according to content type.
+   * Supports:
+   * - application/json -> JSON object
+   * - application/x-www-form-urlencoded -> form object
+   * - multipart/form-data -> form object
+   */
+  parseBody<T = Record<string, unknown>>(): Promise<T>
+
+  /**
    * Get request body as text
    */
   text(): Promise<string>
@@ -189,7 +198,7 @@ class HttpRequestImpl implements HttpRequest {
   private parsedUrl: URL
   private queryParams: Record<string, string> | null = null
   private headersObj: Record<string, string> | null = null
-  private cachedBody: { json?: unknown; text?: string } = {}
+  private cachedBody: { parseBody?: Record<string, unknown>; json?: unknown; text?: string } = {}
 
   constructor(request: Request, params: Record<string, string>) {
     this.raw = request
@@ -252,6 +261,76 @@ class HttpRequestImpl implements HttpRequest {
     const json = JSON.parse(text) as T
     this.cachedBody.json = json
     return json
+  }
+
+  async parseBody<T = Record<string, unknown>>(): Promise<T> {
+    if (this.cachedBody.parseBody) {
+      return this.cachedBody.parseBody as T
+    }
+
+    const rawContentType = this.header('content-type')
+    const contentType = typeof rawContentType === 'string' ? rawContentType.toLowerCase() : ''
+
+    if (contentType.includes('application/json')) {
+      const parsed = await this.json<Record<string, unknown>>()
+      this.cachedBody.parseBody = parsed as Record<string, unknown>
+      return parsed as T
+    }
+
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      const text = await this.text()
+      const body: Record<string, unknown> = {}
+
+      if (text) {
+        const params = new URLSearchParams(text)
+        for (const [key, value] of params.entries()) {
+          const existing = body[key]
+          if (existing === undefined) {
+            body[key] = value
+          } else if (Array.isArray(existing)) {
+            existing.push(value)
+          } else {
+            body[key] = [existing as string, value]
+          }
+        }
+      }
+
+      this.cachedBody.parseBody = body
+      return body as T
+    }
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await this.formData()
+      const body: Record<string, unknown> = {}
+
+      for (const [key, value] of formData.entries()) {
+        const existing = body[key]
+        if (existing === undefined) {
+          body[key] = value
+          continue
+        }
+
+        if (Array.isArray(existing)) {
+          existing.push(value)
+        } else {
+          body[key] = [existing, value]
+        }
+      }
+
+      this.cachedBody.parseBody = body
+      return body as T
+    }
+
+    const text = await this.text()
+    if (!text) {
+      const body = {}
+      this.cachedBody.parseBody = body
+      return body as T
+    }
+
+    const fallback = { body: text }
+    this.cachedBody.parseBody = fallback
+    return fallback as T
   }
 
   async text(): Promise<string> {

@@ -58,6 +58,10 @@
       "types": "./dist/http/index.d.ts",
       "import": "./dist/http/index.js"
     },
+    "./http/html": {
+      "types": "./dist/http/html.d.ts",
+      "import": "./dist/http/html.js"
+    },
     "./http/cookie": {
       "types": "./dist/http/cookie.d.ts",
       "import": "./dist/http/cookie.js"
