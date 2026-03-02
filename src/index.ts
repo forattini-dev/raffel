@@ -707,3 +707,24 @@ export type {
   MCPPromptResult,
   CategoryName as MCPCategoryName,
 } from './mcp/index.js'
+
+// === JSON Server ===
+export {
+  createJsonServer,
+  createJsonModule,
+  InMemoryStore,
+  loadDb,
+  normalizeId,
+} from './json-server/index.js'
+export type {
+  JsonDb,
+  JsonRecord,
+  StoreEvent,
+  StoreEventOp,
+  ListQuery,
+  ListResult,
+  JsonModuleOptions,
+  JsonServerOptions,
+  JsonServerResult,
+  JsonModule,
+} from './json-server/index.js'
