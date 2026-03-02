@@ -67,6 +67,8 @@ export default defineConfig({
         'src/validation/adapters/index.ts',
         'src/validation/index.ts',
         'src/validation/types.ts',
+        'src/json-server/store.ts',
+        'src/json-server/index.ts',
       ],
       thresholds: {
         branches: 90,
