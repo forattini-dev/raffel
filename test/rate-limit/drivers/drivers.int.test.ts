@@ -8,9 +8,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { MemoryRateLimitDriver } from '../../../src/rate-limit/drivers/memory.js'
 import { FilesystemRateLimitDriver } from '../../../src/rate-limit/drivers/filesystem.js'
 import { RedisRateLimitDriver } from '../../../src/rate-limit/drivers/redis.js'
-import type { RateLimitDriver, RedisLikeClient } from '../../../src/rate-limit/types.js'
+import { S3dbRateLimitDriver } from '../../../src/rate-limit/drivers/s3db.js'
+import type { RateLimitDriver, RedisLikeClient, S3dbRateLimitResource } from '../../../src/rate-limit/types.js'
 import fs from 'node:fs'
-import path from 'node:path'
 
 // ============================================================================
 // Memory Driver Tests
@@ -311,6 +311,18 @@ describe('RedisRateLimitDriver', () => {
     return {
       store,
 
+      async get(key: string): Promise<string | number | null> {
+        const existing = store.get(key)
+        if (!existing) return null
+
+        if (existing.ttl > 0 && existing.ttl < Date.now()) {
+          store.delete(key)
+          return null
+        }
+
+        return existing.value
+      },
+
       async incr(key: string): Promise<number> {
         const existing = store.get(key)
         if (existing) {
@@ -501,6 +513,90 @@ describe('RedisRateLimitDriver', () => {
 })
 
 // ============================================================================
+// S3db Driver Tests (in-memory mock resource)
+// ============================================================================
+
+describe('S3dbRateLimitDriver', () => {
+  function createMockS3dbResource(): S3dbRateLimitResource & { store: Map<string, { count: number; resetAt: number }> } {
+    const store = new Map<string, { count: number; resetAt: number }>()
+
+    return {
+      store,
+
+      async get(key: string): Promise<Record<string, unknown> | null> {
+        const existing = store.get(key)
+        if (!existing) return null
+        return {
+          count: existing.count,
+          resetAt: existing.resetAt,
+        }
+      },
+
+      async upsert(key: string, data: Record<string, unknown>): Promise<void> {
+        const countRaw = data.count
+        const resetAtRaw = data.resetAt
+
+        if (typeof countRaw !== 'number' || typeof resetAtRaw !== 'number') {
+          return
+        }
+
+        store.set(key, { count: countRaw, resetAt: resetAtRaw })
+      },
+
+      async delete(key: string): Promise<void> {
+        store.delete(key)
+      },
+
+      async keys(prefix: string): Promise<string[]> {
+        return [...store.keys()].filter((key) => key.startsWith(`${prefix}:`))
+      },
+    }
+  }
+
+  it('should increment and get records', async () => {
+    const driver = new S3dbRateLimitDriver({ resource: createMockS3dbResource() })
+
+    const first = await driver.increment('client-1', 60000)
+    const second = await driver.increment('client-1', 60000)
+
+    expect(first.count).toBe(1)
+    expect(first.resetAt).toBeGreaterThan(Date.now())
+    expect(second.count).toBe(2)
+
+    const loaded = await driver.get('client-1')
+    expect(loaded).toBeTruthy()
+    expect(loaded!.count).toBe(2)
+  })
+
+  it('should reset key on reset()', async () => {
+    const driver = new S3dbRateLimitDriver({ resource: createMockS3dbResource() })
+
+    await driver.increment('client-reset', 60000)
+    await driver.reset('client-reset')
+    const loaded = await driver.get('client-reset')
+
+    expect(loaded).toBeNull()
+  })
+
+  it('should clear all namespaced keys', async () => {
+    const resource = createMockS3dbResource()
+    const driver = new S3dbRateLimitDriver({
+      resource,
+      namespace: 'rl-test',
+    })
+
+    await driver.increment('client-1', 60000)
+    await driver.increment('client-2', 60000)
+
+    await driver.clear()
+
+    expect(await driver.get('client-1')).toBeNull()
+    expect(await driver.get('client-2')).toBeNull()
+    expect(resource.store.size).toBe(0)
+  })
+})
+
+// ============================================================================
 // Driver Interface Compliance Tests
 // ============================================================================
 
@@ -522,6 +618,15 @@ describe('Driver Interface Compliance', () => {
       create: () => {
         const store = new Map<string, { value: number; ttl: number }>()
         const client: RedisLikeClient = {
+          async get(key: string): Promise<string | number | null> {
+            const existing = store.get(key)
+            if (!existing) return null
+            if (existing.ttl > 0 && existing.ttl < Date.now()) {
+              store.delete(key)
+              return null
+            }
+            return existing.value
+          },
           async incr(key: string) {
             const existing = store.get(key)
             if (existing) {
@@ -589,6 +694,21 @@ describe('Driver Interface Compliance', () => {
         expect(record2).toHaveProperty('resetAt')
 
         expect(record2.count).toBe(record1.count + 1)
+      })
+
+      it('should support get and reset', async () => {
+        const key = `${name}:compliance:get`
+        const before = await driver.get(key, 60000)
+        expect(before).toBeNull()
+
+        await driver.increment(key, 60000)
+        const afterIncrement = await driver.get(key, 60000)
+        expect(afterIncrement).toBeTruthy()
+        expect(afterIncrement!.count).toBe(1)
+
+        await driver.reset(key)
+        const afterReset = await driver.get(key, 60000)
+        expect(afterReset).toBeNull()
       })
     })
   }

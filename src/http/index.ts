@@ -493,6 +493,17 @@ export type {
   RateLimitStats,
   RateLimitMiddlewareOptions,
 } from './rate-limit.js'
+export type {
+  RateLimitDriver,
+  RateLimitDriverType,
+  RateLimitDriverConfig,
+  MemoryRateLimitDriverOptions,
+  FilesystemRateLimitDriverOptions,
+  RedisRateLimitDriverOptions,
+  S3dbRateLimitDriverOptions,
+  S3dbRateLimitResource,
+  RedisLikeClient as RateLimitRedisLikeClient,
+} from '../rate-limit/types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation Middleware

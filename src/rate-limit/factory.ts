@@ -11,6 +11,7 @@ import type {
   MemoryRateLimitDriverOptions,
   FilesystemRateLimitDriverOptions,
   RedisRateLimitDriverOptions,
+  S3dbRateLimitDriverOptions,
 } from './types.js'
 
 let MemoryRateLimitDriverClass: typeof import('./drivers/memory.js').MemoryRateLimitDriver | null = null
@@ -18,6 +19,7 @@ let FilesystemRateLimitDriverClass:
   | typeof import('./drivers/filesystem.js').FilesystemRateLimitDriver
   | null = null
 let RedisRateLimitDriverClass: typeof import('./drivers/redis.js').RedisRateLimitDriver | null = null
+let S3dbRateLimitDriverClass: typeof import('./drivers/s3db.js').S3dbRateLimitDriver | null = null
 
 function loadMemoryRateLimitDriver(): typeof import('./drivers/memory.js').MemoryRateLimitDriver {
   if (!MemoryRateLimitDriverClass) {
@@ -26,7 +28,7 @@ function loadMemoryRateLimitDriver(): typeof import('./drivers/memory.js').Memor
     MemoryRateLimitDriverClass = MemoryRateLimitDriver
   }
 
-  return MemoryRateLimitDriverClass as typeof import('./drivers/memory.js').MemoryRateLimitDriver
+  return MemoryRateLimitDriverClass!
 }
 
 function loadFilesystemRateLimitDriver(): typeof import('./drivers/filesystem.js').FilesystemRateLimitDriver {
@@ -36,7 +38,7 @@ function loadFilesystemRateLimitDriver(): typeof import('./drivers/filesystem.js
     FilesystemRateLimitDriverClass = FilesystemRateLimitDriver
   }
 
-  return FilesystemRateLimitDriverClass as typeof import('./drivers/filesystem.js').FilesystemRateLimitDriver
+  return FilesystemRateLimitDriverClass!
 }
 
 function loadRedisRateLimitDriver(): typeof import('./drivers/redis.js').RedisRateLimitDriver {
@@ -46,15 +48,29 @@ function loadRedisRateLimitDriver(): typeof import('./drivers/redis.js').RedisRa
     RedisRateLimitDriverClass = RedisRateLimitDriver
   }
 
-  return RedisRateLimitDriverClass as typeof import('./drivers/redis.js').RedisRateLimitDriver
+  return RedisRateLimitDriverClass!
+}
+
+function loadS3dbRateLimitDriver(): typeof import('./drivers/s3db.js').S3dbRateLimitDriver {
+  if (!S3dbRateLimitDriverClass) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { S3dbRateLimitDriver } = require('./drivers/s3db.js')
+    S3dbRateLimitDriverClass = S3dbRateLimitDriver
+  }
+
+  return S3dbRateLimitDriverClass!
 }
 
 export function createDriver(type: 'memory', options?: MemoryRateLimitDriverOptions): RateLimitDriver
 export function createDriver(type: 'filesystem', options?: FilesystemRateLimitDriverOptions): RateLimitDriver
 export function createDriver(type: 'redis', options: RedisRateLimitDriverOptions): RateLimitDriver
+export function createDriver(type: 's3db', options: S3dbRateLimitDriverOptions): RateLimitDriver
 export function createDriver(
   type: RateLimitDriverType,
-  options?: MemoryRateLimitDriverOptions | FilesystemRateLimitDriverOptions | RedisRateLimitDriverOptions
+  options?: MemoryRateLimitDriverOptions
+    | FilesystemRateLimitDriverOptions
+    | RedisRateLimitDriverOptions
+    | S3dbRateLimitDriverOptions
 ): RateLimitDriver {
   switch (type) {
     case 'memory':
@@ -63,6 +79,8 @@ export function createDriver(
       return new (loadFilesystemRateLimitDriver())(options as FilesystemRateLimitDriverOptions)
     case 'redis':
       return new (loadRedisRateLimitDriver())(options as RedisRateLimitDriverOptions)
+    case 's3db':
+      return new (loadS3dbRateLimitDriver())(options as S3dbRateLimitDriverOptions)
     default:
       throw new Error(`Unknown rate limit driver type: ${type}`)
   }
@@ -76,6 +94,8 @@ export function createDriverFromConfig(config: RateLimitDriverConfig): RateLimit
       return createDriver('filesystem', config.options)
     case 'redis':
       return createDriver('redis', config.options)
+    case 's3db':
+      return createDriver('s3db', config.options)
     default:
       throw new Error(`Unknown rate limit driver: ${(config as { driver: string }).driver}`)
   }

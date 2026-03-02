@@ -29,6 +29,14 @@
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
 import type { ApiEventEmitter } from './events.js'
+import type {
+  RateLimitDriver,
+  RateLimitDriverConfig,
+  RateLimitDriverType,
+  MemoryRateLimitDriverOptions,
+  FilesystemRateLimitDriverOptions,
+} from '../rate-limit/types.js'
+import { createDriver, createDriverFromConfig } from '../rate-limit/factory.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -120,6 +128,18 @@ export interface RateLimiterOptions {
   store?: RateLimitStore
 
   /**
+   * Rate limit driver configuration
+   *
+   * Supports:
+   * - 'memory' for in-memory storage (or built-in defaults)
+   * - 'filesystem' for file-backed storage
+   * - 'redis' with explicit driver config + options
+   * - 's3db' with explicit driver config + resource
+   * - explicit driver instance
+   */
+  driver?: RateLimitDriverConfig | RateLimitDriverType | RateLimitDriver
+
+  /**
    * Skip rate limiting if returns true
    */
   skip?: (c: HttpContextInterface) => boolean | Promise<boolean>
@@ -199,7 +219,7 @@ export interface RateLimitStore {
   /**
    * Get current count for a key
    */
-  get(key: string): Promise<{ count: number; resetAt: number } | undefined>
+  get(key: string, windowMs?: number): Promise<{ count: number; resetAt: number } | undefined>
 
   /**
    * Reset a key
@@ -254,6 +274,151 @@ export interface RateLimitStats {
   totalKeys: number
   totalRequests: number
   limitedRequests: number
+}
+
+interface InternalRateLimitStore {
+  increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number; timestamps?: number[] }>
+  get(
+    key: string,
+    windowMs: number
+  ): Promise<{ count: number; resetAt: number } | undefined>
+  reset(key: string): Promise<void>
+  clear(): Promise<void>
+  cleanup(windowMs: number): Promise<number> | number
+  stop(): Promise<void>
+  getKeyCount(): number
+}
+
+function toRateLimitPromise<T>(value: T | Promise<T>): Promise<T> {
+  return Promise.resolve(value)
+}
+
+function resolveRateLimitDriver(
+  options: Pick<RateLimiterOptions, 'driver' | 'maxUniqueKeys' | 'cleanupInterval'>
+): RateLimitDriver {
+  const { driver, maxUniqueKeys, cleanupInterval } = options
+
+  const memoryDefaults: MemoryRateLimitDriverOptions = {}
+  const filesystemDefaults: FilesystemRateLimitDriverOptions = {}
+  if (maxUniqueKeys !== undefined) {
+    memoryDefaults.maxKeys = maxUniqueKeys
+  }
+  if (cleanupInterval !== undefined) {
+    memoryDefaults.cleanupInterval = cleanupInterval
+    filesystemDefaults.cleanupInterval = cleanupInterval
+  }
+
+  if (!driver) {
+    return createDriver('memory', memoryDefaults)
+  }
+
+  if (typeof driver === 'string') {
+    if (driver === 'memory') {
+      return createDriver('memory', memoryDefaults)
+    }
+    if (driver === 'filesystem') {
+      return createDriver('filesystem', filesystemDefaults)
+    }
+    if (driver === 'redis') {
+      throw new Error(
+        "Rate limit driver 'redis' requires configuration object. Use { driver: 'redis', options: { client, ... } }."
+      )
+    }
+    if (driver === 's3db') {
+      throw new Error(
+        "Rate limit driver 's3db' requires configuration object. Use { driver: 's3db', options: { resource, ... } }."
+      )
+    }
+    throw new Error(`Unknown rate limit driver '${driver}'`)
+  }
+
+  if ('increment' in driver && typeof driver.increment === 'function') {
+    return driver
+  }
+
+  const config = driver as RateLimitDriverConfig
+  if (config.driver === 'memory') {
+    return createDriver('memory', {
+      ...memoryDefaults,
+      ...config.options,
+    })
+  }
+
+  if (config.driver === 'filesystem') {
+    return createDriver('filesystem', {
+      ...filesystemDefaults,
+      ...config.options,
+    })
+  }
+
+  if (config.driver === 'redis') {
+    return createDriverFromConfig(config)
+  }
+
+  if (config.driver === 's3db') {
+    return createDriverFromConfig(config)
+  }
+
+  throw new Error(`Unknown rate limit driver '${(config as { driver: string }).driver}'`)
+}
+
+function createInMemoryRateLimitStore(
+  maxUniqueKeys: number,
+  slidingWindow: boolean,
+  cleanupInterval: number
+): InternalRateLimitStore {
+  const store = new InMemoryRateLimitStore(maxUniqueKeys, slidingWindow)
+
+  return {
+    increment: (key, windowMs) => toRateLimitPromise(store.increment(key, windowMs)),
+    get: (key, windowMs) => toRateLimitPromise(store.get(key, windowMs)),
+    reset: (key) => toRateLimitPromise(store.reset(key)),
+    clear: () => toRateLimitPromise(store.clear()),
+    cleanup: (windowMs) => toRateLimitPromise(store.cleanup(windowMs)),
+    stop: async () => store.shutdown(),
+    getKeyCount: () => store.size,
+  }
+}
+
+function createRateLimitStoreAdapter(
+  options: RateLimiterOptions
+): InternalRateLimitStore {
+  if (options.store) {
+    const customStore = options.store
+
+    return {
+      increment: (key, windowMs) => toRateLimitPromise(customStore.increment(key, windowMs)),
+      get: (key, _windowMs) => toRateLimitPromise(customStore.get(key, _windowMs)),
+      reset: (key) => toRateLimitPromise(customStore.reset(key)),
+      clear: () => toRateLimitPromise(customStore.clear()),
+      cleanup: () => Promise.resolve(0),
+      stop: async () => Promise.resolve(),
+      getKeyCount: () => {
+        const maybeNumber = (customStore as { size?: number }).size
+        return maybeNumber ?? 0
+      },
+    }
+  }
+
+  const driver = resolveRateLimitDriver(options)
+
+  return {
+    increment: (key, windowMs) => toRateLimitPromise(driver.increment(key, windowMs)),
+    get: (key, _windowMs) => {
+      return toRateLimitPromise(
+        driver.get(key)
+          .then((record) => {
+            if (!record) return undefined
+            return { count: record.count, resetAt: record.resetAt }
+          })
+      )
+    },
+    reset: (key) => toRateLimitPromise(driver.reset ? driver.reset(key) : Promise.resolve()),
+    clear: () => toRateLimitPromise(driver.clear ? driver.clear() : Promise.resolve()),
+    cleanup: () => Promise.resolve(0),
+    stop: () => toRateLimitPromise(driver.shutdown ? driver.shutdown() : Promise.resolve()),
+    getKeyCount: () => 0,
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -508,21 +673,14 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
     cleanupInterval = 60000,
   } = options
 
-  const store = new InMemoryRateLimitStore(maxUniqueKeys, slidingWindow)
+  const store = options.store
+    ? createRateLimitStoreAdapter(options)
+    : options.driver
+      ? createRateLimitStoreAdapter(options)
+      : createInMemoryRateLimitStore(maxUniqueKeys, slidingWindow, cleanupInterval)
 
   let totalRequests = 0
   let limitedRequests = 0
-
-  // Cleanup timer
-  let cleanupTimer: ReturnType<typeof setInterval> | undefined
-  if (cleanupInterval > 0) {
-    cleanupTimer = setInterval(() => {
-      store.cleanup(windowMs)
-    }, cleanupInterval)
-    if (cleanupTimer.unref) {
-      cleanupTimer.unref()
-    }
-  }
 
   async function getKeyAndLimits(c: HttpContextInterface): Promise<{
     key: string
@@ -578,7 +736,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
         }
       }
 
-      const entry = store.get(key, effectiveWindowMs)
+      const entry = await store.get(key, effectiveWindowMs)
       const now = Date.now()
 
       if (!entry) {
@@ -641,7 +799,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
         }
       }
 
-      const result = store.increment(key, effectiveWindowMs)
+      const result = await store.increment(key, effectiveWindowMs)
       const now = Date.now()
 
       const limited = result.count > effectiveMax
@@ -689,28 +847,25 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
     },
 
     async reset(key: string): Promise<void> {
-      store.reset(key)
+      await store.reset(key)
     },
 
     getStats(): RateLimitStats {
       return {
-        totalKeys: store.size,
+        totalKeys: store.getKeyCount(),
         totalRequests,
         limitedRequests,
       }
     },
 
     async clear(): Promise<void> {
-      store.clear()
+      await store.clear()
       totalRequests = 0
       limitedRequests = 0
     },
 
     stop(): void {
-      if (cleanupTimer) {
-        clearInterval(cleanupTimer)
-        cleanupTimer = undefined
-      }
+      void store.stop()
     },
   }
 }
