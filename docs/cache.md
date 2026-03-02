@@ -9,7 +9,6 @@ Raffel provides a pluggable cache system with multiple driver support for differ
 | `memory` | Single instance, high performance | LRU/FIFO, compression, memory limits, container-aware |
 | `file` | Persistence across restarts | File-based, size limits, compression |
 | `redis` | Distributed caching | Any Redis-compatible client, key prefixing |
-| `s3db` | Durable distributed cache | S3-based, high durability |
 
 ## Quick Start
 
@@ -202,23 +201,6 @@ interface RedisLikeClient {
 }
 ```
 
-## S3DB Driver
-
-S3-based distributed cache for high durability requirements.
-
-```ts
-import { createCacheDriver } from 'raffel'
-import { S3DB } from 's3db.js'
-
-const s3db = new S3DB({ bucket: 'my-bucket' })
-
-const cache = await createCacheDriver('s3db', {
-  s3db: s3db,
-  resource: 'cache',        // S3DB resource name
-  prefix: 'v1:',           // Key prefix (optional)
-})
-```
-
 ## Using with Cache Interceptor
 
 The cache drivers integrate seamlessly with the cache interceptor:
@@ -269,7 +251,6 @@ import { createCacheDriver } from 'raffel'
 const cache = await createCacheDriver('memory', options)
 const cache = await createCacheDriver('file', options)
 const cache = await createCacheDriver('redis', options)
-const cache = await createCacheDriver('s3db', options)
 ```
 
 ### Sync Creation
@@ -281,7 +262,7 @@ import { createCacheDriverSync } from 'raffel'
 
 const cache = createCacheDriverSync('memory', options)
 const cache = createCacheDriverSync('file', options)
-// Note: redis and s3db require async initialization
+// Note: redis requires async initialization
 ```
 
 ### From Config Object
@@ -338,11 +319,9 @@ import {
   CacheMemoryDriver,
   CacheFileDriver,
   CacheRedisDriver,
-  CacheS3DBDriver,
   createCacheMemoryDriver,
   createCacheFileDriver,
   createCacheRedisDriver,
-  createCacheS3DBDriver,
 } from 'raffel'
 
 // Using class directly

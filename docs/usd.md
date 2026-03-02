@@ -90,6 +90,14 @@ interface USDMiddlewareConfig {
   // Security schemes
   securitySchemes?: Record<string, SecurityScheme>
 
+  // Documentation grouping in the UI sidebar
+  tagGroups?: Array<{
+    name: string
+    tags: string[]
+    description?: string
+    expanded?: boolean
+  }>
+
   // UI customization
   ui?: {
     theme?: 'light' | 'dark' | 'auto'

@@ -31,11 +31,17 @@ claude mcp add raffel npx raffel-mcp
 # All tools (default)
 npx raffel-mcp
 
+# Quick-start mode (recommended first step)
+npx raffel-mcp --quickstart
+
 # Minimal set (getting started + errors)
 npx raffel-mcp --category minimal
 
 # Docs + codegen
 npx raffel-mcp --category docs,codegen
+
+# Architecture planning only
+npx raffel-mcp --category architecture
 
 # HTTP transport
 npx raffel-mcp --transport http --port 3200
@@ -47,7 +53,9 @@ npx raffel-mcp --transport http --port 3200
 
 | Category | Description | Tokens |
 |:---------|:------------|:-------|
+| `quickstart` | Guided first-run setup + boilerplates | ~1.5K |
 | `minimal` | Essential tools only | ~2.5K |
+| `architecture` | Project structure + config guidance | ~4.5K |
 | `docs` | Documentation + patterns | ~3K |
 | `codegen` | Code generation helpers | ~4K |
 | `full` | All tools | ~8K |
@@ -85,7 +93,18 @@ npx raffel-mcp --list-categories
 | `raffel_create_event` | Generate event handlers |
 | `raffel_add_middleware` | Add interceptors |
 | `raffel_create_module` | Create router modules |
+| `raffel_project_blueprint` | Architecture blueprint + folder structure |
+| `raffel_api_endpoint_blueprint` | API endpoint scaffolding by resource |
+| `raffel_runtime_config` | Runtime/config recommendations per profile |
 | `raffel_boilerplate` | Multi-file project templates |
+
+### Architecture & Planning
+
+| Tool | Description |
+|:-----|:------------|
+| `raffel_project_blueprint` | Project structure, module boundaries, and implementation roadmap |
+| `raffel_api_endpoint_blueprint` | Endpoint-level boilerplate for CRUD/search/bulk/stream workflows |
+| `raffel_runtime_config` | `.env`, middleware defaults, and operational guardrails |
 
 ### Meta
 

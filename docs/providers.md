@@ -44,12 +44,6 @@ const server = createServer({
     // Simple factory function
     db: () => new PrismaClient(),
 
-    // Async factory
-    s3db: async () => {
-      const { S3DB } = await import('s3db.js')
-      return new S3DB({ bucket: 'my-bucket' })
-    },
-
     // Plain object
     config: () => ({
       apiKey: process.env.API_KEY,
@@ -64,7 +58,7 @@ const server = createServer({
 ```typescript
 const server = createServer({ port: 3000 })
   .provide('db', () => new PrismaClient())
-  .provide('s3db', () => new S3DB({ bucket: 'my-bucket' }))
+  .provide('redis', () => new Redis(process.env.REDIS_URL))
   .provide('config', () => ({
     apiKey: process.env.API_KEY,
   }))
@@ -122,7 +116,7 @@ Providers are **automatically available** in all discovered routes. No imports n
 // server.ts
 import { createServer } from 'raffel'
 import { PrismaClient } from '@prisma/client'
-import { S3DB } from 's3db.js'
+import Redis from 'ioredis'
 
 const server = createServer({
   port: 3000,
@@ -138,7 +132,7 @@ const server = createServer({
       await prisma.$connect()
       return prisma
     },
-    s3db: () => new S3DB({ bucket: 'my-app' }),
+    redis: () => new Redis(process.env.REDIS_URL),
     config: () => ({
       apiUrl: process.env.API_URL,
       environment: process.env.NODE_ENV,
@@ -220,12 +214,12 @@ export default {
 ```typescript
 // src/rpc/analytics/track.ts
 export default async function handler(input, ctx) {
-  // Store event in S3DB
-  await ctx.s3db.insert('events', {
+  // Store event in Redis list
+  await ctx.redis.lpush('events', JSON.stringify({
     type: input.event,
     data: input.data,
     timestamp: Date.now(),
-  })
+  }))
   return { tracked: true }
 }
 ```
@@ -283,12 +277,12 @@ For proper typing, extend the Context interface:
 ```typescript
 // types/context.d.ts
 import { PrismaClient } from '@prisma/client'
-import { S3DB } from 's3db.js'
+import Redis from 'ioredis'
 
 declare module 'raffel' {
   interface Context {
     db: PrismaClient
-    s3db: S3DB
+    redis: Redis
     config: {
       apiKey: string
       environment: string
@@ -297,7 +291,7 @@ declare module 'raffel' {
 }
 ```
 
-Now `ctx.db`, `ctx.s3db`, etc. are fully typed in your handlers.
+Now `ctx.db`, `ctx.redis`, etc. are fully typed in your handlers.
 
 ## Common Patterns
 
@@ -314,16 +308,17 @@ const server = createServer({ port: 3000 })
   )
 ```
 
-### S3DB
+### External Datastore
 
 ```typescript
-import { S3DB } from 's3db.js'
+import Redis from 'ioredis'
 
 const server = createServer({ port: 3000 })
-  .provide('s3db', () => new S3DB({
-    bucket: process.env.S3_BUCKET,
-    region: process.env.AWS_REGION,
-  }))
+  .provide(
+    'redis',
+    () => new Redis(process.env.REDIS_URL),
+    { onShutdown: (redis) => redis.quit() }
+  )
 ```
 
 ### Redis Cache

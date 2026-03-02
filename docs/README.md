@@ -445,7 +445,7 @@ Automatic detection:
 | **Auth** | JWT, API Key, OAuth2, OIDC, Sessions |
 | **Resilience** | Rate limit, Circuit breaker, Retry, Timeout, Bulkhead |
 | **Observability** | Prometheus metrics, OpenTelemetry tracing, Logging |
-| **Cache** | Memory, Redis, S3DB |
+| **Cache** | Memory, Redis, Custom drivers |
 | **Real-time** | Channels (Pusher-like), Presence, Broadcasting |
 | **DX** | Hot reload, Auto-discovery, REST Auto-CRUD |
 

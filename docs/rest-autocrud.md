@@ -100,4 +100,4 @@ Adapters power persistence. You can pass:
 - Prisma model delegate
 - Custom adapter implementing the REST adapter interface
 
-Raffel ships with S3DB adapter support via `createS3DBAdapter`.
+S3DB integration is available through a dedicated package (not a core adapter).
