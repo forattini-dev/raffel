@@ -37,6 +37,37 @@ export class RedisRateLimitDriver implements RateLimitDriver {
     return { count, resetAt }
   }
 
+  async get(key: string): Promise<RateLimitRecord | null> {
+    const fullKey = this.getFullKey(key)
+    const raw = await this.client.get(fullKey)
+
+    if (raw === null || raw === undefined) {
+      return null
+    }
+
+    const count = typeof raw === 'number' ? raw : parseInt(String(raw), 10)
+    if (!Number.isFinite(count) || count < 0) {
+      return null
+    }
+
+    let ttlMs = 0
+    if (this.client.pttl) {
+      ttlMs = await this.client.pttl(fullKey)
+      if (ttlMs < 0) {
+        ttlMs = 0
+      }
+    }
+
+    if (ttlMs <= 0) {
+      if (this.client.del) {
+        await this.client.del(fullKey)
+      }
+      return null
+    }
+
+    return { count, resetAt: Date.now() + ttlMs }
+  }
+
   async decrement(key: string): Promise<void> {
     if (!this.client.decr) return
     const fullKey = this.getFullKey(key)
@@ -47,6 +78,14 @@ export class RedisRateLimitDriver implements RateLimitDriver {
     if (!this.client.del) return
     const fullKey = this.getFullKey(key)
     await this.client.del(fullKey)
+  }
+
+  async clear(): Promise<void> {
+    if (!this.client.keys) return
+    const keys = await this.client.keys(`${this.prefix}*`)
+    if (keys.length > 0) {
+      await this.client.del(...keys)
+    }
   }
 
   private getFullKey(key: string): string {

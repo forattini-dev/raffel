@@ -41,6 +41,20 @@ export class FilesystemRateLimitDriver implements RateLimitDriver {
     return { ...record }
   }
 
+  async get(key: string): Promise<RateLimitRecord | null> {
+    const filePath = this.getFilePath(key)
+    const record = await this.readRecord(filePath)
+
+    if (!record || Date.now() > record.resetAt) {
+      if (record) {
+        await fs.promises.rm(filePath, { force: true })
+      }
+      return null
+    }
+
+    return { ...record }
+  }
+
   async decrement(key: string): Promise<void> {
     const filePath = this.getFilePath(key)
     const record = await this.readRecord(filePath)
@@ -52,6 +66,18 @@ export class FilesystemRateLimitDriver implements RateLimitDriver {
   async reset(key: string): Promise<void> {
     const filePath = this.getFilePath(key)
     await fs.promises.rm(filePath, { force: true })
+  }
+
+  async clear(): Promise<void> {
+    try {
+      const files = await fs.promises.readdir(this.directory)
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue
+        await fs.promises.rm(path.join(this.directory, file), { force: true })
+      }
+    } catch {
+      // ignore clear errors
+    }
   }
 
   async shutdown(): Promise<void> {

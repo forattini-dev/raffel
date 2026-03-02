@@ -39,6 +39,22 @@ export class MemoryRateLimitDriver implements RateLimitDriver {
     return { ...record }
   }
 
+  async get(key: string): Promise<RateLimitRecord | null> {
+    const now = Date.now()
+    const record = this.store.get(key)
+
+    if (!record) {
+      return null
+    }
+
+    if (now > record.resetAt) {
+      this.store.delete(key)
+      return null
+    }
+
+    return { ...record }
+  }
+
   async decrement(key: string): Promise<void> {
     const record = this.store.get(key)
     if (!record) return
@@ -54,6 +70,10 @@ export class MemoryRateLimitDriver implements RateLimitDriver {
       clearInterval(this.cleanupHandle)
       this.cleanupHandle = null
     }
+  }
+
+  async clear(): Promise<void> {
+    this.store.clear()
   }
 
   private cleanupExpired(): void {
