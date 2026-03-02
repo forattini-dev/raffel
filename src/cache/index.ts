@@ -20,11 +20,6 @@
  *   - Key prefixing
  *   - Optional compression
  *
- * - `s3db`: S3-based persistent cache
- *   - Works with S3DB library
- *   - Distributed cache
- *   - High durability
- *
  * @example Basic usage with memory driver
  * ```typescript
  * import { createDriver } from 'raffel/cache'
@@ -71,8 +66,6 @@ export type {
   FileDriverOptions,
   RedisDriverOptions,
   RedisLikeClient,
-  S3DBDriverOptions,
-  S3DBLikeClient,
   CacheDriverType,
   CacheDriverConfig,
   EvictionInfo,
@@ -96,6 +89,4 @@ export {
   createFileDriver,
   RedisDriver,
   createRedisDriver,
-  S3DBDriver,
-  createS3DBDriver,
 } from './drivers/index.js'

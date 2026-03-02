@@ -12,14 +12,12 @@ import type {
   MemoryDriverOptions,
   FileDriverOptions,
   RedisDriverOptions,
-  S3DBDriverOptions,
 } from './types.js'
 
 // Lazy-loaded driver constructors
 let MemoryDriverClass: typeof import('./drivers/memory.js').MemoryDriver | null = null
 let FileDriverClass: typeof import('./drivers/file.js').FileDriver | null = null
 let RedisDriverClass: typeof import('./drivers/redis.js').RedisDriver | null = null
-let S3DBDriverClass: typeof import('./drivers/s3db.js').S3DBDriver | null = null
 
 /**
  * Lazily load the Memory driver
@@ -55,17 +53,6 @@ async function loadRedisDriver(): Promise<typeof import('./drivers/redis.js').Re
 }
 
 /**
- * Lazily load the S3DB driver
- */
-async function loadS3DBDriver(): Promise<typeof import('./drivers/s3db.js').S3DBDriver> {
-  if (!S3DBDriverClass) {
-    const module = await import('./drivers/s3db.js')
-    S3DBDriverClass = module.S3DBDriver
-  }
-  return S3DBDriverClass
-}
-
-/**
  * Create a cache driver by type
  *
  * Drivers are lazily loaded to avoid bundling unused dependencies.
@@ -94,13 +81,6 @@ async function loadS3DBDriver(): Promise<typeof import('./drivers/s3db.js').S3DB
  * })
  * ```
  *
- * @example S3DB driver
- * ```typescript
- * const driver = await createDriver('s3db', {
- *   s3db: s3dbInstance,
- *   resource: 'cache',
- * })
- * ```
  */
 export async function createDriver(
   type: 'memory',
@@ -115,12 +95,8 @@ export async function createDriver(
   options: RedisDriverOptions
 ): Promise<CacheDriver>
 export async function createDriver(
-  type: 's3db',
-  options: S3DBDriverOptions
-): Promise<CacheDriver>
-export async function createDriver(
   type: CacheDriverType,
-  options?: MemoryDriverOptions | FileDriverOptions | RedisDriverOptions | S3DBDriverOptions
+  options?: MemoryDriverOptions | FileDriverOptions | RedisDriverOptions
 ): Promise<CacheDriver> {
   switch (type) {
     case 'memory': {
@@ -134,10 +110,6 @@ export async function createDriver(
     case 'redis': {
       const Driver = await loadRedisDriver()
       return new Driver(options as RedisDriverOptions)
-    }
-    case 's3db': {
-      const Driver = await loadS3DBDriver()
-      return new Driver(options as S3DBDriverOptions)
     }
     default:
       throw new Error(`Unknown cache driver type: ${type}`)
@@ -163,8 +135,6 @@ export async function createDriverFromConfig(config: CacheDriverConfig): Promise
       return createDriver('file', config.options)
     case 'redis':
       return createDriver('redis', config.options)
-    case 's3db':
-      return createDriver('s3db', config.options)
     default:
       throw new Error(`Unknown cache driver: ${(config as { driver: string }).driver}`)
   }
@@ -185,8 +155,12 @@ export function createDriverSync(
   options?: FileDriverOptions
 ): CacheDriver
 export function createDriverSync(
-  type: CacheDriverType,
-  options?: MemoryDriverOptions | FileDriverOptions
+  type: 'redis',
+  options?: RedisDriverOptions
+): CacheDriver
+export function createDriverSync(
+  type: 'memory' | 'file' | 'redis',
+  options?: MemoryDriverOptions | FileDriverOptions | RedisDriverOptions
 ): CacheDriver {
   // For sync creation, we need to use require-style imports
   // This is a fallback for when async/await is not available
@@ -202,7 +176,6 @@ export function createDriverSync(
       return new FileDriver(options as FileDriverOptions)
     }
     case 'redis':
-    case 's3db':
       throw new Error(`${type} driver requires async initialization. Use createDriver() instead.`)
     default:
       throw new Error(`Unknown cache driver type: ${type}`)
@@ -212,7 +185,7 @@ export function createDriverSync(
 /**
  * Available driver types
  */
-export const DRIVER_TYPES: CacheDriverType[] = ['memory', 'file', 'redis', 's3db']
+export const DRIVER_TYPES: CacheDriverType[] = ['memory', 'file', 'redis']
 
 /**
  * Check if a driver type is valid

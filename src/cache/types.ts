@@ -318,41 +318,9 @@ export interface RedisLikeClient {
 }
 
 /**
- * S3DB driver options
- */
-export interface S3DBDriverOptions {
-  /**
-   * S3DB instance
-   */
-  s3db: S3DBLikeClient
-
-  /**
-   * Resource name for cache entries
-   * @default 'cache'
-   */
-  resource?: string
-
-  /**
-   * Enable compression
-   */
-  compression?: boolean
-}
-
-/**
- * Duck-typed S3DB client interface
- */
-export interface S3DBLikeClient {
-  get(resource: string, key: string): Promise<unknown>
-  set(resource: string, key: string, value: unknown, options?: object): Promise<void>
-  delete(resource: string, key: string): Promise<void>
-  list?(resource: string, options?: object): Promise<unknown[]>
-  clear?(resource: string): Promise<void>
-}
-
-/**
  * Cache driver type union
  */
-export type CacheDriverType = 'memory' | 'file' | 'redis' | 's3db'
+export type CacheDriverType = 'memory' | 'file' | 'redis'
 
 /**
  * Cache driver configuration
@@ -361,4 +329,3 @@ export type CacheDriverConfig =
   | { driver: 'memory'; options?: MemoryDriverOptions }
   | { driver: 'file'; options?: FileDriverOptions }
   | { driver: 'redis'; options: RedisDriverOptions }
-  | { driver: 's3db'; options: S3DBDriverOptions }
