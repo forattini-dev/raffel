@@ -15,7 +15,7 @@
 
 ---
 
-## If You Know Hono, You Know Raffel
+## If You Know Express, You Know Raffel
 
 ```typescript
 import { HttpApp, serve } from 'raffel'
