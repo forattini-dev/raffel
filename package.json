@@ -1,11 +1,12 @@
 {
   "name": "raffel",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Unified multi-protocol server runtime. One core, multiple transports.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
+    "raffel": "./dist/mcp/cli.js",
     "raffel-mcp": "./dist/mcp/cli.js"
   },
   "exports": {

@@ -113,7 +113,7 @@ For Claude Code integration, add to ~/.claude/mcp.json:
   "mcpServers": {
     "raffel": {
       "command": "npx",
-      "args": ["raffel-mcp"]
+      "args": ["raffel@latest"]
     }
   }
 }
