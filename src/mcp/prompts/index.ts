@@ -55,9 +55,9 @@ export const prompts: MCPPrompt[] = [
   },
   {
     name: 'add_caching',
-    description: 'Add caching layer with configurable drivers (memory, Redis, S3DB)',
+    description: 'Add caching layer with configurable drivers (memory, Redis)',
     arguments: [
-      { name: 'driver', description: 'Cache driver (memory, redis, s3db)', required: true },
+      { name: 'driver', description: 'Cache driver (memory, redis)', required: true },
       { name: 'cached_procedures', description: 'Procedures to cache', required: false },
     ],
   },
@@ -75,6 +75,25 @@ export const prompts: MCPPrompt[] = [
     arguments: [
       { name: 'metrics_path', description: 'Metrics endpoint path', required: false },
       { name: 'tracer', description: 'Tracer type (console, jaeger, zipkin)', required: false },
+    ],
+  },
+
+  // === New Feature Prompts ===
+  {
+    name: 'add_oauth2',
+    description: 'Add OAuth2 social login to a Raffel server (Google, GitHub, Microsoft, Apple, Facebook)',
+    arguments: [
+      { name: 'provider', description: 'OAuth2 provider (google, github, microsoft, apple, facebook)', required: true },
+      { name: 'with_sessions', description: 'Use session store to persist auth state (yes/no)', required: false },
+    ],
+  },
+  {
+    name: 'add_sessions',
+    description: 'Add session store to a Raffel server with memory, Redis, or s3db driver',
+    arguments: [
+      { name: 'driver', description: 'Session driver (memory, redis, s3db)', required: true },
+      { name: 'ttl', description: 'Session TTL in seconds', required: false },
+      { name: 'rolling', description: 'Use sliding-window TTL (yes/no)', required: false },
     ],
   },
 
@@ -331,7 +350,6 @@ Requirements:
 
 ${driver === 'memory' ? '- Configure LRU eviction with max size' : ''}
 ${driver === 'redis' ? '- Configure Redis client with connection pooling' : ''}
-${driver === 's3db' ? '- Configure S3DB cache bucket' : ''}
 
 Use raffel_add_middleware with type: cache.
 Use raffel_get_interceptor for cache interceptor options.`,
@@ -420,6 +438,74 @@ Requirements:
 
 Use raffel_add_middleware with type: metrics and type: tracing.
 Use raffel_get_interceptor for detailed options.`,
+            },
+          },
+        ],
+      }
+    }
+
+    case 'add_oauth2': {
+      const provider = args.provider || 'google'
+      const withSessions = args.with_sessions === 'yes' || args.with_sessions !== 'no'
+      const providerCapitalized = provider.charAt(0).toUpperCase() + provider.slice(1)
+
+      return {
+        description: `Add ${providerCapitalized} OAuth2 to Raffel`,
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: `Add ${providerCapitalized} OAuth2 social login to an existing Raffel server.
+
+Requirements:
+1. Use createOAuth2Strategy with provider: '${provider}'
+2. Add authorization endpoint that redirects to ${providerCapitalized}
+3. Add callback endpoint that exchanges code for tokens
+4. Add CSRF state parameter protection
+${withSessions ? '5. Use session store to persist user auth state across requests' : '5. Return JWT token after successful OAuth2 flow'}
+6. Handle token refresh if refresh token is provided
+
+Environment variables needed:
+- ${provider.toUpperCase()}_CLIENT_ID
+- ${provider.toUpperCase()}_CLIENT_SECRET
+${withSessions ? '- SESSION_SECRET (for signing session IDs)' : '- JWT_SECRET (for signing access tokens)'}
+
+Use raffel_get_interceptor with createOAuth2Strategy and ${withSessions ? 'createSessionInterceptor' : 'createBearerStrategy'} for implementation details.`,
+            },
+          },
+        ],
+      }
+    }
+
+    case 'add_sessions': {
+      const driver = args.driver || 'memory'
+      const ttl = args.ttl || '3600'
+      const rolling = args.rolling === 'yes'
+
+      return {
+        description: `Add ${driver} session store`,
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: `Add session store to a Raffel server.
+
+Driver: ${driver}
+TTL: ${ttl} seconds
+Rolling window: ${rolling ? 'Yes' : 'No'}
+
+Requirements:
+1. Import createSessionInterceptor${driver !== 'memory' ? ` and create${driver.charAt(0).toUpperCase() + driver.slice(1)}SessionDriver` : ''} from 'raffel'
+${driver === 'redis' ? '2. Accept Redis client as dependency (e.g., ioredis or @redis/client)\n3. Configure connection using REDIS_URL env var' : ''}
+${driver === 's3db' ? '2. Accept s3db resource as dependency\n3. Sessions stored in S3 with manual TTL via expires_at field' : ''}
+4. Register interceptor with server.use()
+5. Show example handlers using ctx.session.data (set, get, destroy)
+${rolling ? '6. Configure rolling: true for sliding window TTL' : ''}
+7. Add proper cookie settings (secure, httpOnly, sameSite)
+
+Use raffel_get_interceptor with name: createSessionInterceptor for full API reference.`,
             },
           },
         ],

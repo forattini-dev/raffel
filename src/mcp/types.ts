@@ -203,9 +203,11 @@ export interface MCPServerOptions {
 // === Categories (like Recker) ===
 
 export type CategoryName =
+  | 'quickstart' // Guided first-run setup for learning and scaffolding
   | 'minimal' // Essential tools only
   | 'docs' // Documentation tools
   | 'codegen' // Code generation tools
+  | 'architecture' // Architecture and project planning
   | 'adapters' // Adapter-related tools
   | 'middleware' // Interceptor tools
   | 'validation' // Validation tools

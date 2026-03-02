@@ -135,6 +135,5 @@ export const categories = {
     jsonrpc: 'JSON-RPC',
     graphql: 'GraphQL',
     tcp: 'TCP',
-    s3db: 'S3DB Resource Adapter',
   },
 }

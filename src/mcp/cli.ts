@@ -10,7 +10,8 @@
  *   raffel-mcp --transport sse          # Start SSE server
  *   raffel-mcp --port 3200              # Custom port for HTTP/SSE
  *   raffel-mcp --category minimal       # Only essential tools
- *   raffel-mcp --category docs,codegen  # Multiple categories
+ *   raffel-mcp --category docs,codegen,architecture  # Multiple categories
+ *   raffel-mcp --quickstart             # Guided first-run toolset
  *   raffel-mcp --debug                  # Enable debug logging
  *   raffel-mcp --list-categories        # Show available categories
  */
@@ -54,6 +55,8 @@ function parseArgs(): {
       if (value) {
         result.category = value.split(',').map((c) => c.trim()) as CategoryName[]
       }
+    } else if (arg === '--quickstart' || arg === '-q') {
+      result.category = ['quickstart']
     } else if (arg === '--list-categories') {
       result.listCategories = true
     } else if (arg === '--help' || arg === '-h') {
@@ -81,20 +84,27 @@ Options:
   -t, --transport <mode>    Transport mode: stdio, http, sse (default: stdio)
   -p, --port <port>         Port for HTTP/SSE transport (default: 3200)
   -c, --category <cats>     Tool categories (comma-separated)
+  -q, --quickstart          Start guided first-run tools (recommended)
   -d, --debug               Enable debug logging
   --list-categories         Show available tool categories
   -h, --help                Show this help message
   -v, --version             Show version
 
 Categories:
+  quickstart (~1.5K tokens)
+  Guided start for first project setup
+  Tools: ${toolCategories.quickstart.join(', ')}
+
   minimal     Essential tools only (~2.5K tokens)
   docs        Documentation tools (~3K tokens)
+  architecture Project planning and runtime guidance (~4.5K tokens)
   codegen     Code generation tools (~4K tokens)
   full        All tools (~8K tokens)
 
 Examples:
   raffel-mcp                          Start with stdio (for Claude Code)
   raffel-mcp -t http -p 3200          Start HTTP server on port 3200
+  raffel-mcp --quickstart              Start with teaching-first tools
   raffel-mcp -c minimal,codegen       Only minimal and codegen tools
   raffel-mcp --debug                  Enable debug output
 
@@ -114,6 +124,10 @@ function printCategories(): void {
   console.log(`
 Available Tool Categories:
 
+  quickstart (~1.5K tokens)
+    Guided start for first project setup
+    Tools: ${toolCategories.quickstart.join(', ')}
+
   minimal (~2.5K tokens)
     Essential tools for quick queries
     Tools: ${toolCategories.minimal.join(', ')}
@@ -125,6 +139,10 @@ Available Tool Categories:
   codegen (~4K tokens)
     Code generation tools
     Tools: ${toolCategories.codegen.join(', ')}
+
+  architecture (~4.5K tokens)
+    Architecture, project structure, and runtime configuration tools
+    Tools: ${toolCategories.architecture.join(', ')}
 
   full (~8K tokens)
     All available tools
@@ -141,11 +159,15 @@ function printBanner(options: ReturnType<typeof parseArgs>): void {
   const tokenEstimate =
     options.category.includes('full')
       ? '~8K'
+      : options.category.includes('quickstart')
+        ? '~1.5K'
       : options.category.includes('codegen')
         ? '~4K'
-        : options.category.includes('docs')
-          ? '~3K'
-          : '~2.5K'
+        : options.category.includes('architecture')
+          ? '~4.5K'
+          : options.category.includes('docs')
+            ? '~3K'
+            : '~2.5K'
 
   console.error(`
 ╔═══════════════════════════════════════════════════════════════════╗

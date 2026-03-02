@@ -570,7 +570,7 @@ const server = createServer()
         name: 'driver',
         type: 'CacheDriver',
         required: false,
-        description: 'Cache driver instance (memory, redis, file, s3db)',
+        description: 'Cache driver instance (memory, redis, file)',
       },
       {
         name: 'procedures',
@@ -806,6 +806,152 @@ export const interceptorsByCategory = {
   caching: interceptors.filter((i) => i.category === 'caching'),
   composition: interceptors.filter((i) => i.category === 'composition'),
 }
+
+// OAuth2 and OIDC strategies are added alongside the auth interceptors
+;(interceptors as InterceptorDoc[]).push(
+  {
+    name: 'createOAuth2Strategy',
+    description:
+      'OAuth2 authentication strategy for social login (Google, GitHub, Microsoft, Apple, Facebook). Validates Bearer tokens by calling the userinfo endpoint.',
+    category: 'auth',
+    options: [
+      { name: 'provider', type: "'google' | 'github' | 'microsoft' | 'apple' | 'facebook' | 'custom'", required: false, description: 'Provider preset' },
+      { name: 'clientId', type: 'string', required: true, description: 'OAuth2 client ID' },
+      { name: 'clientSecret', type: 'string', required: true, description: 'OAuth2 client secret' },
+      { name: 'redirectUri', type: 'string', required: true, description: 'Redirect URI after authorization' },
+      { name: 'scopes', type: 'string[]', required: false, description: 'OAuth2 scopes to request' },
+      { name: 'tokenValidation', type: "'userinfo' | 'introspection' | 'none'", required: false, default: "'userinfo'", description: 'How to validate access tokens' },
+    ],
+    examples: [
+      {
+        title: 'Google OAuth2 Social Login',
+        code: `import { createServer, createAuthMiddleware, createOAuth2Strategy, generateState } from 'raffel'
+
+const googleAuth = createOAuth2Strategy({
+  provider: 'google',
+  clientId: process.env.GOOGLE_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  redirectUri: 'https://myapp.com/auth/callback',
+})
+
+const server = createServer({ port: 3000 })
+server.use(createAuthMiddleware({ strategies: [googleAuth] }))
+
+server.procedure('auth.authorize').handler(async (_input, ctx) => {
+  const state = generateState()
+  ctx.session.data.oauthState = state
+  ctx.session.touch()
+  return { redirect: googleAuth.getAuthorizationUrl({ state }) }
+})
+
+server.procedure('auth.callback').handler(async ({ code, state }, ctx) => {
+  if (state !== ctx.session.data.oauthState) throw new RaffelError('INVALID_STATE', 'Bad state')
+  const tokens = await googleAuth.exchangeCode(code)
+  const userInfo = await googleAuth.getUserInfo(tokens.accessToken)
+  return { user: userInfo, accessToken: tokens.accessToken }
+})`,
+      },
+    ],
+  },
+  {
+    name: 'createOIDCStrategy',
+    description:
+      'OpenID Connect authentication strategy with auto-discovery. Discovers endpoints from .well-known/openid-configuration and validates ID tokens.',
+    category: 'auth',
+    options: [
+      { name: 'issuer', type: 'string', required: true, description: 'OIDC issuer URL (used for auto-discovery)' },
+      { name: 'clientId', type: 'string', required: true, description: 'OIDC client ID' },
+      { name: 'clientSecret', type: 'string', required: true, description: 'OIDC client secret' },
+      { name: 'redirectUri', type: 'string', required: true, description: 'Redirect URI after authorization' },
+      { name: 'audience', type: 'string', required: false, description: 'Audience for ID token validation (default: clientId)' },
+      { name: 'validateIdToken', type: 'boolean', required: false, default: 'true', description: 'Whether to validate ID token claims' },
+      { name: 'clockSkew', type: 'number', required: false, default: '60', description: 'Clock skew tolerance in seconds' },
+    ],
+    examples: [
+      {
+        title: 'OIDC with Auto-Discovery',
+        code: `import { createServer, createAuthMiddleware, createOIDCStrategy } from 'raffel'
+
+const oidc = createOIDCStrategy({
+  issuer: 'https://accounts.google.com',
+  clientId: process.env.GOOGLE_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  redirectUri: 'https://myapp.com/auth/callback',
+})
+
+const server = createServer({ port: 3000 })
+server.use(createAuthMiddleware({ strategies: [oidc] }))
+
+server.procedure('auth.callback').handler(async ({ code }) => {
+  const tokens = await oidc.exchangeCode(code)  // validates ID token
+  const claims = await oidc.validateIdToken(tokens.idToken!)
+  return { sub: claims.sub, email: claims.email }
+})`,
+      },
+    ],
+  },
+  {
+    name: 'createSessionInterceptor',
+    description:
+      'Session store interceptor. Injects ctx.session into every handler with get/set/destroy operations. Backed by memory (dev), Redis (prod), s3db (serverless), or custom stores.',
+    category: 'auth',
+    options: [
+      { name: 'driver', type: "'memory' | 'redis' | 's3db' | SessionStore", required: true, description: 'Storage backend' },
+      { name: 'ttl', type: 'number', required: false, default: '3600', description: 'Session TTL in seconds' },
+      { name: 'rolling', type: 'boolean', required: false, default: 'false', description: 'Sliding window TTL (reset on each access)' },
+      { name: 'secret', type: 'string', required: false, description: 'HMAC signing key for session IDs' },
+      { name: 'cookie.name', type: 'string', required: false, default: "'sid'", description: 'Cookie name' },
+      { name: 'cookie.secure', type: 'boolean', required: false, default: 'true', description: 'HTTPS-only cookie' },
+    ],
+    examples: [
+      {
+        title: 'Memory store (development)',
+        code: `import { createServer, createSessionInterceptor } from 'raffel'
+
+const server = createServer({ port: 3000 })
+server.use(createSessionInterceptor({ driver: 'memory', ttl: 3600 }))
+
+server.procedure('auth.login').handler(async ({ userId }, ctx) => {
+  ctx.session.data.userId = userId
+  ctx.session.touch()
+  return { ok: true }
+})
+
+server.procedure('auth.me').handler(async (_input, ctx) => {
+  return { userId: ctx.session.data.userId ?? null }
+})`,
+      },
+      {
+        title: 'Redis store (production)',
+        code: `import { createServer, createSessionInterceptor, createRedisSessionDriver } from 'raffel'
+import { createClient } from 'redis'
+
+const redis = createClient({ url: process.env.REDIS_URL })
+await redis.connect()
+
+const server = createServer({ port: 3000 })
+server.use(createSessionInterceptor({
+  driver: createRedisSessionDriver({ client: redis }),
+  ttl: 7200,
+  rolling: true,
+  secret: process.env.SESSION_SECRET,
+  cookie: { name: 'sid', secure: true, sameSite: 'lax' },
+}))`,
+      },
+      {
+        title: 's3db store (serverless)',
+        code: `import { createServer, createSessionInterceptor, createS3dbSessionDriver } from 'raffel'
+
+const sessionsResource = s3db.resource('sessions')
+const server = createServer({ port: 3000 })
+server.use(createSessionInterceptor({
+  driver: createS3dbSessionDriver({ resource: sessionsResource }),
+  ttl: 3600,
+}))`,
+      },
+    ],
+  }
+)
 
 export function getInterceptor(name: string): InterceptorDoc | undefined {
   return interceptors.find((i) => i.name === name)

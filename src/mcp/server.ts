@@ -486,7 +486,7 @@ Use raffel_api_patterns before generating code to ensure correct structure.`,
       }
 
       if (argument.name === 'name' && ref.name === 'raffel_get_adapter') {
-        const allAdapters = ['HTTP', 'WebSocket', 'gRPC', 'JSON-RPC', 'GraphQL', 'TCP', 'S3DB']
+        const allAdapters = ['HTTP', 'WebSocket', 'gRPC', 'JSON-RPC', 'GraphQL', 'TCP']
         values.push(...allAdapters.filter((a) => a.toLowerCase().includes(argument.value.toLowerCase())))
       }
 

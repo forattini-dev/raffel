@@ -82,7 +82,7 @@ export const tools: MCPTool[] = [
         name: {
           type: 'string',
           description: 'Adapter name',
-          enum: ['HTTP', 'WebSocket', 'gRPC', 'JSON-RPC', 'GraphQL', 'TCP', 'S3DB'],
+          enum: ['HTTP', 'WebSocket', 'gRPC', 'JSON-RPC', 'GraphQL', 'TCP'],
         },
       },
       required: ['name'],
@@ -350,6 +350,107 @@ export const tools: MCPTool[] = [
     },
   },
   {
+    name: 'raffel_project_blueprint',
+    description:
+      'Generate a practical project scaffold blueprint with folder layout, file responsibilities, and setup sequence.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectName: {
+          type: 'string',
+          description: 'Project name',
+        },
+        architecture: {
+          type: 'string',
+          description: 'Project shape',
+          enum: ['api', 'realtime', 'microservice'],
+          default: 'api',
+        },
+        includeAuth: {
+          type: 'boolean',
+          description: 'Include authentication baseline',
+        },
+        includeDatabase: {
+          type: 'boolean',
+          description: 'Include Prisma/database-oriented structure',
+        },
+        includeRealtime: {
+          type: 'boolean',
+          description: 'Include WebSocket streams/events in the blueprint',
+        },
+        includeObservability: {
+          type: 'boolean',
+          description: 'Include metrics/tracing/logging recommendations',
+        },
+      },
+      required: ['projectName'],
+    },
+  },
+  {
+    name: 'raffel_api_endpoint_blueprint',
+    description:
+      'Generate API endpoint boilerplates and module organization for a domain resource with recommended procedures and middleware.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resourceName: {
+          type: 'string',
+          description: 'Domain resource name (e.g., users, products)',
+        },
+        includeAuth: {
+          type: 'boolean',
+          description: 'Protect mutating endpoints by default',
+        },
+        includeSearch: {
+          type: 'boolean',
+          description: 'Include search and filtering endpoints',
+        },
+        includeBulk: {
+          type: 'boolean',
+          description: 'Include bulk import/delete endpoints',
+        },
+        includeStreaming: {
+          type: 'boolean',
+          description: 'Include live update stream endpoint',
+        },
+        withEvents: {
+          type: 'boolean',
+          description: 'Add event names for lifecycle events',
+        },
+      },
+      required: ['resourceName'],
+    },
+  },
+  {
+    name: 'raffel_runtime_config',
+    description:
+      'Generate practical environment/runtime configuration for Raffel in development, staging, and production.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        profile: {
+          type: 'string',
+          description: 'Deployment profile',
+          enum: ['development', 'staging', 'production'],
+          default: 'production',
+        },
+        includeSecurity: {
+          type: 'boolean',
+          description: 'Include security-hardening recommendations',
+        },
+        includeMonitoring: {
+          type: 'boolean',
+          description: 'Include metrics and tracing defaults',
+        },
+        includeResilience: {
+          type: 'boolean',
+          description: 'Include timeout, retry, and circuit-breaker defaults',
+        },
+      },
+      required: ['profile'],
+    },
+  },
+  {
     name: 'raffel_boilerplate',
     description:
       'Get a complete project boilerplate with multiple files. Available templates: basic-api, with-auth, with-prisma, realtime-websocket, multi-protocol.',
@@ -382,6 +483,15 @@ export const tools: MCPTool[] = [
 
 // Tool names grouped by category for filtering
 export const toolCategories = {
+  quickstart: [
+    'raffel_getting_started',
+    'raffel_create_server',
+    'raffel_create_procedure',
+    'raffel_create_module',
+    'raffel_project_blueprint',
+    'raffel_api_endpoint_blueprint',
+    'raffel_runtime_config',
+  ],
   minimal: [
     'raffel_getting_started',
     'raffel_search',
@@ -405,7 +515,17 @@ export const toolCategories = {
     'raffel_create_event',
     'raffel_add_middleware',
     'raffel_create_module',
+    'raffel_project_blueprint',
+    'raffel_api_endpoint_blueprint',
+    'raffel_runtime_config',
     'raffel_boilerplate',
+  ],
+  architecture: [
+    'raffel_project_blueprint',
+    'raffel_api_endpoint_blueprint',
+    'raffel_runtime_config',
+    'raffel_getting_started',
+    'raffel_api_patterns',
   ],
   full: tools.map((t) => t.name),
 }
