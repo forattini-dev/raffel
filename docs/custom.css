@@ -1,135 +1,58 @@
 /* Raffel Docs Custom Styles */
 
-:root {
-  --theme-color: #8b5cf6;
-  --theme-color-light: #a78bfa;
-  --theme-color-dark: #7c3aed;
-}
-
 /* Cover page */
-.cover {
+section.cover {
   background: linear-gradient(135deg, #1e1b4b 0%, #0f0a1e 100%) !important;
 }
 
-.cover h1 {
-  color: #fff !important;
-  font-weight: 700;
+/* Fix sidebar toggle (hamburger menu) position */
+.sidebar-toggle {
+  position: fixed !important;
+  top: 1rem !important;
+  left: 1rem !important;
+  bottom: auto !important;
+  width: 40px !important;
+  height: 40px !important;
+  z-index: 999 !important;
 }
 
-.cover blockquote {
-  color: #a78bfa !important;
-  font-size: 1.2rem;
+/* Hide reading time that may leak */
+.markdown-section .reading-time,
+.content .reading-time {
+  display: none !important;
 }
 
-.cover ul {
-  color: #c4b5fd;
+/* Lightning animation on logo */
+.app-name span:first-child {
+  display: inline-block;
+  animation: lightning-flash 6s infinite;
+  transform-origin: center;
 }
 
-.cover a.anchor {
-  background: var(--theme-color) !important;
-  color: #fff !important;
-}
-
-.cover a.anchor:hover {
-  background: var(--theme-color-dark) !important;
-}
-
-/* Sidebar */
-.sidebar {
-  border-right: 1px solid rgba(139, 92, 246, 0.2);
-}
-
-.sidebar-nav li a {
-  color: inherit;
-}
-
-.sidebar-nav li a:hover {
-  color: var(--theme-color);
-}
-
-.sidebar-nav li.active > a {
-  color: var(--theme-color);
-  font-weight: 600;
-}
-
-/* Content */
-.markdown-section h1,
-.markdown-section h2 {
-  color: var(--theme-color-dark);
-  border-bottom: 2px solid rgba(139, 92, 246, 0.2);
-  padding-bottom: 0.5rem;
-}
-
-.markdown-section a {
-  color: var(--theme-color);
-}
-
-.markdown-section a:hover {
-  color: var(--theme-color-dark);
-}
-
-/* Code blocks */
-.markdown-section pre {
-  background: #1e1b4b !important;
-  border-radius: 8px;
-  border: 1px solid rgba(139, 92, 246, 0.2);
-}
-
-.markdown-section code {
-  background: rgba(139, 92, 246, 0.1);
-  color: var(--theme-color);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.markdown-section pre code {
-  background: transparent;
-  color: #e2e8f0;
-}
-
-/* Tables */
-.markdown-section table {
-  border-collapse: collapse;
-  width: 100%;
-}
-
-.markdown-section table th {
-  background: rgba(139, 92, 246, 0.1);
-  color: var(--theme-color-dark);
-  font-weight: 600;
-}
-
-.markdown-section table td,
-.markdown-section table th {
-  border: 1px solid rgba(139, 92, 246, 0.2);
-  padding: 10px 14px;
-}
-
-.markdown-section table tr:hover {
-  background: rgba(139, 92, 246, 0.05);
-}
-
-/* Blockquotes */
-.markdown-section blockquote {
-  border-left: 4px solid var(--theme-color);
-  background: rgba(139, 92, 246, 0.05);
-  padding: 1rem;
-  margin: 1rem 0;
-  border-radius: 0 8px 8px 0;
-}
-
-/* Search */
-.search input {
-  border-color: rgba(139, 92, 246, 0.3) !important;
-}
-
-.search input:focus {
-  border-color: var(--theme-color) !important;
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2) !important;
-}
-
-/* Copy code button */
-.docsify-copy-code-button {
-  background: var(--theme-color) !important;
-  color: #fff !important;
+@keyframes lightning-flash {
+  0%, 88%, 100% {
+    filter: brightness(1);
+    text-shadow: none;
+    transform: scale(1);
+  }
+  90% {
+    filter: brightness(3) drop-shadow(0 0 5px #8b5cf6);
+    text-shadow: 0 0 10px #a78bfa, 0 0 20px #8b5cf6;
+    transform: scale(1.15) rotate(-3deg);
+  }
+  91% {
+    filter: brightness(1);
+    text-shadow: none;
+    transform: scale(1);
+  }
+  93% {
+    filter: brightness(5) drop-shadow(0 0 8px #a78bfa);
+    text-shadow: 0 0 15px #a78bfa, 0 0 30px #8b5cf6;
+    transform: scale(1.25) rotate(3deg);
+  }
+  95% {
+    filter: brightness(1);
+    text-shadow: none;
+    transform: scale(1);
+  }
 }
