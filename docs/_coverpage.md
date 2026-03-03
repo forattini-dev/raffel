@@ -1,4 +1,4 @@
-# ⚡ Raffel
+# Raffel
 
 > One function. Seven protocols. Zero config.
 

@@ -1,4 +1,4 @@
-# ⚡ Raffel
+# Raffel
 
 > **One function. Seven protocols. Zero config.**
 
@@ -452,5 +452,5 @@ Automatic detection:
 ---
 
 <div style="text-align: center; padding: 2rem 0;">
-<strong>⚡ Write once. Run everywhere.</strong>
+<strong>Write once. Run everywhere.</strong>
 </div>

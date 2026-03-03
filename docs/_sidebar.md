@@ -1,4 +1,4 @@
-- [**⚡ Raffel**](/)
+- [**Raffel**](/)
 
 - **Getting Started**
   - [Quickstart](/quickstart.md)
