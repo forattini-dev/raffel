@@ -1,10 +1,10 @@
 # Raffel
 
-> One function. Seven protocols. Zero config.
+> One server. Every protocol.
 
 **HTTP** • **WebSocket** • **gRPC** • **JSON-RPC** • **GraphQL** • **TCP** • **UDP**
 
-Write your handler once, expose it everywhere.
+Write your handler once. Expose it everywhere.
 
 [Get Started](#quickstart)
 [GitHub](https://github.com/forattini-dev/raffel)

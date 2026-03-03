@@ -1,54 +1,75 @@
 # Raffel
 
-> **One function. Seven protocols. Zero config.**
+> **One server. Every protocol.**
 
-Raffel is a multi-protocol server runtime. You write your logic once and it works automatically over HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP.
+Raffel is a multi-protocol server runtime. You write your business logic once — it's automatically exposed over HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP.
 
-No manual adapters. No duplication. No complex configuration.
+No duplicate code. No protocol-specific adapters. No config sprawl.
 
 ---
 
 ## The Problem
 
-Today, if you want to expose an API over multiple protocols, you need to:
+Modern APIs rarely need just one protocol. HTTP for browsers. WebSocket for real-time. gRPC for service-to-service. The result? The same logic written three times:
 
 ```typescript
-// ❌ Duplicated code for each protocol
-app.post('/users', async (req, res) => { /* logic */ })
-wsServer.on('message', (msg) => { /* same logic, different */ })
-grpcService.CreateUser = async (call) => { /* same logic, different */ })
+// ❌ Same logic, written three times
+app.post('/users/create', async (req, res) => {
+  const user = await createUser(req.body)
+  res.json(user)
+})
+
+wsServer.on('message', async (msg) => {
+  if (msg.type === 'users.create') {
+    const user = await createUser(msg.payload)
+    socket.send(JSON.stringify(user))
+  }
+})
+
+grpcService.CreateUser = async (call, callback) => {
+  const user = await createUser(call.request)
+  callback(null, user)
+}
 ```
 
-With Raffel, you write it once:
+Every protocol means another adapter, another serialization layer, another place where bugs hide.
+
+---
+
+## The Solution
+
+With Raffel, you define a **procedure** once. The server handles every protocol:
 
 ```typescript
 import { createServer } from 'raffel'
 
-// ✅ One function, all protocols
 const server = createServer({ port: 3000 })
 
+// ✅ Write once, works everywhere
 server.procedure('users.create')
   .handler(async (input) => {
-    // Your business logic
     return { id: crypto.randomUUID(), ...input }
   })
 
 await server.start()
 ```
 
-That function now responds over:
-- **HTTP**: `POST /users.create`
-- **WebSocket**: `{ procedure: 'users.create', payload: {...} }`
-- **JSON-RPC**: `{ method: 'users.create', params: {...} }`
-- **GraphQL**: `mutation { usersCreate(...) }`
-- **gRPC**: `UsersService.Create()`
-- **TCP/UDP**: binary protocol with frames
+That single procedure now responds over:
+
+| Protocol | How clients call it |
+|:---------|:--------------------|
+| **HTTP** | `POST /users.create` |
+| **WebSocket** | `{ procedure: 'users.create', payload: {...} }` |
+| **JSON-RPC** | `{ method: 'users.create', params: {...} }` |
+| **GraphQL** | `mutation { usersCreate(...) }` |
+| **gRPC** | `UsersService.Create()` |
+| **TCP/UDP** | binary frames with length-prefix |
 
 ---
 
 ## Hello World
 
-The simplest possible example:
+The simplest possible server:
 
 ```typescript
 import { createServer } from 'raffel'
@@ -56,29 +77,34 @@ import { createServer } from 'raffel'
 const server = createServer({ port: 3000 })
 
 server.procedure('hello')
-  // 'hello' is the procedure name
-  // The client sends { name: 'World' }
-  // The server returns 'Hello, World!'
   .handler(async ({ name }) => `Hello, ${name}!`)
 
 await server.start()
 ```
 
-Test with curl:
+Test it with curl:
 
 ```bash
 curl localhost:3000/hello \
   -H 'Content-Type: application/json' \
   -d '{"name": "World"}'
 
-# Response: "Hello, World!"
+# → "Hello, World!"
+```
+
+Same procedure, over WebSocket:
+
+```javascript
+const ws = new WebSocket('ws://localhost:3000')
+ws.send(JSON.stringify({ procedure: 'hello', payload: { name: 'World' } }))
+// ← { result: "Hello, World!" }
 ```
 
 ---
 
 ## File-Based Routes
 
-If you prefer to organize by files (like Next.js), just enable discovery:
+Prefer organizing routes as files, like Next.js? Enable discovery:
 
 ```typescript
 // server.ts
@@ -86,44 +112,42 @@ import { createServer } from 'raffel'
 
 await createServer({
   port: 3000,
-  discovery: true  // Enables automatic route discovery
+  discovery: true  // auto-discovers src/rpc/**
 })
 ```
 
-Now create files in the `src/rpc/` folder:
+Create files in `src/rpc/`:
 
 ```typescript
-// src/rpc/hello.ts
-// This file becomes the 'hello' procedure
+// src/rpc/hello.ts  →  procedure: hello
 export default ({ name }) => `Hello, ${name}!`
 ```
 
 ```typescript
-// src/rpc/users/create.ts
-// This file becomes the 'users.create' procedure
+// src/rpc/users/create.ts  →  procedure: users.create
 export default async (input) => ({
   id: crypto.randomUUID(),
   ...input
 })
 ```
 
-The folder structure defines the names:
+The folder structure defines procedure names:
 
 ```
 src/rpc/
-├── hello.ts           → procedure: hello
+├── hello.ts           → hello
 ├── users/
-│   ├── create.ts      → procedure: users.create
-│   ├── list.ts        → procedure: users.list
-│   └── [id].ts        → procedure: users.get (with parameter)
-└── _middleware.ts     → middleware applied to all handlers
+│   ├── create.ts      → users.create
+│   ├── list.ts        → users.list
+│   └── [id].ts        → users.get
+└── _middleware.ts     → applied to all
 ```
 
 ---
 
 ## Input Validation
 
-To validate incoming data, pass a Zod schema (or Yup, Joi):
+Validate input with Zod (or Yup, Joi, Ajv — your choice):
 
 ```typescript
 import { createServer, createZodAdapter, registerValidator } from 'raffel'
@@ -133,14 +157,11 @@ registerValidator(createZodAdapter(z))
 
 const server = createServer({ port: 3000 })
 
-server
-  .procedure('users.create')
-  // Validation schema - automatically rejects invalid requests
+server.procedure('users.create')
   .input(z.object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
     email: z.string().email('Invalid email'),
   }))
-  // Handler is only called if validation passes
   .handler(async (input) => ({
     id: crypto.randomUUID(),
     ...input,
@@ -150,14 +171,14 @@ server
 await server.start()
 ```
 
-If the client sends invalid data:
+Invalid requests are rejected before your handler runs:
 
 ```bash
 curl localhost:3000/users.create \
   -H 'Content-Type: application/json' \
-  -d '{"name": "A", "email": "invalid"}'
+  -d '{"name": "A", "email": "bad"}'
 
-# Response: 400 Bad Request
+# 400 Bad Request
 # {
 #   "error": "VALIDATION_ERROR",
 #   "details": [
@@ -167,11 +188,13 @@ curl localhost:3000/users.create \
 # }
 ```
 
+Validation runs identically across every protocol — the same schema protects your HTTP endpoint and your WebSocket handler.
+
 ---
 
-## Interceptors (Middlewares)
+## Interceptors
 
-Interceptors are middlewares that run before/after each request. Use them for logging, rate limiting, timeout, etc:
+Interceptors are global middleware that run around every request. Add logging, rate limiting, timeouts, and more in one place:
 
 ```typescript
 import {
@@ -182,9 +205,8 @@ import {
 } from 'raffel'
 
 const server = createServer({ port: 3000 })
-  // Global interceptors - applied to ALL routes
   .use(createLoggingInterceptor())
-  .use(createTimeoutInterceptor({ defaultMs: 30000 }))
+  .use(createTimeoutInterceptor({ defaultMs: 30_000 }))
   .use(createRateLimitInterceptor({ maxRequests: 100, windowMs: 60_000 }))
 
 server.procedure('hello')
@@ -193,15 +215,15 @@ server.procedure('hello')
 await server.start()
 ```
 
-Available interceptors:
+Interceptors apply across **all protocols** — configure once, enforced everywhere.
 
 | Interceptor | What it does |
 |:------------|:-------------|
-| `createLoggingInterceptor()` | Logs each request with method, duration, and status |
+| `createLoggingInterceptor()` | Logs each request with method, duration, status |
 | `createTimeoutInterceptor({ defaultMs })` | Cancels slow requests |
-| `createRateLimitInterceptor({ maxRequests, windowMs })` | Rate limits requests per IP |
-| `createRetryInterceptor({ maxAttempts })` | Automatic retry on failure |
-| `createCircuitBreakerInterceptor()` | Stops calling services that are failing |
+| `createRateLimitInterceptor({ maxRequests, windowMs })` | Rate limits by IP |
+| `createRetryInterceptor({ maxAttempts })` | Retries on failure |
+| `createCircuitBreakerInterceptor()` | Stops hammering failing services |
 | `createCacheInterceptor({ ttlMs })` | Response caching |
 | `createBulkheadInterceptor({ concurrency })` | Limits concurrent requests |
 
@@ -209,7 +231,7 @@ Available interceptors:
 
 ## Authentication
 
-Protect routes with JWT, API Key, or other methods:
+Protect procedures with JWT, API Keys, OAuth2, or custom strategies:
 
 ```typescript
 import {
@@ -222,7 +244,6 @@ import {
 } from 'raffel'
 
 const server = createServer({ port: 3000 })
-  // Configures JWT authentication globally
   .use(createAuthMiddleware({
     strategies: [
       createBearerStrategy({
@@ -231,21 +252,18 @@ const server = createServer({ port: 3000 })
     ],
   }))
 
-// Public route - anyone can access
+// Public — no auth required
 server.procedure('health')
   .handler(async () => ({ ok: true }))
 
-// Protected route - requires a valid token
+// Protected — valid token required
 server.procedure('users.me')
   .handler(async (_input, ctx) => {
-    const auth = requireAuth(ctx)
-    return {
-      id: auth.principal,
-      email: auth.claims?.email,
-    }
+    const auth = requireAuth(ctx)  // throws 401 if no auth
+    return { id: auth.principal, email: auth.claims?.email }
   })
 
-// Route with specific roles
+// Role-gated
 server.procedure('admin.stats')
   .handler(async (_input, ctx) => {
     if (!hasRole(ctx, 'admin')) {
@@ -257,63 +275,56 @@ server.procedure('admin.stats')
 await server.start()
 ```
 
+Auth runs at the interceptor layer — a valid token over WebSocket grants the same identity as over HTTP.
+
 ---
 
 ## Streaming
 
-For real-time data, use generators:
+Return a generator to stream data in real-time:
 
 ```typescript
 const server = createServer({ port: 3000 })
 
-// Real-time log streaming
+// Server-sent log tail
 server.stream('logs.tail')
   .handler(async function* ({ file }) {
-    // The asterisk (*) indicates a generator
     for await (const line of readLines(file)) {
-      // yield sends each line to the client
       yield { line, timestamp: Date.now() }
     }
   })
 
-// Upload progress stream
+// Progress updates
 server.stream('upload.progress')
   .handler(async function* ({ uploadId }) {
     while (true) {
       const progress = await getUploadProgress(uploadId)
       yield { percent: progress.percent }
-
       if (progress.percent >= 100) break
-      await sleep(500)  // Updates every 500ms
+      await sleep(500)
     }
   })
 
 await server.start()
 ```
 
+Streams are delivered via WebSocket, SSE, or gRPC streaming — the client decides.
+
 ---
 
-## Available Protocols
+## Protocol Configuration
 
-By default, HTTP and WebSocket are enabled. To customize:
+HTTP and WebSocket are enabled by default. Configure or add others:
 
 ```typescript
 const server = createServer({ port: 3000 })
-  // Per-protocol configuration
   .protocols({
     websocket: '/ws',
-    jsonrpc: '/rpc',
-    graphql: '/graphql',
-    grpc: { port: 50051 },
-    tcp: { port: 9000 },
+    jsonrpc:   '/rpc',
+    graphql:   '/graphql',
+    grpc:      { port: 50051 },
+    tcp:       { port: 9000 },
   })
-
-server.udp
-  .handler('metrics', { port: 9001 })
-  .onMessage((msg, rinfo, ctx) => {
-    console.log(`UDP ${rinfo.address}:${rinfo.port} -> ${msg.length} bytes`)
-  })
-  .end()
 
 server.procedure('hello')
   .handler(async ({ name }) => `Hello, ${name}!`)
@@ -321,94 +332,63 @@ server.procedure('hello')
 await server.start()
 ```
 
+---
+
 ## Front-Door (single entry point)
 
-`frontDoor` allows concentrating HTTP/WebSocket/JSON-RPC/GraphQL traffic into a single port, with an explicit policy.
+Concentrate multiple protocols behind one port with explicit routing policy:
 
 ```typescript
-import { createServer } from 'raffel'
-
 const server = createServer({
-  port: 3000,                    // default HTTP port (fallback)
+  port: 3000,
   frontDoor: {
     enabled: true,
     port: 443,
-    host: '127.0.0.1',
-    protocols: ['http', 'websocket', 'jsonrpc', 'graphql', 'tcp'],
+    host: '0.0.0.0',
+    protocols: ['http', 'websocket', 'jsonrpc', 'graphql'],
   },
   websocket: '/ws',
-  jsonrpc: '/rpc',
-  graphql: '/graphql',
-  tcp: { port: 9000, host: '127.0.0.1' },
+  jsonrpc:   '/rpc',
+  graphql:   '/graphql',
+  tcp:       { port: 9000 },
 })
 ```
 
-- Without `protocols`, the front-door enters shared mode for HTTP/WebSocket/JSON-RPC/GraphQL.
-- Non-HTTP network protocols (such as TCP/gRPC) can enter `offload` mode: they remain on dedicated ports, but gain strategy metadata in `server.addresses`.
-- Protocols not listed in `frontDoor.protocols` keep their current native/dedicated behavior.
-- Unknown protocols in `frontDoor.protocols` generate an explicit configuration error.
+| Protocol | Default strategy | Notes |
+|:---------|:-----------------|:------|
+| HTTP | `shared` | Always routed through main HTTP flow |
+| WebSocket | `shared` | Detected via `Upgrade: websocket` header |
+| JSON-RPC | `shared` | Shares the HTTP port |
+| GraphQL | `shared` | Shares the HTTP port |
+| TCP | `offload` | Stays on dedicated port |
+| UDP | `offload` / `native` | No demux on a single socket |
+| gRPC | `offload` / `native` | Requires dedicated gRPC port |
 
-### Front-door support matrix
+---
 
-| Protocol  | `frontDoor` default     | Supported strategy | Note |
-|:----------|:------------------------|:-------------------|:-----|
-| HTTP      | ✅ Yes                  | `shared`           | Always routed through the main HTTP flow |
-| WebSocket | ✅ Yes                  | `shared`           | Detected via `Upgrade: websocket` |
-| JSON-RPC  | ✅ Yes                  | `shared`           | Shares the HTTP port |
-| RPC/JRPC  | ✅ Yes (alias)          | `shared`           | Synonym for JSON-RPC in `frontDoor.protocols` config |
-| GraphQL   | ✅ Yes                  | `shared`           | Shares the HTTP port |
-| TCP       | ❌ No (by default)      | `offload`          | Declarable in `frontDoor.protocols` |
-| UDP       | ❌ No (by default)      | `offload`/`native` | No demux on a single socket |
-| gRPC      | ❌ No (by default)      | `offload`/`native` | Requires its own gRPC on a dedicated port |
-| PING/ICMP | ❌ No                   | —                  | Out of application scope |
-| FTP       | ❌ No                   | —                  | Out of application scope |
+## Single-Port Detection
 
-### Boot fixture example (runtime)
-
-After `await server.start()`, `server.addresses` should reflect the front-door boot plan:
-
-```json
-{
-  "http": { "host": "127.0.0.1", "port": 3000, "frontDoor": true, "strategy": "shared" },
-  "websocket": { "host": "127.0.0.1", "port": 3000, "path": "/ws", "shared": true, "frontDoor": true, "strategy": "shared" },
-  "jsonrpc": { "host": "127.0.0.1", "port": 3000, "path": "/rpc", "shared": true, "frontDoor": true, "strategy": "shared" },
-  "graphql": { "host": "127.0.0.1", "port": 3000, "path": "/graphql", "shared": true, "frontDoor": true, "strategy": "shared" },
-  "tcp": { "host": "127.0.0.1", "port": 9000, "frontDoor": true, "strategy": "offload" },
-  "udp": { "host": "127.0.0.1", "port": 9001, "frontDoor": true, "strategy": "offload" }
-}
-```
-
-## Single-Port (multiplexing protocols on one port)
-
-`singlePort` detects the protocol of each TCP connection from the first bytes, without requiring dedicated ports:
+Serve every protocol on one port — Raffel sniffs the first bytes to detect the protocol:
 
 ```typescript
-import { createServer } from 'raffel'
-
 const server = createServer({
   port: 3000,
   singlePort: {
     enabled: true,
-    // Allowlist of accepted protocols (optional)
-    protocols: ['http', 'tls', 'websocket'],
-    // Maximum bytes for sniffing (default: 4096)
+    protocols: ['http', 'tls', 'websocket', 'tcp'],
     sniffMaxBytes: 2048,
-    // Timeout to read the first chunk (default: 75ms)
     sniffTimeoutMs: 100,
   },
 })
 ```
 
-Automatic detection:
-
-| Detector | Protocol |
-|:---------|:---------|
-| TLS ClientHello (`0x16 0x03`) | `tls` |
+| First bytes | Detected as |
+|:-----------|:------------|
+| `0x16 0x03` (TLS ClientHello) | `tls` |
 | HTTP/2 preface | `http2` |
-| TCP length-prefix frame | `tcp` |
-| HTTP method (`GET`, `POST`, ...) | `http` |
-| Text protocol (printable + `\n`) | `tcp` |
-| Custom `ProtocolSniffer` | any |
+| `GET`, `POST`, etc. | `http` |
+| Length-prefix frame | `tcp` |
+| Printable text + `\n` | `tcp` |
 
 ---
 
@@ -418,19 +398,19 @@ Automatic detection:
 <a href="#/quickstart" class="card">
 <div class="icon">🚀</div>
 <h4>Quickstart</h4>
-<p>Complete 5-minute tutorial</p>
+<p>Up and running in 5 minutes</p>
 </a>
 
-<a href="#/file-system-discovery" class="card">
-<div class="icon">📂</div>
-<h4>File-Based Routes</h4>
-<p>Organize routes by files</p>
+<a href="#/protocols/http" class="card">
+<div class="icon">🔌</div>
+<h4>Protocols</h4>
+<p>HTTP, WS, gRPC, GraphQL and more</p>
 </a>
 
 <a href="#/interceptors" class="card">
 <div class="icon">🛡️</div>
 <h4>Interceptors</h4>
-<p>Rate limit, cache, retry and more</p>
+<p>Auth, rate limiting, cache, retry</p>
 </a>
 </div>
 
@@ -441,16 +421,16 @@ Automatic detection:
 | Category | What's included |
 |:---------|:----------------|
 | **Protocols** | HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, UDP |
-| **Validation** | Zod, Yup, Joi, Ajv (pick your own) |
+| **Validation** | Zod, Yup, Joi, Ajv |
 | **Auth** | JWT, API Key, OAuth2, OIDC, Sessions |
 | **Resilience** | Rate limit, Circuit breaker, Retry, Timeout, Bulkhead |
-| **Observability** | Prometheus metrics, OpenTelemetry tracing, Logging |
-| **Cache** | Memory, Redis, Custom drivers |
+| **Observability** | Prometheus metrics, OpenTelemetry tracing, Structured logging |
+| **Cache** | Memory, Redis, custom drivers |
 | **Real-time** | Channels (Pusher-like), Presence, Broadcasting |
-| **DX** | Hot reload, Auto-discovery, REST Auto-CRUD |
+| **DX** | Hot reload, file-system discovery, REST auto-CRUD |
 
 ---
 
 <div style="text-align: center; padding: 2rem 0;">
-<strong>Write once. Run everywhere.</strong>
+<strong>One server. Every protocol.</strong>
 </div>
