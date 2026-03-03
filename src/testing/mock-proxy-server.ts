@@ -141,11 +141,13 @@ export class MockProxyServer extends EventEmitter {
   async stop(): Promise<void> {
     if (!this._running || !this._server) return
     await new Promise<void>((resolve) => {
-      this._server?.close(() => {
+      const server = this._server!
+      server.close(() => {
         this._running = false
         this._server = null
         resolve()
       })
+      ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
     })
   }
 
@@ -302,11 +304,18 @@ export class MockProxyServer extends EventEmitter {
     clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 
     // Wrap the client socket in a TLS server socket using the generated cert
-    const tlsClientSocket = new TLSSocket(clientSocket, {
-      isServer: true,
-      key: certInfo.key,
-      cert: certInfo.cert,
-    })
+    let tlsClientSocket: TLSSocket
+    try {
+      tlsClientSocket = new TLSSocket(clientSocket, {
+        isServer: true,
+        key: certInfo.key,
+        cert: certInfo.cert,
+      })
+    } catch (err) {
+      this.emit('error', err as Error)
+      clientSocket.destroy()
+      return
+    }
 
     tlsClientSocket.on('error', (err) => {
       this.emit('error', err)
