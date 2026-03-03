@@ -142,37 +142,3 @@ body.dark .markdown-section table td {
   border-radius: 0 6px 6px 0;
 }
 
-/* Lightning animation on logo icon */
-.app-name span:first-child {
-  display: inline-block;
-  animation: lightning-flash 6s infinite;
-  transform-origin: center;
-}
-
-@keyframes lightning-flash {
-  0%, 88%, 100% {
-    filter: brightness(1);
-    text-shadow: none;
-    transform: scale(1);
-  }
-  90% {
-    filter: brightness(3) drop-shadow(0 0 5px #8b5cf6);
-    text-shadow: 0 0 10px #a78bfa, 0 0 20px #8b5cf6;
-    transform: scale(1.15) rotate(-3deg);
-  }
-  91% {
-    filter: brightness(1);
-    text-shadow: none;
-    transform: scale(1);
-  }
-  93% {
-    filter: brightness(5) drop-shadow(0 0 8px #a78bfa);
-    text-shadow: 0 0 15px #a78bfa, 0 0 30px #8b5cf6;
-    transform: scale(1.25) rotate(3deg);
-  }
-  95% {
-    filter: brightness(1);
-    text-shadow: none;
-    transform: scale(1);
-  }
-}
