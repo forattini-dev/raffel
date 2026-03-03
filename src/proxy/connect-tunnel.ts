@@ -11,7 +11,7 @@
  *   tunnel.attachTo(httpServer)
  */
 import { connect as netConnect, type Socket } from 'node:net'
-import { TLSSocket, connect as tlsConnect } from 'node:tls'
+import { TLSSocket, connect as tlsConnect, createSecureContext } from 'node:tls'
 import { createServer as createHttpServer } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { X509Certificate } from 'node:crypto'
@@ -284,11 +284,21 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
     // Tell client tunnel is ready
     clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 
+    // Validate cert/key before wrapping the socket (avoids handle theft on failure)
+    let secureCtx: ReturnType<typeof createSecureContext>
+    try {
+      secureCtx = createSecureContext({ key: certInfo.key, cert: certInfo.cert })
+    } catch (err) {
+      mutable.connectionsErrored++
+      onEnd('tls client error')
+      clientSocket.destroy()
+      return
+    }
+
     // Wrap client socket in TLS (server side)
     const tlsClient = new TLSSocket(clientSocket, {
       isServer: true,
-      key: certInfo.key,
-      cert: certInfo.cert,
+      secureContext: secureCtx,
     })
 
     tlsClient.on('error', () => {

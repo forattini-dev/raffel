@@ -15,7 +15,7 @@ import {
 } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket } from 'node:net'
-import { TLSSocket, connect as tlsConnect } from 'node:tls'
+import { TLSSocket, connect as tlsConnect, createSecureContext } from 'node:tls'
 import { getDefaultCA, generateCertificate } from './proxy-certs.js'
 
 export type ProxyMode = 'forward' | 'intercept'
@@ -303,19 +303,21 @@ export class MockProxyServer extends EventEmitter {
     // Tell the client the tunnel is established
     clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 
-    // Wrap the client socket in a TLS server socket using the generated cert
-    let tlsClientSocket: TLSSocket
+    // Validate cert/key before wrapping the socket (avoids handle theft on failure)
+    let secureCtx: ReturnType<typeof createSecureContext>
     try {
-      tlsClientSocket = new TLSSocket(clientSocket, {
-        isServer: true,
-        key: certInfo.key,
-        cert: certInfo.cert,
-      })
+      secureCtx = createSecureContext({ key: certInfo.key, cert: certInfo.cert })
     } catch (err) {
       this.emit('error', err as Error)
       clientSocket.destroy()
       return
     }
+
+    // Wrap the client socket in a TLS server socket using the generated cert
+    const tlsClientSocket = new TLSSocket(clientSocket, {
+      isServer: true,
+      secureContext: secureCtx,
+    })
 
     tlsClientSocket.on('error', (err) => {
       this.emit('error', err)
