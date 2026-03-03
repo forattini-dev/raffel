@@ -103,6 +103,14 @@
       display: none !important;
     }
 
+    /* Better sidebar collapse */
+    .sidebar-nav li.collapse > ul {
+      display: none;
+    }
+    .sidebar-nav li.collapse.open > ul {
+      display: block;
+    }
+
     /* Keyboard shortcut hint */
     .keyboard-hint {
       position: fixed;
@@ -207,6 +215,9 @@
         isExpected: true
       },
 
+      // External script plugin
+      executeScript: true,
+
       sidebarDisplayLevel: 1,
 
       tabs: {
@@ -263,6 +274,7 @@
   <script src="//cdn.jsdelivr.net/npm/docsify-tabs@1/dist/docsify-tabs.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify-plugin-flexible-alerts"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/zoom-image.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/emoji.min.js"></script>
 
   <!-- Reading time / word count -->
   <script src="//cdn.jsdelivr.net/npm/docsify-count@latest/dist/countable.min.js"></script>
