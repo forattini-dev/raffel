@@ -30,7 +30,7 @@
   />
 
   <!-- Custom Styles -->
-  <link rel="stylesheet" href="./custom.css" />
+  <link rel="stylesheet" href="./custom.css?v=2" />
 
   <!-- Progress Bar & UI Tweaks -->
   <style>
@@ -286,6 +286,9 @@
   <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-diff.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-http.min.js"></script>
 
   <!-- Mermaid for Diagrams -->
   <script type="module">
@@ -369,6 +372,20 @@
         }
       });
     })();
+
+    // Copy anchor link on heading click
+    document.addEventListener('click', function(e) {
+      if (e.target.matches('h1, h2, h3, h4, h5, h6')) {
+        const id = e.target.id;
+        if (id) {
+          const url = window.location.href.split('#')[0] + '#' + window.location.hash.split('?')[0].slice(1) + '?id=' + id;
+          navigator.clipboard.writeText(url);
+          const originalText = e.target.textContent;
+          e.target.textContent = '🔗 Link copied!';
+          setTimeout(() => e.target.textContent = originalText, 1500);
+        }
+      }
+    });
 
     // Add external link target blank
     document.addEventListener('DOMContentLoaded', function() {
