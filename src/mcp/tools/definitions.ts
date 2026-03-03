@@ -20,16 +20,51 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_search',
     description:
-      'Search across all Raffel documentation including interceptors, adapters, patterns, and errors. Returns matching items with descriptions.',
+      'Search across Raffel docs including interceptors, adapters, patterns, errors, and USD documentation. Keywords are matched by term; quoted text is treated as an exact phrase.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search query (e.g., "auth", "rate limit", "websocket")',
+          description:
+            'Search query (keyword mode by default, e.g., "USD", "auth rate limit", "websocket"). Use quotes for exact phrases: `"Universal Service Documentation"`.',
+        },
+        type: {
+          type: 'string',
+          description:
+            'Optional result type filter: interceptor, adapter, pattern, error, guide. Defaults to all.',
+          enum: ['interceptor', 'adapter', 'pattern', 'error', 'guide'],
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of results to return.',
         },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'raffel_list_guides',
+    description: 'List available documentation guides available through the guide resource path.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'raffel_get_guide',
+    description:
+      'Get a full guide by topic slug (quickstart, auth, sessions, rest-api, migration, usd).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description:
+            'Guide topic slug (e.g., quickstart, auth, sessions, rest-api, migration, usd)',
+        },
+      },
+      required: ['topic'],
     },
   },
   {
@@ -531,6 +566,8 @@ export const toolCategories = {
   docs: [
     'raffel_getting_started',
     'raffel_search',
+    'raffel_list_guides',
+    'raffel_get_guide',
     'raffel_list_interceptors',
     'raffel_get_interceptor',
     'raffel_list_adapters',

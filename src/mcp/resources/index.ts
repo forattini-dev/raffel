@@ -19,46 +19,161 @@ import {
   getBoilerplate,
 } from '../docs/index.js'
 
+interface GuideResource {
+  topic: string
+  name: string
+  description: string
+  content: string
+}
+
+let GUIDE_RESOURCES: GuideResource[] = []
+let GUIDE_CATALOG: { topic: string; name: string; description: string }[] = []
+
+const GUIDE_TOPIC_ALIASES: Record<string, string> = {
+  'quick-start': 'quickstart',
+  'quick-start-guide': 'quickstart',
+  'quick-start-doc': 'quickstart',
+  'universal-service-documentation': 'usd',
+  'unified-service-documentation': 'usd',
+  'unified-service-doc': 'usd',
+  'universal-service-doc': 'usd',
+  'unified': 'usd',
+  'usd-docs': 'usd',
+  'uds': 'usd',
+  'x-usd': 'usd',
+  'universal': 'usd',
+}
+
+function normalizeGuideTopic(topic: string): string {
+  return topic
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function resolveGuideTopic(topic: string): string {
+  const normalized = normalizeGuideTopic(topic)
+  return GUIDE_TOPIC_ALIASES[normalized] || normalized
+}
+
+function refreshGuideResources(): void {
+  GUIDE_RESOURCES = [
+    {
+      topic: 'quickstart',
+      name: 'Quickstart Guide',
+      description: 'Getting started with Raffel',
+      content: quickstartGuide,
+    },
+    {
+      topic: 'auth',
+      name: 'Authentication Guide',
+      description: 'Complete guide: Bearer JWT, API Key, OAuth2, OIDC, Sessions',
+      content: AUTH_GUIDE,
+    },
+    {
+      topic: 'sessions',
+      name: 'Session Store Guide',
+      description: 'Session management with memory and custom drivers (including Redis adapters)',
+      content: SESSIONS_GUIDE,
+    },
+    {
+      topic: 'rest-api',
+      name: 'REST API Guide',
+      description: 'Building production-ready REST APIs with CRUD, validation, and auth',
+      content: REST_API_GUIDE,
+    },
+    {
+      topic: 'migration',
+      name: 'Migration Guide',
+      description: 'Migrating from Express, Fastify, Hono, ws, or Socket.IO to Raffel',
+      content: MIGRATION_GUIDE,
+    },
+    {
+      topic: 'usd',
+      name: 'Universal Service Documentation (USD)',
+      description:
+        'Unified/Universal Service Documentation for multi-protocol metadata (HTTP, WebSocket, gRPC, JSON-RPC, streams, TCP, UDP), with JSON/YAML exports.',
+      content: `# Universal Service Documentation (USD)
+
+USD (Universal Service Documentation) is Raffel's protocol-agnostic API documentation format.
+
+It extends OpenAPI 3.1 with the \`x-usd\` namespace and is designed to expose:
+
+- HTTP routes generated from procedures and resources
+- WebSocket channels and channel authorization
+- Streams metadata (direction, lifecycle, message contracts)
+- JSON-RPC method definitions
+- gRPC services and method descriptors
+- TCP/UDP protocol-specific configuration
+
+Enable in your server:
+
+\`\`\`typescript
+server.enableUSD({ 
+  info: { title: 'My API', version: '1.0.0' },
+  protocols: ['http', 'websocket'],
+  contentTypes: { default: 'application/json' },
+})
+\`\`\`
+
+Useful endpoints:
+
+- \`GET /docs\` - UI
+- \`GET /docs/usd.json\` - Raw USD document
+- \`GET /docs/usd.yaml\` - YAML USD document
+
+Use USD docs to make your API discoverable across HTTP/WebSocket/gRPC/JSON-RPC/streams from a single canonical format.
+`,
+    },
+  ]
+
+  GUIDE_CATALOG = GUIDE_RESOURCES.map((guide) => ({
+    topic: guide.topic,
+    name: guide.name,
+    description: guide.description,
+  }))
+}
+
+function ensureGuideResourcesInitialized(): void {
+  if (GUIDE_RESOURCES.length === 0) {
+    refreshGuideResources()
+  }
+}
+
+export function listGuides(): GuideResource[] {
+  ensureGuideResourcesInitialized()
+  return GUIDE_RESOURCES.map((guide) => ({ ...guide }))
+}
+
+export function getGuideCatalog(): { topic: string; name: string; description: string }[] {
+  ensureGuideResourcesInitialized()
+  return GUIDE_CATALOG.map((guide) => ({ ...guide }))
+}
+
+export function getGuideContentByTopic(topic: string): string | null {
+  ensureGuideResourcesInitialized()
+  const resolvedTopic = resolveGuideTopic(topic)
+  const guide = GUIDE_RESOURCES.find((item) => resolveGuideTopic(item.topic) === resolvedTopic)
+  return guide?.content || null
+}
+
 // === Static Resources ===
 
 export function getStaticResources(): MCPResource[] {
   const resources: MCPResource[] = []
+  ensureGuideResourcesInitialized()
 
   // Guides
-  resources.push({
-    uri: 'raffel://guide/quickstart',
-    name: 'Quickstart Guide',
-    description: 'Getting started with Raffel',
-    mimeType: 'text/markdown',
-  })
-
-  resources.push({
-    uri: 'raffel://guide/auth',
-    name: 'Authentication Guide',
-    description: 'Complete guide: Bearer JWT, API Key, OAuth2, OIDC, Sessions',
-    mimeType: 'text/markdown',
-  })
-
-  resources.push({
-    uri: 'raffel://guide/sessions',
-    name: 'Session Store Guide',
-    description: 'Session management with memory and custom drivers (including Redis adapters)',
-    mimeType: 'text/markdown',
-  })
-
-  resources.push({
-    uri: 'raffel://guide/rest-api',
-    name: 'REST API Guide',
-    description: 'Building production-ready REST APIs with CRUD, validation, and auth',
-    mimeType: 'text/markdown',
-  })
-
-  resources.push({
-    uri: 'raffel://guide/migration',
-    name: 'Migration Guide',
-    description: 'Migrating from Express, Fastify, Hono, ws, or Socket.IO to Raffel',
-    mimeType: 'text/markdown',
-  })
+  for (const guide of GUIDE_RESOURCES) {
+    resources.push({
+      uri: `raffel://guide/${guide.topic}`,
+      name: guide.name,
+      description: guide.description,
+      mimeType: 'text/markdown',
+    })
+  }
 
   // Interceptors
   for (const i of interceptors) {
@@ -634,22 +749,42 @@ pnpm remove socket.io socket.io-client
 `
 
 function getGuideContent(name: string): string | null {
-  switch (name) {
-    case 'quickstart': return quickstartGuide
-    case 'auth': return AUTH_GUIDE
-    case 'sessions': return SESSIONS_GUIDE
-    case 'rest-api': return REST_API_GUIDE
-    case 'migration': return MIGRATION_GUIDE
-    default: return null
+  const resolvedTopic = resolveGuideTopic(name)
+
+  switch (resolvedTopic) {
+    case 'quickstart':
+      return quickstartGuide
+    case 'auth':
+      return AUTH_GUIDE
+    case 'sessions':
+      return SESSIONS_GUIDE
+    case 'rest-api':
+      return REST_API_GUIDE
+    case 'migration':
+      return MIGRATION_GUIDE
+    default: {
+      ensureGuideResourcesInitialized()
+      const guide = GUIDE_RESOURCES.find((item) => resolveGuideTopic(item.topic) === resolvedTopic)
+      return guide?.content || null
+    }
   }
+}
+
+function parseResourceUri(uri: string): { type: string; name: string } | null {
+  if (!uri.startsWith('raffel://')) return null
+  const path = uri.slice('raffel://'.length).replace(/^\/+/, '')
+  const [type, ...parts] = path.split('/')
+  const name = parts.join('/').trim()
+  if (!type || !name) return null
+  return { type: type.toLowerCase(), name }
 }
 
 // === Resource Reader ===
 
 export function readResource(uri: string): MCPResourceReadResult | null {
-  const url = new URL(uri)
-  const [type, ...nameParts] = url.pathname.slice(2).split('/')
-  const name = nameParts.join('/')
+  const parsed = parseResourceUri(uri)
+  if (!parsed) return null
+  const { type, name } = parsed
 
   switch (type) {
     case 'guide': {

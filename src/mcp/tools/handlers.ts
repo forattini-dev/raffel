@@ -19,6 +19,7 @@ import {
   getBoilerplate,
   listBoilerplates,
 } from '../docs/index.js'
+import { getGuideCatalog, getGuideContentByTopic } from '../resources/index.js'
 import type { InterceptorDoc, AdapterDoc, PatternDoc, RaffelErrorDoc } from '../types.js'
 
 // === Helper Functions ===
@@ -168,6 +169,15 @@ function formatError(e: RaffelErrorDoc): string {
   return md
 }
 
+const SEARCH_TYPES = ['interceptor', 'adapter', 'pattern', 'error', 'guide']
+const SEARCH_LIMIT_MAX = 30
+
+function normalizeSearchLimit(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return 0
+  return Math.min(parsed, SEARCH_LIMIT_MAX)
+}
+
 function toTitleCase(input: string): string {
   return input
     .replace(/[-_]/g, ' ')
@@ -175,6 +185,15 @@ function toTitleCase(input: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function normalizeGuideTopic(topic: string): string {
+  return topic
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 }
 
 // === Tool Handlers ===
@@ -189,25 +208,90 @@ export const handlers: Record<string, MCPToolHandler> = {
   raffel_search: async (args) => {
     const query = String(args.query || '')
     if (!query) return error('Query is required')
+    const typeFilter = String(args.type || '').trim().toLowerCase()
+    const limit = normalizeSearchLimit(args.limit)
 
-    const results = searchAll(query)
+    if (typeFilter && !SEARCH_TYPES.includes(typeFilter)) {
+      return error(`Invalid type "${typeFilter}". Valid types: ${SEARCH_TYPES.join(', ')}`)
+    }
 
-    if (results.length === 0) {
-      return text(`No results found for "${query}". Try different keywords.`)
+    const results = searchAll(query).filter((r) => (typeFilter ? r.type === typeFilter : true))
+    const limitedResults = limit ? results.slice(0, limit) : results
+
+    if (limitedResults.length === 0) {
+      const suggestions = [
+        `Try a broader query, e.g. ` +
+          [
+            'USD',
+            'search',
+            'interceptor',
+            'rate limit',
+            'websocket',
+            'validation',
+          ].map((k) => `"${k}"`).join(', '),
+      ]
+      const guideCatalog = getGuideCatalog()
+      suggestions.push(`Try guide topics: ${guideCatalog.map((guide) => guide.topic).join(', ')}`)
+      if (typeFilter) {
+        suggestions.push(`Try removing the type filter and searching for "${query}"`)
+      }
+      suggestions.push('Try phrase mode with quotes, e.g. "Universal Service Documentation"')
+
+      return text(
+        [
+          `No results found for "${query}".`,
+          '',
+          'Search usage tips:',
+          '- **Keyword mode (default):** type one or more words, e.g. `search`, `error rate limit`, `USD`.',
+          '- **Phrase mode:** wrap the exact phrase in quotes, e.g. `"Universal Service Documentation"`, `"validation error"`.',
+          '- **Tip:** if you still see no results, use one keyword at a time and then combine.',
+          '- **Type filter:** interceptor | adapter | pattern | error | guide',
+          '- **Limit:** numeric max 30',
+          '',
+          ...suggestions.map((s) => `- ${s}`),
+          '',
+          "Examples: `rate limit`, `websocket`, `USD`, `\"search endpoint\"`, `procedure describe`.",
+        ].join('\n'),
+      )
     }
 
     let md = `# Search Results for "${query}"\n\n`
-    md += `Found ${results.length} result(s):\n\n`
+    md += `Found ${limitedResults.length} result(s):\n\n`
+    if (typeFilter) md += `Type filter: ${typeFilter}\n\n`
+    md += 'Search mode: spaced queries are treated as keyword terms by default (AND match). Use quotes for exact phrase matching.\n\n'
 
-    for (const r of results) {
+    for (const r of limitedResults) {
       md += `## [${r.type.toUpperCase()}] ${r.name}\n`
       if (r.category) md += `**Category:** ${r.category}\n`
       md += `${r.description}\n\n`
     }
 
-    md += `\n---\nUse \`raffel_get_interceptor\`, \`raffel_get_adapter\`, or \`raffel_explain_error\` for detailed documentation.`
+    md += `\n---\nUse: raffel_get_interceptor, raffel_get_adapter, raffel_api_patterns, raffel_get_guide, raffel_explain_error.\n`
 
     return text(md)
+  },
+
+  raffel_list_guides: async () => {
+    const guides = getGuideCatalog()
+    let md = '# Raffel Documentation Guides\n\n'
+    for (const guide of guides) {
+      md += `- **${guide.topic}**: ${guide.name} — ${guide.description}\n`
+    }
+
+    md += '\nUse `raffel_get_guide` with the topic slug for full content.'
+    return text(md)
+  },
+
+  raffel_get_guide: async (args) => {
+    const topic = normalizeGuideTopic(String(args.topic || ''))
+    if (!topic) return error('Guide topic is required')
+
+    const content = getGuideContentByTopic(topic)
+    if (!content) {
+      return error(`Guide "${topic}" not found. Use raffel_list_guides for valid topics.`)
+    }
+
+    return text(content)
   },
 
   raffel_list_interceptors: async (args) => {

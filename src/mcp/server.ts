@@ -17,9 +17,15 @@ import type {
 } from './types.js'
 import { JsonRpcErrorCode } from './types.js'
 import { tools, getToolsByCategory, handlers } from './tools/index.js'
-import { getStaticResources, getResourceTemplates, readResource } from './resources/index.js'
+import {
+  getStaticResources,
+  getResourceTemplates,
+  readResource,
+  getGuideCatalog,
+} from './resources/index.js'
 import { prompts, getPromptResult } from './prompts/index.js'
 import { MCP_VERSION } from './version.js'
+import { interceptors, adapters, errors } from './docs/index.js'
 
 export class MCPServer {
   private options: MCPServerOptions
@@ -470,39 +476,30 @@ Use raffel_api_patterns before generating code to ensure correct structure.`,
 
     if (ref.type === 'ref/argument') {
       // Tool argument completions
+      if (argument.name === 'type' && ref.name === 'raffel_search') {
+        values.push(...['interceptor', 'adapter', 'pattern', 'error', 'guide'].filter((type) =>
+          type.includes(argument.value.toLowerCase()),
+        ))
+      }
+
+      if (argument.name === 'topic' && ref.name === 'raffel_get_guide') {
+        const guides = getGuideCatalog().map((guide) => guide.topic)
+        values.push(...guides.filter((name) => name.includes(argument.value.toLowerCase())))
+      }
+
       if (argument.name === 'name' && ref.name === 'raffel_get_interceptor') {
-        const allInterceptors = [
-          'createAuthMiddleware',
-          'createRateLimitInterceptor',
-          'timeout',
-          'retry',
-          'circuitBreaker',
-          'cache',
-          'logging',
-          'bulkhead',
-          'fallback',
-        ]
-        values.push(...allInterceptors.filter((i) => i.includes(argument.value)))
+        const allInterceptors = interceptors.map((item) => item.name)
+        const normalizedValue = argument.value.toLowerCase()
+        values.push(...allInterceptors.filter((i) => i.toLowerCase().includes(normalizedValue)))
       }
 
       if (argument.name === 'name' && ref.name === 'raffel_get_adapter') {
-        const allAdapters = ['HTTP', 'WebSocket', 'gRPC', 'JSON-RPC', 'GraphQL', 'TCP']
-        values.push(...allAdapters.filter((a) => a.toLowerCase().includes(argument.value.toLowerCase())))
+        const allAdapters = adapters.map((adapter) => adapter.name)
+        values.push(...allAdapters.filter((i) => i.toLowerCase().includes(argument.value.toLowerCase())))
       }
 
       if (argument.name === 'code' && ref.name === 'raffel_explain_error') {
-        const allErrors = [
-          'INVALID_ARGUMENT',
-          'UNAUTHENTICATED',
-          'PERMISSION_DENIED',
-          'NOT_FOUND',
-          'ALREADY_EXISTS',
-          'RESOURCE_EXHAUSTED',
-          'DEADLINE_EXCEEDED',
-          'CANCELLED',
-          'INTERNAL',
-          'UNAVAILABLE',
-        ]
+        const allErrors = errors.map((item) => item.code)
         values.push(...allErrors.filter((e) => e.includes(argument.value.toUpperCase())))
       }
     }
