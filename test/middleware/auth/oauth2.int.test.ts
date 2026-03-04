@@ -864,7 +864,7 @@ describe('Client Credentials in Body', () => {
 
 describe('Client Credentials Strategy', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('should authenticate valid client credentials from Basic header', async () => {

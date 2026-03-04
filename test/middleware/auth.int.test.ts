@@ -237,8 +237,8 @@ describe('Authentication Middleware', () => {
       const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-1' })
       const strategy = createCookieSessionStrategy({ secret, validate })
 
-      const wrongLength = createTestEnvelope('test', { cookie: wrongLenSignatureCookie })
-      const wrongValue = createTestEnvelope('test', { cookie: wrongValueSignatureCookie })
+      const wrongLength = createTestEnvelope('test', { cookie: `session=${wrongLenSignatureCookie}` })
+      const wrongValue = createTestEnvelope('test', { cookie: `session=${wrongValueSignatureCookie}` })
 
       const resultWrongLength = await strategy.authenticate(wrongLength, wrongLength.context)
       const resultWrongValue = await strategy.authenticate(wrongValue, wrongValue.context)
@@ -251,7 +251,7 @@ describe('Authentication Middleware', () => {
     it('should authenticate when signed cookie is valid', async () => {
       const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-1' })
       const strategy = createCookieSessionStrategy({ secret, validate })
-      const envelope = createTestEnvelope('test', { cookie: signedSessionCookie })
+      const envelope = createTestEnvelope('test', { cookie: `session=${signedSessionCookie}` })
 
       const result = await strategy.authenticate(envelope, envelope.context)
 
