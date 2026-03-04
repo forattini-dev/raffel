@@ -9,6 +9,7 @@
 
 import { RaffelError } from '../core/index.js'
 import type { Interceptor, Envelope, Context, AuthContext } from '../types/index.js'
+import type { OAuth2StrategyWithFlow, OAuth2Tokens } from './auth/oauth2.js'
 
 /**
  * Authentication result
@@ -451,12 +452,207 @@ export function createEnhancedApiKeyStrategy(options: EnhancedApiKeyOptions): Au
 }
 
 /**
+ * Refresh interceptor options
+ */
+export interface RefreshTokenCookieOptions {
+  /** Cookie path */
+  path?: string
+  /** Cookie domain */
+  domain?: string
+  /** Max-Age in seconds */
+  maxAge?: number
+  /** Mark cookie as HttpOnly */
+  httpOnly?: boolean
+  /** Mark cookie as Secure */
+  secure?: boolean
+  /** SameSite policy */
+  sameSite?: 'Strict' | 'Lax' | 'None'
+}
+
+/**
+ * Refresh interceptor configuration
+ */
+export interface RefreshInterceptorOptions {
+  /** OAuth2 strategy that supports token refresh */
+  strategy: OAuth2StrategyWithFlow
+
+  /** Access token header name (default: 'authorization') */
+  accessTokenHeader?: string
+  /** Access token prefix (default: 'Bearer ') */
+  accessTokenPrefix?: string
+
+  /**
+   * Refresh token lookup
+   * default: cookie refresh_token
+   */
+  refreshToken?: {
+    /** Refresh token header name fallback (default: 'x-refresh-token') */
+    headerName?: string
+    /** Refresh token cookie name (default: 'refresh_token') */
+    cookieName?: string
+    /** Cookie attributes for rotated refresh token */
+    cookie?: RefreshTokenCookieOptions
+  }
+
+  /** Attempt refresh when no access token is present (default: true) */
+  refreshOnMissingAccessToken?: boolean
+
+  /** Verify refreshed access token before continuing (default: true) */
+  verifyRefreshedToken?: boolean
+
+  /** Rotate refresh token when the provider returns a new one (default: true) */
+  rotateRefreshToken?: boolean
+
+  /** Propagate auth context after refresh (default: true) */
+  setAuthContext?: boolean
+
+  /** Callback after successful token refresh */
+  onRefreshed?: (tokens: OAuth2Tokens, envelope: Envelope, ctx: Context) => void | Promise<void>
+}
+
+/**
+ * Create an interceptor that enables short-lived access token refresh with
+ * client-side rotation through an httpOnly refresh token cookie.
+ */
+export function createRefreshInterceptor(options: RefreshInterceptorOptions): Interceptor {
+  const {
+    strategy,
+    accessTokenHeader = 'authorization',
+    accessTokenPrefix = 'Bearer ',
+    refreshToken: refreshOptions = {},
+    refreshOnMissingAccessToken = true,
+    verifyRefreshedToken = true,
+    rotateRefreshToken = true,
+    setAuthContext = true,
+  } = options
+
+  const {
+    headerName: refreshHeaderName = 'x-refresh-token',
+    cookieName = 'refresh_token',
+    cookie: refreshCookie = {},
+  } = refreshOptions
+
+  const cookieNameToUse = cookieName
+  const refreshCookieOptions: RefreshTokenCookieOptions = {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: false,
+    ...refreshCookie,
+  }
+
+  return async (
+    envelope: Envelope,
+    ctx: Context,
+    next: () => Promise<unknown>
+  ): Promise<unknown> => {
+    const accessToken = getAccessTokenFromMetadata(envelope.metadata, accessTokenHeader, accessTokenPrefix)
+    const refreshToken = getRefreshTokenFromMetadata(envelope.metadata, refreshHeaderName, cookieNameToUse)
+
+    let authResult: AuthResult | null = null
+
+    if (accessToken) {
+      try {
+        authResult = await strategy.authenticate(envelope, ctx)
+      } catch (_error) {
+        // Ignore and attempt refresh when available
+        authResult = null
+      }
+
+      if (authResult?.authenticated) {
+        if (setAuthContext) {
+          ;(ctx as Record<string, unknown>).auth = {
+            authenticated: true,
+            principal: authResult.principal,
+            claims: authResult.claims,
+          }
+        }
+        return next()
+      }
+    } else if (!refreshOnMissingAccessToken) {
+      return next()
+    }
+
+    if (!refreshToken) {
+      return next()
+    }
+
+    let tokens: OAuth2Tokens
+    try {
+      tokens = await strategy.refreshToken(refreshToken)
+    } catch (_error) {
+      return next()
+    }
+
+    if (!tokens.accessToken) {
+      return next()
+    }
+
+    envelope.metadata[accessTokenHeader] = `${accessTokenPrefix}${tokens.accessToken}`
+
+    const rotatedRefreshToken = rotateRefreshToken && tokens.refreshToken
+      ? tokens.refreshToken
+      : refreshToken
+
+    if (rotatedRefreshToken) {
+      appendSetCookieHeader(
+        envelope,
+        buildRefreshTokenCookie(cookieNameToUse, rotatedRefreshToken, refreshCookieOptions)
+      )
+    }
+
+    if (verifyRefreshedToken) {
+      let refreshedAuth: AuthResult | null = null
+
+      try {
+        refreshedAuth = await strategy.authenticate(envelope, ctx)
+      } catch (_error) {
+        refreshedAuth = null
+      }
+
+      if (!refreshedAuth?.authenticated) {
+        return next()
+      }
+
+      if (setAuthContext) {
+        ;(ctx as Record<string, unknown>).auth = {
+          authenticated: true,
+          principal: refreshedAuth.principal,
+          claims: refreshedAuth.claims,
+        }
+      }
+    } else if (setAuthContext && authResult) {
+      ;(ctx as Record<string, unknown>).auth = {
+        authenticated: true,
+        principal: authResult.principal,
+        claims: authResult.claims,
+      }
+    } else if (setAuthContext) {
+      // Fallback: mark as unauthenticated if we couldn't validate.
+      ;(ctx as Record<string, unknown>).auth = {
+        authenticated: false,
+      }
+    }
+
+    if (options.onRefreshed) {
+      await options.onRefreshed(tokens, envelope, ctx)
+    }
+
+    return next()
+  }
+}
+
+/**
  * Create the authentication interceptor
  */
 export function createAuthMiddleware(options: AuthMiddlewareOptions): Interceptor {
   const { strategies, publicProcedures = [], onError } = options
 
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
+    if ((ctx as { auth?: AuthContext }).auth?.authenticated) {
+      return next()
+    }
+
     // Check if procedure is public
     if (publicProcedures.includes(envelope.procedure)) {
       return next()
@@ -507,7 +703,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Intercepto
  * Authorization middleware options
  */
 export interface AuthzMiddlewareOptions {
-  /** Role-based access control rules */
+  /** Role/scope-based access control rules */
   rules: AuthzRule[]
   /** Default policy when no rule matches */
   defaultAllow?: boolean
@@ -521,6 +717,8 @@ export interface AuthzRule {
   procedure: string
   /** Required roles (any of these) */
   roles?: string[]
+  /** Required scopes (any of these) */
+  scopes?: string[]
   /** Custom check function */
   check?: (ctx: Context) => Promise<boolean> | boolean
 }
@@ -535,7 +733,134 @@ function getRoles(auth: AuthContext | undefined): string[] {
 }
 
 /**
- * Create authorization middleware (role-based access control)
+ * Get scopes from auth context
+ */
+function getScopes(auth: AuthContext | undefined): string[] {
+  if (!auth?.claims) return []
+
+  const claims = auth.claims
+  const values: string[] = []
+
+  const normalizeValues = (input: unknown): string[] => {
+    if (!input) return []
+
+    if (typeof input === 'string') {
+      return input
+        .split(/[\s,]+/)
+        .map((scope) => scope.trim())
+        .filter(Boolean)
+    }
+
+    if (Array.isArray(input)) {
+      const out: string[] = []
+      for (const entry of input) {
+        if (typeof entry === 'string') {
+          out.push(...entry.split(/[\s,]+/).map((scope) => scope.trim()).filter(Boolean))
+        }
+      }
+      return out
+    }
+
+    return []
+  }
+
+  values.push(...normalizeValues(claims.scope))
+  values.push(...normalizeValues(claims.scopes))
+  values.push(...normalizeValues(claims.permissions))
+
+  return [...new Set(values)]
+}
+
+/**
+ * Get a value from metadata using case-insensitive key matching.
+ */
+function getMetadataValue(metadata: Record<string, string>, key: string): string | undefined {
+  return (
+    metadata[key] ??
+    metadata[key.toLowerCase()] ??
+    metadata[key.toUpperCase()] ??
+    metadata[key.replace(/\b([a-z])/g, (match) => match.toUpperCase())]
+  )
+}
+
+/**
+ * Extract bearer token from metadata.
+ */
+function getAccessTokenFromMetadata(
+  metadata: Record<string, string>,
+  headerName: string,
+  tokenPrefix: string
+): string | null {
+  const headerValue = getMetadataValue(metadata, headerName)
+
+  if (!headerValue || !headerValue.startsWith(tokenPrefix)) {
+    return null
+  }
+
+  return headerValue.slice(tokenPrefix.length)
+}
+
+/**
+ * Extract refresh token from header or cookie metadata.
+ */
+function getRefreshTokenFromMetadata(
+  metadata: Record<string, string>,
+  headerName: string,
+  cookieName: string
+): string | null {
+  const headerValue = getMetadataValue(metadata, headerName)
+  if (headerValue) {
+    return headerValue
+  }
+
+  const cookieHeader = getMetadataValue(metadata, 'cookie')
+  if (!cookieHeader) {
+    return null
+  }
+
+  const cookies = parseCookies(cookieHeader)
+  return cookies[cookieName] ?? null
+}
+
+/**
+ * Build a HttpOnly refresh cookie value.
+ */
+function buildRefreshTokenCookie(name: string, value: string, options: RefreshTokenCookieOptions): string {
+  let cookie = `${name}=${encodeURIComponent(value)}`
+
+  if (options.path) cookie += `; Path=${options.path}`
+  if (options.domain) cookie += `; Domain=${options.domain}`
+  if (options.maxAge !== undefined) cookie += `; Max-Age=${options.maxAge}`
+  if (options.httpOnly !== false) cookie += '; HttpOnly'
+  if (options.secure) cookie += '; Secure'
+  if (options.sameSite) cookie += `; SameSite=${options.sameSite}`
+
+  return cookie
+}
+
+/**
+ * Append a Set-Cookie header to the response metadata.
+ */
+function appendSetCookieHeader(envelope: Envelope, value: string): void {
+  const meta = envelope.metadata as unknown as Record<string, unknown>
+  const existing = meta['httpResponseHeaders'] as Record<string, unknown> | undefined
+
+  if (existing) {
+    const current = existing['set-cookie']
+    if (Array.isArray(current)) {
+      current.push(value)
+    } else if (typeof current === 'string') {
+      existing['set-cookie'] = [current, value]
+    } else {
+      existing['set-cookie'] = value
+    }
+  } else {
+    meta['httpResponseHeaders'] = { 'set-cookie': value }
+  }
+}
+
+/**
+ * Create authorization middleware (role/scope-based access control)
  */
 export function createAuthzMiddleware(options: AuthzMiddlewareOptions): Interceptor {
   const { rules, defaultAllow = false } = options
@@ -566,11 +891,26 @@ export function createAuthzMiddleware(options: AuthzMiddlewareOptions): Intercep
     // Check all matching rules
     for (const rule of matchingRules) {
       let allowed = false
+      const hasRolesRule = rule.roles && rule.roles.length > 0
+      const hasScopesRule = rule.scopes && rule.scopes.length > 0
 
       // Check roles
-      if (rule.roles && rule.roles.length > 0) {
+      if (hasRolesRule) {
         const userRoles = getRoles(auth)
-        allowed = rule.roles.some((role) => userRoles.includes(role))
+        allowed = rule.roles!.some((role) => userRoles.includes(role))
+      }
+
+      // Check scopes
+      if (hasScopesRule) {
+        const userScopes = getScopes(auth)
+        const scopeAllowed = rule.scopes!.some((scope) => userScopes.includes(scope))
+
+        // If both roles and scopes are set, require both.
+        if (hasRolesRule) {
+          allowed = allowed && scopeAllowed
+        } else {
+          allowed = scopeAllowed
+        }
       }
 
       // Check custom function
@@ -616,6 +956,24 @@ export function hasAnyRole(ctx: Context, roles: string[]): boolean {
 }
 
 /**
+ * Helper to check if user has a specific scope
+ */
+export function hasScope(ctx: Context, scope: string): boolean {
+  const auth = ctx.auth
+  const userScopes = getScopes(auth)
+  return userScopes.includes(scope)
+}
+
+/**
+ * Helper to check if user has any of the specified scopes
+ */
+export function hasAnyScope(ctx: Context, scopes: string[]): boolean {
+  const auth = ctx.auth
+  const userScopes = getScopes(auth)
+  return scopes.some((scope) => userScopes.includes(scope))
+}
+
+/**
  * Helper to check if user has all of the specified roles
  */
 export function hasAllRoles(ctx: Context, roles: string[]): boolean {
@@ -631,6 +989,7 @@ export function hasAllRoles(ctx: Context, roles: string[]): boolean {
 export {
   // OAuth2 Strategy
   createOAuth2Strategy,
+  createClientCredentialsStrategy,
   // OIDC Strategy
   createOIDCStrategy,
   // Provider presets
@@ -654,6 +1013,9 @@ export type {
   OAuth2Tokens,
   OAuth2UserInfo,
   OAuth2StrategyWithFlow,
+  ClientCredentialsConfig,
+  ClientCredentialsExchangeOptions,
+  ClientCredentialsStrategy,
   // OIDC types
   OIDCConfig,
   OIDCDiscoveryDocument,
@@ -661,3 +1023,7 @@ export type {
   // Provider types
   OAuth2Provider,
 } from './auth/oauth2.js'
+
+export { createJWKSVerifier } from './auth/jwks.js'
+
+export type { CreateJWKSVerifierOptions, JWKSVerifier } from './auth/jwks.js'

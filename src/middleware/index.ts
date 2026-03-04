@@ -210,12 +210,15 @@ export {
   createBearerStrategy,
   createApiKeyStrategy,
   createStaticApiKeyStrategy,
+  createRefreshInterceptor,
 
   // Helpers
   requireAuth,
   hasRole,
   hasAnyRole,
   hasAllRoles,
+  hasScope,
+  hasAnyScope,
 } from './auth.js'
 
 export type {
@@ -231,6 +234,8 @@ export type {
   AuthzRule,
 
   // OAuth2/OIDC types
+  RefreshInterceptorOptions,
+  RefreshTokenCookieOptions,
   OAuth2Config,
   OAuth2Tokens,
   OAuth2UserInfo,
@@ -239,6 +244,13 @@ export type {
   OIDCDiscoveryDocument,
   OIDCStrategyWithFlow,
   OAuth2Provider,
+  ClientCredentialsConfig,
+  ClientCredentialsExchangeOptions,
+  ClientCredentialsStrategy,
+
+  // JWKS verifier types
+  CreateJWKSVerifierOptions,
+  JWKSVerifier,
 } from './auth.js'
 
 // OAuth2/OIDC Strategies
@@ -251,7 +263,9 @@ export {
   createMicrosoftOAuth2Strategy,
   createAppleOAuth2Strategy,
   createFacebookOAuth2Strategy,
+  createClientCredentialsStrategy,
   generateState,
   generateNonce,
   clearDiscoveryCache,
+  createJWKSVerifier,
 } from './auth.js'

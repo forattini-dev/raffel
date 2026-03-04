@@ -164,6 +164,11 @@ export {
   hasRole,
   hasAnyRole,
   hasAllRoles,
+  hasScope,
+  hasAnyScope,
+  createRefreshInterceptor,
+  createClientCredentialsStrategy,
+  createJWKSVerifier,
   // Composition
   compose,
   when,
@@ -238,6 +243,13 @@ export type {
   ApiKeyOptions,
   AuthzMiddlewareOptions,
   AuthzRule,
+  RefreshInterceptorOptions,
+  RefreshTokenCookieOptions,
+  ClientCredentialsConfig,
+  ClientCredentialsExchangeOptions,
+  ClientCredentialsStrategy,
+  CreateJWKSVerifierOptions,
+  JWKSVerifier,
 } from './middleware/index.js'
 
 // === Rate Limit Drivers ===

@@ -3,15 +3,22 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import { createHmac } from 'node:crypto'
 import {
   createAuthMiddleware,
   createAuthzMiddleware,
   createBearerStrategy,
   createApiKeyStrategy,
+  createCookieSessionStrategy,
+  createEnhancedBearerStrategy,
+  createEnhancedApiKeyStrategy,
   createStaticApiKeyStrategy,
+  createRefreshInterceptor,
   requireAuth,
   hasRole,
   hasAnyRole,
+  hasScope,
+  hasAnyScope,
   hasAllRoles,
   type AuthResult,
 } from '../../src/middleware/auth.js'
@@ -156,6 +163,233 @@ describe('Authentication Middleware', () => {
     })
   })
 
+  describe('Cookie Session Strategy', () => {
+    const secret = 'test-secret'
+    const sessionCookie = 'sess-123'
+    const signedSessionCookie = `${sessionCookie}.${createHmac('sha256', secret).update(sessionCookie).digest('base64url')}`
+    const wrongLenSignatureCookie = `${sessionCookie}.bad`
+    const wrongValueSignatureCookie = `${sessionCookie}.${createHmac('sha256', secret).update('other').digest('base64url')}`
+
+    it('should return null when no cookie header is present', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-1' })
+      const strategy = createCookieSessionStrategy({ validate })
+      const envelope = createTestEnvelope('test')
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).not.toHaveBeenCalled()
+      expect(result).toBeNull()
+    })
+
+    it('should authenticate with simple session cookie', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-1' })
+      const strategy = createCookieSessionStrategy({ validate })
+      const envelope = createTestEnvelope('test', { cookie: 'session=sess-1' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).toHaveBeenCalledWith('sess-1')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should decode URI component in cookie value', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-2' })
+      const strategy = createCookieSessionStrategy({ validate })
+      const envelope = createTestEnvelope('test', { cookie: 'session=sess%20id%2D01' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).toHaveBeenCalledWith('sess id-01')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should return null when chunked session cookie is incomplete', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-3' })
+      const strategy = createCookieSessionStrategy({
+        chunked: true,
+        validate,
+      })
+      const envelope = createTestEnvelope('test', { cookie: 'session.__chunks=2; session.0=abc' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).not.toHaveBeenCalled()
+      expect(result).toBeNull()
+    })
+
+    it('should authenticate with chunked session cookie', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-4' })
+      const strategy = createCookieSessionStrategy({
+        chunked: true,
+        validate,
+      })
+      const envelope = createTestEnvelope('test', {
+        cookie: 'session.__chunks=2; session.0=abc; session.1=def',
+      })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).toHaveBeenCalledWith('abcdef')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should return authenticated=false when signed cookie has invalid signature', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-1' })
+      const strategy = createCookieSessionStrategy({ secret, validate })
+
+      const wrongLength = createTestEnvelope('test', { cookie: wrongLenSignatureCookie })
+      const wrongValue = createTestEnvelope('test', { cookie: wrongValueSignatureCookie })
+
+      const resultWrongLength = await strategy.authenticate(wrongLength, wrongLength.context)
+      const resultWrongValue = await strategy.authenticate(wrongValue, wrongValue.context)
+
+      expect(validate).not.toHaveBeenCalled()
+      expect(resultWrongLength).toEqual({ authenticated: false })
+      expect(resultWrongValue).toEqual({ authenticated: false })
+    })
+
+    it('should authenticate when signed cookie is valid', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-1' })
+      const strategy = createCookieSessionStrategy({ secret, validate })
+      const envelope = createTestEnvelope('test', { cookie: signedSessionCookie })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).toHaveBeenCalledWith(sessionCookie)
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should support custom cookie name when chunked and no chunks key exists', async () => {
+      const validate = vi.fn().mockResolvedValue({ authenticated: true, principal: 'u-5' })
+      const strategy = createCookieSessionStrategy({
+        cookieName: 'sid',
+        chunked: true,
+        validate,
+      })
+      const envelope = createTestEnvelope('test', { cookie: 'sid=my-custom-session' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(validate).toHaveBeenCalledWith('my-custom-session')
+      expect(result?.authenticated).toBe(true)
+    })
+  })
+
+  describe('Enhanced Bearer Strategy', () => {
+    it('should extract token from header when available', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-bearer' })
+      const strategy = createEnhancedBearerStrategy({
+        verify,
+        extractFrom: ['header', 'query'],
+      })
+      const envelope = createTestEnvelope('test', { Authorization: 'Bearer header-token' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('header-token')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should extract token from metadata query object', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-bearer' })
+      const strategy = createEnhancedBearerStrategy({ verify, extractFrom: ['query'] })
+      const envelope = createTestEnvelope('test', {
+        query: { token: 'query-token' } as unknown as string,
+      })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('query-token')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should extract token from context query property', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-bearer' })
+      const strategy = createEnhancedBearerStrategy({ verify, extractFrom: ['query'] })
+      const envelope = createTestEnvelope('test')
+      ;(envelope.context as any).query = { token: 'ctx-query-token' }
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('ctx-query-token')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should fall back to query param key from metadata', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-bearer' })
+      const strategy = createEnhancedBearerStrategy({ verify, queryParam: 'access_token', extractFrom: ['query'] })
+      const envelope = createTestEnvelope('test', { access_token: 'meta-query-token' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('meta-query-token')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should return null when no token is present', async () => {
+      const verify = vi.fn()
+      const strategy = createEnhancedBearerStrategy({ verify, extractFrom: ['header', 'query'] })
+      const envelope = createTestEnvelope('test')
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).not.toHaveBeenCalled()
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('Enhanced API Key Strategy', () => {
+    it('should extract key from header', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'svc' })
+      const strategy = createEnhancedApiKeyStrategy({
+        verify,
+        extractFrom: ['header', 'query'],
+      })
+      const envelope = createTestEnvelope('test', { 'X-API-Key': 'header-key' })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('header-key')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should extract key from metadata query object', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'svc' })
+      const strategy = createEnhancedApiKeyStrategy({ verify, extractFrom: ['query'] })
+      const envelope = createTestEnvelope('test', {
+        query: { apiKey: 'query-key' } as unknown as string,
+      })
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('query-key')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should extract key from context query object', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'svc' })
+      const strategy = createEnhancedApiKeyStrategy({ verify, extractFrom: ['query'] })
+      const envelope = createTestEnvelope('test')
+      ;(envelope.context as any).query = { apiKey: 'ctx-api-key' }
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).toHaveBeenCalledWith('ctx-api-key')
+      expect(result?.authenticated).toBe(true)
+    })
+
+    it('should return null when no api key is present', async () => {
+      const verify = vi.fn()
+      const strategy = createEnhancedApiKeyStrategy({ verify, extractFrom: ['query'] })
+      const envelope = createTestEnvelope('test')
+
+      const result = await strategy.authenticate(envelope, envelope.context)
+
+      expect(verify).not.toHaveBeenCalled()
+      expect(result).toBeNull()
+    })
+  })
+
   describe('Auth Middleware', () => {
     it('should pass through for public procedures', async () => {
       const middleware = createAuthMiddleware({
@@ -248,6 +482,119 @@ describe('Authentication Middleware', () => {
       expect(apiKeyVerify).toHaveBeenCalledWith('valid-key')
       expect(next).toHaveBeenCalled()
     })
+
+    it('should call onError when a strategy throws and continue', async () => {
+      const shouldNotRun = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-1' })
+      const shouldRun = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-2' })
+      const error = new Error('strategy failure')
+      const onError = vi.fn()
+
+      const middleware = createAuthMiddleware({
+        strategies: [
+          createBearerStrategy({
+            verify: vi.fn().mockRejectedValue(error),
+          }),
+          createBearerStrategy({
+            verify: shouldRun,
+          }),
+        ],
+        onError,
+      })
+
+      const envelope = createTestEnvelope('protected', { authorization: 'Bearer valid-token' })
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await middleware(envelope, envelope.context, next)
+
+      expect(onError).toHaveBeenCalledWith(error, envelope)
+      expect(shouldRun).toHaveBeenCalledWith('valid-token')
+      expect(next).toHaveBeenCalled()
+    })
+  })
+
+  describe('Refresh Interceptor', () => {
+    it('should skip token refresh when access token is already valid', async () => {
+      const strategy = {
+        name: 'oauth2-client',
+        authenticate: vi.fn().mockResolvedValue({
+          authenticated: true,
+          principal: 'service-a',
+          claims: { sub: 'service-a' },
+        }),
+        refreshToken: vi.fn().mockResolvedValue({
+          accessToken: 'fresh-access',
+          tokenType: 'Bearer',
+        }),
+        config: {},
+      } as any
+
+      const interceptor = createRefreshInterceptor({
+        strategy,
+      })
+
+      const envelope = createTestEnvelope('protected', { authorization: 'Bearer current-access' })
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      const result = await interceptor(envelope, envelope.context, next)
+
+      expect(strategy.refreshToken).not.toHaveBeenCalled()
+      expect(strategy.authenticate).toHaveBeenCalledTimes(1)
+      expect(next).toHaveBeenCalled()
+      expect(result).toEqual({ ok: true })
+      expect((envelope.context as any).auth).toEqual({
+        authenticated: true,
+        principal: 'service-a',
+        claims: { sub: 'service-a' },
+      })
+    })
+
+    it('should refresh expired token using refresh token from cookie and rotate refresh token', async () => {
+      const strategy = {
+        name: 'oauth2-client',
+        authenticate: vi
+          .fn()
+          .mockResolvedValueOnce({ authenticated: false })
+          .mockResolvedValueOnce({
+            authenticated: true,
+            principal: 'service-a',
+            claims: { sub: 'service-a' },
+          }),
+        refreshToken: vi.fn().mockResolvedValue({
+          accessToken: 'new-access',
+          tokenType: 'Bearer',
+          refreshToken: 'rotated-refresh',
+        }),
+        config: {},
+      } as any
+
+      const onRefreshed = vi.fn()
+      const interceptor = createRefreshInterceptor({ strategy, onRefreshed })
+      const envelope = createTestEnvelope('protected', {
+        authorization: 'Bearer expired-access',
+        cookie: 'refresh_token=initial-refresh',
+      })
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await interceptor(envelope, envelope.context, next)
+
+      expect(strategy.authenticate).toHaveBeenCalledTimes(2)
+      expect(strategy.refreshToken).toHaveBeenCalledWith('initial-refresh')
+      expect(envelope.metadata.authorization).toBe('Bearer new-access')
+      expect(envelope.metadata['httpResponseHeaders']).toEqual({
+        'set-cookie': 'refresh_token=rotated-refresh; Path=/; HttpOnly; SameSite=Lax',
+      })
+      expect((envelope.context as any).auth).toEqual({
+        authenticated: true,
+        principal: 'service-a',
+        claims: { sub: 'service-a' },
+      })
+      expect(onRefreshed).toHaveBeenCalledWith(
+        expect.objectContaining({ accessToken: 'new-access' }),
+        envelope,
+        envelope.context
+      )
+      expect(next).toHaveBeenCalled()
+    })
   })
 })
 
@@ -332,6 +679,117 @@ describe('Authorization Middleware', () => {
       const next1 = vi.fn().mockResolvedValue({ ok: true })
       await middleware(adminEnvelope, ctx, next1)
       expect(next1).toHaveBeenCalled()
+    })
+  })
+
+  describe('Scope-based Access Control', () => {
+    it('should allow access when user has required scope', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [{ procedure: 'users.list', scopes: ['read:users'] }],
+      })
+
+      const ctx = createAuthenticatedContext([])
+      ;(ctx as any).auth.claims = { scopes: ['read:users'] }
+
+      const envelope = { ...createTestEnvelope('users.list'), context: ctx }
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await middleware(envelope, ctx, next)
+      expect(next).toHaveBeenCalled()
+    })
+
+    it('should deny access when user lacks required scope', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [{ procedure: 'users.create', scopes: ['write:users'] }],
+      })
+
+      const ctx = createAuthenticatedContext([])
+      ;(ctx as any).auth.claims = { scopes: ['read:users'] }
+
+      const envelope = { ...createTestEnvelope('users.create'), context: ctx }
+      const next = vi.fn()
+
+      await expect(middleware(envelope, ctx, next)).rejects.toThrow('Access denied')
+      expect(next).not.toHaveBeenCalled()
+    })
+
+    it('should require role and scope when both are configured', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [{ procedure: 'orders.list', roles: ['admin'], scopes: ['read:orders'] }],
+      })
+
+      const ctx = createAuthenticatedContext(['admin'])
+      ;(ctx as any).auth.claims = { scopes: ['write:orders'] }
+
+      const envelope = { ...createTestEnvelope('orders.list'), context: ctx }
+      const next = vi.fn()
+
+      await expect(middleware(envelope, ctx, next)).rejects.toThrow('Access denied')
+      expect(next).not.toHaveBeenCalled()
+    })
+
+    it('should allow access when role and scope are both satisfied', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [{ procedure: 'orders.read', roles: ['admin'], scopes: ['read:orders'] }],
+      })
+
+      const ctx = createAuthenticatedContext(['admin'])
+      ;(ctx as any).auth.claims = { ...((ctx as any).auth.claims ?? {}), scope: 'read:orders write:orders' }
+
+      const envelope = { ...createTestEnvelope('orders.read'), context: ctx }
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await middleware(envelope, ctx, next)
+      expect(next).toHaveBeenCalled()
+    })
+
+    it('should use custom check function even when roles/scopes do not match', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [
+          {
+            procedure: 'reports.export',
+            roles: ['admin'],
+            scopes: ['admin:export'],
+            check: vi.fn().mockResolvedValue(true),
+          },
+        ],
+      })
+
+      const ctx = createAuthenticatedContext([])
+      ;(ctx as any).auth.claims = { scope: 'read:reports' }
+      const envelope = { ...createTestEnvelope('reports.export'), context: ctx }
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await middleware(envelope, ctx, next)
+      expect(next).toHaveBeenCalled()
+    })
+
+    it('should deny when scope is provided as comma-separated string', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [{ procedure: 'users.write', scopes: ['write:users'] }],
+      })
+
+      const ctx = createAuthenticatedContext([])
+      ;(ctx as any).auth.claims = { scope: 'read:users,write:users,write:users' }
+
+      const envelope = { ...createTestEnvelope('users.write'), context: ctx }
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await middleware(envelope, ctx, next)
+      expect(next).toHaveBeenCalled()
+    })
+
+    it('should deny when rule has no roles/scopes and no custom check', async () => {
+      const middleware = createAuthzMiddleware({
+        rules: [{ procedure: 'misc.action' }],
+      })
+
+      const ctx = createAuthenticatedContext(['admin'])
+      const envelope = { ...createTestEnvelope('misc.action'), context: ctx }
+      const next = vi.fn()
+
+      await expect(middleware(envelope, ctx, next)).rejects.toThrow('Access denied')
+      expect(next).not.toHaveBeenCalled()
     })
   })
 
@@ -460,6 +918,51 @@ describe('Auth Helpers', () => {
       const ctx = createCtxWithAuth('user-1', ['user'])
 
       expect(hasAnyRole(ctx, ['admin', 'manager'])).toBe(false)
+    })
+  })
+
+  describe('hasScope', () => {
+    it('should return true when user has scope', () => {
+      const ctx = createCtxWithAuth('user-1', ['user'])
+      ;(ctx as any).auth!.claims = { scope: 'read:users write:users' }
+
+      expect(hasScope(ctx, 'write:users')).toBe(true)
+      expect(hasScope(ctx, 'delete:users')).toBe(false)
+    })
+
+    it('should return false when claim role is not an array', () => {
+      const ctx = createCtxWithAuth('user-1', ['user'])
+      ;(ctx as any).auth!.claims = { roles: 'admin' }
+
+      expect(hasRole(ctx, 'admin')).toBe(false)
+    })
+
+    it('should return false when scope claim is invalid format', () => {
+      const ctx = createCtxWithAuth('user-1', ['user'])
+      ;(ctx as any).auth!.claims = { scope: 42 as unknown as string }
+
+      expect(hasScope(ctx, 'read:users')).toBe(false)
+    })
+  })
+
+  describe('hasAnyScope', () => {
+    it('should return true when user has any of the scopes', () => {
+      const ctx = createCtxWithAuth('user-1', ['user'])
+      ;(ctx as any).auth!.claims = { scopes: ['read:users', 'write:orders'] }
+
+      expect(hasAnyScope(ctx, ['admin:users', 'write:orders'])).toBe(true)
+      expect(hasAnyScope(ctx, ['admin:users', 'delete:orders'])).toBe(false)
+    })
+  })
+
+  describe('hasScope helper with permissions claim', () => {
+    it('should read scopes from permissions claim', () => {
+      const ctx = createCtxWithAuth('user-1', ['user'])
+      ;(ctx as any).auth!.claims = { permissions: ['users:read', 'orders:write'] }
+
+      expect(hasScope(ctx, 'orders:write')).toBe(true)
+      expect(hasScope(ctx, 'users:delete')).toBe(false)
+      expect(hasAnyScope(ctx, ['admin:write', 'users:read'])).toBe(true)
     })
   })
 

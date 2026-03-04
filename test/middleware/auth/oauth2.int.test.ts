@@ -10,6 +10,7 @@ import {
   createMicrosoftOAuth2Strategy,
   createAppleOAuth2Strategy,
   createFacebookOAuth2Strategy,
+  createClientCredentialsStrategy,
   generateState,
   generateNonce,
   clearDiscoveryCache,
@@ -858,6 +859,112 @@ describe('Client Credentials in Body', () => {
     const headers = requestInit.headers as Record<string, string>
 
     expect(headers['Authorization']).toMatch(/^Basic /)
+  })
+})
+
+describe('Client Credentials Strategy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should authenticate valid client credentials from Basic header', async () => {
+    const strategy = createClientCredentialsStrategy({
+      tokenUrl: 'https://auth.example.com/token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+    })
+
+    const basic = `Basic ${Buffer.from('client-id:client-secret').toString('base64')}`
+    const envelope = createTestEnvelope({
+      authorization: basic,
+    })
+    const ctx = createTestContext()
+
+    const result = await strategy.authenticate(envelope, ctx)
+
+    expect(result).toEqual({
+      authenticated: true,
+      principal: 'client-id',
+      roles: ['client'],
+      claims: {
+        client_id: 'client-id',
+        grant_type: 'client_credentials',
+        scope: [],
+      },
+    })
+  })
+
+  it('should reject invalid client credentials from Basic header', async () => {
+    const strategy = createClientCredentialsStrategy({
+      tokenUrl: 'https://auth.example.com/token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+    })
+
+    const basic = `Basic ${Buffer.from('client-id:wrong-secret').toString('base64')}`
+    const envelope = createTestEnvelope({
+      authorization: basic,
+    })
+    const ctx = createTestContext()
+
+    const result = await strategy.authenticate(envelope, ctx)
+
+    expect(result).toEqual({ authenticated: false })
+  })
+
+  it('should exchange token with client credentials and reuse cached token', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        access_token: 'cc-access-token',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'read write',
+      }),
+    })
+
+    const strategy = createClientCredentialsStrategy({
+      tokenUrl: 'https://auth.example.com/token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      scope: ['read', 'write'],
+    })
+
+    const first = await strategy.exchangeClientCredentials()
+    const second = await strategy.exchangeClientCredentials()
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(first).toEqual({
+      accessToken: 'cc-access-token',
+      tokenType: 'Bearer',
+      expiresIn: 3600,
+      scope: 'read write',
+      refreshToken: undefined,
+      idToken: undefined,
+    })
+    expect(second).toEqual(first)
+  })
+
+  it('should fetch new token when cache is cleared', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        access_token: 'cc-access-token',
+        token_type: 'Bearer',
+      }),
+    })
+
+    const strategy = createClientCredentialsStrategy({
+      tokenUrl: 'https://auth.example.com/token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+    })
+
+    await strategy.exchangeClientCredentials()
+    strategy.clearTokenCache()
+    await strategy.exchangeClientCredentials()
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 })
 
