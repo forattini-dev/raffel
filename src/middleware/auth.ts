@@ -561,7 +561,7 @@ export function createRefreshInterceptor(options: RefreshInterceptorOptions): In
 
       if (authResult?.authenticated) {
         if (setAuthContext) {
-          ;(ctx as Record<string, unknown>).auth = {
+          ;(ctx as unknown as Record<string, unknown>).auth = {
             authenticated: true,
             principal: authResult.principal,
             claims: authResult.claims,
@@ -615,21 +615,21 @@ export function createRefreshInterceptor(options: RefreshInterceptorOptions): In
       }
 
       if (setAuthContext) {
-        ;(ctx as Record<string, unknown>).auth = {
+        ;(ctx as unknown as Record<string, unknown>).auth = {
           authenticated: true,
           principal: refreshedAuth.principal,
           claims: refreshedAuth.claims,
         }
       }
     } else if (setAuthContext && authResult) {
-      ;(ctx as Record<string, unknown>).auth = {
+      ;(ctx as unknown as Record<string, unknown>).auth = {
         authenticated: true,
         principal: authResult.principal,
         claims: authResult.claims,
       }
     } else if (setAuthContext) {
       // Fallback: mark as unauthenticated if we couldn't validate.
-      ;(ctx as Record<string, unknown>).auth = {
+      ;(ctx as unknown as Record<string, unknown>).auth = {
         authenticated: false,
       }
     }

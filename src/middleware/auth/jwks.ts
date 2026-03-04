@@ -84,7 +84,7 @@ export function createJWKSVerifier(
     verify,
     clearCache() {
       if (typeof (getKey as { clear?: () => void }).clear === 'function') {
-        ;(getKey as { clear: () => void }).clear()
+        ;(getKey as unknown as { clear: () => void }).clear()
       }
     },
   }
