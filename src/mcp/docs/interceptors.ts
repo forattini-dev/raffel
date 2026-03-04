@@ -1091,6 +1091,151 @@ server.use(createSessionInterceptor({
   }
 )
 
+// JWKS verifier, client credentials, refresh interceptor
+;(interceptors as InterceptorDoc[]).push(
+  {
+    name: 'createJWKSVerifier',
+    description:
+      'JWKS-backed JWT verifier using jose. Fetches and caches remote JWKS keys. Use with createBearerStrategy to verify tokens from Auth0, Keycloak, or any OIDC provider.',
+    category: 'auth',
+    options: [
+      { name: 'jwksUri', type: 'string', required: true, description: 'JWKS endpoint URL' },
+      { name: 'issuer', type: 'string | string[]', required: false, description: 'Expected issuer claim' },
+      { name: 'audience', type: 'string | string[]', required: false, description: 'Expected audience claim' },
+      { name: 'algorithms', type: 'string[]', required: false, default: "['RS256', 'ES256']", description: 'Allowed signing algorithms' },
+      { name: 'clockTolerance', type: 'string | number', required: false, description: 'Clock skew tolerance for exp/nbf' },
+      { name: 'timeoutMs', type: 'number', required: false, default: '5000', description: 'JWKS fetch timeout in ms' },
+      { name: 'cacheMaxAge', type: 'number', required: false, default: '300000', description: 'JWKS cache TTL in ms (5 min)' },
+      { name: 'cooldownDuration', type: 'number', required: false, default: '30000', description: 'Cooldown between fetch retries after failures' },
+    ],
+    examples: [
+      {
+        title: 'JWKS + Bearer Strategy',
+        code: `import { createJWKSVerifier, createBearerStrategy, createAuthMiddleware, createServer } from 'raffel'
+
+const jwks = createJWKSVerifier({
+  jwksUri: 'https://my-tenant.auth0.com/.well-known/jwks.json',
+  issuer: 'https://my-tenant.auth0.com/',
+  audience: 'https://api.myapp.com',
+})
+
+const server = createServer({ port: 3000 })
+server.use(createAuthMiddleware({
+  strategies: [
+    createBearerStrategy({
+      verify: async (token) => {
+        try {
+          const claims = await jwks.verify(token)
+          return { authenticated: true, principal: claims.sub as string, claims }
+        } catch {
+          return null
+        }
+      },
+    }),
+  ],
+}))
+
+await server.start()`,
+      },
+    ],
+  },
+  {
+    name: 'createClientCredentialsStrategy',
+    description:
+      'OAuth2 client credentials strategy for machine-to-machine (M2M) authentication. Validates inbound Basic auth and can exchange credentials for outbound access tokens with automatic caching.',
+    category: 'auth',
+    options: [
+      { name: 'tokenEndpoint', type: 'string', required: true, description: 'Token endpoint URL' },
+      { name: 'clientId', type: 'string', required: true, description: 'Client ID' },
+      { name: 'clientSecret', type: 'string', required: true, description: 'Client secret' },
+      { name: 'scopes', type: 'string[]', required: false, default: '[]', description: 'Default scopes for token exchange' },
+      { name: 'audience', type: 'string', required: false, description: 'Token audience' },
+      { name: 'extraParams', type: 'Record<string, string>', required: false, description: 'Additional token request parameters' },
+      { name: 'tokenCaching', type: 'boolean', required: false, default: 'true', description: 'Cache tokens until expiry' },
+      { name: 'tokenExpiryBuffer', type: 'number', required: false, default: '60', description: 'Seconds before expiry to consider token stale' },
+      { name: 'timeoutMs', type: 'number', required: false, default: '10000', description: 'Fetch timeout in ms' },
+    ],
+    examples: [
+      {
+        title: 'M2M Service Authentication',
+        code: `import { createClientCredentialsStrategy, createAuthMiddleware, createServer } from 'raffel'
+
+const m2m = createClientCredentialsStrategy({
+  tokenEndpoint: 'https://auth.example.com/oauth/token',
+  clientId: process.env.CLIENT_ID!,
+  clientSecret: process.env.CLIENT_SECRET!,
+  scopes: ['service:read', 'service:write'],
+})
+
+const server = createServer({ port: 3000 })
+
+// Validate inbound Basic auth from other services
+server.use(createAuthMiddleware({ strategies: [m2m] }))
+
+// Acquire outbound token to call another service
+server.procedure('external.fetch').handler(async ({ url }) => {
+  const tokens = await m2m.exchangeClientCredentials()
+  const res = await fetch(url, {
+    headers: { Authorization: \`Bearer \${tokens.accessToken}\` },
+  })
+  return res.json()
+})
+
+await server.start()`,
+      },
+    ],
+  },
+  {
+    name: 'createRefreshInterceptor',
+    description:
+      'Automatic access token refresh interceptor. Transparently refreshes expired tokens using an httpOnly refresh token cookie. Place before createAuthMiddleware in the interceptor chain.',
+    category: 'auth',
+    options: [
+      { name: 'strategy', type: 'OAuth2StrategyWithFlow', required: true, description: 'OAuth2 strategy that supports token refresh' },
+      { name: 'accessTokenHeader', type: 'string', required: false, default: "'authorization'", description: 'Header containing the access token' },
+      { name: 'accessTokenPrefix', type: 'string', required: false, default: "'Bearer '", description: 'Token prefix' },
+      { name: 'refreshToken.headerName', type: 'string', required: false, default: "'x-refresh-token'", description: 'Fallback header for refresh token' },
+      { name: 'refreshToken.cookieName', type: 'string', required: false, default: "'refresh_token'", description: 'Cookie name for refresh token' },
+      { name: 'refreshToken.cookie', type: 'RefreshTokenCookieOptions', required: false, description: 'Cookie attributes for rotated refresh token' },
+      { name: 'refreshOnMissingAccessToken', type: 'boolean', required: false, default: 'true', description: 'Attempt refresh when no access token is present' },
+      { name: 'verifyRefreshedToken', type: 'boolean', required: false, default: 'true', description: 'Re-verify the access token after refresh' },
+      { name: 'rotateRefreshToken', type: 'boolean', required: false, default: 'true', description: 'Update cookie when provider returns a new refresh token' },
+      { name: 'setAuthContext', type: 'boolean', required: false, default: 'true', description: 'Populate ctx.auth after successful refresh' },
+      { name: 'onRefreshed', type: '(tokens, envelope, ctx) => void', required: false, description: 'Callback after successful token refresh' },
+    ],
+    examples: [
+      {
+        title: 'Automatic Token Refresh with OAuth2',
+        code: `import { createRefreshInterceptor, createOAuth2Strategy, createAuthMiddleware, createServer } from 'raffel'
+
+const oauth2 = createOAuth2Strategy({
+  provider: 'google',
+  clientId: process.env.GOOGLE_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  redirectUri: 'https://myapp.com/auth/callback',
+})
+
+const server = createServer({ port: 3000 })
+
+// Refresh interceptor BEFORE auth middleware
+server.use(createRefreshInterceptor({
+  strategy: oauth2,
+  refreshToken: {
+    cookieName: 'refresh_token',
+    cookie: { httpOnly: true, secure: true, sameSite: 'Strict', maxAge: 30 * 24 * 60 * 60 },
+  },
+  onRefreshed: (tokens) => {
+    console.log('Token refreshed, expires in:', tokens.expiresIn)
+  },
+}))
+server.use(createAuthMiddleware({ strategies: [oauth2] }))
+
+await server.start()`,
+      },
+    ],
+  }
+)
+
 export function getInterceptor(name: string): InterceptorDoc | undefined {
   return interceptors.find((i) => i.name === name)
 }

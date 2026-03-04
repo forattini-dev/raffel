@@ -330,6 +330,114 @@ const adminModule = createRouterModule()
 
 ---
 
+## 7. Client Credentials (M2M)
+
+For service-to-service communication using the OAuth2 client credentials grant. The strategy validates inbound `Basic` auth and can also acquire outbound tokens.
+
+```typescript
+import { createClientCredentialsStrategy, createAuthMiddleware } from 'raffel'
+
+const m2m = createClientCredentialsStrategy({
+  tokenEndpoint: 'https://auth.example.com/oauth/token',
+  clientId: process.env.CLIENT_ID!,
+  clientSecret: process.env.CLIENT_SECRET!,
+  scopes: ['service:read', 'service:write'],
+})
+
+// Validate inbound requests from other services
+server.use(createAuthMiddleware({
+  strategies: [m2m],
+  publicProcedures: ['health.check'],
+}))
+
+// Acquire an outbound token to call another service
+server.procedure('external.fetch').handler(async ({ url }) => {
+  const tokens = await m2m.exchangeClientCredentials()
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+  })
+  return res.json()
+})
+```
+
+Tokens are cached until expiry (minus a configurable buffer). Call `m2m.clearTokenCache()` to force re-acquisition.
+
+---
+
+## 8. JWKS Verification
+
+Verify JWTs against a remote JWKS endpoint (Auth0, Keycloak, Google, any OIDC provider). Keys are fetched and cached automatically.
+
+```typescript
+import { createJWKSVerifier, createBearerStrategy, createAuthMiddleware } from 'raffel'
+
+const jwks = createJWKSVerifier({
+  jwksUri: 'https://my-tenant.auth0.com/.well-known/jwks.json',
+  issuer: 'https://my-tenant.auth0.com/',
+  audience: 'https://api.myapp.com',
+})
+
+server.use(createAuthMiddleware({
+  strategies: [
+    createBearerStrategy({
+      verify: async (token) => {
+        try {
+          const claims = await jwks.verify(token)
+          return { authenticated: true, principal: claims.sub as string, claims }
+        } catch {
+          return null
+        }
+      },
+    }),
+  ],
+}))
+```
+
+The verifier caches JWKS keys for 5 minutes by default (`cacheMaxAge: 300000`). After a fetch failure, it waits 30 seconds before retrying (`cooldownDuration: 30000`). Call `jwks.clearCache()` to force re-fetch.
+
+---
+
+## 9. Automatic Token Refresh
+
+`createRefreshInterceptor` transparently refreshes expired access tokens using an httpOnly refresh token cookie. Place it **before** the auth middleware.
+
+```typescript
+import {
+  createRefreshInterceptor,
+  createOAuth2Strategy,
+  createAuthMiddleware,
+} from 'raffel'
+
+const oauth2 = createOAuth2Strategy({
+  provider: 'google',
+  clientId: process.env.GOOGLE_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  redirectUri: 'https://myapp.com/auth/callback',
+})
+
+// Refresh interceptor BEFORE auth middleware
+server.use(createRefreshInterceptor({
+  strategy: oauth2,
+  refreshToken: {
+    cookieName: 'refresh_token',
+    cookie: { httpOnly: true, secure: true, sameSite: 'Strict', maxAge: 30 * 24 * 60 * 60 },
+  },
+  onRefreshed: (tokens) => {
+    console.log('Token refreshed, new expiry:', tokens.expiresIn)
+  },
+}))
+server.use(createAuthMiddleware({ strategies: [oauth2] }))
+```
+
+The interceptor:
+1. Tries to authenticate the existing access token
+2. If expired/missing, reads the refresh token from the cookie (or `x-refresh-token` header)
+3. Calls `strategy.refreshToken()` to get a new access token
+4. Injects the new token into the envelope and rotates the cookie
+5. Optionally re-verifies the new token before continuing
+
+---
+
 ## Auth helpers reference
 
 | Helper | Description |
@@ -340,6 +448,9 @@ const adminModule = createRouterModule()
 | `hasAllRoles(ctx, roles)` | Returns `true` if user has all roles |
 | `generateState()` | Generate CSRF state for OAuth2 flows |
 | `generateNonce()` | Generate nonce for OIDC flows |
+| `createJWKSVerifier()` | JWKS-backed JWT verifier with caching |
+| `createRefreshInterceptor()` | Automatic token refresh interceptor |
+| `createClientCredentialsStrategy()` | M2M client credentials strategy |
 
 ---
 
