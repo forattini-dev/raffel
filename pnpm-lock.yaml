@@ -17,6 +17,9 @@ importers:
       ajv-formats:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.17.1)
+      cli-args-parser:
+        specifier: ^1.0.6
+        version: 1.0.6
       graphql:
         specifier: ^16.11.0
         version: 16.12.0
@@ -32,6 +35,9 @@ importers:
       pino-pretty:
         specifier: ^13.1.3
         version: 13.1.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       ws:
         specifier: ^8.19.0
         version: 8.19.0
@@ -67,9 +73,6 @@ importers:
       serve:
         specifier: ^14.2.4
         version: 14.2.5
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -626,6 +629,10 @@ packages:
   chalk@5.0.1:
     resolution: {integrity: sha512-Fo07WOYGqMfCWHOzSXOt2CxDbC6skS/jO9ynEcmpANMoPrD+W1r1K6Vx7iNm+AQmETU1Xr2t+n8nzkV9t6xh3w==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
+
+  cli-args-parser@1.0.6:
+    resolution: {integrity: sha512-c6dKqF8mo2Vq1gw9OUoYoEGnGi9uatHLJWEzbzBn55kXMJdWIFMfRld9NprOF02oco9+SU9E2AgobmdjXxLlBw==}
+    engines: {node: '>=18.0.0'}
 
   cli-boxes@3.0.0:
     resolution: {integrity: sha512-/lzGpEWL/8PfI0BmBOPRwp0c/wFNX1RdUML3jK/RcSBA9T8mZDdQpqYBKtCFTOfQbwPqWEOpjqW+Fnayc0969g==}
@@ -1692,6 +1699,8 @@ snapshots:
       supports-color: 7.2.0
 
   chalk@5.0.1: {}
+
+  cli-args-parser@1.0.6: {}
 
   cli-boxes@3.0.0: {}
 
