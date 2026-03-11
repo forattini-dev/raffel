@@ -6,6 +6,7 @@
  */
 
 import type { USDCodeSample, USDSchema, USDParameter } from '../../usd/index.js'
+import { generateSchemaExample, type SchemaExampleOptions } from '../../utils/schema-examples.js'
 
 // =============================================================================
 // Types
@@ -29,96 +30,20 @@ export interface CodeSampleContext {
 }
 
 // =============================================================================
-// Example Value Generation
+// Example Value Generation (delegates to shared schema-examples)
 // =============================================================================
+
+const CODE_SAMPLE_DEFAULTS: SchemaExampleOptions = {
+  maxOptionalProperties: 3,
+  uniqueValues: false,
+}
 
 /**
  * Generate a realistic example value from a JSON Schema
  */
 export function generateExampleFromSchema(schema: USDSchema | undefined): unknown {
   if (!schema) return {}
-
-  // Use existing example if present
-  if ('example' in schema && schema.example !== undefined) return schema.example
-
-  // Handle $ref (can't resolve without registry, return placeholder)
-  if (schema.$ref) return {}
-
-  // Handle anyOf/oneOf — use first schema
-  const composed = (schema as USDSchema & { anyOf?: USDSchema[]; oneOf?: USDSchema[] })
-  if (composed.anyOf && composed.anyOf.length > 0) return generateExampleFromSchema(composed.anyOf[0])
-  if (composed.oneOf && composed.oneOf.length > 0) return generateExampleFromSchema(composed.oneOf[0])
-
-  // Handle enum — use first value
-  if (schema.enum && schema.enum.length > 0) return schema.enum[0]
-
-  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
-
-  switch (type) {
-    case 'string':
-      return generateStringExample(schema)
-
-    case 'number':
-    case 'integer': {
-      const min = (schema as { minimum?: number }).minimum ?? 1
-      const max = (schema as { maximum?: number }).maximum ?? 100
-      return Math.round((min + max) / 2)
-    }
-
-    case 'boolean':
-      return true
-
-    case 'array': {
-      const itemSchema = (schema as { items?: USDSchema }).items
-      return [generateExampleFromSchema(itemSchema), generateExampleFromSchema(itemSchema)]
-    }
-
-    case 'object':
-    default:
-      return generateObjectExample(schema)
-  }
-}
-
-function generateStringExample(schema: USDSchema): string {
-  const format = (schema as { format?: string }).format
-  switch (format) {
-    case 'email': return 'user@example.com'
-    case 'uuid': return '550e8400-e29b-41d4-a716-446655440000'
-    case 'date-time': return new Date('2024-01-15T10:30:00Z').toISOString()
-    case 'date': return '2024-01-15'
-    case 'time': return '10:30:00'
-    case 'uri':
-    case 'url': return 'https://example.com'
-    case 'hostname': return 'example.com'
-    case 'ipv4': return '192.168.1.1'
-    case 'ipv6': return '::1'
-    case 'password': return 'secret123'
-    case 'byte': return 'SGVsbG8gV29ybGQ='
-    default: {
-      // Use minLength/maxLength to pick a sensible value
-      const minLen = (schema as { minLength?: number }).minLength ?? 3
-      const maxLen = (schema as { maxLength?: number }).maxLength
-      if (maxLen && maxLen < 10) return 'abc'.slice(0, maxLen)
-      return minLen > 3 ? 'example_value' : 'string'
-    }
-  }
-}
-
-function generateObjectExample(schema: USDSchema): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  const properties = (schema as { properties?: Record<string, USDSchema> }).properties
-  if (!properties) return result
-
-  const required = new Set<string>((schema as { required?: string[] }).required ?? [])
-
-  for (const [key, propSchema] of Object.entries(properties)) {
-    // Include all required + first 3 optional fields
-    if (required.has(key) || Object.keys(result).length < 3) {
-      result[key] = generateExampleFromSchema(propSchema)
-    }
-  }
-
-  return result
+  return generateSchemaExample(schema as Record<string, unknown>, CODE_SAMPLE_DEFAULTS)
 }
 
 // =============================================================================
