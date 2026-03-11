@@ -45,8 +45,28 @@ export type {
   Context,
   CallFunction,
   AuthContext,
+  AuthPrincipal,
+  AuthRequirement,
+  Principal,
   TracingContext,
+  ContextSeed,
+  ContextInput,
+  ContextLogger,
+  ProtocolKind,
+  HttpContextCapability,
+  WebSocketContextCapability,
+  JsonRpcContextCapability,
+  GraphQLContextCapability,
+  GrpcContextCapability,
+  TcpContextCapability,
+  UdpContextCapability,
+  StreamContextCapability,
   ExtensionKey,
+  ContractAuthPolicy,
+  ContractTimeoutPolicy,
+  ContractRateLimitPolicy,
+  ContractPolicies,
+  ContractContext,
 
   // Handlers
   ProcedureHandler,
@@ -74,12 +94,25 @@ export {
   createErrorEnvelope,
 
   // Context helpers
+  ContextAuthError,
+  createAuthContext,
   createContext,
+  getAuthRoles,
+  getAuthScopes,
+  getPrincipalId,
+  isTypedPrincipal,
+  mergeContextSeeds,
+  stripTransportCapabilities,
   withDeadline,
   withAuth,
   withExtension,
   getExtension,
   createExtensionKey,
+  CONTRACT_POLICY_METADATA_KEY,
+  normalizeContractPolicies,
+  mergeContractPolicies,
+  serializeContractPolicies,
+  parseContractPolicies,
 } from './types/index.js'
 
 // === Adapters (Server) ===
@@ -121,6 +154,8 @@ export {
   createValidationInterceptor,
   createSchemaValidationInterceptor,
   createSchemaRegistry,
+  normalizeSchemaDescriptor,
+  SCHEMA_DESCRIPTOR_VERSION,
   // Validator registration
   registerValidator,
   resetValidation,
@@ -150,7 +185,65 @@ export type {
   ValidatorType,
   ValidationConfig,
   SchemaRegistry,
+  SchemaDescriptor,
+  SchemaDescriptorDiagnostic,
+  NormalizeSchemaDescriptorOptions,
 } from './validation/index.js'
+
+// === Runtime Inspection ===
+export {
+  buildRuntimeInspectionGraph,
+  serializeRuntimeInspectionGraph,
+  serializeRuntimeInspectionOperation,
+  serializeRuntimeInspectionTransport,
+  serializeRuntimeInspectionService,
+  serializeRuntimeInspectionChannel,
+  serializeRuntimeInspectionDiagnostic,
+  loadRuntimeInspectionPreview,
+  createSchemaExample,
+  createSchemaInvalidExample,
+  explainRuntimeInspectionSubject,
+  buildRuntimeInspectionDoctorReport,
+  formatRuntimeInspectionGraph,
+  formatRuntimeInspectionExplanation,
+  formatRuntimeInspectionDoctorReport,
+  buildRuntimeContractTestSuite,
+  formatRuntimeContractTestSuite,
+  createRuntimePlaygroundSnapshot,
+  createRuntimePlaygroundServer,
+  startRuntimePlayground,
+  RUNTIME_INSPECTION_GRAPH_VERSION,
+} from './inspect/index.js'
+export type {
+  RuntimeInspectionGraph,
+  RuntimeInspectionDiagnostic,
+  RuntimeInspectionDiagnosticSeverity,
+  RuntimeInspectionOperation,
+  RuntimeInspectionTransport,
+  RuntimeInspectionTransportBinding,
+  RuntimeInspectionService,
+  RuntimeInspectionChannel,
+  RuntimeInspectionSource,
+  RuntimeInspectionSourceKind,
+  RuntimeInspectionOperationRegistration,
+  RuntimeInspectionSchema,
+  RuntimeInspectionPolicySummary,
+  RuntimeInspectionDoctorReport,
+  RuntimeInspectionExplanation,
+  RuntimeInspectionLoadOptions,
+  LoadedRuntimeInspectionPreview,
+  RuntimeContractTestCaseKind,
+  RuntimeContractRequestTemplate,
+  RuntimeContractBindingTarget,
+  RuntimeContractTestCase,
+  RuntimeContractTestSuite,
+  RuntimePlaygroundEntry,
+  RuntimePlaygroundSnapshot,
+  RuntimePlaygroundInvokeRequest,
+  RuntimePlaygroundSessionView,
+  RuntimePlaygroundServerOptions,
+  RuntimePlaygroundServer,
+} from './inspect/index.js'
 
 // === Middleware ===
 export {
@@ -313,6 +406,11 @@ export type {
   ProtocolAddress,
   ProtocolSniffer,
   ProtocolDecisionPayload,
+  ProtocolFusionDecision,
+  ProtocolFusionState,
+  ProtocolFusionMode,
+  ProtocolFusionLayer,
+  ProtocolFusionOutcome,
   ProtocolSnifferContext,
   SinglePortProtocolKind,
   SinglePortDecisionReason,
@@ -591,6 +689,10 @@ export {
   // USD Documentation
   createUSDHandlers,
   createServerScenario,
+  createScaffoldProject,
+  writeScaffoldProject,
+  listScaffoldPresets,
+  serviceScaffoldPresets,
 } from './dx/index.js'
 export type {
   // Health Check types
@@ -608,6 +710,12 @@ export type {
   LogFormat,
   LogContext,
   // USD Documentation types
+  ServiceScaffoldPreset,
+  ServiceScaffoldManifest,
+  CreateScaffoldProjectOptions,
+  GeneratedScaffoldProject,
+  WriteScaffoldProjectOptions,
+  WrittenScaffoldProject,
   USDMiddlewareConfig,
   USDHandlers,
   USDMiddlewareContext,
@@ -740,3 +848,25 @@ export type {
   JsonServerResult,
   JsonModule,
 } from './json-server/index.js'
+
+// === Mock Server ===
+export {
+  createMockServer,
+  createMockModule,
+  generateFromSchema,
+  resetFakeDataCounter,
+  extractRoutes,
+  toExpressPath,
+  resolveResponse,
+  extractRequestBodySchema,
+  mergeParameters,
+} from './mock-server/index.js'
+export type {
+  MockServerOptions,
+  MockModuleOptions,
+  MockRoute,
+  MockResponse,
+  MockModule,
+  MockServerResult,
+  ResolvedParam,
+} from './mock-server/index.js'
