@@ -11,6 +11,8 @@ import { createSocket } from 'node:dgram'
 import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import * as grpc from '@grpc/grpc-js'
+import * as protoLoader from '@grpc/proto-loader'
 import { z } from 'zod'
 import { WebSocket } from 'ws'
 import { createServer } from '../../src/server/builder.js'
@@ -182,6 +184,40 @@ function receiveSinglePortTcpResponse(port: number, payload: object): Promise<Re
       socket.write(frame)
     })
   })
+}
+
+const GRPC_SINGLE_PORT_PROTO = `syntax = "proto3";
+
+package demo;
+
+service SharedGreeter {
+  rpc Greet (GreetRequest) returns (GreetReply);
+}
+
+message GreetRequest { string name = 1; }
+message GreetReply { string message = 1; }
+`
+
+async function createGrpcSinglePortProto(): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-shared-grpc-'))
+  const filePath = path.join(dir, 'shared.proto')
+  await mkdir(dir, { recursive: true })
+  await writeFile(filePath, GRPC_SINGLE_PORT_PROTO, 'utf-8')
+  return filePath
+}
+
+function createDynamicGrpcClient(protoPath: string, address: string): grpc.Client & Record<string, Function> {
+  const definition = protoLoader.loadSync(protoPath, {
+    keepCase: true,
+    longs: String,
+    enums: String,
+    defaults: true,
+    oneofs: true,
+  })
+
+  const proto = grpc.loadPackageDefinition(definition) as Record<string, unknown>
+  const Client = ((proto.demo as Record<string, unknown>).SharedGreeter as grpc.ServiceClientConstructor)
+  return new Client(address, grpc.credentials.createInsecure()) as grpc.Client & Record<string, Function>
 }
 
 async function bindTestPort(
@@ -425,6 +461,47 @@ describe('createServer', () => {
       const invalidResult = (await server.router.handle(createTestEnvelope('validate', { age: -5 }))) as Envelope
 
       expect(invalidResult.type).toBe('error')
+    })
+
+    it('should attach contract policy metadata through builders', () => {
+      server = createServer({ port: TEST_PORT })
+
+      server
+        .procedure('secure.echo')
+        .policy({
+          auth: { mode: 'required', roles: ['admin'] },
+          timeout: { timeoutMs: 250 },
+          rateLimit: { windowMs: 1000, maxRequests: 5, key: 'client' },
+        })
+        .handler(async () => ({ ok: true }))
+
+      server
+        .stream('updates.feed')
+        .policy({
+          rateLimit: { windowMs: 5000, maxRequests: 3 },
+        })
+        .handler(async function* () {
+          yield { ok: true }
+        })
+
+      server
+        .event('audit.created')
+        .policy({
+          auth: { mode: 'optional' },
+        })
+        .handler(async () => {})
+
+      expect(server.registry.getProcedure('secure.echo')?.meta.policies).toMatchObject({
+        auth: { mode: 'required', roles: ['admin'] },
+        timeout: { timeoutMs: 250 },
+        rateLimit: { windowMs: 1000, maxRequests: 5, key: 'client' },
+      })
+      expect(server.registry.getStream('updates.feed')?.meta.policies).toMatchObject({
+        rateLimit: { windowMs: 5000, maxRequests: 3 },
+      })
+      expect(server.registry.getEvent('audit.created')?.meta.policies).toMatchObject({
+        auth: { mode: 'optional' },
+      })
     })
   })
 
@@ -930,6 +1007,30 @@ describe('createServer', () => {
       expect(preview.singlePort.protocols).toEqual(expect.arrayContaining(['icmp', 'tcp']))
     })
 
+    it('should expose shared-port as the canonical protocol fusion preview surface', () => {
+      server = createServer({
+        port: TEST_PORT,
+        frontDoor: {
+          enabled: true,
+          port: TEST_PORT + 1,
+        },
+        sharedPort: {
+          enabled: true,
+          protocols: ['http', 'tcp'],
+        },
+      })
+
+      const preview = server.previewConfig()
+      expect(preview.protocolFusion).toMatchObject({
+        enabled: true,
+        mode: 'front-door+shared-port',
+        entrypoint: 'tcp',
+      })
+      expect(preview.sharedPort.enabled).toBe(true)
+      expect(preview.sharedPort.protocols).toEqual(expect.arrayContaining(['http', 'tcp']))
+      expect(preview.singlePort).toEqual(preview.sharedPort)
+    })
+
     it('should disable fluent single-port override in preview', () => {
       server = createServer({ port: TEST_PORT, singlePort: { protocolFusion: true } })
         .enableSinglePort(false)
@@ -944,6 +1045,200 @@ describe('createServer', () => {
 
       expect(preview.warnings.join('\n')).toContain('single-port transport')
       expect(preview.protocols.tcp?.enabled).toBe(true)
+    })
+  })
+
+  describe('runtime inspection preview', () => {
+    it('should mark gRPC as single-port in preview when it shares the entrypoint', () => {
+      server = createServer({
+        port: TEST_PORT,
+        host: '127.0.0.1',
+        singlePort: {
+          protocolFusion: true,
+          protocols: ['grpc'],
+        },
+        grpc: { port: TEST_PORT, host: '127.0.0.1', protoPath: 'virtual.proto' },
+      })
+
+      server.grpcNs
+        .service('UserService', { packageName: 'pkg' })
+        .method(
+          'GetUser',
+          {
+            input: z.object({ id: z.string() }),
+            output: z.object({ id: z.string() }),
+          },
+          async (input) => input
+        )
+        .end()
+
+      const preview = server.preview()
+      const grpcTransport = preview.transports.find((transport) => transport.protocol === 'grpc')
+
+      expect(grpcTransport).toMatchObject({
+        protocol: 'grpc',
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        source: 'singlePort',
+      })
+    })
+
+    it('should expose a canonical multi-protocol inspection graph', () => {
+      server = createServer({
+        port: TEST_PORT,
+        basePath: '/api',
+        websocket: { path: '/ws' },
+        jsonrpc: { path: '/rpc' },
+        grpc: { port: TEST_PORT + 1, protoPath: 'virtual.proto' },
+      })
+
+      server
+        .procedure('users.list')
+        .input(z.object({ cursor: z.string().optional() }))
+        .output(z.array(z.object({ id: z.string() })))
+        .http('/users', 'GET')
+        .policy({ auth: { roles: ['admin'] } })
+        .handler(async () => [{ id: 'user-1' }])
+
+      server
+        .stream('logs.tail')
+        .input(z.object({ service: z.string() }))
+        .output(z.object({ line: z.string() }))
+        .handler(async function* () {
+          yield { line: 'ok' }
+        })
+
+      server.grpcNs
+        .service('UserService', { packageName: 'pkg' })
+        .method(
+          'GetUser',
+          {
+            input: z.object({ id: z.string() }),
+            output: z.object({ id: z.string() }),
+          },
+          async (input) => input
+        )
+        .end()
+
+      server.ws.channel('presence-users', {
+        type: 'presence',
+        description: 'User presence',
+        tags: ['presence'],
+      })
+
+      const preview = server.preview()
+
+      expect(preview.version).toBe(1)
+      expect(preview.transports.map((transport) => transport.protocol)).toEqual(
+        expect.arrayContaining(['http', 'websocket', 'jsonrpc', 'grpc'])
+      )
+
+      const usersList = preview.operations.find((operation) => operation.name === 'users.list')
+      expect(usersList).toMatchObject({
+        service: 'users',
+        kind: 'procedure',
+        source: { kind: 'programmatic', location: '<programmatic>' },
+      })
+      expect(usersList?.policies.effective?.auth?.roles).toEqual(['admin'])
+      expect(usersList?.schema.input.present).toBe(true)
+      expect(usersList?.schema.output.present).toBe(true)
+      expect(usersList?.transports).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          protocol: 'http',
+          mode: 'rest',
+          method: 'GET',
+          path: '/api/users',
+        }),
+        expect.objectContaining({
+          protocol: 'websocket',
+          mode: 'request',
+          path: '/api/ws',
+        }),
+        expect.objectContaining({
+          protocol: 'jsonrpc',
+          mode: 'request',
+          path: '/api/rpc',
+        }),
+      ]))
+
+      const grpcMethod = preview.operations.find((operation) => operation.name === 'pkg.UserService.GetUser')
+      expect(grpcMethod?.transports).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          protocol: 'grpc',
+          service: 'pkg.UserService',
+          operation: 'GetUser',
+          mode: 'unary',
+        }),
+      ]))
+
+      const channel = preview.channels.find((entry) => entry.name === 'presence-users')
+      expect(channel).toMatchObject({
+        type: 'presence',
+        auth: 'required',
+        description: 'User presence',
+        tags: ['presence'],
+        transport: {
+          protocol: 'websocket',
+          mode: 'channel',
+          path: '/api/ws',
+        },
+      })
+    })
+
+    it('should emit structured conflict and configuration diagnostics', () => {
+      server = createServer({ port: TEST_PORT, tcp: { port: TEST_PORT } })
+
+      server
+        .procedure('users.first')
+        .http('/users', 'GET')
+        .handler(async () => 'first')
+
+      server
+        .procedure('users.second')
+        .http('/users', 'GET')
+        .handler(async () => 'second')
+
+      const preview = server.preview()
+
+      expect(preview.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          code: 'CONFIG_WARNING',
+          severity: 'warning',
+          subject: expect.objectContaining({
+            kind: 'server',
+          }),
+        }),
+        expect.objectContaining({
+          code: 'CONFLICTING_HTTP_EXPOSURE',
+          severity: 'error',
+          subject: expect.objectContaining({
+            kind: 'binding',
+            id: 'GET:/users',
+          }),
+          data: expect.objectContaining({
+            operations: expect.arrayContaining(['users.first', 'users.second']),
+          }),
+        }),
+      ]))
+    })
+
+    it('should surface missing auth and output-schema diagnostics for public operations', () => {
+      server = createServer({ port: TEST_PORT })
+      server.procedure('public.ping').handler(async () => 'pong')
+
+      const preview = server.preview()
+      const warnings = preview.diagnostics.filter((diagnostic) => diagnostic.subject.id === 'public.ping')
+
+      expect(warnings).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          code: 'MISSING_AUTH_POLICY',
+          severity: 'warning',
+        }),
+        expect.objectContaining({
+          code: 'MISSING_OUTPUT_SCHEMA',
+          severity: 'warning',
+        }),
+      ]))
     })
   })
 
@@ -1179,6 +1474,76 @@ describe('createServer', () => {
       expect(response.toString()).toBe('pong')
     })
 
+    it('should route h2c gRPC through single-port to the shared listener', async () => {
+      const port = await getFreePort()
+      const protoPath = await createGrpcSinglePortProto()
+      let client: (grpc.Client & Record<string, Function>) | null = null
+
+      try {
+        server = createServer({
+          port,
+          host: '127.0.0.1',
+          singlePort: {
+            protocolFusion: true,
+            protocols: ['grpc'],
+          },
+          grpc: {
+            port,
+            host: '127.0.0.1',
+            protoPath,
+          },
+        })
+
+        server.grpcNs
+          .service('SharedGreeter', { packageName: 'demo' })
+          .method(
+            'Greet',
+            {
+              input: z.object({ name: z.string() }),
+              output: z.object({ message: z.string() }),
+            },
+            async (input) => ({
+              message: `Hello ${input.name}`,
+            })
+          )
+          .end()
+
+        await server.start()
+
+        expect(server.addresses?.grpc).toMatchObject({
+          host: '127.0.0.1',
+          port,
+          shared: true,
+          source: 'singlePort',
+        })
+
+        client = createDynamicGrpcClient(protoPath, `127.0.0.1:${port}`)
+
+        const response = await new Promise<{ message: string }>((resolve, reject) => {
+          client!.Greet({ name: 'Ada' }, (error: Error | null, result: { message: string }) => {
+            if (error) {
+              reject(error)
+              return
+            }
+            resolve(result)
+          })
+        })
+
+        expect(response).toEqual({ message: 'Hello Ada' })
+
+        const state = server.getProtocolFusionState()
+        const decision = state.recentDecisions.find((entry) => entry.layer === 'shared-port' && entry.protocol === 'grpc')
+        expect(decision).toMatchObject({
+          protocol: 'grpc',
+          outcome: 'route',
+          detector: 'http2-preface',
+        })
+      } finally {
+        client?.close()
+        await rm(path.dirname(protoPath), { recursive: true, force: true })
+      }
+    })
+
     it('should honor single-port alias mode override independently from global mode', async () => {
       const port = await getFreePort()
 
@@ -1210,7 +1575,7 @@ describe('createServer', () => {
       const port = await getFreePort()
       server = createServer({
         port,
-        singlePort: {
+        sharedPort: {
           protocolFusion: true,
           protocols: ['grpc'],
         },
@@ -1227,7 +1592,18 @@ describe('createServer', () => {
 
       expect(response).toContain('HTTP/1.1 400 Bad Request')
       expect(response).toContain('UNSUPPORTED_PROTOCOL')
-      expect(response).toContain('"protocol":"unknown"')
+      expect(response).toContain('"protocol":"http"')
+
+      const state = server.getProtocolFusionState()
+      const decision = state.recentDecisions.find((entry) => entry.layer === 'shared-port')
+      expect(state.mode).toBe('shared-port')
+      expect(decision).toMatchObject({
+        protocol: 'http',
+        outcome: 'reject',
+        detector: 'http-method',
+        reason: 'unsupported',
+        allowedProtocols: ['grpc'],
+      })
     })
 
     it('should map single-port protocol aliases for detection and keep unsupported behavior when mapped stack is absent', async () => {
@@ -1267,7 +1643,7 @@ describe('createServer', () => {
       server = createServer({
         port,
         host: '127.0.0.1',
-        singlePort: {
+        sharedPort: {
           protocolFusion: true,
           protocols: ['icmp'],
         },
@@ -1284,7 +1660,53 @@ describe('createServer', () => {
 
       expect(response).toContain('HTTP/1.1 400 Bad Request')
       expect(response).toContain('UNSUPPORTED_PROTOCOL')
-      expect(response).toContain('"protocol":"unknown"')
+      expect(response).toContain('"protocol":"http"')
+    })
+
+    it('should expose runtime protocol fusion diagnostics across shared-port and front-door', async () => {
+      const port = await getFreePort()
+
+      server = createServer({
+        port,
+        frontDoor: {
+          enabled: true,
+          port,
+          protocols: ['jsonrpc'],
+        },
+        sharedPort: {
+          enabled: true,
+          protocols: ['http'],
+        },
+        jsonrpc: { path: '/rpc' },
+      })
+
+      server.procedure('ping').handler(async () => 'pong')
+
+      await server.start()
+
+      const response = await fetch(`http://127.0.0.1:${port}/health`)
+      expect(response.status).toBe(400)
+
+      const state = server.getProtocolFusionState()
+      const sharedPortDecision = state.recentDecisions.find((entry) => entry.layer === 'shared-port')
+      const frontDoorDecision = state.recentDecisions.find((entry) => entry.layer === 'front-door')
+
+      expect(state.mode).toBe('front-door+shared-port')
+      expect(state.entrypoint).toBe('tcp')
+      expect(sharedPortDecision).toMatchObject({
+        protocol: 'http',
+        outcome: 'route',
+        allowedProtocols: ['http'],
+      })
+      expect(frontDoorDecision).toMatchObject({
+        protocol: 'http',
+        outcome: 'reject',
+        request: {
+          method: 'GET',
+          path: '/health',
+        },
+        allowedProtocols: ['jsonrpc'],
+      })
     })
 
     it('should serve JSON-RPC and GraphQL over the HTTP port with basePath', async () => {

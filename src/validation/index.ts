@@ -32,6 +32,14 @@ export type {
 
 export { DEFAULT_VALIDATION_CONFIG } from './types.js'
 
+export {
+  SCHEMA_DESCRIPTOR_VERSION,
+  normalizeSchemaDescriptor,
+  type SchemaDescriptor,
+  type SchemaDescriptorDiagnostic,
+  type NormalizeSchemaDescriptorOptions,
+} from './descriptor.js'
+
 // Core validation functions
 export {
   // Config

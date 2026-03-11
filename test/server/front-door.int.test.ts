@@ -130,6 +130,7 @@ describe('front-door bootstrap', () => {
   })
 
   it('rejects websocket upgrade when upgrade path mismatches policy', async () => {
+    const decisions: any[] = []
     const bootstrap = createFrontDoorBootstrap({
       frontDoorEnabled: true,
       frontDoorProtocols: ['websocket'],
@@ -137,6 +138,18 @@ describe('front-door bootstrap', () => {
       basePath: '/',
       effectiveHost: '127.0.0.1',
       effectivePort: 3000,
+      onDecision: (decision) => {
+        decisions.push({
+          ...decision,
+          timestamp: 'now',
+          mode: 'front-door',
+          entrypoint: 'http',
+          target: {
+            host: '127.0.0.1',
+            port: 3000,
+          },
+        })
+      },
     })
 
     const middleware = bootstrap.createDecisionMiddleware(createLogger())
@@ -151,6 +164,19 @@ describe('front-door bootstrap', () => {
     const body = getBody() ?? ''
     expect(body).toContain('UNSUPPORTED_PROTOCOL')
     expect(body).toContain('WebSocket path mismatch')
+    expect(body).toContain('"mode":"front-door"')
+    expect(body).toContain('"allowedProtocols":["websocket"]')
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      layer: 'front-door',
+      protocol: 'websocket',
+      outcome: 'reject',
+      request: {
+        method: 'GET',
+        path: '/wrong',
+        upgrade: 'websocket',
+      },
+    })
   })
 
   it('routes websocket upgrade to shared websocket when basePath is configured', async () => {

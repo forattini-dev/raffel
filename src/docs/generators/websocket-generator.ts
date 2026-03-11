@@ -7,7 +7,7 @@
 import type { USDWebSocket, USDChannel, USDChannelType, USDSchema, USDContentTypes } from '../../usd/index.js'
 import { USD_PROTOCOL_CONTENT_TYPES } from '../../usd/index.js'
 import type { LoadedChannel } from '../../server/fs-routes/index.js'
-import { convertSchema, createSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
+import { convertSchema, createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
 
 /**
  * WebSocket generation options
@@ -61,7 +61,7 @@ export function generateWebSocket(
     authName = 'token',
   } = options
 
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
   const channels: Record<string, USDChannel> = {}
 
   // Convert channels (Map or Array)
@@ -388,7 +388,7 @@ function sanitizeSchemaName(name: string): string {
 export function generateChannelSchemas(
   channels: Map<string, LoadedChannel> | LoadedChannel[]
 ): Record<string, USDSchema> {
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
   const channelList = channels instanceof Map
     ? Array.from(channels.values())
     : channels

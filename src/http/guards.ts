@@ -25,6 +25,8 @@
 
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
+import type { AuthContext } from '../types/context.js'
+import { createAuthContext } from '../types/index.js'
 import { HttpUnauthorizedError, HttpForbiddenError } from './errors.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +88,45 @@ export interface GuardOptions {
    * @default 'user'
    */
   userKey?: string
+}
+
+function getLegacyUser<E extends Record<string, unknown>>(
+  c: HttpContextInterface<E>,
+  userKey: string
+): GuardUser | undefined {
+  return c.get(userKey as keyof E) as GuardUser | undefined
+}
+
+function toAuthContext(user: GuardUser | undefined): AuthContext | undefined {
+  if (!user) return undefined
+  return createAuthContext({
+    authenticated: true,
+    principal: typeof user.id === 'string' || typeof user.id === 'number'
+      ? String(user.id)
+      : undefined,
+    roles: user.roles ?? (user.role ? [user.role] : undefined),
+    scopes: user.scopes
+      ?? user.permissions
+      ?? (user.scope ? user.scope.split(' ').filter(Boolean) : undefined),
+    claims: user,
+  })
+}
+
+function resolveAuth<E extends Record<string, unknown>>(
+  c: HttpContextInterface<E>,
+  userKey: string
+): AuthContext | undefined {
+  const runtimeAuth = c.runtime?.auth
+  if (runtimeAuth?.authenticated || runtimeAuth?.principal) {
+    return runtimeAuth
+  }
+
+  const storedAuth = c.get('auth' as keyof E) as AuthContext | undefined
+  if (storedAuth?.authenticated || storedAuth?.principal) {
+    return storedAuth
+  }
+
+  return toAuthContext(getLegacyUser(c, userKey))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,8 +311,8 @@ export function requireUser<E extends Record<string, unknown> = Record<string, u
   const { message = 'Authentication required', status: _status = 401, userKey = 'user' } = options
 
   return async (c, next) => {
-    const user = c.get(userKey as keyof E)
-    if (!user) {
+    const auth = resolveAuth(c, userKey)
+    if (!auth?.authenticated || !auth.principal) {
       throw new HttpUnauthorizedError(message)
     }
     await next()
@@ -300,20 +341,12 @@ export function requireRole<E extends Record<string, unknown> = Record<string, u
   const defaultMessage = `Required role: ${roles.join(' or ')}`
 
   return async (c, next) => {
-    const user = c.get(userKey as keyof E) as GuardUser | undefined
-
-    if (!user) {
+    const auth = resolveAuth(c, userKey)
+    if (!auth?.authenticated || !auth.principal) {
       throw new HttpUnauthorizedError('Authentication required')
     }
 
-    // Check user.role (single role)
-    if (user.role && roles.includes(user.role)) {
-      await next()
-      return
-    }
-
-    // Check user.roles (array of roles)
-    if (user.roles && user.roles.some((r) => roles.includes(r))) {
+    if (roles.some((requiredRole) => auth.hasRole(requiredRole))) {
       await next()
       return
     }
@@ -345,29 +378,12 @@ export function requireScope<E extends Record<string, unknown> = Record<string, 
   const defaultMessage = `Required scope: ${scopes.join(' or ')}`
 
   return async (c, next) => {
-    const user = c.get(userKey as keyof E) as GuardUser | undefined
-
-    if (!user) {
+    const auth = resolveAuth(c, userKey)
+    if (!auth?.authenticated || !auth.principal) {
       throw new HttpUnauthorizedError('Authentication required')
     }
 
-    // Check user.scope (single scope string, space-separated)
-    if (user.scope) {
-      const userScopes = user.scope.split(' ')
-      if (scopes.some((s) => userScopes.includes(s))) {
-        await next()
-        return
-      }
-    }
-
-    // Check user.scopes (array of scopes)
-    if (user.scopes && user.scopes.some((s) => scopes.includes(s))) {
-      await next()
-      return
-    }
-
-    // Check user.permissions (alternative name)
-    if (user.permissions && user.permissions.some((p) => scopes.includes(p))) {
+    if (scopes.some((requiredScope) => auth.hasScope(requiredScope))) {
       await next()
       return
     }

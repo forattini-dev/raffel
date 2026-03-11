@@ -1,7 +1,7 @@
 /**
  * Cookie Utilities
  *
- * Hono-compatible cookie helpers for HTTP handlers.
+ * Cookie helpers for Raffel HTTP handlers.
  * Provides getCookie, setCookie, deleteCookie, and generateCookie functions.
  *
  * @example
@@ -51,7 +51,7 @@ export interface SignedCookieOptions extends CookieOptions {
 
 /**
  * Context interface for cookie operations.
- * Compatible with Hono's Context and Raffel's HttpContext.
+ * Compatible with Raffel's HttpContext and similar Fetch-style HTTP contexts.
  */
 export interface CookieContext {
   req: {

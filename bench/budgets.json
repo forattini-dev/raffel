@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "resultsPath": "bench/results/latest.json",
+  "benchmarks": {
+    "http_front_door_minimal": {
+      "minOpsPerSec": 25000
+    },
+    "http_route_lookup_first": {
+      "minOpsPerSec": 50000
+    },
+    "http_route_lookup_last": {
+      "minOpsPerSec": 50000
+    },
+    "core_router_dispatch": {
+      "minOpsPerSec": 250000
+    },
+    "single_port_detect_http": {
+      "minOpsPerSec": 500000
+    },
+    "protocol_fusion_front_door_reject_http": {
+      "minOpsPerSec": 100000
+    },
+    "protocol_fusion_shared_port_reject_http": {
+      "minOpsPerSec": 500000
+    }
+  }
+}

@@ -16,7 +16,7 @@ import { USD_PROTOCOL_CONTENT_TYPES } from '../../usd/index.js'
 import type { Registry } from '../../core/registry.js'
 import type { SchemaRegistry, HandlerSchema } from '../../validation/index.js'
 import type { StreamDirection, HandlerMeta } from '../../types/index.js'
-import { createSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
+import { createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
 import { resolveContentTypes } from './content-types.js'
 
 /**
@@ -65,7 +65,7 @@ export function generateStreams(
   } = options
   const protocolContentTypes = contentTypes
 
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
   const endpoints: Record<string, USDStreamEndpoint> = {}
 
   // Convert registered streams

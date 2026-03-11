@@ -13,6 +13,7 @@ import type { Registry } from '../core/registry.js'
 import type { Router } from '../core/router.js'
 import type {
   Context,
+  ContextSeed,
   Interceptor,
   ProcedureHandler,
   StreamHandler,
@@ -22,6 +23,7 @@ import type {
   HttpMethod,
   StreamDirection,
   RetryPolicy,
+  ContractPolicies,
 } from '../types/index.js'
 import type { EventDeliveryOptions } from '../core/event-delivery.js'
 import type { ChannelOptions, ChannelManager } from '../channels/index.js'
@@ -54,6 +56,7 @@ import type { OpenAPIDocument } from '../usd/export/openapi.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { EnvelopeConfig } from '../middleware/types.js'
 import type { SessionConfig } from '../middleware/session/types.js'
+import type { RuntimeInspectionGraph } from '../inspect/index.js'
 
 // === Providers (Dependency Injection) ===
 
@@ -156,6 +159,16 @@ export type SinglePortDecisionReason =
   | 'concurrency_limit'
   | 'unknown'
 
+export type ProtocolFusionMode =
+  | 'disabled'
+  | 'front-door'
+  | 'shared-port'
+  | 'front-door+shared-port'
+
+export type ProtocolFusionLayer = 'front-door' | 'shared-port'
+
+export type ProtocolFusionOutcome = 'route' | 'fallback' | 'reject'
+
 export interface ProtocolDecisionPayload {
   protocol: SinglePortProtocolKind
   detector: string
@@ -163,6 +176,49 @@ export interface ProtocolDecisionPayload {
   elapsedMs: number
   bytesRead: number
   timedOut: boolean
+}
+
+export interface ProtocolFusionDecision {
+  timestamp: string
+  mode: ProtocolFusionMode
+  entrypoint: 'http' | 'tcp'
+  layer: ProtocolFusionLayer
+  protocol: string
+  outcome: ProtocolFusionOutcome
+  reason: string
+  detector?: string
+  strategy?: FrontDoorStrategy
+  elapsedMs?: number
+  bytesRead?: number
+  timedOut?: boolean
+  connectionId?: string
+  request?: {
+    method?: string
+    path?: string
+    upgrade?: string
+  }
+  source?: {
+    address?: string
+    port?: number
+  }
+  target: {
+    host: string
+    port: number
+  }
+  allowedProtocols?: string[]
+}
+
+export interface ProtocolFusionState {
+  enabled: boolean
+  mode: ProtocolFusionMode
+  entrypoint: 'http' | 'tcp'
+  target: {
+    host: string
+    port: number
+  }
+  frontDoorProtocols: FrontDoorTransport[] | null
+  sharedPortProtocols?: SinglePortProtocolKind[]
+  recentDecisions: ProtocolFusionDecision[]
 }
 
 export interface ProtocolSnifferContext {
@@ -242,12 +298,27 @@ export interface ServerConfigPreview {
     port: number
     source: 'frontDoor' | 'native'
   }
+  protocolFusion: {
+    enabled: boolean
+    mode: ProtocolFusionMode
+    entrypoint: 'http' | 'tcp'
+  }
   frontDoor: {
     enabled: boolean
     host: string
     port: number
     protocols: FrontDoorTransport[] | null
     protocolAliasMode: ProtocolAliasMode
+  }
+  sharedPort: {
+    enabled: boolean
+    protocolFusion: boolean
+    protocolAliasMode: ProtocolAliasMode
+    sniffMaxBytes: number
+    sniffTimeoutMs: number
+    maxConcurrentDetections: number
+    sniffers?: string[]
+    protocols?: SinglePortProtocolKind[]
   }
   singlePort: {
     enabled: boolean
@@ -256,6 +327,7 @@ export interface ServerConfigPreview {
     sniffMaxBytes: number
     sniffTimeoutMs: number
     maxConcurrentDetections: number
+    sniffers?: string[]
     protocols?: SinglePortProtocolKind[]
   }
   protocols: {
@@ -327,7 +399,16 @@ export interface ServerOptions {
   /** Front-door entrypoint options */
   frontDoor?: FrontDoorConfig
 
-  /** Unified single-port transport options */
+  /**
+   * Shared-port transport fusion options.
+   * Canonical name for the TCP entrypoint multiplexer.
+   */
+  sharedPort?: SinglePortConfig
+
+  /**
+   * @deprecated Use `sharedPort`.
+   * Unified single-port transport options.
+   */
   singlePort?: SinglePortConfig
 
   /**
@@ -599,7 +680,7 @@ export interface HttpOptions {
   middleware?: HttpMiddleware[]
 
   /** Context factory for creating request context */
-  contextFactory?: (req: IncomingMessage) => Partial<Context>
+  contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
 }
 
 // === Protocol Options ===
@@ -648,7 +729,10 @@ export interface WebSocketOptions {
    * }
    * ```
    */
-  contextFactory?: (ws: import('ws').WebSocket, req: import('http').IncomingMessage) => Partial<Context>
+  contextFactory?: (
+    ws: import('ws').WebSocket,
+    req: import('http').IncomingMessage
+  ) => ContextSeed | Promise<ContextSeed>
 }
 
 export interface JsonRpcOptions {
@@ -776,7 +860,7 @@ export interface GlobalHooksConfig {
   error?: Record<string, ErrorHook<any> | ErrorHook<any>[]>
 }
 
-// === HTTP Route Types (Hono-style) ===
+// === HTTP Route Types ===
 
 /**
  * HTTP route handler function.
@@ -810,7 +894,7 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
 // === Protocol Namespace Types ===
 
 /**
- * HTTP protocol namespace for Hono-style routes.
+ * HTTP protocol namespace for native Raffel routes.
  * Provides organized access to HTTP route registration methods with full type inference.
  *
  * @example
@@ -1386,10 +1470,12 @@ export interface ProcedureBuilder<TInput = unknown, TOutput = unknown> {
    * server.procedure('users.create')
    *   .tags(['users', 'admin'])
    * ```
-   */
+  */
   tags(tags: string[]): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
+  /** Attach contract-bound runtime policies */
+  policy(policies: ContractPolicies): this
   /** Mark GraphQL mapping */
   graphql(type: 'query' | 'mutation'): this
   /** Configure JSON-RPC metadata for USD generation */
@@ -1447,6 +1533,8 @@ export interface StreamBuilder<TInput = unknown, TOutput = unknown> {
   description(desc: string): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
+  /** Attach contract-bound runtime policies */
+  policy(policies: ContractPolicies): this
   /** Register the handler */
   handler(fn: (input: TInput, ctx: Context) => AsyncIterable<TOutput>): void
 }
@@ -1458,6 +1546,8 @@ export interface EventBuilder<TInput = unknown> {
   description(desc: string): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
+  /** Attach contract-bound runtime policies */
+  policy(policies: ContractPolicies): this
   /** Set delivery guarantee */
   delivery(guarantee: 'best-effort' | 'at-least-once' | 'at-most-once'): this
   /** Set retry policy (for at-least-once) */
@@ -1733,6 +1823,12 @@ export interface RaffelServer {
    * Enable or disable single-port transport fusion after server creation.
    */
   enableSinglePort(config?: SinglePortConfig | boolean): this
+
+  /**
+   * Enable or disable shared-port protocol fusion after server creation.
+   * Canonical alias for `enableSinglePort()`.
+   */
+  enableSharedPort(config?: SinglePortConfig | boolean): this
 
   /**
    * Register a custom protocol adapter to start with the server.
@@ -2075,7 +2171,7 @@ export interface RaffelServer {
     options?: { description?: string; interceptors?: Interceptor[] }
   ): void
 
-  // === HTTP Routes (Hono-style) ===
+  // === HTTP Routes ===
 
   /**
    * Register an HTTP GET route.
@@ -2278,7 +2374,7 @@ export interface RaffelServer {
   // === Protocol Namespaces ===
 
   /**
-   * HTTP protocol namespace for Hono-style route registration.
+   * HTTP protocol namespace for native Raffel route registration.
    * Provides a chainable API for defining HTTP routes.
    *
    * @example
@@ -2454,6 +2550,16 @@ export interface RaffelServer {
    * Preview final protocol bootstrap decision graph without starting the server.
    */
   previewConfig(): ServerConfigPreview
+
+  /**
+   * Preview the canonical runtime inspection graph without starting the server.
+   */
+  preview(): RuntimeInspectionGraph
+
+  /**
+   * Inspect runtime protocol-fusion mode and recent routing/rejection decisions.
+   */
+  getProtocolFusionState(): ProtocolFusionState
 
   /**
    * GraphQL adapter info.
@@ -2725,6 +2831,7 @@ export interface ProtocolConfig {
   grpc?: {
     enabled: boolean
     options: GrpcOptions
+    shared?: boolean
     frontDoor?: boolean
     strategy?: FrontDoorStrategy
   }
@@ -2781,6 +2888,8 @@ export interface ProcedureDef<TInput = unknown, TOutput = unknown> {
   description?: string
   /** Tags for grouping in docs */
   tags?: string[]
+  /** Contract-bound runtime policies */
+  policies?: ContractPolicies
   /** Interceptors/middleware */
   use?: Interceptor[]
 }
@@ -2962,6 +3071,8 @@ export interface AddProcedureInput {
   jsonrpc?: JsonRpcMeta
   /** gRPC metadata */
   grpc?: GrpcMeta
+  /** Contract-bound runtime policies */
+  policies?: ContractPolicies
   /** Interceptors */
   interceptors?: Interceptor[]
 }
@@ -2982,6 +3093,8 @@ export interface AddStreamInput {
   direction?: StreamDirection
   /** Description */
   description?: string
+  /** Contract-bound runtime policies */
+  policies?: ContractPolicies
   /** Interceptors */
   interceptors?: Interceptor[]
 }
@@ -3004,6 +3117,8 @@ export interface AddEventInput {
   retryPolicy?: RetryPolicy
   /** Deduplication window in ms (for at-most-once) */
   deduplicationWindow?: number
+  /** Contract-bound runtime policies */
+  policies?: ContractPolicies
   /** Interceptors */
   interceptors?: Interceptor[]
 }

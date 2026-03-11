@@ -1,13 +1,12 @@
 /**
  * Schema Converter
  *
- * Converts Zod schemas (or other validation schemas) to JSON Schema
- * for use in USD documentation generation.
+ * Converts Raffel-supported validation schemas into normalized JSON Schema
+ * through the canonical validation descriptor.
  */
 
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { USDSchema } from '../../usd/index.js'
-import { getValidator } from '../../validation/index.js'
+import { normalizeSchemaDescriptor } from '../../validation/index.js'
 
 /**
  * Schema conversion options
@@ -38,7 +37,7 @@ export interface ConvertedSchemaRegistry {
 /**
  * Create a schema registry for collecting converted schemas
  */
-export function createSchemaRegistry(): ConvertedSchemaRegistry {
+export function createDocSchemaRegistry(): ConvertedSchemaRegistry {
   const schemas = new Map<string, USDSchema>()
 
   return {
@@ -136,64 +135,11 @@ export function convertSchema(
   schema: unknown,
   options: SchemaConversionOptions = {}
 ): USDSchema {
-  if (!schema) {
-    return { type: 'object' }
-  }
+  const descriptor = normalizeSchemaDescriptor(schema, {
+    target: options.target === 'jsonSchema2020' ? 'jsonSchema2020' : 'openApi3',
+  })
 
-  // Already JSON Schema
-  if (isJsonSchema(schema)) {
-    return cleanJsonSchema(schema)
-  }
-
-  // Zod 4: Use native toJSONSchema() method
-  if (isZod4Schema(schema)) {
-    try {
-      const jsonSchema = schema.toJSONSchema() as USDSchema
-      return cleanJsonSchema(jsonSchema)
-    } catch {
-      // Continue to other methods
-    }
-  }
-
-  // Zod 3: Use zod-to-json-schema library
-  if (isZodSchema(schema) && !isZod4Schema(schema)) {
-    try {
-      const jsonSchema = zodToJsonSchema(schema as any, {
-        $refStrategy: options.useRefs ? 'root' : 'none',
-        target: 'openApi3',
-      })
-      return cleanJsonSchema(jsonSchema as USDSchema)
-    } catch {
-      // Continue to fallback
-    }
-  }
-
-  // Handle non-standard Zod output format (with def/shape but no toJSONSchema)
-  if (schema && typeof schema === 'object') {
-    const schemaObj = schema as Record<string, unknown>
-    if ('def' in schemaObj && typeof schemaObj.def === 'object' && schemaObj.def !== null) {
-      return normalizeNonStandardSchema(schemaObj)
-    }
-  }
-
-  // Try registered validator for non-Zod schemas
-  const validator = getValidator()
-  if (validator?.toJsonSchema) {
-    try {
-      if (validator.isValidSchema(schema)) {
-        const result = validator.toJsonSchema(schema)
-        // Only use if result looks like standard JSON Schema
-        if (result && Object.keys(result).length > 0 && !('def' in result)) {
-          return cleanJsonSchema(result as USDSchema)
-        }
-      }
-    } catch {
-      // Continue to fallback
-    }
-  }
-
-  // Fallback to generic object
-  return { type: 'object' }
+  return cleanJsonSchema(descriptor.jsonSchema as USDSchema)
 }
 
 /**

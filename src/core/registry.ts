@@ -20,6 +20,9 @@ import type {
   JsonRpcMeta,
   GrpcMeta,
 } from '../types/handlers.js'
+import { createPolicyInterceptors } from '../policy/runtime.js'
+import type { ContractPolicies } from '../types/policies.js'
+import { normalizeContractPolicies } from '../types/policies.js'
 
 /**
  * Procedure registration options
@@ -38,6 +41,7 @@ export interface ProcedureOptions {
   httpMethod?: HttpMethod
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
+  policies?: ContractPolicies
   interceptors?: Interceptor[]
 }
 
@@ -51,6 +55,7 @@ export interface StreamRegistryOptions {
   contentType?: string
   /** Content type configuration */
   contentTypes?: { default?: string; supported?: string[] }
+  policies?: ContractPolicies
   interceptors?: Interceptor[]
 }
 
@@ -66,6 +71,7 @@ export interface EventOptions {
   contentType?: string
   /** Content type configuration */
   contentTypes?: { default?: string; supported?: string[] }
+  policies?: ContractPolicies
   interceptors?: Interceptor[]
 }
 
@@ -145,6 +151,12 @@ export function createRegistry(): Registry {
         throw new Error(`Handler '${name}' already registered`)
       }
 
+      const policies = normalizeContractPolicies(options.policies)
+      const interceptors = [
+        ...createPolicyInterceptors(policies),
+        ...(options.interceptors ?? []),
+      ]
+
       procedures.set(name, {
         handler: handler as ProcedureHandler,
         meta: {
@@ -160,8 +172,9 @@ export function createRegistry(): Registry {
           httpMethod: options.httpMethod,
           jsonrpc: options.jsonrpc,
           grpc: options.grpc,
+          policies,
         },
-        interceptors: options.interceptors,
+        interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
     },
 
@@ -174,6 +187,12 @@ export function createRegistry(): Registry {
         throw new Error(`Handler '${name}' already registered`)
       }
 
+      const policies = normalizeContractPolicies(options.policies)
+      const interceptors = [
+        ...createPolicyInterceptors(policies),
+        ...(options.interceptors ?? []),
+      ]
+
       streams.set(name, {
         handler: handler as StreamHandler,
         meta: {
@@ -183,8 +202,9 @@ export function createRegistry(): Registry {
           streamDirection: options.direction ?? 'server',
           contentType: options.contentType,
           contentTypes: options.contentTypes,
+          policies,
         },
-        interceptors: options.interceptors,
+        interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
     },
 
@@ -197,6 +217,12 @@ export function createRegistry(): Registry {
         throw new Error(`Handler '${name}' already registered`)
       }
 
+      const policies = normalizeContractPolicies(options.policies)
+      const interceptors = [
+        ...createPolicyInterceptors(policies),
+        ...(options.interceptors ?? []),
+      ]
+
       events.set(name, {
         handler: handler as EventHandler,
         meta: {
@@ -208,8 +234,9 @@ export function createRegistry(): Registry {
           deduplicationWindow: options.deduplicationWindow,
           contentType: options.contentType,
           contentTypes: options.contentTypes,
+          policies,
         },
-        interceptors: options.interceptors,
+        interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
     },
 

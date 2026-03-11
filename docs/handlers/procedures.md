@@ -12,9 +12,17 @@ A procedure is a remote procedure call (RPC) pattern:
 server.procedure('users.create')
   .input(z.object({ name: z.string(), email: z.string().email() }))
   .output(z.object({ id: z.string(), name: z.string(), email: z.string() }))
+  .policy({ auth: { scopes: ['users:write'] } })
   .handler(async (input, ctx) => {
-    const user = await db.users.create({ data: input })
-    return user
+    ctx.auth.require({ scopes: ['users:write'] })
+
+    const services = ctx.services as {
+      users: {
+        create(input: { name: string; email: string }): Promise<{ id: string; name: string; email: string }>
+      }
+    }
+
+    return services.users.create(input)
   })
 ```
 
@@ -138,7 +146,19 @@ server.procedure('users.me')
 
     // Authentication (if middleware applied)
     console.log(ctx.auth?.principal)
-    console.log(ctx.auth?.claims?.roles)
+    console.log(ctx.auth?.principalId)
+    console.log(ctx.auth?.roles)
+    console.log(ctx.auth.require({ authenticated: true }))
+
+    // Normalized input
+    console.log(ctx.input.body)
+    console.log(ctx.input.params)
+    console.log(ctx.input.query)
+    console.log(ctx.input.metadata)
+
+    // Services/capabilities
+    console.log(ctx.services)
+    console.log(ctx.logger)
 
     // Cancellation
     if (ctx.signal.aborted) {
@@ -150,9 +170,20 @@ server.procedure('users.me')
       throw new Error('Deadline exceeded')
     }
 
-    return { userId: ctx.auth?.principal }
+    return { userId: ctx.auth?.principalId }
   })
 ```
+
+Prefer the canonical context for new code:
+
+- `ctx.auth`
+- `ctx.input`
+- `ctx.services`
+- `ctx.logger`
+- `ctx.signal`
+
+Treat `extensions` and adapter-specific bags as compatibility surfaces, not the
+main path for new handlers.
 
 ---
 

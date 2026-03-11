@@ -13,7 +13,9 @@ import type {
   RaffelStream,
   Context,
   CallFunction,
+  ContractPolicies,
 } from '../types/index.js'
+import { createAuthContext, stripTransportCapabilities } from '../types/context.js'
 import { createResponseEnvelope, createErrorEnvelope, type ErrorPayload } from '../types/envelope.js'
 import type { Registry } from './registry.js'
 import {
@@ -23,8 +25,28 @@ import {
 import { getStatusForCode } from '../errors/codes.js'
 import { sid as generateId } from '../utils/id/index.js'
 import { createLogger } from '../utils/logger.js'
+import {
+  CONTRACT_POLICY_METADATA_KEY,
+  mergeContractPolicies,
+  normalizeContractPolicies,
+  parseContractPolicies,
+  serializeContractPolicies,
+} from '../types/policies.js'
 
 const logger = createLogger('router')
+
+function isRaffelLikeError(err: unknown): err is Error & {
+  code: string
+  status?: number
+  details?: unknown
+} {
+  return (
+    typeof err === 'object'
+    && err !== null
+    && 'code' in err
+    && typeof (err as { code?: unknown }).code === 'string'
+  )
+}
 
 /**
  * Raffel error - thrown by handlers to signal known errors
@@ -127,16 +149,21 @@ function buildChain(
  * Note: The call function is created lazily to capture the current context's
  * callingLevel properly for nested calls.
  */
-function createContextWithCall(
-  parentCtx: Context,
-  router: Router
-): Context {
-  const callingLevel = (parentCtx.callingLevel ?? 0) + 1
+function getPropagatedPolicyContext(
+  policies?: ContractPolicies
+): ContractPolicies | undefined {
+  if (!policies) return undefined
+  return normalizeContractPolicies(policies)
+}
+
+function createContextWithCall(baseCtx: Context, router: Router): Context {
+  const callingLevel = (baseCtx.callingLevel ?? 0) + 1
 
   // Build context base; call is assigned after callFn is created
   const ctxWithCall: Context = {
-    ...parentCtx,
-    extensions: new Map(parentCtx.extensions),
+    ...baseCtx,
+    auth: createAuthContext(baseCtx.auth),
+    extensions: new Map(baseCtx.extensions),
     callingLevel,
   }
 
@@ -155,6 +182,18 @@ function createContextWithCall(
       )
     }
 
+    const propagatedPolicyContext = getPropagatedPolicyContext(ctxWithCall.contract?.policyContext)
+    const serializedPolicyContext = serializeContractPolicies(propagatedPolicyContext)
+    const metadata = {
+      ...(ctxWithCall.requestId && { 'x-request-id': ctxWithCall.requestId }),
+      ...(ctxWithCall.deadline && { 'x-deadline': ctxWithCall.deadline.toString() }),
+      ...(ctxWithCall.tracing && { 'x-trace-id': ctxWithCall.tracing.traceId }),
+      ...(serializedPolicyContext && {
+        [CONTRACT_POLICY_METADATA_KEY]: serializedPolicyContext,
+      }),
+      'x-internal-call': 'true',
+    }
+
     // Create envelope for the internal call
     // Pass ctxWithCall so the next level will see the incremented callingLevel
     const envelope: Envelope<TInput> = {
@@ -162,11 +201,17 @@ function createContextWithCall(
       procedure,
       type: 'request',
       payload: input,
-      metadata: {
-        ...(ctxWithCall.tracing && { 'x-trace-id': ctxWithCall.tracing.traceId }),
-        'x-internal-call': 'true',
+      metadata,
+      context: {
+        ...stripTransportCapabilities(ctxWithCall),
+        extensions: new Map(ctxWithCall.extensions),
+        ...(ctxWithCall.contract && {
+          contract: {
+            ...ctxWithCall.contract,
+            policyContext: propagatedPolicyContext,
+          },
+        }),
       },
-      context: ctxWithCall,
     }
 
     // Execute through router
@@ -196,6 +241,34 @@ function createContextWithCall(
   ctxWithCall.call = callFn
 
   return ctxWithCall
+}
+
+function createHandlerContext(
+  context: Context,
+  envelope: Envelope,
+  router: Router,
+  meta: { name: string; kind: 'procedure' | 'stream' | 'event'; policies?: ContractPolicies }
+): Context {
+  const incomingPolicyContext =
+    parseContractPolicies(envelope.metadata[CONTRACT_POLICY_METADATA_KEY])
+    ?? context.contract?.policyContext
+
+  const attachedPolicies = normalizeContractPolicies(meta.policies)
+  const policyContext = mergeContractPolicies(incomingPolicyContext, attachedPolicies)
+
+  return createContextWithCall(
+    {
+      ...context,
+      extensions: new Map(context.extensions),
+      contract: {
+        name: meta.name,
+        kind: meta.kind,
+        policies: attachedPolicies,
+        policyContext,
+      },
+    },
+    router
+  )
 }
 
 /**
@@ -232,9 +305,6 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
           return createErrorEnvelope(envelope, 'CANCELLED', 'Request was cancelled')
         }
 
-        // Create enhanced context with call function
-        const ctxWithCall = createContextWithCall(context, router)
-
         // Route based on envelope type
         switch (type) {
           case 'request': {
@@ -243,6 +313,8 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             if (!registered) {
               return createErrorEnvelope(envelope, 'NOT_FOUND', `Procedure '${procedure}' not found`)
             }
+
+            const ctxWithCall = createHandlerContext(context, envelope, router, registered.meta)
 
             // Build interceptor chain
             const interceptors = [
@@ -269,6 +341,8 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             if (!registered) {
               return createErrorEnvelope(envelope, 'NOT_FOUND', `Stream '${procedure}' not found`)
             }
+
+            const ctxWithCall = createHandlerContext(context, envelope, router, registered.meta)
 
             // Build interceptor chain for stream initiation
             const interceptors = [
@@ -350,6 +424,8 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
               return createErrorEnvelope(envelope, 'NOT_FOUND', `Event '${procedure}' not found`)
             }
 
+            const ctxWithCall = createHandlerContext(context, envelope, router, registered.meta)
+
             // Build interceptor chain
             const interceptors = [
               ...globalInterceptors,
@@ -400,6 +476,16 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
         // Handle known errors
         if (err instanceof RaffelError) {
           return createErrorEnvelope(envelope, err.code, err.message, err.details, err.status)
+        }
+
+        if (isRaffelLikeError(err)) {
+          return createErrorEnvelope(
+            envelope,
+            err.code,
+            (err as Error).message ?? 'Unknown error',
+            err.details,
+            err.status
+          )
         }
 
         // Handle unknown errors

@@ -4,10 +4,10 @@
  * Generates OpenAPI 3.0 specification from Raffel Registry and SchemaRegistry.
  */
 
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { Registry } from '../../core/registry.js'
 import type { SchemaRegistry } from '../../validation/index.js'
-import { getValidator } from '../../validation/index.js'
+import type { ContractPolicies } from '../../types/index.js'
+import { normalizeSchemaDescriptor } from '../../validation/index.js'
 
 /**
  * OpenAPI 3.0 Document structure
@@ -74,6 +74,7 @@ export interface OpenAPIOperation {
   }
   responses: Record<string, OpenAPIResponse>
   security?: Array<Record<string, string[]>>
+  'x-raffel-policies'?: ContractPolicies
 }
 
 export interface OpenAPIResponse {
@@ -157,56 +158,14 @@ export interface GeneratorOptions {
 }
 
 /**
- * Check if a value looks like a Zod schema
- */
-function isZodSchema(schema: unknown): boolean {
-  return (
-    schema !== null &&
-    typeof schema === 'object' &&
-    '_def' in schema &&
-    typeof (schema as Record<string, unknown>)._def === 'object'
-  )
-}
-
-/**
  * Convert a schema to JSON Schema
- * Uses registered validator's toJsonSchema when available, falls back to zodToJsonSchema
+ * Uses the canonical schema descriptor as the normalization layer for OpenAPI.
  */
-function schemaToJsonSchema(schema: unknown): unknown {
-  if (!schema) {
-    return { type: 'object' }
-  }
-
-  // Try to use registered validator's toJsonSchema
-  const validator = getValidator()
-  if (validator && validator.toJsonSchema && validator.isValidSchema(schema)) {
-    const result = validator.toJsonSchema(schema)
-    if (result && Object.keys(result).length > 0) {
-      return result
-    }
-  }
-
-  // Fall back to zodToJsonSchema for Zod schemas
-  if (isZodSchema(schema)) {
-    try {
-      // Cast to any to handle Zod 4 type differences with zod-to-json-schema
-      const jsonSchema = zodToJsonSchema(schema as any, {
-        $refStrategy: 'none',
-        target: 'openApi3',
-      })
-      // Remove $schema property which is not needed in OpenAPI
-      if (typeof jsonSchema === 'object' && jsonSchema !== null) {
-        const { $schema, ...rest } = jsonSchema as Record<string, unknown>
-        return rest
-      }
-      return jsonSchema
-    } catch {
-      // Continue to fallback
-    }
-  }
-
-  // Fallback to generic object
-  return { type: 'object' }
+function schemaToJsonSchema(schema: unknown, validatorType?: string): unknown {
+  return normalizeSchemaDescriptor(schema, {
+    validator: validatorType,
+    target: 'openApi3',
+  }).jsonSchema
 }
 
 /**
@@ -604,19 +563,20 @@ export function generateOpenAPI(
       summary: meta.description ?? `Call ${meta.name}`,
       tags: namespace ? [namespace] : undefined,
       responses: {
-        '200': createSuccessResponse(handlerSchema?.output, schemas, meta.name),
+        '200': createSuccessResponse(handlerSchema?.output, schemas, meta.name, handlerSchema?.validator),
         '400': createErrorResponse('Validation Error'),
         '401': createErrorResponse('Unauthorized'),
         '403': createErrorResponse('Forbidden'),
         '404': createErrorResponse('Not Found'),
         '500': createErrorResponse('Internal Server Error'),
       },
+      ...(meta.policies && { 'x-raffel-policies': meta.policies }),
     }
 
     // Add request body if input schema exists
     if (handlerSchema?.input) {
       const schemaRef = `${meta.name}Input`
-      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input)
+      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input, handlerSchema.validator)
 
       operation.requestBody = {
         required: true,
@@ -680,12 +640,13 @@ export function generateOpenAPI(
         '404': createErrorResponse('Not Found'),
         '500': createErrorResponse('Internal Server Error'),
       },
+      ...(meta.policies && { 'x-raffel-policies': meta.policies }),
     }
 
     // Add input schema as query params or request body based on direction
     if (handlerSchema?.input) {
       const schemaRef = `${meta.name}StreamInput`
-      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input)
+      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input, handlerSchema.validator)
     }
 
     paths[path] = { get: operation }
@@ -725,12 +686,13 @@ export function generateOpenAPI(
         '404': createErrorResponse('Not Found'),
         '500': createErrorResponse('Internal Server Error'),
       },
+      ...(meta.policies && { 'x-raffel-policies': meta.policies }),
     }
 
     // Add request body if input schema exists
     if (handlerSchema?.input) {
       const schemaRef = `${meta.name}EventPayload`
-      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input)
+      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input, handlerSchema.validator)
 
       operation.requestBody = {
         required: true,
@@ -802,11 +764,12 @@ export function generateOpenAPI(
 function createSuccessResponse(
   outputSchema: unknown,
   schemas: Record<string, unknown>,
-  handlerName: string
+  handlerName: string,
+  validatorType?: string
 ): OpenAPIResponse {
   if (outputSchema) {
     const schemaRef = `${handlerName}Output`
-    schemas[schemaRef] = schemaToJsonSchema(outputSchema)
+    schemas[schemaRef] = schemaToJsonSchema(outputSchema, validatorType)
 
     return {
       description: 'Successful response',

@@ -12,10 +12,12 @@
 
 import { createServer as createNetServer, type Socket, type Server as NetServer } from 'node:net'
 import type { Server as HttpServer } from 'node:http'
-import type { SinglePortConfig } from './types.js'
+import type { ProtocolFusionDecision, SinglePortConfig } from './types.js'
+import type { RecordProtocolFusionDecisionInput } from './protocol-fusion-diagnostics.js'
 import { handleSinglePortConnection, type SinglePortLogger } from './builder/single-port-utils.js'
 
 type TcpConnectionHandler = { handleConnection: (socket: Socket) => void }
+type GrpcConnectionHandler = { handleConnection: (socket: Socket) => void }
 
 export interface PortBindingOptions {
   port: number
@@ -32,8 +34,14 @@ export interface PortBinding {
    * each connection determine whether it is routed to HTTP or TCP.
    */
   attachTcpHandler(handler: TcpConnectionHandler): void
+  /** Register a gRPC h2c connection handler for single-port dispatch. */
+  attachGrpcHandler(handler: GrpcConnectionHandler): void
   /** Enable protocol sniffing with the given config and alias-mode getter. */
-  setSinglePortConfig(config: SinglePortConfig, getAliasMode: () => 'standard' | 'extended'): void
+  setSinglePortConfig(
+    config: SinglePortConfig,
+    getAliasMode: () => 'standard' | 'extended',
+    recordDecision?: (decision: RecordProtocolFusionDecisionInput) => ProtocolFusionDecision | void
+  ): void
   /** Start listening. Resolves with the actual bound port number. */
   start(): Promise<number>
   /** Stop the underlying net.Server. */
@@ -48,8 +56,10 @@ export function createPortBinding(options: PortBindingOptions): PortBinding {
 
   let httpServer: HttpServer | null = null
   let tcpHandler: TcpConnectionHandler | null = null
+  let grpcHandler: GrpcConnectionHandler | null = null
   let singlePortConfig: SinglePortConfig | null = null
   let getAliasMode: (() => 'standard' | 'extended') | null = null
+  let recordSinglePortDecision: ((decision: RecordProtocolFusionDecisionInput) => ProtocolFusionDecision | void) | null = null
   let boundPort: number | null = null
 
   const netServer = createNetServer()
@@ -63,7 +73,11 @@ export function createPortBinding(options: PortBindingOptions): PortBinding {
         singlePortConfig,
         getSinglePortAliasMode: getAliasMode,
         getSinglePortTcpConnectionHandler: () => tcpHandler,
+        getSinglePortGrpcConnectionHandler: () => grpcHandler,
         logger: log,
+        targetHost: host,
+        targetPort: boundPort ?? port,
+        recordDecision: recordSinglePortDecision ?? undefined,
         onHttp: (s, chunk) => {
           if (httpServer !== null) {
             s.unshift(chunk)
@@ -90,9 +104,18 @@ export function createPortBinding(options: PortBindingOptions): PortBinding {
       tcpHandler = handler
     },
 
-    setSinglePortConfig(config: SinglePortConfig, aliasMode: () => 'standard' | 'extended'): void {
+    attachGrpcHandler(handler: GrpcConnectionHandler): void {
+      grpcHandler = handler
+    },
+
+    setSinglePortConfig(
+      config: SinglePortConfig,
+      aliasMode: () => 'standard' | 'extended',
+      recordDecision?: (decision: RecordProtocolFusionDecisionInput) => ProtocolFusionDecision | void
+    ): void {
       singlePortConfig = config
       getAliasMode = aliasMode
+      recordSinglePortDecision = recordDecision ?? null
     },
 
     async start(): Promise<number> {

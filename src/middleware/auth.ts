@@ -9,6 +9,7 @@
 
 import { RaffelError } from '../core/index.js'
 import type { Interceptor, Envelope, Context, AuthContext } from '../types/index.js'
+import { createAuthContext } from '../types/index.js'
 import type { OAuth2StrategyWithFlow, OAuth2Tokens } from './auth/oauth2.js'
 
 /**
@@ -683,14 +684,14 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Intercepto
     }
 
     // Attach auth context
-    const authContext: AuthContext = {
+    const authContext: AuthContext = createAuthContext({
       authenticated: true,
       principal: authResult.principal,
       claims: {
         ...authResult.claims,
         roles: authResult.roles,
       },
-    }
+    })
 
     // Update context with auth info
     ;(ctx as any).auth = authContext

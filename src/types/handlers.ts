@@ -5,6 +5,7 @@
  */
 
 import type { Context } from './context.js'
+import type { ContractPolicies } from './policies.js'
 import type { RaffelStream } from './stream.js'
 
 /**
@@ -181,6 +182,9 @@ export interface HandlerMeta {
 
   /** gRPC metadata */
   grpc?: GrpcMeta
+
+  /** Contract-bound runtime policies */
+  policies?: ContractPolicies
 }
 
 /**

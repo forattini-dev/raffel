@@ -52,7 +52,8 @@ describe('single-port dispatcher', () => {
       chunk: pingChunk,
       protocols: ['ping'],
     })
-    expect(pingDecision.protocol).toBe('unknown')
+    expect(pingDecision.protocol).toBe('http')
+    expect(pingDecision.detector).toBe('http-method')
     expect(pingDecision.reason).toBe('unsupported')
 
     const icmpChunk = Buffer.from('GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n')
@@ -60,7 +61,8 @@ describe('single-port dispatcher', () => {
       chunk: icmpChunk,
       protocols: ['icmp'],
     })
-    expect(icmpDecision.protocol).toBe('unknown')
+    expect(icmpDecision.protocol).toBe('http')
+    expect(icmpDecision.detector).toBe('http-method')
     expect(icmpDecision.reason).toBe('unsupported')
 
     const ftpPayload = Buffer.from(JSON.stringify({ id: '1', procedure: 'ping', type: 'request', payload: {} }))
@@ -72,21 +74,24 @@ describe('single-port dispatcher', () => {
       chunk: ftpFrame,
       protocols: ['ftp'],
     })
-    expect(ftpDecision.protocol).toBe('unknown')
+    expect(ftpDecision.protocol).toBe('tcp')
+    expect(ftpDecision.detector).toBe('tcp-length-prefix')
     expect(ftpDecision.reason).toBe('unsupported')
 
     const whoisDecision = detectSinglePortProtocolFromChunk({
       chunk: Buffer.from('example.com\r\n'),
       protocols: ['whois'],
     })
-    expect(whoisDecision.protocol).toBe('unknown')
+    expect(whoisDecision.protocol).toBe('tcp')
+    expect(whoisDecision.detector).toBe('text-protocol')
     expect(whoisDecision.reason).toBe('unsupported')
 
     const telnetDecision = detectSinglePortProtocolFromChunk({
       chunk: Buffer.from('open 127.0.0.1 80\r\n'),
       protocols: ['telnet'],
     })
-    expect(telnetDecision.protocol).toBe('unknown')
+    expect(telnetDecision.protocol).toBe('tcp')
+    expect(telnetDecision.detector).toBe('text-protocol')
     expect(telnetDecision.reason).toBe('unsupported')
   })
 
@@ -147,9 +152,9 @@ describe('single-port dispatcher', () => {
       protocols: ['grpc'],
     })
 
-    expect(decision.protocol).toBe('unknown')
+    expect(decision.protocol).toBe('tcp')
     expect(decision.reason).toBe('unsupported')
-    expect(decision.detector).toBe('fallback')
+    expect(decision.detector).toBe('tcp-length-prefix')
   })
 
   it('executes custom sniffers in order after built-ins', () => {
@@ -178,9 +183,9 @@ describe('single-port dispatcher', () => {
       protocols: ['grpc'],
     })
 
-    expect(decision.protocol).toBe('unknown')
+    expect(decision.protocol).toBe('http')
     expect(decision.reason).toBe('unsupported')
-    expect(decision.detector).toBe('fallback')
+    expect(decision.detector).toBe('http-method')
   })
 
   it('keeps custom sniffers active only when protocol is allowed', () => {
@@ -197,7 +202,7 @@ describe('single-port dispatcher', () => {
       protocols: ['udp'],
     })
 
-    expect(allowed.protocol).toBe('unknown')
+    expect(allowed.protocol).toBe('tcp')
     expect(allowed.reason).toBe('unsupported')
 
     const matched = detectSinglePortProtocolFromChunk({
@@ -217,9 +222,9 @@ describe('single-port dispatcher', () => {
       protocols: ['grpc'],
     })
 
-    expect(decision.protocol).toBe('unknown')
+    expect(decision.protocol).toBe('tcp')
     expect(decision.reason).toBe('unsupported')
-    expect(decision.detector).toBe('fallback')
+    expect(decision.detector).toBe('text-protocol')
   })
 
   it('returns timeout when stream read exceeds sniff timeout', async () => {

@@ -9,13 +9,13 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[Quick Start](#quick-start) · [Full Documentation](https://forattini-dev.github.io/raffel) · [Examples](./examples) · [Migration from Hono](#migration-from-hono)
+[Quick Start](#quick-start) · [Full Documentation](https://forattini-dev.github.io/raffel) · [Examples](./examples) · [Migration Guide](#migrating-an-existing-http-app)
 
 </div>
 
 ---
 
-## If You Know Express, You Know Raffel
+## Start with HTTP
 
 ```typescript
 import { HttpApp, serve } from 'raffel'
@@ -40,7 +40,8 @@ app.post('/users', async (c) => {
 serve({ fetch: app.fetch, port: 3000 })
 ```
 
-**Identical to Hono.** Same routes, same context API, same middleware signature. Your muscle memory works.
+`HttpApp` gives Raffel a native Fetch-style HTTP front door. Start with familiar
+route and middleware concepts, then expand the same contracts across protocols.
 
 ---
 
@@ -112,6 +113,40 @@ serve({
   onListen: ({ port, hostname }) => console.log(`Listening on ${hostname}:${port}`),
 })
 ```
+
+---
+
+## Developer Experience In 2026
+
+Raffel now ships with an inspection-first workflow for multi-protocol services:
+
+```bash
+# optional, for a global CLI
+npm i -g raffel
+
+npx raffel new api my-service
+cd my-service
+pnpm install
+npx raffel inspect src/server.ts
+npx raffel explain "users.list" src/server.ts
+npx raffel doctor src/server.ts
+npx raffel playground src/server.ts --port 4301
+npx raffel contract-tests src/server.ts
+pnpm dev
+```
+
+The same runtime graph powers:
+
+- `server.preview()`
+- `raffel inspect`
+- `raffel explain`
+- `raffel doctor`
+- `raffel playground`
+- `raffel contract-tests`
+- OpenAPI/USD output
+
+That keeps your docs, runtime bindings, local tooling, and contract checks
+aligned.
 
 ---
 
@@ -199,7 +234,7 @@ server
 
 | Module | What it does |
 |--------|-------------|
-| **HTTP** | Hono-compatible router + `serve()` with production timeouts |
+| **HTTP** | Native HTTP front door + `serve()` with production timeouts |
 | **WebSocket** | Real-time adapter + Pusher-like channels (public/private/presence) |
 | **gRPC** | Full gRPC adapter with TLS and streaming |
 | **JSON-RPC 2.0** | Batch + notification + error codes per spec |
@@ -412,13 +447,14 @@ Drivers: `createMemorySessionDriver()`, `createRedisSessionDriver({ client })`.
 ## OpenAPI + Docs UI
 
 ```typescript
-import { generateOpenAPI, mountOpenApiDocs } from 'raffel'
+import { mountOpenApiDocs } from 'raffel'
 
-// Auto-generate spec from registered schemas
-const spec = generateOpenAPI(server, {
+server.enableUSD({
   info: { title: 'My API', version: '1.0.0' },
-  servers: [{ url: 'https://api.example.com' }],
 })
+
+const spec = server.getOpenAPIDocument()
+if (!spec) throw new Error('OpenAPI document is not available')
 
 // Mount /openapi.json + /docs (ReDoc or Swagger UI)
 mountOpenApiDocs(app, {
@@ -601,6 +637,34 @@ await suite.stop()
 
 ---
 
+## Spec-Driven Mock Server
+
+You can also stand up mock endpoints directly from OpenAPI or USD documents:
+
+```typescript
+import { createMockServer } from 'raffel'
+
+const openapi = server.getOpenAPIDocument()
+if (!openapi) throw new Error('OpenAPI document is not available')
+
+await createMockServer({
+  spec: openapi,
+  port: 4100,
+})
+```
+
+This gives you:
+
+- HTTP routes extracted from documented endpoints
+- example-first responses with schema-generated fallback data
+- request validation from the same contract
+- optional JSON-RPC and WebSocket mocks when the source document is USD
+
+It is useful for frontend handoff, local integration tests, and spec-first
+development.
+
+---
+
 ## Validation
 
 Bring your own validator. Raffel adapts to it.
@@ -637,32 +701,15 @@ Provides: live documentation, code generation prompts (`add_oauth2`, `add_sessio
 
 ---
 
-## Migration from Hono
+## Migrating an Existing HTTP App
 
-Raffel's `HttpApp` is intentionally Hono-compatible. Most migrations are a find-and-replace:
+Raffel can front an existing HTTP application model, but its goal is bigger than
+HTTP parity. Migrate by mapping routes, middleware, validation, and lifecycle
+concepts into Raffel's runtime model, then reuse the same contracts across other
+transports.
 
-```diff
-- import { Hono } from 'hono'
-- import { serve } from '@hono/node-server'
-+ import { HttpApp, serve } from 'raffel'
-
-- const app = new Hono()
-+ const app = new HttpApp()
-
-  app.get('/users', async (c) => c.json(await db.users.findMany()))
-
-- serve(app)
-+ serve({
-+   fetch: app.fetch,
-+   port: 3000,
-+   keepAliveTimeout: 65000,  // recommended for production
-+   headersTimeout: 66000,
-+ })
-```
-
-Everything else is identical: routes, middleware signature, context API, `app.route()`, `app.notFound()`, `app.onError()`.
-
-See [full migration guide](./docs/guides/migration.md) for advanced patterns.
+See the [migration guide](./docs/guides/migration.md) for concept mapping from
+Express, Fastify, Fetch-first routers, `ws`, and Socket.IO.
 
 ---
 
@@ -679,7 +726,7 @@ See [full migration guide](./docs/guides/migration.md) for advanced patterns.
 | [Metrics & Tracing](https://forattini-dev.github.io/raffel/#/observability) | Prometheus, OpenTelemetry |
 | [Core Model](https://forattini-dev.github.io/raffel/#/core-model) | Envelope, Context, Router, architecture |
 | [File-based Routing](https://forattini-dev.github.io/raffel/#/file-system-discovery) | Zero-config discovery |
-| [Migration from Hono](./docs/guides/migration.md) | Step-by-step migration guide |
+| [Migration Guide](./docs/guides/migration.md) | Concept mapping from existing HTTP and realtime stacks |
 
 ---
 

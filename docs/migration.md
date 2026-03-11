@@ -2,6 +2,14 @@
 
 Moving from Express, Fastify, Koa, or Hono? This guide shows you exactly how to migrate.
 
+For protocol-fusion naming updates (`sharedPort`, `enableSharedPort()`,
+`getProtocolFusionState()`), see
+[Protocol Fusion Migration](guides/protocol-fusion-migration.md).
+
+For the newer scaffold -> inspect -> doctor -> playground -> contract-tests
+workflow, and for moving off ambient auth/state patterns, see
+[DEVX Migration](guides/devx-migration.md).
+
 ---
 
 ## From Express
@@ -450,7 +458,11 @@ app.use(async (req, next) => {
 
 ---
 
-## From Hono
+## From Fetch-first Routers
+
+If your current stack already uses Fetch-style handlers, the move into Raffel is
+mostly a concept mapping exercise. The main shift is that Raffel treats HTTP as
+the front door of a larger multi-transport runtime.
 
 ### Basic Routes
 

@@ -201,9 +201,30 @@ function createJsonRpcHandler(
       }
 
       // Create context with metadata as extension
-      let ctx = createContext(`jsonrpc-${Date.now()}`)
-      if (timeout > 0) {
-        ctx.deadline = Date.now() + timeout
+      const requestId = metadata['x-request-id'] ?? `jsonrpc-${Date.now()}`
+      let ctx = createContext(requestId, {
+        protocol: 'jsonrpc',
+        input: {
+          body: payload,
+          metadata,
+        },
+        rpc: {
+          kind: 'jsonrpc',
+          method: request.method,
+          requestId: id,
+          notification: isNotification,
+        },
+      })
+      const adapterDeadline = timeout > 0 ? Date.now() + timeout : undefined
+      const propagatedDeadline = metadata['x-deadline']
+        ? Number.parseInt(metadata['x-deadline'], 10)
+        : NaN
+      if (Number.isFinite(propagatedDeadline)) {
+        ctx.deadline = adapterDeadline
+          ? Math.min(adapterDeadline, propagatedDeadline)
+          : propagatedDeadline
+      } else if (adapterDeadline) {
+        ctx.deadline = adapterDeadline
       }
       // Add HTTP metadata to context
       ctx = withExtension(ctx, HttpMetadataKey, metadata)
@@ -230,12 +251,23 @@ function createJsonRpcHandler(
 
       // Check if it's an error envelope
       if (envelope.type === 'error') {
-        const errorPayload = envelope.payload as { code: string; message: string; details?: unknown }
+        const errorPayload = envelope.payload as {
+          code: string
+          status: number
+          message: string
+          details?: unknown
+        }
         return createError(
           mapErrorCode(errorPayload.code),
           errorPayload.message,
           id,
-          errorPayload.details
+          {
+            ...(errorPayload.details !== undefined && { details: errorPayload.details }),
+            raffel: {
+              code: errorPayload.code,
+              status: errorPayload.status,
+            },
+          }
         )
       }
 
@@ -252,7 +284,13 @@ function createJsonRpcHandler(
       }
 
       if (error instanceof RaffelError) {
-        return createError(mapErrorCode(error.code), error.message, id, error.details)
+        return createError(mapErrorCode(error.code), error.message, id, {
+          ...(error.details !== undefined && { details: error.details }),
+          raffel: {
+            code: error.code,
+            status: error.status,
+          },
+        })
       }
 
       logger.error({ method: request.method, error }, 'Unexpected error processing request')

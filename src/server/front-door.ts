@@ -8,9 +8,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {
   FrontDoorTransport,
   FrontDoorStrategy,
+  ProtocolFusionDecision,
   ProtocolConfig,
   ProtocolAliasMode,
 } from './types.js'
+import type { RecordProtocolFusionDecisionInput } from './protocol-fusion-diagnostics.js'
 import { joinBasePath } from './channel-utils.js'
 import { getFrontDoorProtocolAliases } from './protocol-aliases.js'
 
@@ -52,6 +54,7 @@ export interface FrontDoorBootstrapOptions {
   basePath: string
   effectiveHost: string
   effectivePort: number
+  onDecision?: (decision: RecordProtocolFusionDecisionInput) => ProtocolFusionDecision | void
 }
 
 export function createFrontDoorBootstrap(options: FrontDoorBootstrapOptions) {
@@ -62,6 +65,7 @@ export function createFrontDoorBootstrap(options: FrontDoorBootstrapOptions) {
     basePath,
     effectiveHost,
     effectivePort,
+    onDecision,
   } = options
 
   function getFrontDoorDetectorOrder(): FrontDoorTransport[] {
@@ -84,19 +88,57 @@ export function createFrontDoorBootstrap(options: FrontDoorBootstrapOptions) {
     return pathValue ? (pathValue.startsWith('/') ? pathValue : `/${pathValue}`) : '/'
   }
 
+  function getAllowedFrontDoorProtocols(): string[] {
+    if (!frontDoorEnabled) {
+      return ['http']
+    }
+    return getFrontDoorDetectorOrder()
+  }
+
+  function readFrontDoorRequest(req: IncomingMessage) {
+    const upgrade = typeof req.headers.upgrade === 'string' ? req.headers.upgrade.toLowerCase() : undefined
+    const method = req.method?.toUpperCase() ?? 'GET'
+    let path = '/'
+    try {
+      const url = new URL(req.url || '/', `http://${req.headers.host}`)
+      path = url.pathname
+    } catch {
+      // Invalid URL still gets evaluated through the deterministic fallback path.
+    }
+
+    return {
+      method,
+      path,
+      upgrade,
+    }
+  }
+
+  function classifyFrontDoorOutcome(decision: FrontDoorProtocolDecision): 'route' | 'fallback' | 'reject' {
+    if (decision.result === 'unsupported') {
+      return 'reject'
+    }
+    return decision.reason.toLowerCase().includes('fallback') ? 'fallback' : 'route'
+  }
+
   function sendUnsupportedProtocolResponse(
     res: ServerResponse,
-    decision: FrontDoorProtocolDecision
+    diagnostic: ProtocolFusionDecision
   ): void {
     const payload = {
       error: {
         code: 'UNSUPPORTED_PROTOCOL',
         message: 'Connection rejected by front-door protocol policy',
         details: {
-          reason: decision.reason,
-          protocol: decision.protocol,
-          strategy: decision.strategy,
-          timestamp: new Date().toISOString(),
+          mode: 'front-door',
+          outcome: diagnostic.outcome,
+          reason: diagnostic.reason,
+          protocol: diagnostic.protocol,
+          strategy: diagnostic.strategy,
+          request: diagnostic.request,
+          source: diagnostic.source,
+          target: diagnostic.target,
+          allowedProtocols: diagnostic.allowedProtocols,
+          timestamp: diagnostic.timestamp,
         },
       },
     }
@@ -117,16 +159,7 @@ export function createFrontDoorBootstrap(options: FrontDoorBootstrapOptions) {
     }
 
     const detectorOrder = getFrontDoorDetectorOrder()
-    const upgrade = typeof req.headers.upgrade === 'string' ? req.headers.upgrade.toLowerCase() : undefined
-    const method = req.method?.toUpperCase() ?? 'GET'
-    let path = '/'
-    try {
-      const url = new URL(req.url || '/', `http://${req.headers.host}`)
-      path = url.pathname
-    } catch {
-      // invalid URL should still continue to explicit protocol rejection path
-      // keep empty warning for parity
-    }
+    const { upgrade, method, path } = readFrontDoorRequest(req)
 
     for (const protocol of detectorOrder) {
       if (!FRONT_DOOR_KNOWN_PROTOCOLS.has(protocol)) {
@@ -274,7 +307,24 @@ export function createFrontDoorBootstrap(options: FrontDoorBootstrapOptions) {
 
     return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
       const decision = evaluateFrontDoorDecision(req)
+      const request = readFrontDoorRequest(req)
       const source = req.socket ? `${req.socket.remoteAddress}:${req.socket.remotePort}` : 'unknown'
+      const diagnostic = onDecision?.({
+        layer: 'front-door',
+        protocol: decision.protocol,
+        outcome: classifyFrontDoorOutcome(decision),
+        reason: decision.reason,
+        strategy: decision.strategy,
+        request,
+        source: req.socket
+          ? {
+              address: req.socket.remoteAddress,
+              port: req.socket.remotePort,
+            }
+          : undefined,
+        allowedProtocols: getAllowedFrontDoorProtocols(),
+      })
+
       logger.debug(
         {
           protocol: decision.protocol,
@@ -287,7 +337,31 @@ export function createFrontDoorBootstrap(options: FrontDoorBootstrapOptions) {
         'Front-door protocol decision'
       )
       if (decision.result === 'unsupported') {
-        sendUnsupportedProtocolResponse(res, decision)
+        sendUnsupportedProtocolResponse(
+          res,
+          diagnostic ?? {
+            layer: 'front-door',
+            mode: 'front-door',
+            entrypoint: 'http',
+            protocol: decision.protocol,
+            outcome: classifyFrontDoorOutcome(decision),
+            reason: decision.reason,
+            strategy: decision.strategy,
+            request,
+            source: req.socket
+              ? {
+                  address: req.socket.remoteAddress,
+                  port: req.socket.remotePort,
+                }
+              : undefined,
+            target: {
+              host: effectiveHost,
+              port: effectivePort,
+            },
+            allowedProtocols: getAllowedFrontDoorProtocols(),
+            timestamp: new Date().toISOString(),
+          }
+        )
         return true
       }
       return false

@@ -2,6 +2,15 @@
 
 Raffel exposes procedures, streams, and events over HTTP with a REST-like mapping.
 
+Before shipping an HTTP surface, run:
+
+```bash
+raffel inspect src/server.ts
+raffel doctor src/server.ts --fail-on warning
+raffel playground src/server.ts --port 4301
+raffel contract-tests src/server.ts
+```
+
 ## Enable HTTP
 
 HTTP is enabled by default when you create a server:
@@ -18,7 +27,10 @@ await server.start()
 ## Front-Door support
 
 HTTP is the primary protocol for front-door routing. When `frontDoor.enabled` is
-`true`, HTTP traffic is treated as the default shared entrypoint.
+`true`, HTTP traffic is treated as the default shared entrypoint. When
+`sharedPort.enabled` is also `true`, HTTP first passes through the transport
+classifier and then through front-door routing; both decisions are visible via
+`server.getProtocolFusionState()`.
 
 ```ts
 createServer({
@@ -40,7 +52,15 @@ const server = createServer({
     maxBodySize: 1024 * 1024,
     codecs: [],
     middleware: [],
-    contextFactory: (req) => ({ requestId: req.headers['x-request-id'] as string }),
+    contextFactory: (req) => ({
+      auth: {
+        authenticated: true,
+        principal: { type: 'service', id: 'edge-gateway' },
+      },
+      input: {
+        metadata: { 'x-request-id': req.headers['x-request-id'] as string },
+      },
+    }),
   },
 })
 ```
@@ -54,7 +74,7 @@ const server = createServer({
 | `http.maxBodySize` | number | `1MB` | Maximum request body size in bytes |
 | `http.codecs` | array | - | Additional codecs for content negotiation |
 | `http.middleware` | array | - | HTTP middleware to run before routing |
-| `http.contextFactory` | function | - | Build request context from the HTTP request |
+| `http.contextFactory` | function | - | Build a canonical runtime context seed from the HTTP request |
 
 ## Endpoint Mapping
 

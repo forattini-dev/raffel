@@ -24,6 +24,8 @@ export function formatBindingLabel(binding: RuntimeInspectionTransportBinding): 
       return `${binding.mode} ${binding.path ?? '/'}`
     case 'tcp':
       return binding.procedure ?? binding.id
+    case 'udp':
+      return binding.procedure ?? binding.id
     default:
       return binding.id
   }
@@ -48,6 +50,8 @@ export function formatBindingFull(binding: RuntimeInspectionTransportBinding): s
       return `WebSocket ${binding.path ?? '/'} [${binding.mode}]`
     case 'tcp':
       return `TCP ${binding.procedure ?? binding.id} [${binding.mode}]`
+    case 'udp':
+      return `UDP ${binding.procedure ?? binding.id} [${binding.mode}]`
     default:
       return `${binding.protocol} ${binding.id}`
   }

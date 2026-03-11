@@ -6,8 +6,15 @@
 
 import type { z } from 'zod'
 import type { Registry } from '../core/registry.js'
-import type { Interceptor, StreamDirection, JsonRpcMeta, GrpcMeta } from '../types/index.js'
+import type {
+  Interceptor,
+  StreamDirection,
+  JsonRpcMeta,
+  GrpcMeta,
+  ContractPolicies,
+} from '../types/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
+import { mergeContractPolicies } from '../types/policies.js'
 import { normalizeInterceptors } from './interceptor-utils.js'
 import type {
   ProcedureBuilder,
@@ -43,6 +50,7 @@ export interface ProcedureRegistrationMeta {
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
+  policies?: ContractPolicies
   interceptors: Interceptor[]
   schema?: HandlerSchema
   beforeHooks?: BeforeHook<any>[]
@@ -79,6 +87,7 @@ export function createProcedureBuilder(
       httpMethod: registration.httpMethod,
       jsonrpc: registration.jsonrpc,
       grpc: registration.grpc,
+      policies: registration.policies,
       interceptors: registration.interceptors,
     })
   }
@@ -93,6 +102,7 @@ export function createProcedureBuilder(
   let httpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | undefined
   let jsonrpcMeta: JsonRpcMeta | undefined
   let grpcMeta: GrpcMeta | undefined
+  let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
 
   // Local hooks (procedure-specific)
@@ -140,6 +150,10 @@ export function createProcedureBuilder(
     },
     use(interceptor) {
       interceptors.push(interceptor)
+      return builder
+    },
+    policy(policyMeta) {
+      policies = mergeContractPolicies(policies, policyMeta)
       return builder
     },
     before(hook) {
@@ -191,6 +205,7 @@ export function createProcedureBuilder(
           httpMethod,
           jsonrpc: jsonrpcMeta,
           grpc: grpcMeta,
+          policies,
           interceptors: normalizedInterceptors,
           schema: hasSchema ? schema : undefined,
         })
@@ -238,6 +253,7 @@ export function createProcedureBuilder(
         httpMethod,
         jsonrpc: jsonrpcMeta,
         grpc: grpcMeta,
+        policies,
         interceptors: normalizedInterceptors,
         schema: hasSchema ? schema : undefined,
         beforeHooks: allBeforeHooks,
@@ -263,6 +279,7 @@ export function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let description: string | undefined
   let direction: StreamDirection | undefined
+  let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
 
   const builder: StreamBuilder = {
@@ -286,6 +303,10 @@ export function createStreamBuilder(
       interceptors.push(interceptor)
       return builder
     },
+    policy(policyMeta) {
+      policies = mergeContractPolicies(policies, policyMeta)
+      return builder
+    },
     handler(fn) {
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
@@ -297,6 +318,7 @@ export function createStreamBuilder(
       registry.stream(name, fn, {
         description,
         direction,
+        policies,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
     },
@@ -319,6 +341,7 @@ export function createEventBuilder(
   let deliveryGuarantee: 'best-effort' | 'at-least-once' | 'at-most-once' | undefined
   let retryPolicy: any
   let deduplicationWindow: number | undefined
+  let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
 
   const builder: EventBuilder = {
@@ -346,6 +369,10 @@ export function createEventBuilder(
       interceptors.push(interceptor)
       return builder
     },
+    policy(policyMeta) {
+      policies = mergeContractPolicies(policies, policyMeta)
+      return builder
+    },
     handler(fn) {
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
@@ -359,6 +386,7 @@ export function createEventBuilder(
         delivery: deliveryGuarantee,
         retryPolicy,
         deduplicationWindow,
+        policies,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
     },

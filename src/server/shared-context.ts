@@ -23,7 +23,8 @@
  */
 
 import type { IncomingMessage } from 'node:http'
-import type { Context, AuthContext } from '../types/index.js'
+import type { Context, AuthContext, ContextSeed } from '../types/index.js'
+import { createAuthContext, mergeContextSeeds } from '../types/index.js'
 import type { Session, SessionTracker } from '../http/session.js'
 import { createLogger } from '../utils/logger.js'
 
@@ -59,7 +60,7 @@ export interface SharedContextFactoryOptions {
   mapSessionToAuth?: (session: Session) => AuthContext
 
   /** Called when context is created (for logging/metrics) */
-  onContextCreated?: (ctx: Partial<Context>, req: IncomingMessage) => void
+  onContextCreated?: (ctx: ContextSeed, req: IncomingMessage) => void
 }
 
 /**
@@ -69,7 +70,7 @@ export interface SharedContextFactoryOptions {
 export type ProtocolContextFactory<WS = unknown> = (
   ws: WS,
   req: IncomingMessage
-) => Partial<Omit<Context, 'requestId' | 'extensions'>> | Promise<Partial<Omit<Context, 'requestId' | 'extensions'>>>
+) => ContextSeed | Promise<ContextSeed>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -123,7 +124,7 @@ function extractBearerToken(authHeader: string | undefined): string | undefined 
  * Default mapper from Session to AuthContext
  */
 function defaultSessionToAuth(session: Session): AuthContext {
-  return {
+  return createAuthContext({
     authenticated: true,
     principal: session.userId?.toString() ?? session.id,
     claims: {
@@ -131,7 +132,7 @@ function defaultSessionToAuth(session: Session): AuthContext {
       sessionId: session.id,
       createdAt: session.createdAt,
     },
-  }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,8 +179,8 @@ export function createSharedContextFactory(
     onContextCreated,
   } = options
 
-  return async (_ws: unknown, req: IncomingMessage): Promise<Partial<Omit<Context, 'requestId' | 'extensions'>>> => {
-    const ctx: Partial<Omit<Context, 'requestId' | 'extensions'>> = {
+  return async (_ws: unknown, req: IncomingMessage): Promise<ContextSeed> => {
+    const ctx: ContextSeed = {
       auth: undefined,
     }
 
@@ -264,8 +265,8 @@ export function createAuthContextFactory(options: {
     apiKeyQueryParam = 'apiKey',
   } = options
 
-  return async (_ws: unknown, req: IncomingMessage): Promise<Partial<Omit<Context, 'requestId' | 'extensions'>>> => {
-    const ctx: Partial<Omit<Context, 'requestId' | 'extensions'>> = {
+  return async (_ws: unknown, req: IncomingMessage): Promise<ContextSeed> => {
+    const ctx: ContextSeed = {
       auth: undefined,
     }
 
@@ -275,7 +276,7 @@ export function createAuthContextFactory(options: {
       if (bearerToken) {
         const auth = await verifyToken(bearerToken)
         if (auth) {
-          ctx.auth = auth
+          ctx.auth = createAuthContext(auth)
           return ctx
         }
       }
@@ -294,7 +295,7 @@ export function createAuthContextFactory(options: {
       if (apiKey) {
         const auth = await verifyApiKey(apiKey)
         if (auth) {
-          ctx.auth = auth
+          ctx.auth = createAuthContext(auth)
           return ctx
         }
       }
@@ -317,18 +318,14 @@ export function createAuthContextFactory(options: {
 export function mergeContextFactories(
   factories: ProtocolContextFactory[]
 ): ProtocolContextFactory {
-  return async (ws: unknown, req: IncomingMessage): Promise<Partial<Omit<Context, 'requestId' | 'extensions'>>> => {
-    const mergedCtx: Partial<Omit<Context, 'requestId' | 'extensions'>> = {
+  return async (ws: unknown, req: IncomingMessage): Promise<ContextSeed> => {
+    let mergedCtx: ContextSeed = {
       auth: undefined,
     }
 
     for (const factory of factories) {
       const ctx = await factory(ws, req)
-
-      // Merge auth (first authenticated wins)
-      if (!mergedCtx.auth?.authenticated && ctx.auth?.authenticated) {
-        mergedCtx.auth = ctx.auth
-      }
+      mergedCtx = mergeContextSeeds(mergedCtx, ctx)
     }
 
     return mergedCtx

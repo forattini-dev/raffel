@@ -209,13 +209,22 @@ async function executeProcedure(
   ctx: Context,
   metadata: Record<string, string>
 ): Promise<unknown> {
+  const executionCtx: Context = {
+    ...ctx,
+    input: {
+      ...ctx.input,
+      body: input,
+      metadata,
+    },
+    extensions: new Map(ctx.extensions),
+  }
   const envelope: Envelope = {
     id: sid(),
     procedure,
     type: 'request',
     payload: input,
     metadata,
-    context: ctx,
+    context: executionCtx,
   }
 
   const result = await router.handle(envelope)
@@ -242,13 +251,22 @@ async function emitEvent(
   ctx: Context,
   metadata: Record<string, string>
 ): Promise<boolean> {
+  const executionCtx: Context = {
+    ...ctx,
+    input: {
+      ...ctx.input,
+      body: input,
+      metadata,
+    },
+    extensions: new Map(ctx.extensions),
+  }
   const envelope: Envelope = {
     id: sid(),
     procedure: event,
     type: 'event',
     payload: input,
     metadata,
-    context: ctx,
+    context: executionCtx,
   }
 
   const result = await router.handle(envelope)
@@ -270,13 +288,27 @@ async function* executeStream(
   ctx: Context,
   metadata: Record<string, string>
 ): AsyncIterable<unknown> {
+  const executionCtx: Context = {
+    ...ctx,
+    input: {
+      ...ctx.input,
+      body: input,
+      metadata,
+    },
+    stream: {
+      kind: 'stream',
+      mode: 'graphql-subscription',
+      id: ctx.requestId,
+    },
+    extensions: new Map(ctx.extensions),
+  }
   const envelope: Envelope = {
     id: sid(),
     procedure: stream,
     type: 'stream:start',
     payload: input,
     metadata,
-    context: ctx,
+    context: executionCtx,
   }
 
   const result = await router.handle(envelope)
@@ -445,7 +477,17 @@ function createGraphQLHandlers(
         const metadata = extractMetadataFromHeaders(req.headers)
 
         // Create context
-        const ctx = createContext(sid())
+        const ctx = createContext(sid(), {
+          protocol: 'graphql',
+          input: {
+            body: gqlRequest.variables ?? {},
+            metadata,
+          },
+          graphql: {
+            kind: 'graphql',
+            operationName: gqlRequest.operationName,
+          },
+        })
         if (timeoutMs > 0) {
           ctx.deadline = Date.now() + timeoutMs
         }
@@ -738,17 +780,26 @@ function handleSubscriptionConnection(
           const { id, payload } = message
           const { query, operationName, variables } = payload
 
-          const ctx = createContext(sid())
-          if (connectionInitPayload !== undefined) {
-            ctx.extensions.set(CONNECTION_INIT_KEY, connectionInitPayload)
-          }
-
           const metadata = mergeMetadata(
             connectionMetadata,
             extractMetadataFromRecord(connectionInitPayload),
             extractMetadataFromRecord((connectionInitPayload as { headers?: unknown })?.headers),
             extractMetadataFromRecord((connectionInitPayload as { metadata?: unknown })?.metadata)
           )
+          const ctx = createContext(sid(), {
+            protocol: 'graphql',
+            input: {
+              metadata,
+            },
+            graphql: {
+              kind: 'graphql',
+              operationType: 'subscription',
+              operationName,
+            },
+          })
+          if (connectionInitPayload !== undefined) {
+            ctx.extensions.set(CONNECTION_INIT_KEY, connectionInitPayload)
+          }
 
           const document = parse(query)
           const rootValue = createRootValue(router, registry, schemaInfo, ctx, metadata)

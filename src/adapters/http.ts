@@ -10,8 +10,9 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context } from '../types/index.js'
-import { createAbortableContext } from '../utils/context-utils.js'
+import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import { mergeContextSeeds } from '../types/index.js'
+import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import {
@@ -66,7 +67,7 @@ export interface HttpAdapterOptions {
   maxBodySize?: number
 
   /** Context factory for creating request context */
-  contextFactory?: (req: IncomingMessage) => Partial<Context>
+  contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
 
   /** CORS configuration */
   cors?: {
@@ -145,6 +146,23 @@ function parseBody(
 
     req.on('error', reject)
   })
+}
+
+function searchParamsToQuery(params: URLSearchParams): Record<string, unknown> {
+  const query: Record<string, unknown> = {}
+  for (const [key, value] of params.entries()) {
+    const existing = query[key]
+    if (existing === undefined) {
+      query[key] = value
+      continue
+    }
+    if (Array.isArray(existing)) {
+      existing.push(value)
+      continue
+    }
+    query[key] = [existing, value]
+  }
+  return query
 }
 
 /**
@@ -439,7 +457,31 @@ export function createHttpAdapter(
     try {
       // Build context
       const requestId = (req.headers['x-request-id'] as string) || sid()
-      ctx = createAbortableContext(requestId, options.contextFactory?.(req), abortController)
+      const metadata = extractMetadataFromHeaders(req.headers)
+      const adapterSeed: ContextSeed = {
+        protocol: 'http',
+        input: {
+          query: searchParamsToQuery(url.searchParams),
+          metadata,
+        },
+        http: {
+          kind: 'http',
+          method: req.method ?? 'GET',
+          path: url.pathname,
+          url: url.toString(),
+          headers: metadata,
+        },
+      }
+      ctx = await createAbortableContextAsync(
+        requestId,
+        mergeContextSeeds(adapterSeed, await options.contextFactory?.(req)),
+        abortController
+      )
+      const deadlineHeader = req.headers['x-deadline']
+      const deadline = typeof deadlineHeader === 'string' ? Number.parseInt(deadlineHeader, 10) : NaN
+      if (Number.isFinite(deadline)) {
+        ctx.deadline = ctx.deadline ? Math.min(ctx.deadline, deadline) : deadline
+      }
 
       // Handle based on type
       if (isStream && req.method === 'GET') {
@@ -541,6 +583,10 @@ export function createHttpAdapter(
     const bodyResult = await resolveRequestBody(req, res)
     if (!bodyResult) return
     const { payload } = bodyResult
+    ctx.input = {
+      ...ctx.input,
+      body: payload,
+    }
 
     // Build envelope
     const envelope: Envelope = {
@@ -591,6 +637,15 @@ export function createHttpAdapter(
       } catch {
         payload[key] = value
       }
+    }
+    ctx.input = {
+      ...ctx.input,
+      body: payload,
+    }
+    ctx.stream = {
+      kind: 'stream',
+      mode: 'sse',
+      id: ctx.requestId,
     }
 
     // Build envelope
@@ -676,6 +731,10 @@ export function createHttpAdapter(
     const bodyResult = await resolveRequestBody(req, res)
     if (!bodyResult) return
     const { payload } = bodyResult
+    ctx.input = {
+      ...ctx.input,
+      body: payload,
+    }
 
     // Build envelope
     const envelope: Envelope = {

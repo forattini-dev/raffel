@@ -14,7 +14,7 @@ import type {
   USDSchema,
 } from '../../usd/index.js'
 import { USD_PROTOCOL_CONTENT_TYPES } from '../../usd/index.js'
-import { createSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
+import { createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
 import { resolveContentTypes } from './content-types.js'
 
 /**
@@ -139,7 +139,7 @@ export function generateTcp(
   } = options
   const protocolContentTypes = contentTypes
 
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
   const servers: Record<string, USDTcpServer> = {}
 
   for (const handler of ctx.handlers) {

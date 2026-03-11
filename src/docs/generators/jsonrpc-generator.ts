@@ -16,7 +16,7 @@ import type {
 } from '../../usd/index.js'
 import { USD_PROTOCOL_CONTENT_TYPES } from '../../usd/index.js'
 import {
-  createSchemaRegistry,
+  createDocSchemaRegistry,
   generateSchemaName,
   createRef,
   type ConvertedSchemaRegistry,
@@ -82,7 +82,7 @@ export function generateJsonRpc(
     defaultSecurity,
   } = options
 
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
   const methods: Record<string, USDJsonRpcMethod> = {}
   const tags = new Set<string>()
 

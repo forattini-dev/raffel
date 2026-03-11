@@ -428,8 +428,21 @@ describe('GraphQL Adapter', () => {
 
     // Register some procedures
     registry.procedure('users.get', async () => ({ id: '1', name: 'Test' }))
+    registry.procedure('context.getInfo', async (_input, ctx) => ({
+      arg: (ctx.input.body as { arg?: string } | undefined)?.arg ?? null,
+      protocol: ctx.protocol ?? 'unknown',
+      operation: ctx.graphql?.kind ?? 'missing',
+    }))
     schemaRegistry.register('users.get', {
       output: z.object({ id: z.string(), name: z.string() }),
+    })
+    schemaRegistry.register('context.getInfo', {
+      input: z.object({ arg: z.string() }),
+      output: z.object({
+        arg: z.string().nullable(),
+        protocol: z.string(),
+        operation: z.string(),
+      }),
     })
   })
 
@@ -515,6 +528,36 @@ describe('GraphQL Adapter', () => {
       const result = await response.json() as GraphQLResponse
       expect(result.data).toBeDefined()
       expect(result.data!.usersGet).toEqual({ id: '1', name: 'Test' })
+    })
+
+    it('should expose canonical runtime context to resolvers', async () => {
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG },
+      })
+
+      await adapter.start()
+
+      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-Id': 'graphql-context' },
+        body: JSON.stringify({
+          query: 'query($arg: String!) { contextGetInfo(arg: $arg) { arg protocol operation } }',
+          variables: { arg: 'hello' },
+        }),
+      })
+
+      expect(response.status).toBe(200)
+      const result = await response.json() as GraphQLResponse
+      expect(result.data?.contextGetInfo).toEqual({
+        arg: 'hello',
+        protocol: 'graphql',
+        operation: 'graphql',
+      })
     })
 
     it('should handle _health query when no other queries exist', async () => {

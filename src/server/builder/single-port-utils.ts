@@ -1,6 +1,7 @@
 import type { Socket } from 'node:net'
 import { sid } from '../../utils/id/index.js'
-import type { ProtocolDecisionPayload, SinglePortConfig } from '../types.js'
+import type { ProtocolDecisionPayload, ProtocolFusionDecision, SinglePortConfig } from '../types.js'
+import type { RecordProtocolFusionDecisionInput } from '../protocol-fusion-diagnostics.js'
 import { detectSinglePortProtocolFromStream } from '../single-port/index.js'
 
 export interface SinglePortLogger {
@@ -12,23 +13,31 @@ interface SinglePortTcpConnectionHandler {
   handleConnection: (socket: Socket) => void
 }
 
+interface SinglePortGrpcConnectionHandler {
+  handleConnection: (socket: Socket) => void
+}
+
 export function createSinglePortUnsupportedResponse(
-  decision: ProtocolDecisionPayload,
-  connectionId: string
+  diagnostic: ProtocolFusionDecision
 ): string {
   const payload = JSON.stringify({
     error: {
       code: 'UNSUPPORTED_PROTOCOL',
       message: 'Connection rejected by single-port protocol classifier',
       details: {
-        connectionId,
-        protocol: decision.protocol,
-        detector: decision.detector,
-        reason: decision.reason,
-        elapsedMs: decision.elapsedMs,
-        bytesRead: decision.bytesRead,
-        timedOut: decision.timedOut,
-        timestamp: new Date().toISOString(),
+        mode: 'shared-port',
+        outcome: diagnostic.outcome,
+        connectionId: diagnostic.connectionId,
+        protocol: diagnostic.protocol,
+        detector: diagnostic.detector,
+        reason: diagnostic.reason,
+        elapsedMs: diagnostic.elapsedMs,
+        bytesRead: diagnostic.bytesRead,
+        timedOut: diagnostic.timedOut,
+        source: diagnostic.source,
+        target: diagnostic.target,
+        allowedProtocols: diagnostic.allowedProtocols,
+        timestamp: diagnostic.timestamp,
       },
     },
   })
@@ -89,14 +98,50 @@ export function isSinglePortUdpRouteEnabled(
   return udpRoutePort === effectivePort && isSinglePortTcpHostCompatible(effectiveHost, udpHost)
 }
 
+export function isSinglePortGrpcRouteEnabled(
+  singlePortEnabled: boolean,
+  grpcRouteEnabled: boolean | undefined,
+  grpcRoutePort: number | undefined,
+  grpcRouteHost: string | undefined,
+  effectiveHost: string,
+  effectivePort: number
+): boolean {
+  if (!singlePortEnabled || !grpcRouteEnabled) {
+    return false
+  }
+  if (grpcRoutePort == null) {
+    return false
+  }
+
+  const grpcHost = getSinglePortTcpHost(grpcRouteHost)
+  return grpcRoutePort === effectivePort && isSinglePortTcpHostCompatible(effectiveHost, grpcHost)
+}
+
 export interface HandleSinglePortConnectionInput {
   socket: Socket
   singlePortConfig: SinglePortConfig
   getSinglePortAliasMode: () => 'standard' | 'extended'
   getSinglePortTcpConnectionHandler: () => SinglePortTcpConnectionHandler | null
+  getSinglePortGrpcConnectionHandler: () => SinglePortGrpcConnectionHandler | null
   logger: SinglePortLogger
+  targetHost: string
+  targetPort: number
+  recordDecision?: (decision: RecordProtocolFusionDecisionInput) => ProtocolFusionDecision | void
   /** Called for HTTP connections so the caller can forward to an http.Server without double-parse */
   onHttp?: (socket: Socket, firstChunk: Buffer) => void
+}
+
+function classifySinglePortOutcome(
+  decision: ProtocolDecisionPayload,
+  willRoute: boolean
+): 'route' | 'fallback' | 'reject' {
+  if (willRoute) {
+    return 'route'
+  }
+  if (decision.detector === 'fallback' || decision.reason === 'unknown') {
+    return 'fallback'
+  }
+  return 'reject'
 }
 
 export async function handleSinglePortConnection(
@@ -110,6 +155,7 @@ export async function handleSinglePortConnection(
   let cleanupReadChunk: (() => void) | null = null
   let forwardedToProtocol = false
   const getSinglePortTcpConnectionHandler = input.getSinglePortTcpConnectionHandler
+  const getSinglePortGrpcConnectionHandler = input.getSinglePortGrpcConnectionHandler
 
   const readChunk = () => new Promise<Buffer | null>((resolve) => {
     let resolved = false
@@ -180,7 +226,58 @@ export async function handleSinglePortConnection(
     )
 
     const capturedChunk = firstChunk as Buffer | null
-    if (decision.protocol === 'http' && capturedChunk !== null && capturedChunk.length > 0) {
+    const connectionHandler = getSinglePortTcpConnectionHandler()
+    const grpcConnectionHandler = getSinglePortGrpcConnectionHandler()
+    const isMatchedDecision = decision.reason === 'matched'
+    const willRouteHttp = (
+      isMatchedDecision
+      && decision.protocol === 'http'
+      && capturedChunk !== null
+      && capturedChunk.length > 0
+    )
+    const willRouteTcp = (
+      isMatchedDecision
+      &&
+      decision.protocol === 'tcp'
+      && connectionHandler !== null
+      && capturedChunk !== null
+      && capturedChunk.length > 0
+    )
+    const willRouteGrpc = (
+      isMatchedDecision
+      && (decision.protocol === 'grpc' || decision.protocol === 'http2')
+      && grpcConnectionHandler !== null
+      && capturedChunk !== null
+      && capturedChunk.length > 0
+    )
+    const diagnosticInput: RecordProtocolFusionDecisionInput = {
+      layer: 'shared-port',
+      protocol: willRouteGrpc ? 'grpc' : decision.protocol,
+      outcome: classifySinglePortOutcome(decision, willRouteHttp || willRouteTcp || willRouteGrpc),
+      reason: decision.reason,
+      detector: decision.detector,
+      elapsedMs: decision.elapsedMs,
+      bytesRead: decision.bytesRead,
+      timedOut: decision.timedOut,
+      connectionId,
+      source: {
+        address: remoteAddress,
+        port: remotePort,
+      },
+      allowedProtocols: input.singlePortConfig.protocols,
+    }
+    const diagnostic = input.recordDecision?.(diagnosticInput) ?? {
+      ...diagnosticInput,
+      timestamp: new Date().toISOString(),
+      mode: 'shared-port',
+      entrypoint: 'tcp',
+      target: {
+        host: input.targetHost,
+        port: input.targetPort,
+      },
+    }
+
+    if (willRouteHttp) {
       forwardedToProtocol = true
       if (input.onHttp) {
         input.onHttp(socket, capturedChunk)
@@ -191,13 +288,7 @@ export async function handleSinglePortConnection(
       return
     }
 
-    const connectionHandler = getSinglePortTcpConnectionHandler()
-    if (
-      decision.protocol === 'tcp'
-      && connectionHandler !== null
-      && capturedChunk !== null
-      && capturedChunk.length > 0
-    ) {
+    if (willRouteTcp) {
       forwardedToProtocol = true
       socket.unshift(capturedChunk)
       connectionHandler.handleConnection(socket)
@@ -205,7 +296,15 @@ export async function handleSinglePortConnection(
       return
     }
 
-    const response = createSinglePortUnsupportedResponse(decision, connectionId)
+    if (willRouteGrpc) {
+      forwardedToProtocol = true
+      socket.unshift(capturedChunk)
+      grpcConnectionHandler.handleConnection(socket)
+      socket.resume()
+      return
+    }
+
+    const response = createSinglePortUnsupportedResponse(diagnostic)
     if (!socket.destroyed && socket.writable) {
       socket.end(response)
     } else {

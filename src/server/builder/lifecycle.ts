@@ -1,4 +1,4 @@
-import type { Socket } from 'node:net'
+import { createConnection, type Socket } from 'node:net'
 
 import { createHttpAdapter, type HttpAdapterOptions, type HttpMiddleware } from '../../adapters/http.js'
 import { createPortBinding, type PortBinding } from '../port-binding.js'
@@ -37,6 +37,7 @@ import { createRouter } from '../../core/router.js'
 import { createSchemaRegistry } from '../../validation/index.js'
 import type {
   FrontDoorTransport,
+  ProtocolFusionDecision,
   ProtocolAdapter,
   ProtocolExtensionConfig,
   ProtocolAdapterContext,
@@ -47,6 +48,7 @@ import type {
   SinglePortConfig,
   USDDocsConfig,
 } from '../types.js'
+import type { RecordProtocolFusionDecisionInput } from '../protocol-fusion-diagnostics.js'
 import type {
   LoadedChannel,
   LoadedRestResource,
@@ -64,6 +66,82 @@ interface MutableRef<T> {
   value: T
 }
 
+interface SinglePortSocketConnectionHandler {
+  handleConnection(socket: Socket): void
+  closeAllConnections(): void
+  readonly clientCount: number
+}
+
+function createGrpcProxyConnectionHandler(options: {
+  getAddress: () => { host: string; port: number } | null
+  logger: Pick<ServerLifecycleContext['logger'], 'debug' | 'warn'>
+}): SinglePortSocketConnectionHandler {
+  const connections = new Set<Socket>()
+
+  return {
+    handleConnection(socket: Socket): void {
+      const address = options.getAddress()
+      if (!address) {
+        options.logger.warn({ remoteAddress: socket.remoteAddress, remotePort: socket.remotePort }, 'Dropping single-port gRPC connection before upstream was ready')
+        socket.destroy()
+        return
+      }
+
+      const upstream = createConnection(address)
+      connections.add(socket)
+      connections.add(upstream)
+
+      const cleanup = () => {
+        connections.delete(socket)
+        connections.delete(upstream)
+      }
+
+      socket.pipe(upstream)
+      upstream.pipe(socket)
+
+      upstream.on('error', (error) => {
+        options.logger.warn({ err: error, address }, 'Single-port gRPC upstream proxy failed')
+        if (!socket.destroyed) {
+          socket.destroy()
+        }
+      })
+
+      socket.on('error', (error) => {
+        options.logger.warn({ err: error, address }, 'Single-port gRPC client proxy failed')
+        if (!upstream.destroyed) {
+          upstream.destroy()
+        }
+      })
+
+      upstream.on('close', () => {
+        if (!socket.destroyed) {
+          socket.destroy()
+        }
+      })
+      upstream.on('close', cleanup)
+      socket.on('close', () => {
+        if (!upstream.destroyed) {
+          upstream.destroy()
+        }
+        cleanup()
+      })
+    },
+
+    closeAllConnections(): void {
+      for (const connection of connections) {
+        if (!connection.destroyed) {
+          connection.destroy()
+        }
+      }
+      connections.clear()
+    },
+
+    get clientCount(): number {
+      return Math.floor(connections.size / 2)
+    },
+  }
+}
+
 export interface ServerLifecycleContext {
   logger: {
     debug: (...args: unknown[]) => void
@@ -78,6 +156,7 @@ export interface ServerLifecycleContext {
     providerMiddlewareInstalled: MutableRef<boolean>
     portBinding: MutableRef<PortBinding | null>
     singlePortTcpConnectionHandler: MutableRef<ReturnType<typeof createTcpConnectionHandler> | null>
+    singlePortGrpcConnectionHandler: MutableRef<SinglePortSocketConnectionHandler | null>
     httpServer: MutableRef<ReturnType<typeof createHttpAdapter> | null>
     wsAdapter: MutableRef<ReturnType<typeof createWebSocketAdapter> | null>
     jsonRpcAdapter: MutableRef<ReturnType<typeof createJsonRpcAdapter> | null>
@@ -114,10 +193,12 @@ export interface ServerLifecycleContext {
 
   singlePortConfig: SinglePortConfig
   isSinglePortTcpRouteEnabled: () => boolean
+  isSinglePortGrpcRouteEnabled: () => boolean
   isSinglePortUdpRouteEnabled: (handler: LoadedUdpHandler) => boolean
   getSinglePortSource: () => 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown'
 
   getSinglePortAliasMode: () => 'standard' | 'extended'
+  recordProtocolFusionDecision?: (decision: RecordProtocolFusionDecisionInput) => ProtocolFusionDecision | void
   createFrontDoorDecisionMiddleware: () => any
   applyDiscoveryResult: (result: DiscoveryResult) => void
   logSinglePortConfig: () => void
@@ -158,9 +239,11 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     udpServers,
     singlePortConfig,
     isSinglePortTcpRouteEnabled,
+    isSinglePortGrpcRouteEnabled,
     isSinglePortUdpRouteEnabled,
     getSinglePortSource,
     getSinglePortAliasMode,
+    recordProtocolFusionDecision,
     createFrontDoorDecisionMiddleware,
     applyDiscoveryResult,
     logSinglePortConfig,
@@ -420,6 +503,51 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
         }
       }
 
+      const singlePortGrpcEnabled = isSinglePortGrpcRouteEnabled()
+      if (singlePortGrpcEnabled) {
+        const grpcOpts = protocols.grpc!.options
+        if (grpcOpts.tls) {
+          throw new Error('single-port gRPC currently supports h2c/insecure mode only; keep TLS gRPC on a dedicated listener')
+        }
+
+        state.grpcAdapter.value = createGrpcAdapter(router, {
+          host: '127.0.0.1',
+          port: 0,
+          protoPath: grpcOpts.protoPath,
+          packageName: grpcOpts.packageName,
+          serviceNames: grpcOpts.serviceNames,
+          loaderOptions: grpcOpts.loaderOptions,
+          maxReceiveMessageLength: grpcOpts.maxReceiveMessageLength,
+          maxSendMessageLength: grpcOpts.maxSendMessageLength,
+        })
+        await state.grpcAdapter.value.start()
+        state.singlePortGrpcConnectionHandler.value = createGrpcProxyConnectionHandler({
+          getAddress: () => state.grpcAdapter.value?.address ?? null,
+          logger,
+        })
+        state.addresses.value = {
+          ...state.addresses.value!,
+          grpc: {
+            host: effectiveHost,
+            port: effectivePort,
+            shared: true,
+            frontDoor: !!protocols.grpc?.frontDoor,
+            strategy: protocols.grpc?.strategy,
+            source: 'singlePort',
+          },
+        }
+        startupStopTasks.push({
+          name: 'grpc',
+          stop: async () => {
+            state.singlePortGrpcConnectionHandler.value?.closeAllConnections()
+            state.singlePortGrpcConnectionHandler.value = null
+            if (!state.grpcAdapter.value) return
+            await state.grpcAdapter.value.stop()
+            state.grpcAdapter.value = null
+          },
+        })
+      }
+
       // Create the PortBinding — always used regardless of singlePort mode.
       // It owns the OS port via a net.Server and dispatches connections.
       const portBinding = createPortBinding({
@@ -435,11 +563,18 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       if (state.singlePortTcpConnectionHandler.value) {
         portBinding.attachTcpHandler(state.singlePortTcpConnectionHandler.value)
       }
+      if (state.singlePortGrpcConnectionHandler.value) {
+        portBinding.attachGrpcHandler(state.singlePortGrpcConnectionHandler.value)
+      }
 
       // Activate protocol sniffing whenever singlePort mode is enabled.
       // Without a TCP handler, unknown protocols still get rejected (HTTP 400).
       if (singlePortConfig.enabled) {
-        portBinding.setSinglePortConfig(singlePortConfig, getSinglePortAliasMode)
+        portBinding.setSinglePortConfig(
+          singlePortConfig,
+          getSinglePortAliasMode,
+          recordProtocolFusionDecision
+        )
       }
 
       state.httpServer.value = createHttpAdapter(router, {
@@ -609,7 +744,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
         }
       }
 
-      if (protocols.grpc?.enabled) {
+      if (protocols.grpc?.enabled && !singlePortGrpcEnabled) {
         const grpcOpts = protocols.grpc.options
         state.grpcAdapter.value = createGrpcAdapter(router, {
           host: grpcOpts.host || host,
@@ -835,6 +970,16 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
         stop: async () => {
           state.singlePortTcpConnectionHandler.value?.closeAllConnections()
           state.singlePortTcpConnectionHandler.value = null
+        },
+      })
+    }
+
+    if (state.singlePortGrpcConnectionHandler.value) {
+      stopTasks.push({
+        name: 'single-port-grpc-handler',
+        stop: async () => {
+          state.singlePortGrpcConnectionHandler.value?.closeAllConnections()
+          state.singlePortGrpcConnectionHandler.value = null
         },
       })
     }

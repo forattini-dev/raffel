@@ -41,7 +41,7 @@
  */
 
 import type { IncomingMessage } from 'node:http'
-import type { AuthContext } from '../types/context.js'
+import { createAuthContext, type AuthContext } from '../types/context.js'
 import { getSignedCookie, type CookieContext } from './cookie.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -500,7 +500,7 @@ export function createStreamAuthFactory(
           if (custom) {
             const customResult = await custom(req, url)
             if (customResult) {
-              return { auth: customResult }
+              return { auth: createAuthContext(customResult) }
             }
           }
           break
@@ -509,18 +509,18 @@ export function createStreamAuthFactory(
 
     if (authResult) {
       return {
-        auth: {
+        auth: createAuthContext({
           authenticated: true,
           principal: authResult.principal,
           claims: authResult.claims,
-        },
+        }),
       }
     }
 
     return {
-      auth: {
+      auth: createAuthContext({
         authenticated: false,
-      },
+      }),
     }
   }
 }

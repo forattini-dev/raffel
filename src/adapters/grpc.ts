@@ -8,8 +8,9 @@ import * as grpc from '@grpc/grpc-js'
 import * as protoLoader from '@grpc/proto-loader'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Context, Envelope } from '../types/index.js'
-import { createAbortableContext } from '../utils/context-utils.js'
+import type { Context, Envelope, ContextSeed } from '../types/index.js'
+import { mergeContextSeeds } from '../types/index.js'
+import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createStream } from '../stream/raffel-stream.js'
 import { createLogger } from '../utils/logger.js'
 
@@ -54,7 +55,7 @@ export interface GrpcAdapterOptions {
   contextFactory?: (
     call: GrpcServerCallBase,
     method: GrpcMethodInfo
-  ) => Partial<Context>
+  ) => ContextSeed | Promise<ContextSeed>
 }
 
 export interface GrpcAdapter {
@@ -216,17 +217,31 @@ export function createGrpcAdapter(
     )
   }
 
-  function buildContext(
+  async function buildContext(
     call: GrpcServerCallBase,
     method: GrpcMethodInfo
-  ): { ctx: Context; metadata: Record<string, string> } {
+  ): Promise<{ ctx: Context; metadata: Record<string, string> }> {
     const metadata = metadataToRecord(call.metadata)
     const requestId = metadata['x-request-id'] ?? sid()
     const abortController = new AbortController()
 
-    const ctx = createAbortableContext(
+    const ctx = await createAbortableContextAsync(
       requestId,
-      options.contextFactory?.(call, method),
+      mergeContextSeeds(
+        {
+          protocol: 'grpc',
+          input: {
+            metadata,
+          },
+          grpc: {
+            kind: 'grpc',
+            service: method.serviceName,
+            method: method.methodName,
+            metadata,
+          },
+        },
+        await options.contextFactory?.(call, method)
+      ),
       abortController
     )
 
@@ -276,7 +291,11 @@ export function createGrpcAdapter(
     callback: grpc.sendUnaryData<any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = buildContext(call, method)
+    const { ctx, metadata } = await buildContext(call, method)
+    ctx.input = {
+      ...ctx.input,
+      body: call.request,
+    }
     const envelope = createEnvelope(ctx.requestId, method.fullName, 'request', call.request, metadata, ctx)
 
     try {
@@ -304,7 +323,11 @@ export function createGrpcAdapter(
     call: grpc.ServerWritableStream<any, any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = buildContext(call, method)
+    const { ctx, metadata } = await buildContext(call, method)
+    ctx.input = {
+      ...ctx.input,
+      body: call.request,
+    }
     const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', call.request, metadata, ctx)
 
     try {
@@ -346,7 +369,12 @@ export function createGrpcAdapter(
     callback: grpc.sendUnaryData<any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = buildContext(call, method)
+    const { ctx, metadata } = await buildContext(call, method)
+    ctx.stream = {
+      kind: 'stream',
+      mode: 'client',
+      id: ctx.requestId,
+    }
     const inputStream = createStream<any>()
 
     call.on('data', (chunk) => {
@@ -392,7 +420,12 @@ export function createGrpcAdapter(
     call: grpc.ServerDuplexStream<any, any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = buildContext(call, method)
+    const { ctx, metadata } = await buildContext(call, method)
+    ctx.stream = {
+      kind: 'stream',
+      mode: 'bidi',
+      id: ctx.requestId,
+    }
     const inputStream = createStream<any>()
 
     call.on('data', (chunk) => {

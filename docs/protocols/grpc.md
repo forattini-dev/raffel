@@ -40,11 +40,33 @@ so the gRPC adapter can match them.
 src/rpc/User.Create.ts -> User.Create
 ```
 
+## Shared-Port support
+
+`gRPC` can now ride the unified `singlePort/sharedPort` listener in `h2c`
+(insecure HTTP/2 prior-knowledge) mode when the gRPC port matches the server
+entrypoint port.
+
+```ts
+createServer({
+  port: 50051,
+  host: '127.0.0.1',
+  sharedPort: { protocolFusion: true, protocols: ['grpc'] },
+  grpc: { port: 50051, host: '127.0.0.1', protoPath: './proto/app.proto' },
+})
+```
+
+In this mode, external clients connect to the shared port, while Raffel proxies
+the `h2c` stream to the internal gRPC adapter. `inspect`, `preview`, runtime
+addresses, and protocol-fusion diagnostics report `source=singlePort`.
+
+Current limitation: TLS/ALPN gRPC still remains on a dedicated listener. If you
+configure `grpc.tls`, keep gRPC on its own port for now.
+
 ## Front-Door support
 
-`gRPC` is not parsed by the HTTP-based front-door detector in this release.
+`gRPC` is still not parsed by the HTTP-based front-door detector itself.
 When listed in `frontDoor.protocols`, it is marked as `offload` and continues to
-run on its own port.
+run on its own port unless you explicitly use shared-port `h2c` as described above.
 
 ```ts
 createServer({
@@ -124,6 +146,19 @@ export const meta = {
   contentTypes: { default: 'application/x-protobuf' },
 }
 ```
+
+## Playground Support
+
+`raffel playground src/server.ts --port 4301` can exercise:
+
+- unary methods with direct invoke
+- server-streaming methods as live read sessions
+- client-streaming methods as writable sessions that close into a final response
+- bidirectional methods as duplex sessions
+
+The playground uses the same runtime inspection graph and loaded proto metadata
+that power `raffel inspect` and `raffel explain`, so the transport view stays
+aligned with the actual gRPC bindings.
 
 ## TLS
 

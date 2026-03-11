@@ -15,9 +15,11 @@ import type {
   StreamDirection,
   JsonRpcMeta,
   GrpcMeta,
+  ContractPolicies,
 } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
 import { createProcedureBuilder } from './handler-builders.js'
+import { mergeContractPolicies } from '../types/policies.js'
 import type {
   ProcedureBuilder,
   StreamBuilder,
@@ -48,6 +50,8 @@ export interface ModuleRoute {
   jsonrpc?: JsonRpcMeta
   /** gRPC metadata for USD generation */
   grpc?: GrpcMeta
+  /** Contract-bound runtime policies */
+  policies?: ContractPolicies
   moduleInterceptors: Interceptor[]
   interceptors: Interceptor[]
   schema?: HandlerSchema
@@ -88,6 +92,7 @@ function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let description: string | undefined
   let streamDirection: StreamDirection | undefined
+  let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = []
 
   const builder: StreamBuilder = {
@@ -111,6 +116,10 @@ function createStreamBuilder(
       interceptors.push(interceptor)
       return builder
     },
+    policy(policyMeta) {
+      policies = mergeContractPolicies(policies, policyMeta)
+      return builder
+    },
     handler(fn) {
       const schema: HandlerSchema = {}
       if (inputSchema) schema.input = inputSchema
@@ -123,6 +132,7 @@ function createStreamBuilder(
         description,
         moduleInterceptors: [...moduleInterceptors],
         interceptors: [...interceptors],
+        policies,
         schema: schema.input || schema.output ? schema : undefined,
         streamDirection,
       })
@@ -142,6 +152,7 @@ function createEventBuilder(
   let deliveryGuarantee: DeliveryGuarantee = 'best-effort'
   let retryPolicy: RetryPolicy | undefined
   let deduplicationWindow: number | undefined
+  let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = []
 
   const builder: EventBuilder = {
@@ -155,6 +166,10 @@ function createEventBuilder(
     },
     use(interceptor) {
       interceptors.push(interceptor)
+      return builder
+    },
+    policy(policyMeta) {
+      policies = mergeContractPolicies(policies, policyMeta)
       return builder
     },
     delivery(guarantee) {
@@ -180,6 +195,7 @@ function createEventBuilder(
         description,
         moduleInterceptors: [...moduleInterceptors],
         interceptors: [...interceptors],
+        policies,
         schema: schema.input ? schema : undefined,
         delivery: deliveryGuarantee,
         retryPolicy,
@@ -224,6 +240,7 @@ function createModuleView(
             httpMethod: registration.httpMethod,
             jsonrpc: registration.jsonrpc,
             grpc: registration.grpc,
+            policies: registration.policies,
             moduleInterceptors: [...moduleInterceptors],
             interceptors: registration.interceptors.length > 0 ? [...registration.interceptors] : [],
             schema: registration.schema?.input || registration.schema?.output ? registration.schema : undefined,

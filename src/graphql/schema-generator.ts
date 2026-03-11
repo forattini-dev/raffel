@@ -1,7 +1,7 @@
 /**
  * GraphQL Schema Generator
  *
- * Auto-generates GraphQL schema from Raffel handlers and Zod schemas.
+ * Auto-generates GraphQL schema from Raffel handlers and normalized schemas.
  *
  * Mapping:
  * - Procedures → Query (read operations) or Mutation (write operations)
@@ -21,16 +21,20 @@ import {
   GraphQLNonNull,
   GraphQLEnumType,
   GraphQLScalarType,
-  GraphQLUnionType,
   GraphQLFieldConfig,
   GraphQLInputFieldConfig,
   GraphQLOutputType,
   GraphQLInputType,
   Kind,
 } from 'graphql'
-import type { z } from 'zod'
 import type { Registry } from '../core/registry.js'
-import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
+import {
+  normalizeSchemaDescriptor,
+  type SchemaRegistry,
+  type HandlerSchema,
+  type SchemaDescriptor,
+  type SchemaDescriptorDiagnostic,
+} from '../validation/index.js'
 import type { HandlerMeta } from '../types/index.js'
 import type {
   SchemaGenerationOptions,
@@ -113,301 +117,320 @@ function defaultFieldNameGenerator(handlerName: string): string {
     .join('')
 }
 
-// === Zod to GraphQL Type Conversion ===
+// === Schema Descriptor to GraphQL Type Conversion ===
 
 interface TypeCache {
   output: Map<string, GraphQLOutputType>
   input: Map<string, GraphQLInputType>
 }
 
-function getZodTypeName(schema: z.ZodTypeAny): string {
-  // Access internal Zod type name (support both old and new Zod APIs)
-  const def = (schema as any)._def
-  // Newer Zod uses _def.type (lowercase), older uses _def.typeName (ZodXxx)
-  const typeName = def?.typeName ?? def?.type
-  if (!typeName) return 'unknown'
-  // Normalize to ZodXxx format
-  if (typeName.startsWith('Zod')) return typeName
-  return `Zod${typeName.charAt(0).toUpperCase()}${typeName.slice(1)}`
+type JsonSchemaObject = Record<string, unknown>
+
+function asJsonSchemaObject(value: unknown): JsonSchemaObject | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonSchemaObject
+    : null
 }
 
-function getZodShape(def: any): Record<string, z.ZodTypeAny> {
-  // Support both old Zod (shape is a function) and new Zod (shape is a getter)
-  return typeof def.shape === 'function' ? def.shape() : def.shape
+function getJsonSchemaType(schema: JsonSchemaObject): string | string[] | undefined {
+  return typeof schema.type === 'string' || Array.isArray(schema.type)
+    ? schema.type as string | string[]
+    : undefined
 }
 
-function zodToGraphQLOutput(
-  schema: z.ZodTypeAny,
+function unwrapNullableSchema(schema: JsonSchemaObject): { schema: JsonSchemaObject; nullable: boolean } {
+  const type = getJsonSchemaType(schema)
+
+  if (Array.isArray(type) && type.includes('null')) {
+    const nextTypes = type.filter((entry) => entry !== 'null')
+    return {
+      nullable: true,
+      schema: {
+        ...schema,
+        ...(nextTypes.length === 1 ? { type: nextTypes[0] } : { type: nextTypes }),
+      },
+    }
+  }
+
+  if (schema.nullable === true) {
+    return {
+      nullable: true,
+      schema: { ...schema, nullable: undefined },
+    }
+  }
+
+  return { schema, nullable: false }
+}
+
+function getSchemaDescription(schema: JsonSchemaObject): string | undefined {
+  return typeof schema.description === 'string' ? schema.description : undefined
+}
+
+function getRequiredFields(schema: JsonSchemaObject): Set<string> {
+  return new Set(Array.isArray(schema.required) ? schema.required.filter((entry): entry is string => typeof entry === 'string') : [])
+}
+
+function getObjectProperties(schema: JsonSchemaObject): Record<string, JsonSchemaObject> | null {
+  const properties = asJsonSchemaObject(schema.properties)
+  if (!properties) {
+    return null
+  }
+
+  return Object.fromEntries(
+    Object.entries(properties)
+      .map(([key, value]) => [key, asJsonSchemaObject(value)])
+      .filter((entry): entry is [string, JsonSchemaObject] => entry[1] !== null)
+  )
+}
+
+function enumValuesToGraphQLEnum(name: string, values: unknown[]): GraphQLEnumType | null {
+  if (!values.every((value) => typeof value === 'string')) {
+    return null
+  }
+
+  const enumValues: Record<string, { value: string }> = {}
+  for (const value of values as string[]) {
+    const enumKey = value.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+    enumValues[enumKey] = { value }
+  }
+
+  return new GraphQLEnumType({
+    name: `${name}Enum`,
+    values: enumValues,
+  })
+}
+
+function warnDescriptorDiagnostics(
+  handlerName: string,
+  direction: 'input' | 'output',
+  diagnostics: SchemaDescriptorDiagnostic[]
+): void {
+  if (diagnostics.length === 0) {
+    return
+  }
+
+  logger.warn(
+    {
+      handlerName,
+      direction,
+      diagnostics,
+    },
+    'GraphQL schema generation used Raffel opaque schema fallback'
+  )
+}
+
+function descriptorToGraphQLOutput(
+  descriptor: SchemaDescriptor,
   name: string,
   cache: TypeCache,
   isRequired = true
 ): GraphQLOutputType {
-  const typeName = getZodTypeName(schema)
-  const def = (schema as any)._def
+  const { schema, nullable } = unwrapNullableSchema(descriptor.jsonSchema)
+  const type = getJsonSchemaType(schema)
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined
 
   let baseType: GraphQLOutputType
 
-  switch (typeName) {
-    case 'ZodString':
+  if (schema['x-raffel-opaque'] === true || schema.oneOf || schema.anyOf || schema.allOf) {
+    baseType = GraphQLJSON
+  } else if (enumValues && enumValues.length > 0) {
+    baseType = enumValuesToGraphQLEnum(name, enumValues) ?? GraphQLJSON
+  } else if (schema.const !== undefined) {
+    if (typeof schema.const === 'string') {
       baseType = GraphQLString
-      break
-
-    case 'ZodNumber':
-      // Check if integer
-      if (def.checks?.some((c: any) => c.kind === 'int')) {
-        baseType = GraphQLInt
-      } else {
-        baseType = GraphQLFloat
-      }
-      break
-
-    case 'ZodBoolean':
+    } else if (typeof schema.const === 'number') {
+      baseType = Number.isInteger(schema.const) ? GraphQLInt : GraphQLFloat
+    } else if (typeof schema.const === 'boolean') {
       baseType = GraphQLBoolean
-      break
-
-    case 'ZodDate':
-      baseType = GraphQLDateTime
-      break
-
-    case 'ZodArray': {
-      const itemType = zodToGraphQLOutput(def.type, `${name}Item`, cache, true)
-      baseType = new GraphQLList(itemType)
-      break
+    } else {
+      baseType = GraphQLJSON
     }
+  } else {
+    switch (typeof type === 'string' ? type : undefined) {
+      case 'string':
+        baseType = schema.format === 'date-time' ? GraphQLDateTime : GraphQLString
+        break
+      case 'integer':
+        baseType = GraphQLInt
+        break
+      case 'number':
+        baseType = GraphQLFloat
+        break
+      case 'boolean':
+        baseType = GraphQLBoolean
+        break
+      case 'array': {
+        const itemSchema = asJsonSchemaObject(schema.items)
+        const itemType = itemSchema
+          ? descriptorToGraphQLOutput(
+              {
+                ...descriptor,
+                jsonSchema: itemSchema,
+                diagnostics: [],
+              },
+              `${name}Item`,
+              cache,
+              true
+            )
+          : GraphQLJSON
+        baseType = new GraphQLList(itemType)
+        break
+      }
+      case 'object':
+      default: {
+        const properties = getObjectProperties(schema)
+        if (!properties || Object.keys(properties).length === 0) {
+          baseType = GraphQLJSON
+          break
+        }
 
-    case 'ZodObject': {
-      const cacheKey = name
-      if (cache.output.has(cacheKey)) {
-        baseType = cache.output.get(cacheKey)!
-      } else {
-        const shape = getZodShape(def)
+        if (cache.output.has(name)) {
+          baseType = cache.output.get(name)!
+          break
+        }
+
+        const required = getRequiredFields(schema)
         const fields: Record<string, GraphQLFieldConfig<unknown, unknown>> = {}
 
-        for (const [key, value] of Object.entries(shape)) {
-          const fieldSchema = value as z.ZodTypeAny
-          const fieldType = zodToGraphQLOutput(
-            fieldSchema,
+        for (const [key, propertySchema] of Object.entries(properties)) {
+          const fieldType = descriptorToGraphQLOutput(
+            {
+              ...descriptor,
+              jsonSchema: propertySchema,
+              diagnostics: [],
+            },
             `${name}${key.charAt(0).toUpperCase() + key.slice(1)}`,
             cache,
-            !isZodOptional(fieldSchema)
+            required.has(key)
           )
           fields[key] = {
             type: fieldType,
-            description: (fieldSchema as any)._def?.description,
+            description: getSchemaDescription(propertySchema),
           }
         }
 
         baseType = new GraphQLObjectType({
           name,
           fields: () => fields,
-          description: def.description,
+          description: getSchemaDescription(schema),
         })
-        cache.output.set(cacheKey, baseType)
+        cache.output.set(name, baseType)
       }
-      break
     }
-
-    case 'ZodEnum': {
-      // Support both old Zod (values is array) and new Zod (entries is object)
-      const values: string[] = def.values ?? Object.values(def.entries ?? {})
-      const enumValues: Record<string, { value: string }> = {}
-      for (const val of values) {
-        const enumKey = val.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-        enumValues[enumKey] = { value: val }
-      }
-      baseType = new GraphQLEnumType({
-        name: `${name}Enum`,
-        values: enumValues,
-      })
-      break
-    }
-
-    case 'ZodLiteral': {
-      const literalValue = def.value
-      if (typeof literalValue === 'string') {
-        baseType = GraphQLString
-      } else if (typeof literalValue === 'number') {
-        baseType = Number.isInteger(literalValue) ? GraphQLInt : GraphQLFloat
-      } else if (typeof literalValue === 'boolean') {
-        baseType = GraphQLBoolean
-      } else {
-        baseType = GraphQLJSON
-      }
-      break
-    }
-
-    case 'ZodOptional':
-    case 'ZodNullable':
-      return zodToGraphQLOutput(def.innerType, name, cache, false)
-
-    case 'ZodDefault':
-      return zodToGraphQLOutput(def.innerType, name, cache, false)
-
-    case 'ZodUnion': {
-      // For simple unions, try to use a GraphQL union
-      const options = def.options as z.ZodTypeAny[]
-      const allObjects = options.every((opt) => getZodTypeName(opt) === 'ZodObject')
-
-      if (allObjects && options.length > 1) {
-        const types = options.map((opt, i) =>
-          zodToGraphQLOutput(opt, `${name}Option${i}`, cache, true) as GraphQLObjectType
-        )
-        baseType = new GraphQLUnionType({
-          name: `${name}Union`,
-          types,
-        })
-      } else {
-        // Fall back to JSON for complex unions
-        baseType = GraphQLJSON
-      }
-      break
-    }
-
-    case 'ZodRecord':
-    case 'ZodMap':
-    case 'ZodAny':
-    case 'ZodUnknown':
-      baseType = GraphQLJSON
-      break
-
-    case 'ZodVoid':
-    case 'ZodUndefined':
-    case 'ZodNull':
-      baseType = GraphQLBoolean // Represents success
-      break
-
-    default:
-      logger.warn({ typeName, name }, 'Unknown Zod type, falling back to JSON')
-      baseType = GraphQLJSON
   }
 
-  return isRequired ? new GraphQLNonNull(baseType) : baseType
+  return isRequired && !nullable ? new GraphQLNonNull(baseType) : baseType
 }
 
-function zodToGraphQLInput(
-  schema: z.ZodTypeAny,
+function descriptorToGraphQLInput(
+  descriptor: SchemaDescriptor,
   name: string,
   cache: TypeCache,
   isRequired = true
 ): GraphQLInputType {
-  const typeName = getZodTypeName(schema)
-  const def = (schema as any)._def
+  const { schema, nullable } = unwrapNullableSchema(descriptor.jsonSchema)
+  const type = getJsonSchemaType(schema)
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined
 
   let baseType: GraphQLInputType
 
-  switch (typeName) {
-    case 'ZodString':
+  if (schema['x-raffel-opaque'] === true || schema.oneOf || schema.anyOf || schema.allOf) {
+    baseType = GraphQLJSON
+  } else if (enumValues && enumValues.length > 0) {
+    baseType = enumValuesToGraphQLEnum(name, enumValues) ?? GraphQLJSON
+  } else if (schema.const !== undefined) {
+    if (typeof schema.const === 'string') {
       baseType = GraphQLString
-      break
-
-    case 'ZodNumber':
-      if (def.checks?.some((c: any) => c.kind === 'int')) {
-        baseType = GraphQLInt
-      } else {
-        baseType = GraphQLFloat
-      }
-      break
-
-    case 'ZodBoolean':
+    } else if (typeof schema.const === 'number') {
+      baseType = Number.isInteger(schema.const) ? GraphQLInt : GraphQLFloat
+    } else if (typeof schema.const === 'boolean') {
       baseType = GraphQLBoolean
-      break
-
-    case 'ZodDate':
-      baseType = GraphQLDateTime
-      break
-
-    case 'ZodArray': {
-      const itemType = zodToGraphQLInput(def.type, `${name}Item`, cache, true)
-      baseType = new GraphQLList(itemType)
-      break
+    } else {
+      baseType = GraphQLJSON
     }
+  } else {
+    switch (typeof type === 'string' ? type : undefined) {
+      case 'string':
+        baseType = schema.format === 'date-time' ? GraphQLDateTime : GraphQLString
+        break
+      case 'integer':
+        baseType = GraphQLInt
+        break
+      case 'number':
+        baseType = GraphQLFloat
+        break
+      case 'boolean':
+        baseType = GraphQLBoolean
+        break
+      case 'array': {
+        const itemSchema = asJsonSchemaObject(schema.items)
+        const itemType = itemSchema
+          ? descriptorToGraphQLInput(
+              {
+                ...descriptor,
+                jsonSchema: itemSchema,
+                diagnostics: [],
+              },
+              `${name}Item`,
+              cache,
+              true
+            )
+          : GraphQLJSON
+        baseType = new GraphQLList(itemType)
+        break
+      }
+      case 'object':
+      default: {
+        const properties = getObjectProperties(schema)
+        if (!properties || Object.keys(properties).length === 0) {
+          baseType = GraphQLJSON
+          break
+        }
 
-    case 'ZodObject': {
-      const cacheKey = `${name}Input`
-      if (cache.input.has(cacheKey)) {
-        baseType = cache.input.get(cacheKey)!
-      } else {
-        const shape = getZodShape(def)
+        const cacheKey = `${name}Input`
+        if (cache.input.has(cacheKey)) {
+          baseType = cache.input.get(cacheKey)!
+          break
+        }
+
+        const required = getRequiredFields(schema)
         const fields: Record<string, GraphQLInputFieldConfig> = {}
 
-        for (const [key, value] of Object.entries(shape)) {
-          const fieldSchema = value as z.ZodTypeAny
-          const fieldType = zodToGraphQLInput(
-            fieldSchema,
+        for (const [key, propertySchema] of Object.entries(properties)) {
+          const fieldType = descriptorToGraphQLInput(
+            {
+              ...descriptor,
+              jsonSchema: propertySchema,
+              diagnostics: [],
+            },
             `${name}${key.charAt(0).toUpperCase() + key.slice(1)}`,
             cache,
-            !isZodOptional(fieldSchema)
+            required.has(key)
           )
           fields[key] = {
             type: fieldType,
-            description: (fieldSchema as any)._def?.description,
+            description: getSchemaDescription(propertySchema),
           }
         }
 
         baseType = new GraphQLInputObjectType({
           name: cacheKey,
           fields: () => fields,
-          description: def.description,
+          description: getSchemaDescription(schema),
         })
         cache.input.set(cacheKey, baseType)
       }
-      break
     }
-
-    case 'ZodEnum': {
-      // Support both old Zod (values is array) and new Zod (entries is object)
-      const values: string[] = def.values ?? Object.values(def.entries ?? {})
-      const enumValues: Record<string, { value: string }> = {}
-      for (const val of values) {
-        const enumKey = val.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-        enumValues[enumKey] = { value: val }
-      }
-      baseType = new GraphQLEnumType({
-        name: `${name}Enum`,
-        values: enumValues,
-      })
-      break
-    }
-
-    case 'ZodLiteral': {
-      const literalValue = def.value
-      if (typeof literalValue === 'string') {
-        baseType = GraphQLString
-      } else if (typeof literalValue === 'number') {
-        baseType = Number.isInteger(literalValue) ? GraphQLInt : GraphQLFloat
-      } else if (typeof literalValue === 'boolean') {
-        baseType = GraphQLBoolean
-      } else {
-        baseType = GraphQLJSON
-      }
-      break
-    }
-
-    case 'ZodOptional':
-    case 'ZodNullable':
-      return zodToGraphQLInput(def.innerType, name, cache, false)
-
-    case 'ZodDefault':
-      return zodToGraphQLInput(def.innerType, name, cache, false)
-
-    case 'ZodUnion':
-    case 'ZodRecord':
-    case 'ZodMap':
-    case 'ZodAny':
-    case 'ZodUnknown':
-      baseType = GraphQLJSON
-      break
-
-    default:
-      baseType = GraphQLJSON
   }
 
-  return isRequired ? new GraphQLNonNull(baseType) : baseType
+  return isRequired && !nullable ? new GraphQLNonNull(baseType) : baseType
 }
 
-function isZodOptional(schema: z.ZodTypeAny): boolean {
-  const typeName = getZodTypeName(schema)
-  return typeName === 'ZodOptional' || typeName === 'ZodNullable' || typeName === 'ZodDefault'
+function getDescriptorForSchema(schema: unknown, validator?: string): SchemaDescriptor {
+  return normalizeSchemaDescriptor(schema, {
+    validator,
+    target: 'openApi3',
+  })
 }
 
 // === Schema Generation ===
@@ -622,8 +645,9 @@ function createFieldFromHandler(
   let outputType: GraphQLOutputType
 
   if (schema?.output) {
-    // Cast to ZodTypeAny - the function handles the internal details
-    outputType = zodToGraphQLOutput(schema.output as z.ZodTypeAny, `${typeName}Output`, cache, true)
+    const outputDescriptor = getDescriptorForSchema(schema.output, schema.validator)
+    warnDescriptorDiagnostics(handlerName, 'output', outputDescriptor.diagnostics)
+    outputType = descriptorToGraphQLOutput(outputDescriptor, `${typeName}Output`, cache, true)
   } else if (kind === 'event') {
     // Events return success boolean
     outputType = new GraphQLNonNull(GraphQLBoolean)
@@ -636,29 +660,33 @@ function createFieldFromHandler(
   const args: Record<string, { type: GraphQLInputType; description?: string }> = {}
 
   if (schema?.input) {
-    const inputTypeName = getZodTypeName(schema.input as z.ZodTypeAny)
+    const inputDescriptor = getDescriptorForSchema(schema.input, schema.validator)
+    warnDescriptorDiagnostics(handlerName, 'input', inputDescriptor.diagnostics)
+    const { schema: inputJsonSchema } = unwrapNullableSchema(inputDescriptor.jsonSchema)
+    const properties = getObjectProperties(inputJsonSchema)
 
-    if (inputTypeName === 'ZodObject') {
-      // Flatten object fields as args
-      const def = (schema.input as any)._def
-      const shape = getZodShape(def)
+    if (properties) {
+      const required = getRequiredFields(inputJsonSchema)
 
-      for (const [key, value] of Object.entries(shape)) {
-        const fieldSchema = value as z.ZodTypeAny
+      for (const [key, propertySchema] of Object.entries(properties)) {
         args[key] = {
-          type: zodToGraphQLInput(
-            fieldSchema,
+          type: descriptorToGraphQLInput(
+            {
+              ...inputDescriptor,
+              jsonSchema: propertySchema,
+              diagnostics: [],
+            },
             `${typeName}${key.charAt(0).toUpperCase() + key.slice(1)}`,
             cache,
-            !isZodOptional(fieldSchema)
+            required.has(key)
           ),
-          description: (fieldSchema as any)._def?.description,
+          description: getSchemaDescription(propertySchema),
         }
       }
     } else {
-      // Single input arg
       args['input'] = {
-        type: zodToGraphQLInput(schema.input as z.ZodTypeAny, `${typeName}Input`, cache, true),
+        type: descriptorToGraphQLInput(inputDescriptor, `${typeName}Input`, cache, true),
+        description: getSchemaDescription(inputJsonSchema),
       }
     }
   }

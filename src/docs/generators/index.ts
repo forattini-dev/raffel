@@ -94,7 +94,7 @@ export {
 // Schema converter (Zod → JSON Schema)
 export {
   convertSchema,
-  createSchemaRegistry,
+  createDocSchemaRegistry,
   isZodSchema,
   isJsonSchema,
   convertAndRegister,

@@ -5,6 +5,7 @@
  */
 
 import type { Interceptor, Context, Envelope } from '../../types/index.js'
+import { createAuthContext, getAuthRoles, getPrincipalId } from '../../types/index.js'
 import { Errors } from '../../errors/index.js'
 import { createLogger } from '../../utils/logger.js'
 import type {
@@ -106,14 +107,14 @@ function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Inte
 
     // Optional auth: set anonymous if configured
     if (authConfig?.anonymous) {
-      ctx.auth = {
+      ctx.auth = createAuthContext({
         authenticated: false,
         principal: authConfig.anonymous.principal,
         claims: {
           ...(authConfig.anonymous.claims ?? {}),
           roles: authConfig.anonymous.roles ?? [],
         },
-      }
+      })
     }
 
     return next()
@@ -143,14 +144,14 @@ async function tryAuthenticate(envelope: Envelope, ctx: Context, authConfig: Aut
     }
 
     if (result) {
-      ctx.auth = {
+      ctx.auth = createAuthContext({
         authenticated: true,
         principal: result.principal,
         claims: {
           ...(result.claims ?? {}),
           roles: result.roles ?? [],
         },
-      }
+      })
       return true
     }
   } catch (err) {
@@ -194,7 +195,7 @@ function extractCredential(envelope: Envelope, authConfig: AuthConfig): string |
 function createRoleInterceptor(requiredRoles: string[]): Interceptor {
   return async (_envelope, ctx, next) => {
     // Roles are stored in claims.roles
-    const userRoles = (ctx.auth?.claims?.roles as string[] | undefined) ?? []
+    const userRoles = getAuthRoles(ctx.auth)
 
     // Check if user has any of the required roles
     const hasRole = requiredRoles.some((role) => userRoles.includes(role))
@@ -217,7 +218,7 @@ function createRateLimitInterceptor(config: { limit: number; window: number }): 
   const requests = new Map<string, { count: number; resetAt: number }>()
 
   return async (_envelope, ctx, next) => {
-    const key = ctx.auth?.principal ?? ctx.requestId
+    const key = getPrincipalId(ctx.auth?.principal) ?? ctx.requestId
 
     const now = Date.now()
     let entry = requests.get(key)
@@ -267,14 +268,14 @@ export function createChannelAuthorizer(
 
     if (requirement === 'optional') {
       if (authConfig.anonymous) {
-        ctx.auth = {
+        ctx.auth = createAuthContext({
           authenticated: false,
           principal: authConfig.anonymous.principal,
           claims: {
             ...(authConfig.anonymous.claims ?? {}),
             roles: authConfig.anonymous.roles ?? [],
           },
-        }
+        })
       }
       return true
     }

@@ -58,9 +58,23 @@ export {
 export {
   createServerScenario,
 } from './scenarios.js'
+export {
+  createScaffoldProject,
+  writeScaffoldProject,
+  listScaffoldPresets,
+  serviceScaffoldPresets,
+} from './scaffold/index.js'
 
 export type {
   DevelopmentScenario,
   DevelopmentScenarioInput,
   DevelopmentScenarioOutput,
 } from './scenarios.js'
+export type {
+  ServiceScaffoldPreset,
+  ServiceScaffoldManifest,
+  CreateScaffoldProjectOptions,
+  GeneratedScaffoldProject,
+  WriteScaffoldProjectOptions,
+  WrittenScaffoldProject,
+} from './scaffold/index.js'

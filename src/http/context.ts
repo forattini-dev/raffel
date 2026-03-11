@@ -1,5 +1,5 @@
 /**
- * HttpContext - Hono-compatible HTTP Context
+ * HttpContext - Fetch-native HTTP Context for Raffel
  *
  * Provides:
  * - Request helpers: c.req.param(), c.req.query(), c.req.json(), c.req.header(), etc.
@@ -7,6 +7,7 @@
  * - Context storage: c.set(), c.get(), c.var
  */
 
+import type { Context as RuntimeContext } from '../types/context.js'
 import type { BodyInit, HeadersInit, FetchEvent, ExecutionContext } from './web-types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -126,18 +127,24 @@ export interface HttpContextInterface<
   /** Execution context for Workers */
   executionCtx?: ExecutionContext
 
+  /** Optional canonical runtime context bound to this HTTP request */
+  runtime?: RuntimeContext
+
   /**
    * Set a variable in context storage
+   * @deprecated Prefer canonical runtime capabilities (`runtime`, `auth`, `input`) for new code.
    */
   set<K extends keyof E>(key: K, value: E[K]): void
 
   /**
    * Get a variable from context storage
+   * @deprecated Prefer canonical runtime capabilities (`runtime`, `auth`, `input`) for new code.
    */
   get<K extends keyof E>(key: K): E[K] | undefined
 
   /**
    * Access all context variables
+   * @deprecated Prefer canonical runtime capabilities (`runtime`, `auth`, `input`) for new code.
    */
   readonly var: E & Record<string, unknown>
 
@@ -373,6 +380,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
   res: Response | undefined
   event?: FetchEvent
   executionCtx?: ExecutionContext
+  runtime?: RuntimeContext
 
   private variables: Record<string, unknown> = {}
   private responseHeaders: Headers = new Headers()

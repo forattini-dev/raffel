@@ -2,14 +2,14 @@
  * HTTP Module
  *
  * Provides a complete HTTP toolkit for Raffel applications:
- * - HttpApp: Hono-compatible HTTP router
+ * - HttpApp: Native HTTP router for Raffel
  * - serve: Node.js server helper with graceful shutdown
  * - Cookie helpers: getCookie, setCookie, signed/chunked cookies
  * - Types: StatusCode, TypedResponse, etc.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HttpApp - Hono-compatible Router
+// HttpApp - Native HTTP Router
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { HttpApp } from './app.js'

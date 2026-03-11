@@ -9,9 +9,9 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage, Server } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context } from '../types/index.js'
-import { createContext } from '../types/context.js'
-import { createAbortableContext } from '../utils/context-utils.js'
+import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import { mergeContextSeeds } from '../types/index.js'
+import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import {
   extractMetadataFromHeaders,
@@ -57,7 +57,7 @@ export interface WebSocketAdapterOptions {
   heartbeatInterval?: number
 
   /** Context factory for creating request context */
-  contextFactory?: (ws: WebSocket, req: IncomingMessage) => Partial<Context>
+  contextFactory?: (ws: WebSocket, req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
 
   /**
    * Channel configuration for Pusher-like real-time channels.
@@ -155,6 +155,27 @@ export function createWebSocketAdapter(
       })
     : null
 
+  function buildWebSocketSeed(
+    client: ClientConnection,
+    metadata: Record<string, string>,
+    body?: unknown
+  ): ContextSeed {
+    const url = new URL(client.request.url || '/', 'http://localhost')
+    return {
+      protocol: 'websocket',
+      input: {
+        body,
+        metadata,
+      },
+      ws: {
+        kind: 'websocket',
+        connectionId: client.id,
+        path: url.pathname,
+        subprotocol: client.ws.protocol || undefined,
+      },
+    }
+  }
+
 
   /**
    * Send a raw message to client (for channel responses)
@@ -175,11 +196,17 @@ export function createWebSocketAdapter(
     if (!isChannelMessage(parsed)) return false
 
     const messageType = parsed.type as string
-
-    // Build context for authorization
-    const ctx = createContext(
+    const metadata = mergeMetadata(
+      client.connectionMetadata,
+      sanitizeMetadataRecord(parsed.metadata as Record<string, unknown> | undefined)
+    )
+    const ctx = await createAbortableContextAsync(
       sid(),
-      options.contextFactory?.(client.ws, client.request) as Partial<Omit<Context, 'requestId' | 'extensions'>>
+      mergeContextSeeds(
+        buildWebSocketSeed(client, metadata, parsed),
+        await options.contextFactory?.(client.ws, client.request)
+      ),
+      new AbortController()
     )
 
     if (messageType === 'subscribe') {
@@ -289,29 +316,40 @@ export function createWebSocketAdapter(
         return
       }
 
-      const requestId = parsed.id !== undefined ? String(parsed.id) : sid()
+      const incomingMetadata = mergeMetadata(
+        client.connectionMetadata,
+        sanitizeMetadataRecord(parsed.metadata)
+      )
+      const messageId = parsed.id !== undefined ? String(parsed.id) : sid()
+      const requestId = incomingMetadata['x-request-id'] ?? messageId
       const abortController = new AbortController()
 
       // Build context
-      const ctx = createAbortableContext(
+      const ctx = await createAbortableContextAsync(
         requestId,
-        options.contextFactory?.(client.ws, client.request),
+        mergeContextSeeds(
+          buildWebSocketSeed(client, incomingMetadata, parsed.payload ?? {}),
+          await options.contextFactory?.(client.ws, client.request)
+        ),
         abortController
       )
+      const deadline = incomingMetadata['x-deadline']
+        ? Number.parseInt(incomingMetadata['x-deadline'], 10)
+        : NaN
+      if (Number.isFinite(deadline)) {
+        ctx.deadline = ctx.deadline ? Math.min(ctx.deadline, deadline) : deadline
+      }
 
       envelope = {
-        id: requestId,
+        id: messageId,
         procedure: parsed.procedure,
         type: parsed.type,
         payload: parsed.payload ?? {},
-        metadata: mergeMetadata(
-          client.connectionMetadata,
-          sanitizeMetadataRecord(parsed.metadata)
-        ),
+        metadata: incomingMetadata,
         context: ctx,
       }
 
-      client.activeRequests.set(requestId, abortController)
+      client.activeRequests.set(messageId, abortController)
     } catch (err) {
       sendError(client, 'PARSE_ERROR', 'Invalid JSON', undefined)
       return

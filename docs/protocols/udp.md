@@ -63,6 +63,19 @@ createServer({
 }).udp('metrics', { port: 9001 })
 ```
 
+## Inspection And Playground
+
+UDP handlers now participate in the runtime inspection graph as transport
+handlers. That means:
+
+- `raffel inspect` can show the handler target and source location
+- `raffel explain "metrics.ingest"` can resolve the raw UDP subject
+- `raffel playground src/server.ts --port 4301` can send probe datagrams to the
+  handler from the same UI used for HTTP, gRPC, TCP, and channels
+
+Because UDP handlers are raw datagram endpoints, the playground sends strings
+as UTF-8 and objects as JSON.
+
 ## USD Content Types
 
 USD defaults to `application/octet-stream` for UDP. Use `contentType` or

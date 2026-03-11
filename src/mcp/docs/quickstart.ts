@@ -9,12 +9,36 @@ export const quickstartGuide = `# Raffel Quickstart
 ## Installation
 
 \`\`\`bash
+npm i -g raffel
+# or use npx without a global install
 pnpm add raffel
+npx raffel new api my-service
+cd my-service
+pnpm install
+npx raffel inspect src/server.ts
+npx raffel doctor src/server.ts
+npx raffel playground src/server.ts --port 4301
+npx raffel contract-tests src/server.ts
+pnpm dev
 # or
 npm install raffel
 \`\`\`
 
 ## Basic Server
+
+The recommended flow is:
+
+\`\`\`bash
+npx raffel new api my-service
+cd my-service
+npx raffel inspect src/server.ts
+npx raffel doctor src/server.ts
+npx raffel playground src/server.ts --port 4301
+npx raffel contract-tests src/server.ts
+pnpm dev
+\`\`\`
+
+If you want the smallest possible manual server, start here:
 
 \`\`\`typescript
 import { createServer } from 'raffel'
@@ -37,7 +61,10 @@ console.log('Server running on http://localhost:3000')
 // Unary RPC: Input → Output
 server.procedure('users.create')
   .handler(async (input, ctx) => {
-    return await db.users.create({ data: input })
+    const services = ctx.services as {
+      users: { create(data: unknown): Promise<unknown> }
+    }
+    return services.users.create(input)
   })
 \`\`\`
 
@@ -61,7 +88,10 @@ server.procedure('users.create')
   }))
   .handler(async (input, ctx) => {
     // input is validated and typed
-    return await db.users.create({ data: input })
+    const services = ctx.services as {
+      users: { create(data: unknown): Promise<unknown> }
+    }
+    return services.users.create(input)
   })
 \`\`\`
 
@@ -82,7 +112,7 @@ server
 
   .procedure('users.me')
     .handler(async (_input, ctx) => {
-      return { userId: ctx.auth?.principal }
+      return { userId: ctx.auth?.principalId }
     })
 \`\`\`
 
@@ -147,11 +177,7 @@ registerValidator(createZodAdapter(z))
 
 const server = createServer({ port: 3000 })
   // Providers (DI)
-  .provide('db', async () => {
-    const prisma = new PrismaClient()
-    await prisma.$connect()
-    return prisma
-  }, { onShutdown: (db) => db.$disconnect() })
+  .provide('users', async () => createUsersService())
 
   // Global middleware
   .use(createAuthMiddleware({
@@ -161,15 +187,21 @@ const server = createServer({ port: 3000 })
   // Procedures
   .procedure('users.list')
     .output(z.array(UserSchema))
-    .handler(async (input, ctx) => {
-      return await ctx.db.users.findMany()
+    .handler(async (_input, ctx) => {
+      const services = ctx.services as {
+        users: { list(): Promise<unknown[]> }
+      }
+      return services.users.list()
     })
 
   .procedure('users.get')
     .input(z.object({ id: z.string() }))
     .output(UserSchema)
     .handler(async ({ id }, ctx) => {
-      const user = await ctx.db.users.findUnique({ where: { id } })
+      const services = ctx.services as {
+        users: { get(id: string): Promise<unknown> }
+      }
+      const user = await services.users.get(id)
       if (!user) throw new RaffelError('NOT_FOUND', \`User \${id} not found\`)
       return user
     })
@@ -178,7 +210,10 @@ const server = createServer({ port: 3000 })
     .input(CreateUserSchema)
     .output(UserSchema)
     .handler(async (input, ctx) => {
-      return await ctx.db.users.create({ data: input })
+      const services = ctx.services as {
+        users: { create(data: unknown): Promise<unknown> }
+      }
+      return services.users.create(input)
     })
 
 await server.start()
@@ -189,8 +224,9 @@ await server.start()
 - **Interceptors**: Add rate limiting, caching, metrics
 - **Streaming**: Real-time data with generators
 - **Events**: Background processing with delivery guarantees
-- **Multi-protocol**: Same handlers on HTTP, WebSocket, gRPC
+- **Multi-protocol**: Same handlers on HTTP, WebSocket, gRPC, TCP, and UDP
 - **Observability**: Metrics and distributed tracing
+- **Spec-driven mocks**: Start mock endpoints from OpenAPI/USD with \`createMockServer()\`
 `
 
 export const boilerplates = {
@@ -364,15 +400,14 @@ const server = createServer({ port: 3000 })
   .procedure('users.me')
     .handler(async (_input, ctx) => {
       return {
-        userId: ctx.auth?.principal,
-        email: ctx.auth?.claims?.email,
-        roles: ctx.auth?.claims?.roles,
+        userId: ctx.auth?.principalId,
+        roles: ctx.auth?.roles,
       }
     })
 
   .procedure('admin.stats')
     .handler(async (_input, ctx) => {
-      if (!ctx.auth?.claims?.roles?.includes('admin')) {
+      if (!ctx.auth?.roles?.includes('admin')) {
         throw new RaffelError('PERMISSION_DENIED', 'Admin access required')
       }
       return { users: 100, orders: 500 }
@@ -433,8 +468,9 @@ const server = createServer({ port: 3000 })
   })
 
   .procedure('users.list')
-    .handler(async (input, ctx) => {
-      return await ctx.db.user.findMany({
+    .handler(async (_input, ctx) => {
+      const services = ctx.services as { db: PrismaClient }
+      return await services.db.user.findMany({
         orderBy: { createdAt: 'desc' }
       })
     })
@@ -442,7 +478,8 @@ const server = createServer({ port: 3000 })
   .procedure('users.get')
     .input(z.object({ id: z.string() }))
     .handler(async ({ id }, ctx) => {
-      const user = await ctx.db.user.findUnique({ where: { id } })
+      const services = ctx.services as { db: PrismaClient }
+      const user = await services.db.user.findUnique({ where: { id } })
       if (!user) throw new RaffelError('NOT_FOUND', \`User \${id} not found\`)
       return user
     })
@@ -450,13 +487,14 @@ const server = createServer({ port: 3000 })
   .procedure('users.create')
     .input(CreateUserInput)
     .handler(async (input, ctx) => {
-      const existing = await ctx.db.user.findUnique({
+      const services = ctx.services as { db: PrismaClient }
+      const existing = await services.db.user.findUnique({
         where: { email: input.email }
       })
       if (existing) {
         throw new RaffelError('ALREADY_EXISTS', 'Email already registered')
       }
-      return await ctx.db.user.create({ data: input })
+      return await services.db.user.create({ data: input })
     })
 
   .procedure('users.update')
@@ -466,8 +504,9 @@ const server = createServer({ port: 3000 })
       email: z.string().email().optional()
     }))
     .handler(async ({ id, ...data }, ctx) => {
+      const services = ctx.services as { db: PrismaClient }
       try {
-        return await ctx.db.user.update({ where: { id }, data })
+        return await services.db.user.update({ where: { id }, data })
       } catch {
         throw new RaffelError('NOT_FOUND', \`User \${id} not found\`)
       }
@@ -476,8 +515,9 @@ const server = createServer({ port: 3000 })
   .procedure('users.delete')
     .input(z.object({ id: z.string() }))
     .handler(async ({ id }, ctx) => {
+      const services = ctx.services as { db: PrismaClient }
       try {
-        await ctx.db.user.delete({ where: { id } })
+        await services.db.user.delete({ where: { id } })
         return { success: true }
       } catch {
         throw new RaffelError('NOT_FOUND', \`User \${id} not found\`)
@@ -541,7 +581,7 @@ const server = createServer({ port: 3000 })
         id: crypto.randomUUID(),
         channel: input.channel,
         message: input.message,
-        sender: ctx.auth?.principal ?? 'anonymous',
+        sender: ctx.auth?.principalId ?? 'anonymous',
         timestamp: new Date().toISOString()
       }
 

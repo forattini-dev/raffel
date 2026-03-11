@@ -20,6 +20,9 @@ Key builder APIs:
 - `server.event(name)` → [Events](events.md)
 - `server.use(interceptor)` → [Interceptors](interceptors.md)
 - `server.mount(prefix, module)` → [Router Modules](router-modules.md)
+- `server.preview()` → canonical runtime inspection graph
+- `server.previewConfig()` → resolved runtime config before start
+- `server.getProtocolFusionState()` → runtime protocol-fusion diagnostics
 
 Protocol configuration:
 
@@ -29,8 +32,9 @@ Protocol configuration:
 - `server.grpc(options)`
 - `server.tcp(options)`
 - `server.udp(options)`
-- `frontDoor` option on `createServer(...)` for unified protocol entrypoint
-- `singlePort` option on `createServer(...)` for single-TCP-port protocol multiplexing
+- `frontDoor` option on `createServer(...)` for HTTP protocol fusion
+- `sharedPort` option on `createServer(...)` for transport-layer protocol fusion
+- `singlePort` option on `createServer(...)` as the legacy alias for `sharedPort`
 
 ```typescript
 createServer({
@@ -43,7 +47,7 @@ createServer({
       tcp: 'offload',
     },
   },
-  singlePort: {
+  sharedPort: {
     enabled: true,
     protocols: ['http', 'tls', 'websocket'],
     sniffMaxBytes: 4096,
@@ -67,6 +71,27 @@ import { z } from 'zod'
 
 registerValidator(createZodAdapter(z))
 ```
+
+---
+
+## Runtime Inspection
+
+```typescript
+import {
+  loadRuntimeInspectionPreview,
+  buildRuntimeContractTestSuite,
+  startRuntimePlayground,
+} from 'raffel'
+```
+
+Programmatic helpers:
+
+- `server.preview()`
+- `loadRuntimeInspectionPreview(entry)`
+- `buildRuntimeContractTestSuite(graph)`
+- `startRuntimePlayground({ graph })`
+
+See [Developer Experience](dx.md).
 
 ---
 
@@ -115,7 +140,7 @@ Middleware and helpers live under:
 
 ---
 
-## Single-Port Detection
+## Shared-Port Protocol Fusion
 
 ```typescript
 import {
@@ -132,8 +157,10 @@ import {
 - `SinglePortRegistry` — register per-protocol socket handlers
 - `normalizeSinglePortDefaults(options?)` — apply defaults to detector options
 - `getSinglePortConcurrencyState()` — `{ activeDetections, concurrencyLimit }`
+- `server.previewConfig().protocolFusion` — inspect resolved runtime mode before start
+- `server.getProtocolFusionState()` — inspect recent routing and rejection decisions after start
 
-See [Single-Port Detection](single-port.md).
+See [Shared-Port Protocol Fusion](single-port.md).
 
 ---
 
@@ -144,3 +171,29 @@ import { runMCPServer, createMCPServer } from 'raffel/mcp'
 ```
 
 See [MCP Server](mcp.md).
+
+---
+
+## Mock Server
+
+```typescript
+import {
+  createMockServer,
+  createMockModule,
+  extractRoutes,
+  resolveResponse,
+  toExpressPath,
+  generateFromSchema,
+} from 'raffel'
+```
+
+Main APIs:
+
+- `createMockServer({ spec, port, validateRequests, protocols })`
+- `createMockModule(spec, options)`
+- `extractRoutes(document)`
+- `resolveResponse(operation)`
+- `toExpressPath(path)`
+- `generateFromSchema(schema)`
+
+See [Mock Server](mock-server.md).

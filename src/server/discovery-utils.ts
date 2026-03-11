@@ -21,7 +21,12 @@ export function registerDiscoveredHandlers(
   result: DiscoveryResult,
   registry: Registry,
   schemaRegistry: SchemaRegistry,
-  globalInterceptors: Interceptor[]
+  globalInterceptors: Interceptor[],
+  onRegistered?: (entry: {
+    name: string
+    kind: 'procedure' | 'stream' | 'event'
+    filePath: string
+  }) => void
 ): void {
   for (const route of result.routes) {
     // Create interceptors from route config
@@ -43,12 +48,14 @@ export function registerDiscoveredHandlers(
         graphql: route.meta?.graphql,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
+      onRegistered?.({ name: route.name, kind: 'procedure', filePath: route.filePath })
     } else if (route.kind === 'stream') {
       registry.stream(route.name, route.handler as StreamHandler, {
         description: route.meta?.description,
         direction: route.meta?.direction,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
+      onRegistered?.({ name: route.name, kind: 'stream', filePath: route.filePath })
     } else if (route.kind === 'event') {
       registry.event(route.name, route.handler as EventHandler, {
         description: route.meta?.description,
@@ -57,6 +64,7 @@ export function registerDiscoveredHandlers(
         deduplicationWindow: route.meta?.deduplicationWindow,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
+      onRegistered?.({ name: route.name, kind: 'event', filePath: route.filePath })
     }
 
     logger.debug({ name: route.name, kind: route.kind }, 'Registered handler')

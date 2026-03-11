@@ -8,8 +8,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { LoadedRestResource } from './fs-routes/index.js'
 import type { Router } from '../core/router.js'
 import type { Registry } from '../core/registry.js'
-import type { Context, Envelope } from '../types/index.js'
-import { createAbortableContext } from '../utils/context-utils.js'
+import type { Context, Envelope, ContextSeed } from '../types/index.js'
+import { mergeContextSeeds } from '../types/index.js'
+import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { getStatusForCode } from '../errors/codes.js'
 import { sid } from '../utils/id/index.js'
 import { createLogger } from '../utils/logger.js'
@@ -168,7 +169,7 @@ export interface RestMiddlewareOptions {
   router: Router
   basePath: string
   maxBodySize: number
-  contextFactory?: (req: IncomingMessage) => Partial<Context>
+  contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
 }
 
@@ -177,7 +178,7 @@ export interface HttpOverrideMiddlewareOptions {
   registry: Registry
   basePath: string
   maxBodySize: number
-  contextFactory?: (req: IncomingMessage) => Partial<Context>
+  contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
 }
 
@@ -270,7 +271,30 @@ export function createRestMiddleware(
 
           const abortController = new AbortController()
           const requestId = (req.headers['x-request-id'] as string) || sid()
-          const ctx = createAbortableContext(requestId, contextFactory?.(req), abortController) as any
+          const metadata = extractMetadataFromHeaders(req.headers)
+          const ctx = await createAbortableContextAsync(
+            requestId,
+            mergeContextSeeds(
+              {
+                protocol: 'http',
+                input: {
+                  body,
+                  params,
+                  query,
+                  metadata,
+                },
+                http: {
+                  kind: 'http',
+                  method,
+                  path: url.pathname,
+                  url: url.toString(),
+                  headers: metadata,
+                },
+              },
+              await contextFactory?.(req)
+            ),
+            abortController
+          ) as any
           ctx.params = params
           ctx.query = query
           ctx.operation = route.operation
@@ -289,7 +313,7 @@ export function createRestMiddleware(
               procedure: `${resource.name}.${route.operation}`,
               type: 'request',
               payload: body,
-              metadata: extractMetadataFromHeaders(req.headers),
+              metadata,
               context: ctx,
             }
             const result = await router.handle(envelope)
@@ -407,7 +431,29 @@ export function createHttpOverrideMiddleware(
 
       const abortController = new AbortController()
       const requestId = (req.headers['x-request-id'] as string) || sid()
-      const ctx = createAbortableContext(requestId, contextFactory?.(req), abortController)
+      const metadata = extractMetadataFromHeaders(req.headers)
+      const ctx = await createAbortableContextAsync(
+        requestId,
+        mergeContextSeeds(
+          {
+            protocol: 'http',
+            input: {
+              body: payload,
+              query: parseQueryParams(url.searchParams),
+              metadata,
+            },
+            http: {
+              kind: 'http',
+              method,
+              path: url.pathname,
+              url: url.toString(),
+              headers: metadata,
+            },
+          },
+          await contextFactory?.(req)
+        ),
+        abortController
+      )
 
       req.on('aborted', () => abortController.abort('Client aborted request'))
       res.on('close', () => {
@@ -422,7 +468,7 @@ export function createHttpOverrideMiddleware(
           procedure: meta.name,
           type: 'request',
           payload,
-          metadata: extractMetadataFromHeaders(req.headers),
+          metadata,
           context: ctx,
         }
         const result = await router.handle(envelope)

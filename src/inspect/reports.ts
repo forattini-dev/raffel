@@ -5,6 +5,7 @@ import type {
   RuntimeInspectionOperation,
   RuntimeInspectionSchema,
   RuntimeInspectionService,
+  RuntimeInspectionTransportHandler,
   RuntimeInspectionTransport,
   RuntimeInspectionTransportBinding,
 } from './types.js'
@@ -47,6 +48,12 @@ export type RuntimeInspectionExplanation =
       diagnostics: RuntimeInspectionDiagnostic[]
     }
   | {
+      kind: 'transport-handler'
+      query: string
+      handler: RuntimeInspectionTransportHandler
+      diagnostics: RuntimeInspectionDiagnostic[]
+    }
+  | {
       kind: 'binding'
       query: string
       bindingId: string
@@ -80,6 +87,24 @@ function formatAddress(transport: RuntimeInspectionTransport): string {
   const host = transport.host ?? '0.0.0.0'
   const port = transport.port ?? 'n/a'
   return `${host}:${port}`
+}
+
+function formatTransportHandlerTarget(handler: RuntimeInspectionTransportHandler): string {
+  const target = `${handler.target.host}:${handler.target.port}${handler.target.socketType ? ` (${handler.target.socketType})` : ''}`
+  const framing = handler.details?.framing
+  if (!framing) {
+    return target
+  }
+
+  if (framing.type === 'delimiter') {
+    return `${target} [framing=delimiter${framing.delimiter ? `:${JSON.stringify(framing.delimiter)}` : ''}]`
+  }
+
+  if (framing.type === 'length-prefixed') {
+    return `${target} [framing=length-prefixed:${framing.lengthBytes ?? 4}${framing.lengthEncoding ?? 'BE'}]`
+  }
+
+  return `${target} [framing=none]`
 }
 
 function summarizeSchema(schema: RuntimeInspectionSchema): string {
@@ -230,6 +255,18 @@ export function explainRuntimeInspectionSubject(
       query,
       transport,
       diagnostics: getRelatedDiagnostics(graph, { kind: 'transport', id: transport.id }),
+    }
+  }
+
+  const transportHandler = graph.transportHandlers.find((candidate) =>
+    candidate.id === normalized || candidate.name === normalized
+  )
+  if (transportHandler) {
+    return {
+      kind: 'transport-handler',
+      query,
+      handler: transportHandler,
+      diagnostics: getRelatedDiagnostics(graph, { kind: 'transport', id: transportHandler.transportId }),
     }
   }
 
@@ -399,6 +436,16 @@ export function formatRuntimeInspectionGraph(graph: RuntimeInspectionGraph): str
     }
   }
 
+  if (graph.transportHandlers.length > 0) {
+    lines.push('')
+    lines.push('Transport Handlers')
+    for (const handler of graph.transportHandlers) {
+      lines.push(`- ${handler.name} [${handler.protocol}:${handler.mode}]`)
+      lines.push(`  source: ${formatSource(handler.source)}`)
+      lines.push(`  target: ${formatTransportHandlerTarget(handler)}`)
+    }
+  }
+
   const report = buildRuntimeInspectionDoctorReport(graph)
   lines.push('')
   lines.push(`Diagnostics (${report.summary.errors} errors, ${report.summary.warnings} warnings, ${report.summary.infos} infos)`)
@@ -445,6 +492,11 @@ export function formatRuntimeInspectionExplanation(
     lines.push(`Path: ${transport.path ?? 'n/a'}`)
     lines.push(`Shared: ${transport.shared ? 'yes' : 'no'}`)
     lines.push(`Source: ${transport.source ?? 'unknown'}`)
+  } else if (explanation.kind === 'transport-handler') {
+    const handler = explanation.handler
+    lines.push(`Kind: transport-handler (${handler.protocol}:${handler.mode})`)
+    lines.push(`Source: ${formatSource(handler.source)}`)
+    lines.push(`Target: ${formatTransportHandlerTarget(handler)}`)
   } else {
     lines.push(`Kind: binding (${explanation.bindingId})`)
     lines.push(`Bindings: ${explanation.bindings.map(formatBindingFull).join(' | ') || 'none'}`)

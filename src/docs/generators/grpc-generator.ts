@@ -16,7 +16,7 @@ import type {
 } from '../../usd/index.js'
 import { USD_PROTOCOL_CONTENT_TYPES } from '../../usd/index.js'
 import {
-  createSchemaRegistry,
+  createDocSchemaRegistry,
   generateSchemaName,
   createRef,
   type ConvertedSchemaRegistry,
@@ -79,7 +79,7 @@ export function generateGrpc(
     defaultServiceName = 'Service',
   } = options
 
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
   const services: Record<string, USDGrpcService> = {}
   const tags = new Set<string>()
 

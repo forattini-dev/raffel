@@ -13,8 +13,9 @@
 import { createServer, createConnection, type Server, type Socket } from 'node:net'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context } from '../types/index.js'
-import { createAbortableContext } from '../utils/context-utils.js'
+import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import { mergeContextSeeds } from '../types/index.js'
+import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
 import { checkConnectionFilter, type ConnectionFilter } from './utils/connection-filter.js'
@@ -44,7 +45,7 @@ export interface TcpAdapterOptions {
   keepAliveInterval?: number
 
   /** Context factory for creating request context */
-  contextFactory?: (socket: Socket) => Partial<Context>
+  contextFactory?: (socket: Socket) => ContextSeed | Promise<ContextSeed>
 
   /** Inbound connection filter — controls which source IPs may connect */
   filter?: ConnectionFilter
@@ -173,11 +174,26 @@ export function createTcpConnectionHandler(
 
       const requestId = parsed.id !== undefined ? String(parsed.id) : sid()
       const abortController = new AbortController()
+      const metadata = sanitizeMetadataRecord(parsed.metadata)
 
       // Build context
-      const ctx = createAbortableContext(
+      const ctx = await createAbortableContextAsync(
         requestId,
-        options.contextFactory?.(client.socket),
+        mergeContextSeeds(
+          {
+            protocol: 'tcp',
+            input: {
+              body: parsed.payload ?? {},
+              metadata,
+            },
+            tcp: {
+              kind: 'tcp',
+              remoteAddress: client.socket.remoteAddress,
+              remotePort: client.socket.remotePort,
+            },
+          },
+          await options.contextFactory?.(client.socket)
+        ),
         abortController
       )
 
@@ -186,7 +202,7 @@ export function createTcpConnectionHandler(
         procedure: parsed.procedure,
         type: parsed.type,
         payload: parsed.payload ?? {},
-        metadata: sanitizeMetadataRecord(parsed.metadata),
+        metadata,
         context: ctx,
       }
 

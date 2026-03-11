@@ -294,6 +294,10 @@ app.use('/assets/*', serveStaticS3({
 
 ## Routing
 
+See [Routing Contract](routing.md) for Raffel's native matcher semantics,
+including precedence, optional segments, terminal wildcards, and performance
+guarantees for exact-route lookup.
+
 ```typescript
 // Path parameters
 app.get('/users/:id', (req) => {

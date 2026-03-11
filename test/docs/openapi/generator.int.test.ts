@@ -235,6 +235,21 @@ describe('OpenAPI Generator', () => {
       // Just verify the schema exists and is an object
       expect(typeof schema).toBe('object')
     })
+
+    it('should emit opaque fallback diagnostics for unsupported schemas', () => {
+      registry.procedure('opaque', async () => ({ ok: true }))
+      schemaRegistry.register('opaque', {
+        input: { unsupported: true },
+      })
+
+      const doc = generateOpenAPI(registry, schemaRegistry, {
+        info: { title: 'Test API', version: '1.0.0' },
+      })
+
+      const schema = doc.components?.schemas?.['opaqueInput'] as Record<string, unknown>
+      expect(schema['x-raffel-opaque']).toBe(true)
+      expect(Array.isArray(schema['x-raffel-diagnostics'])).toBe(true)
+    })
   })
 
   describe('Tags and Namespacing', () => {
@@ -293,6 +308,26 @@ describe('OpenAPI Generator', () => {
       expect(doc.components?.securitySchemes?.bearerAuth).toBeDefined()
       expect(doc.components?.securitySchemes?.apiKey).toBeDefined()
       expect(doc.security).toEqual([{ bearerAuth: [] }])
+    })
+
+    it('should expose contract policy metadata as a vendor extension', () => {
+      registry.procedure('secure', async () => ({ ok: true }), {
+        policies: {
+          auth: { mode: 'required', roles: ['admin'] },
+          timeout: { timeoutMs: 1000 },
+          rateLimit: { windowMs: 60000, maxRequests: 10 },
+        },
+      })
+
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+      })
+
+      expect(doc.paths['/secure'].post?.['x-raffel-policies']).toMatchObject({
+        auth: { mode: 'required', roles: ['admin'] },
+        timeout: { timeoutMs: 1000 },
+        rateLimit: { windowMs: 60000, maxRequests: 10 },
+      })
     })
   })
 

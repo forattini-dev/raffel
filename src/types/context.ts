@@ -5,6 +5,164 @@
  * It is immutable - to modify, create a new derived context.
  */
 
+import type { ContractContext } from './policies.js'
+import { getLogger } from '../utils/logger.js'
+
+export type ProtocolKind =
+  | 'http'
+  | 'websocket'
+  | 'jsonrpc'
+  | 'graphql'
+  | 'grpc'
+  | 'tcp'
+  | 'udp'
+  | 'stream'
+  | 'internal'
+
+export interface Principal {
+  /** Principal category (user, service, api-key, etc.) */
+  type: string
+
+  /** Stable principal identifier */
+  id: string
+
+  /** Authorization roles */
+  roles?: readonly string[]
+
+  /** Authorization scopes */
+  scopes?: readonly string[]
+
+  /** Optional tenant identifier */
+  tenantId?: string
+
+  /** Optional readonly claims */
+  claims?: Readonly<Record<string, unknown>>
+}
+
+export type AuthPrincipal = string | Principal
+
+export interface AuthRequirement {
+  authenticated?: boolean
+  roles?: readonly string[]
+  scopes?: readonly string[]
+}
+
+export interface ContextLogger {
+  trace(...args: unknown[]): void
+  debug(...args: unknown[]): void
+  info(...args: unknown[]): void
+  warn(...args: unknown[]): void
+  error(...args: unknown[]): void
+  fatal(...args: unknown[]): void
+  child(bindings: Record<string, unknown>): ContextLogger
+}
+
+export interface ContextInput {
+  /** Request payload / args / message body */
+  readonly body?: unknown
+
+  /** Path or route parameters */
+  readonly params: Readonly<Record<string, string>>
+
+  /** Query params or equivalent transport-specific query bag */
+  readonly query: Readonly<Record<string, unknown>>
+
+  /** Transport metadata normalized to string values */
+  readonly metadata: Readonly<Record<string, string>>
+}
+
+export interface HttpContextCapability {
+  readonly kind: 'http'
+  readonly method: string
+  readonly path: string
+  readonly url: string
+  readonly headers: Readonly<Record<string, string>>
+}
+
+export interface WebSocketContextCapability {
+  readonly kind: 'websocket'
+  readonly connectionId?: string
+  readonly path?: string
+  readonly subprotocol?: string
+}
+
+export interface JsonRpcContextCapability {
+  readonly kind: 'jsonrpc'
+  readonly method?: string
+  readonly requestId?: string | number | null
+  readonly notification?: boolean
+}
+
+export interface GraphQLContextCapability {
+  readonly kind: 'graphql'
+  readonly operationType?: 'query' | 'mutation' | 'subscription'
+  readonly operationName?: string
+}
+
+export interface GrpcContextCapability {
+  readonly kind: 'grpc'
+  readonly service?: string
+  readonly method?: string
+  readonly peer?: string
+  readonly metadata: Readonly<Record<string, string>>
+}
+
+export interface TcpContextCapability {
+  readonly kind: 'tcp'
+  readonly remoteAddress?: string
+  readonly remotePort?: number
+}
+
+export interface UdpContextCapability {
+  readonly kind: 'udp'
+  readonly remoteAddress?: string
+  readonly remotePort?: number
+  readonly remoteFamily?: string
+}
+
+export interface StreamContextCapability {
+  readonly kind: 'stream'
+  readonly mode?: string
+  readonly id?: string
+}
+
+export interface ContextSeed {
+  auth?: Partial<AuthContext> | null
+  tracing?: TracingContext
+  signal?: AbortSignal
+  deadline?: number
+  contract?: ContractContext
+  input?: Partial<ContextInput>
+  services?: Record<string, unknown>
+  logger?: ContextLogger
+  protocol?: ProtocolKind
+  http?: HttpContextCapability
+  ws?: WebSocketContextCapability
+  rpc?: JsonRpcContextCapability
+  graphql?: GraphQLContextCapability
+  grpc?: GrpcContextCapability
+  tcp?: TcpContextCapability
+  udp?: UdpContextCapability
+  stream?: StreamContextCapability
+}
+
+export class ContextAuthError extends Error {
+  code: 'UNAUTHENTICATED' | 'PERMISSION_DENIED'
+  status: 401 | 403
+  details?: unknown
+
+  constructor(
+    code: 'UNAUTHENTICATED' | 'PERMISSION_DENIED',
+    message: string,
+    status: 401 | 403
+  ) {
+    super(message)
+    this.name = 'ContextAuthError'
+    this.code = code
+    this.status = status
+  }
+}
+
 /**
  * Authentication context
  */
@@ -13,10 +171,31 @@ export interface AuthContext {
   authenticated: boolean
 
   /** User/service identifier */
-  principal?: string
+  principal?: AuthPrincipal
+
+  /** Stable principal identifier independent of principal shape */
+  principalId?: string
+
+  /** Authorization roles */
+  roles?: readonly string[]
+
+  /** Authorization scopes */
+  scopes?: readonly string[]
+
+  /** Optional tenant identifier */
+  tenantId?: string
 
   /** Authentication claims (JWT payload, etc.) */
   claims?: Record<string, unknown>
+
+  /** Require a principal, optionally enforcing roles/scopes */
+  require(requirement?: AuthRequirement): AuthPrincipal
+
+  /** Check whether the auth context carries the given role */
+  hasRole(role: string): boolean
+
+  /** Check whether the auth context carries the given scope */
+  hasScope(scope: string): boolean
 }
 
 /**
@@ -54,7 +233,7 @@ export interface Context {
   requestId: string
 
   /** Authentication (set by auth middleware) */
-  auth?: AuthContext
+  auth: AuthContext
 
   /** Tracing information */
   tracing: TracingContext
@@ -65,7 +244,49 @@ export interface Context {
   /** Request deadline (ms since epoch) */
   deadline?: number
 
-  /** Custom extensions storage */
+  /** Normalized request input */
+  input: ContextInput
+
+  /** Readonly service capabilities */
+  services: Readonly<Record<string, unknown>>
+
+  /** Request-scoped logger */
+  logger: ContextLogger
+
+  /** Origin protocol for the context */
+  protocol?: ProtocolKind
+
+  /** Current contract binding and propagated policy context */
+  contract?: ContractContext
+
+  /** HTTP-specific request metadata */
+  http?: HttpContextCapability
+
+  /** WebSocket-specific request metadata */
+  ws?: WebSocketContextCapability
+
+  /** JSON-RPC-specific request metadata */
+  rpc?: JsonRpcContextCapability
+
+  /** GraphQL-specific request metadata */
+  graphql?: GraphQLContextCapability
+
+  /** gRPC-specific request metadata */
+  grpc?: GrpcContextCapability
+
+  /** TCP-specific request metadata */
+  tcp?: TcpContextCapability
+
+  /** UDP-specific request metadata */
+  udp?: UdpContextCapability
+
+  /** Stream-specific request metadata */
+  stream?: StreamContextCapability
+
+  /**
+   * Custom extensions storage for framework internals and legacy integrations.
+   * @deprecated Prefer canonical capabilities such as `auth`, `input`, `services`, and protocol facades.
+   */
   readonly extensions: Map<symbol, unknown>
 
   /**
@@ -87,12 +308,174 @@ export interface Context {
   callingLevel?: number
 }
 
+function normalizeStringList(value: unknown): readonly string[] | undefined {
+  if (Array.isArray(value)) {
+    return Object.freeze(value.filter((item): item is string => typeof item === 'string'))
+  }
+
+  if (typeof value === 'string' && value.length > 0) {
+    return Object.freeze(value.split(/\s+/).filter(Boolean))
+  }
+
+  return undefined
+}
+
+export function isTypedPrincipal(principal: AuthPrincipal | undefined): principal is Principal {
+  return principal !== undefined && typeof principal === 'object' && principal !== null
+}
+
+export function getPrincipalId(principal: AuthPrincipal | undefined): string | undefined {
+  if (!principal) return undefined
+  return typeof principal === 'string' ? principal : principal.id
+}
+
+export function getAuthRoles(auth: Pick<AuthContext, 'roles' | 'claims' | 'principal'> | undefined): readonly string[] {
+  if (!auth) return []
+  if (auth.roles && auth.roles.length > 0) {
+    return auth.roles
+  }
+
+  if (isTypedPrincipal(auth.principal) && auth.principal.roles && auth.principal.roles.length > 0) {
+    return auth.principal.roles
+  }
+
+  return normalizeStringList(auth.claims?.roles) ?? []
+}
+
+export function getAuthScopes(auth: Pick<AuthContext, 'scopes' | 'claims' | 'principal'> | undefined): readonly string[] {
+  if (!auth) return []
+  if (auth.scopes && auth.scopes.length > 0) {
+    return auth.scopes
+  }
+
+  if (isTypedPrincipal(auth.principal) && auth.principal.scopes && auth.principal.scopes.length > 0) {
+    return auth.principal.scopes
+  }
+
+  return normalizeStringList(auth.claims?.scopes ?? auth.claims?.scope) ?? []
+}
+
+export function createAuthContext(input?: Partial<AuthContext> | null): AuthContext {
+  const principal = input?.principal
+  const principalId = input?.principalId ?? getPrincipalId(principal)
+  const claims = input?.claims ? { ...input.claims } : undefined
+  const roles = input?.roles ?? getAuthRoles({ roles: undefined, claims, principal })
+  const scopes = input?.scopes ?? getAuthScopes({ scopes: undefined, claims, principal })
+  const tenantId = input?.tenantId
+    ?? (isTypedPrincipal(principal) ? principal.tenantId : undefined)
+    ?? (typeof claims?.tenantId === 'string' ? claims.tenantId : undefined)
+  const authenticated = input?.authenticated ?? Boolean(principalId)
+
+  const authContext: AuthContext = {
+    authenticated,
+    principal,
+    principalId,
+    claims,
+    roles,
+    scopes,
+    tenantId,
+    require(requirement?: AuthRequirement): AuthPrincipal {
+      if (!authContext.authenticated || !authContext.principal) {
+        throw new ContextAuthError('UNAUTHENTICATED', 'Authentication required', 401)
+      }
+
+      if (requirement?.roles && requirement.roles.some((role) => !authContext.hasRole(role))) {
+        throw new ContextAuthError('PERMISSION_DENIED', 'Missing required role', 403)
+      }
+
+      if (requirement?.scopes && requirement.scopes.some((scope) => !authContext.hasScope(scope))) {
+        throw new ContextAuthError('PERMISSION_DENIED', 'Missing required scope', 403)
+      }
+
+      return authContext.principal
+    },
+    hasRole(role: string): boolean {
+      return getAuthRoles(authContext).includes(role)
+    },
+    hasScope(scope: string): boolean {
+      return getAuthScopes(authContext).includes(scope)
+    },
+  }
+
+  return authContext
+}
+
+function normalizeInput(input?: Partial<ContextInput>): ContextInput {
+  return {
+    body: input?.body,
+    params: Object.freeze({ ...(input?.params ?? {}) }),
+    query: Object.freeze({ ...(input?.query ?? {}) }),
+    metadata: Object.freeze({ ...(input?.metadata ?? {}) }),
+  }
+}
+
+function cloneProtocolFacet<T extends object | undefined>(facet: T): T {
+  if (!facet) return facet
+  return Object.freeze({ ...facet }) as T
+}
+
+function defaultLoggerForRequest(requestId: string): ContextLogger {
+  return getLogger().child({ requestId }) as ContextLogger
+}
+
+export function stripTransportCapabilities(ctx: Context): Context {
+  return {
+    ...ctx,
+    protocol: 'internal',
+    input: normalizeInput(),
+    http: undefined,
+    ws: undefined,
+    rpc: undefined,
+    graphql: undefined,
+    grpc: undefined,
+    tcp: undefined,
+    udp: undefined,
+    stream: undefined,
+    extensions: new Map(ctx.extensions),
+  }
+}
+
+export function mergeContextSeeds(
+  base: ContextSeed,
+  override?: ContextSeed | null
+): ContextSeed {
+  if (!override) return { ...base }
+
+  return {
+    ...base,
+    ...override,
+    auth: override.auth ?? base.auth,
+    tracing: override.tracing ?? base.tracing,
+    signal: override.signal ?? base.signal,
+    deadline: override.deadline ?? base.deadline,
+    contract: override.contract ?? base.contract,
+    input: {
+      ...(base.input ?? {}),
+      ...(override.input ?? {}),
+    },
+    services: {
+      ...(base.services ?? {}),
+      ...(override.services ?? {}),
+    },
+    logger: override.logger ?? base.logger,
+    protocol: override.protocol ?? base.protocol,
+    http: override.http ?? base.http,
+    ws: override.ws ?? base.ws,
+    rpc: override.rpc ?? base.rpc,
+    graphql: override.graphql ?? base.graphql,
+    grpc: override.grpc ?? base.grpc,
+    tcp: override.tcp ?? base.tcp,
+    udp: override.udp ?? base.udp,
+    stream: override.stream ?? base.stream,
+  }
+}
+
 /**
  * Create a new context with defaults
  */
 export function createContext(
   requestId: string,
-  options: Partial<Omit<Context, 'requestId' | 'extensions'>> = {}
+  options: ContextSeed = {}
 ): Context {
   return {
     requestId,
@@ -102,8 +485,21 @@ export function createContext(
     },
     signal: options.signal ?? new AbortController().signal,
     deadline: options.deadline,
-    auth: options.auth,
+    auth: createAuthContext(options.auth),
+    input: normalizeInput(options.input),
+    services: Object.freeze({ ...(options.services ?? {}) }),
+    logger: options.logger ?? defaultLoggerForRequest(requestId),
+    protocol: options.protocol,
     extensions: new Map(),
+    contract: options.contract,
+    http: cloneProtocolFacet(options.http),
+    ws: cloneProtocolFacet(options.ws),
+    rpc: cloneProtocolFacet(options.rpc),
+    graphql: cloneProtocolFacet(options.graphql),
+    grpc: cloneProtocolFacet(options.grpc),
+    tcp: cloneProtocolFacet(options.tcp),
+    udp: cloneProtocolFacet(options.udp),
+    stream: cloneProtocolFacet(options.stream),
   }
 }
 
@@ -118,7 +514,7 @@ export function withDeadline(ctx: Context, deadline: number): Context {
  * Create a derived context with auth
  */
 export function withAuth(ctx: Context, auth: AuthContext): Context {
-  return { ...ctx, auth, extensions: new Map(ctx.extensions) }
+  return { ...ctx, auth: createAuthContext(auth), extensions: new Map(ctx.extensions) }
 }
 
 /**

@@ -46,18 +46,27 @@ export const patterns: PatternDoc[] = [
 
 const server = createServer({ port: 3000 })
   .procedure('users.list')
-    .handler(async (input, ctx) => {
-      return await db.users.findMany()
+    .handler(async (_input, ctx) => {
+      const services = ctx.services as {
+        users: { list(): Promise<unknown[]> }
+      }
+      return services.users.list()
     })
 
   .procedure('users.get')
     .handler(async ({ id }, ctx) => {
-      return await db.users.findUnique({ where: { id } })
+      const services = ctx.services as {
+        users: { get(id: string): Promise<unknown> }
+      }
+      return services.users.get(id)
     })
 
   .procedure('users.create')
     .handler(async (input, ctx) => {
-      return await db.users.create({ data: input })
+      const services = ctx.services as {
+        users: { create(data: unknown): Promise<unknown> }
+      }
+      return services.users.create(input)
     })
 
 await server.start()`,
@@ -85,7 +94,10 @@ const server = createServer({ port: 3000 })
       email: z.string()
     }))
     .handler(async (input, ctx) => {
-      return await db.users.create({ data: input })
+      const services = ctx.services as {
+        users: { create(data: unknown): Promise<unknown> }
+      }
+      return services.users.create(input)
     })
 
 await server.start()`,
@@ -395,7 +407,7 @@ const server = createServer()
   {
     name: 'Providers (Dependency Injection)',
     description:
-      'Providers register singleton dependencies that are initialized at server.start() and available in ctx. Use for database clients, cache connections, external APIs.',
+      'Providers register singleton dependencies that are initialized at server.start(). In new code, prefer consuming them via ctx.services instead of broad top-level bags.',
     components: ['provide', 'ProviderFactory', 'onShutdown'],
     signature: `.provide('name', factoryFn, options?)
 
@@ -407,9 +419,11 @@ type ProviderFactory<T> = (deps: ResolvedProviders) => T | Promise<T>
   onShutdown?: (instance: T) => Promise<void>  // Cleanup on server.stop()
 }
 
-// Access in handlers
-ctx.db     // If registered as 'db'
-ctx.redis  // If registered as 'redis'`,
+// Preferred access in handlers
+const services = ctx.services as {
+  db: PrismaClient
+  redis: Redis
+}`,
     correctExamples: [
       {
         title: 'Database Provider',
@@ -429,8 +443,8 @@ const server = createServer()
 
   .procedure('users.list')
     .handler(async (input, ctx) => {
-      // ctx.db is PrismaClient, fully typed!
-      return await ctx.db.users.findMany()
+      const services = ctx.services as { db: PrismaClient }
+      return await services.db.users.findMany()
     })`,
       },
       {
@@ -537,22 +551,25 @@ import { z } from 'zod'
 export const usersModule = createRouterModule()
   .procedure('list')
     .output(z.array(UserSchema))
-    .handler(async (input, ctx) => {
-      return await ctx.db.users.findMany()
+    .handler(async (_input, ctx) => {
+      const services = ctx.services as { users: { list(): Promise<unknown[]> } }
+      return services.users.list()
     })
 
   .procedure('get')
     .input(z.object({ id: z.string() }))
     .output(UserSchema)
     .handler(async ({ id }, ctx) => {
-      return await ctx.db.users.findUnique({ where: { id } })
+      const services = ctx.services as { users: { get(id: string): Promise<unknown> } }
+      return services.users.get(id)
     })
 
   .procedure('create')
     .input(CreateUserSchema)
     .output(UserSchema)
     .handler(async (input, ctx) => {
-      return await ctx.db.users.create({ data: input })
+      const services = ctx.services as { users: { create(data: unknown): Promise<unknown> } }
+      return services.users.create(input)
     })`,
       },
       {
@@ -578,10 +595,16 @@ import { createRouterModule } from 'raffel'
 
 export default createRouterModule()
   .procedure('list')
-    .handler(async (_, ctx) => ctx.db.users.findMany())
+    .handler(async (_, ctx) => {
+      const services = ctx.services as { users: { list(): Promise<unknown[]> } }
+      return services.users.list()
+    })
 
   .procedure('create')
-    .handler(async (input, ctx) => ctx.db.users.create({ data: input }))
+    .handler(async (input, ctx) => {
+      const services = ctx.services as { users: { create(data: unknown): Promise<unknown> } }
+      return services.users.create(input)
+    })
 
 // Server auto-discovers:
 // src/http/users.ts → users.list, users.create
@@ -662,7 +685,10 @@ const server = createServer()
     .output(UserOutput)
     .handler(async (input, ctx) => {
       // input is typed as { name: string, email: string, age?: number }
-      return await ctx.db.users.create({ data: input })
+      const services = ctx.services as {
+        users: { create(args: { data: unknown }): Promise<unknown> }
+      }
+      return await services.users.create({ data: input })
     })`,
       },
       {
@@ -683,7 +709,10 @@ const CreateOrderInput = yup.object({
 server.procedure('orders.create')
   .input(CreateOrderInput)
   .handler(async (input, ctx) => {
-    return await ctx.db.orders.create({ data: input })
+    const services = ctx.services as {
+      orders: { create(args: { data: unknown }): Promise<unknown> }
+    }
+    return await services.orders.create({ data: input })
   })`,
       },
       {
@@ -762,7 +791,8 @@ onError: (error, protocol, ctx) => { ... }`,
 
 server.procedure('users.get')
   .handler(async ({ id }, ctx) => {
-    const user = await ctx.db.users.findUnique({ where: { id } })
+    const services = ctx.services as { users: { get(id: string): Promise<unknown> } }
+    const user = await services.users.get(id)
 
     if (!user) {
       throw new RaffelError(
@@ -777,7 +807,13 @@ server.procedure('users.get')
 
 server.procedure('users.create')
   .handler(async (input, ctx) => {
-    const existing = await ctx.db.users.findByEmail(input.email)
+    const services = ctx.services as {
+      users: {
+        findByEmail(email: string): Promise<unknown>
+        create(data: unknown): Promise<unknown>
+      }
+    }
+    const existing = await services.users.findByEmail(input.email)
 
     if (existing) {
       throw new RaffelError(
@@ -787,7 +823,7 @@ server.procedure('users.create')
       )
     }
 
-    return await ctx.db.users.create({ data: input })
+    return await services.users.create(input)
   })`,
       },
       {
@@ -800,11 +836,14 @@ server.procedure('orders.process')
       throw Errors.unauthenticated('Login required')
     }
 
-    if (!ctx.auth?.claims?.roles?.includes('admin')) {
+    if (!ctx.auth?.roles?.includes('admin')) {
       throw Errors.permissionDenied('Admin access required')
     }
 
-    const order = await ctx.db.orders.findUnique({ where: { id: input.id } })
+    const services = ctx.services as {
+      orders: { get(id: string): Promise<unknown> }
+    }
+    const order = await services.orders.get(input.id)
     if (!order) {
       throw Errors.notFound(\`Order \${input.id} not found\`)
     }
@@ -837,7 +876,12 @@ server.procedure('orders.process')
         code: `server.procedure('payments.charge')
   .error(async (error, ctx) => {
     // Payment-specific error handling
-    await ctx.db.payments.update({
+    const services = ctx.services as {
+      payments: {
+        update(args: { where: { id: string }, data: Record<string, unknown> }): Promise<unknown>
+      }
+    }
+    await services.payments.update({
       where: { id: ctx.paymentId },
       data: { status: 'failed', error: error.message }
     })
@@ -937,7 +981,10 @@ server.stream('data.export')
     })
 
     // Producer
-    const cursor = ctx.db.records.findMany({ cursor: true })
+    const services = ctx.services as {
+      records: { streamCursor(input: unknown): AsyncIterable<unknown> }
+    }
+    const cursor = services.records.streamCursor(input)
     for await (const record of cursor) {
       // write() returns false if buffer is full
       const ready = stream.write(record)
@@ -964,7 +1011,10 @@ server.stream('data.export')
     ;(async () => {
       for await (const message of inputStream) {
         // Process and broadcast
-        const saved = await ctx.db.messages.create({ data: message })
+        const services = ctx.services as {
+          messages: { create(data: unknown): Promise<unknown> }
+        }
+        const saved = await services.messages.create(message)
         output.write({ type: 'message', data: saved })
       }
     })()
@@ -1034,7 +1084,7 @@ server.stream('data.process')
 // Emit from a procedure
 server.procedure('pages.view')
   .handler(async (input, ctx) => {
-    await ctx.emit('analytics.pageView', { page: input.path, userId: ctx.auth?.principal })
+    await ctx.emit('analytics.pageView', { page: input.path, userId: ctx.auth?.principalId })
     return { ok: true }
   })`,
       },
@@ -1079,7 +1129,10 @@ server.procedure('pages.view')
     } catch (error) {
       if (error.code === 'DEVICE_NOT_REGISTERED') {
         // Don't retry - device is invalid
-        await ctx.db.devices.delete({ where: { id: payload.deviceId } })
+        const services = ctx.services as {
+          devices: { delete(args: { where: { id: string } }): Promise<unknown> }
+        }
+        await services.devices.delete({ where: { id: payload.deviceId } })
         ack()  // Acknowledge to stop retries
       }
       // Other errors: don't ack, will retry

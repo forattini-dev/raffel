@@ -5,7 +5,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createChannelManager } from '../../src/channels/channel-manager.js'
 import type { ChannelOptions, ChannelMember } from '../../src/channels/types.js'
-import { createContext } from '../../src/types/index.js'
+import type { ChannelPresencePort } from '../../src/ports/outbound/channel-presence.js'
+import { createAuthContext, createContext } from '../../src/types/index.js'
 
 describe('ChannelManager', () => {
   const mockSend = vi.fn()
@@ -19,10 +20,10 @@ describe('ChannelManager', () => {
     })
   })
 
-  function createTestContext(auth?: { authenticated: boolean; principal?: string }) {
+  function createTestContext(auth?: Parameters<typeof createAuthContext>[0]) {
     const ctx = createContext('test-request')
     if (auth) {
-      return { ...ctx, auth }
+      return { ...ctx, auth: createAuthContext(auth) }
     }
     return ctx
   }
@@ -257,6 +258,23 @@ describe('ChannelManager', () => {
       })
     })
 
+    it('should derive presence member userId from typed principal', async () => {
+      const manager = createChannelManager(presenceOptions, mockSend)
+      const ctx = createTestContext({
+        authenticated: true,
+        principal: {
+          type: 'user',
+          id: 'user-typed',
+          roles: ['member'],
+        },
+      })
+
+      const result = await manager.subscribe('socket-1', 'presence-lobby', ctx)
+
+      expect(result.success).toBe(true)
+      expect(result.members?.[0]?.userId).toBe('user-typed')
+    })
+
     it('should return all members on subscribe', async () => {
       const manager = createChannelManager(presenceOptions, mockSend)
       const ctx1 = createTestContext({ authenticated: true, principal: 'user-1' })
@@ -363,6 +381,34 @@ describe('ChannelManager', () => {
       expect(result.success).toBe(true)
       expect(result.members).toHaveLength(1)
       expect(sentMessages).toHaveLength(0) // No duplicate notifications
+    })
+
+    it('uses a custom ChannelPresencePort when provided', async () => {
+      const members = new Map<string, ChannelMember>()
+      const presence: ChannelPresencePort = {
+        getMembers: () => Array.from(members.values()),
+        getMember: (_channel, socketId) => members.get(socketId),
+        getMemberCount: () => members.size,
+        addMember: (_channel, member) => {
+          members.set(member.id, member)
+        },
+        removeMember: (_channel, socketId) => {
+          members.delete(socketId)
+        },
+        hasMember: (_channel, socketId) => members.has(socketId),
+      }
+
+      const manager = createChannelManager(presenceOptions, mockSend, presence)
+      const ctx = createTestContext({ authenticated: true, principal: 'user-1' })
+
+      await manager.subscribe('socket-1', 'presence-lobby', ctx)
+
+      expect(members.has('socket-1')).toBe(true)
+      expect(manager.getMemberCount('presence-lobby')).toBe(1)
+
+      manager.unsubscribe('socket-1', 'presence-lobby')
+
+      expect(members.size).toBe(0)
     })
   })
 

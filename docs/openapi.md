@@ -4,6 +4,28 @@ Generate OpenAPI 3.0/3.1 specifications from your Raffel server. The generator
 automatically creates paths for procedures, streams, and events with proper
 schemas, tags, and error responses.
 
+In the current Raffel DEVX flow, OpenAPI is part of the same runtime-driven
+tooling loop as:
+
+- `server.preview()`
+- `raffel inspect`
+- `raffel doctor`
+- `raffel contract-tests`
+- `createMockServer(...)`
+
+If the HTTP surface in the document looks wrong, fix the runtime graph or the
+server contract first. Do not patch the generated spec manually as the main
+workflow.
+
+## Inspection-First Workflow
+
+```bash
+raffel inspect src/server.ts
+raffel doctor src/server.ts --fail-on warning
+```
+
+Then generate or serve OpenAPI/USD from the same server.
+
 ## Basic Usage
 
 ```ts
@@ -25,6 +47,28 @@ await server.start()
 // Generate OpenAPI document (available after enableUSD)
 const document = server.getOpenAPIDocument()
 ```
+
+## Use OpenAPI To Start Mock Endpoints
+
+You can feed the generated document directly into Raffel's spec-driven mock
+server.
+
+```ts
+import { createMockServer } from 'raffel'
+
+const document = server.getOpenAPIDocument()
+if (!document) {
+  throw new Error('OpenAPI document is not available')
+}
+
+await createMockServer({
+  spec: document,
+  port: 4100,
+})
+```
+
+That gives you mock HTTP endpoints derived from the same contract that powers
+`/docs/openapi.json`, Swagger/ReDoc, and contract automation.
 
 If you want to generate OpenAPI without enabling USD, use the generator directly:
 
@@ -62,6 +106,8 @@ const json = generateOpenAPIJson(registry, schemaRegistry, options)
 // YAML string (for /openapi.yaml endpoint)
 const yaml = generateOpenAPIYaml(registry, schemaRegistry, options)
 ```
+
+See [Mock Server](/mock-server.md) for the full OpenAPI/USD mock workflow.
 
 ## Generator Options
 

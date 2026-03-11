@@ -4,9 +4,26 @@
  * Single entry point for multi-protocol Raffel server.
  */
 
-export { createServer } from './builder.js'
+export { createServer } from '../bootstrap/create-server.js'
 export { createRouterModule } from './router-module.js'
 export { loadRouterModule, pathToRouteName } from './route-discovery.js'
+export {
+  buildRuntimeInspectionGraph,
+  serializeRuntimeInspectionGraph,
+  loadRuntimeInspectionPreview,
+  createSchemaExample,
+  createSchemaInvalidExample,
+  explainRuntimeInspectionSubject,
+  buildRuntimeInspectionDoctorReport,
+  formatRuntimeInspectionGraph,
+  formatRuntimeInspectionExplanation,
+  formatRuntimeInspectionDoctorReport,
+  buildRuntimeContractTestSuite,
+  formatRuntimeContractTestSuite,
+  createRuntimePlaygroundSnapshot,
+  createRuntimePlaygroundServer,
+  startRuntimePlayground,
+} from '../inspect/index.js'
 export type {
   // Server
   ServerOptions,
@@ -38,7 +55,7 @@ export type {
   RouterModule,
   MountOptions,
 
-  // HTTP Routes (Hono-style)
+  // HTTP Routes
   HttpRouteHandler,
   HttpRouteOptions,
 
@@ -83,6 +100,25 @@ export type {
   ErrorHook,
   GlobalHooksConfig,
 } from './types.js'
+export type {
+  RuntimeInspectionGraph,
+  RuntimeInspectionDiagnostic,
+  RuntimeInspectionOperation,
+  RuntimeInspectionService,
+  RuntimeInspectionChannel,
+  RuntimeInspectionTransport,
+  RuntimeInspectionOperationRegistration,
+  RuntimeInspectionDoctorReport,
+  RuntimeInspectionExplanation,
+  RuntimeInspectionLoadOptions,
+  LoadedRuntimeInspectionPreview,
+  RuntimeContractTestCase,
+  RuntimeContractTestSuite,
+  RuntimePlaygroundEntry,
+  RuntimePlaygroundSnapshot,
+  RuntimePlaygroundSessionView,
+  RuntimePlaygroundServer,
+} from '../inspect/index.js'
 export type {
   RouteKind,
   RouteDefinition,
@@ -259,6 +295,11 @@ export type {
 export type {
   ProtocolSniffer,
   ProtocolDecisionPayload,
+  ProtocolFusionDecision,
+  ProtocolFusionState,
+  ProtocolFusionMode,
+  ProtocolFusionLayer,
+  ProtocolFusionOutcome,
   ProtocolSnifferContext,
   SinglePortProtocolKind,
   SinglePortDecisionReason,

@@ -6,6 +6,7 @@
  */
 
 import type { JSONSchema7 } from 'json-schema'
+import type { ContractPolicies } from '../../types/policies.js'
 
 // =============================================================================
 // Core USD Document
@@ -341,6 +342,9 @@ export interface USDOperation {
 
   /** Code samples in multiple languages (rendered by Redoc and compatible UIs) */
   'x-codeSamples'?: USDCodeSample[]
+
+  /** Raffel-specific contract-bound policies attached to this operation */
+  'x-raffel-policies'?: ContractPolicies
 }
 
 export interface USDParameter {

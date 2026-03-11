@@ -49,6 +49,21 @@ createServer({
 | `keepAliveInterval` | number | `30000` | TCP keep-alive interval in ms (0 to disable) |
 | `contextFactory` | function | - | Custom context factory per socket |
 
+## Playground Support
+
+`raffel playground src/server.ts --port 4301` can:
+
+- invoke TCP request/event bindings directly
+- open TCP stream bindings as live sessions
+- open raw TCP handlers as live sessions, reusing their framing metadata
+- inspect framed envelopes returned by the adapter without switching to a raw socket client
+
+This is driven from the same runtime inspection graph used by `raffel inspect`,
+so TCP entries show up beside HTTP, gRPC, JSON-RPC, and WebSocket surfaces.
+Raw handlers also show up in `raffel explain`, including delimiter or
+length-prefixed framing details, so the developer can understand what the
+playground session is going to speak before opening a socket.
+
 ## USD Documentation Metadata
 
 Provide `docs` metadata on handlers to generate TCP sections in USD:

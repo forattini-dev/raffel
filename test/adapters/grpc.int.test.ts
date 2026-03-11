@@ -110,6 +110,37 @@ describe('gRPC adapter', () => {
     expect(response).toEqual({ message: 'Hello, Ana!' })
   })
 
+  it('maps gRPC metadata into canonical runtime context', async () => {
+    protoPath = await createTempProto()
+
+    const registry = createRegistry()
+    registry.procedure('demo.Raffel.Greet', async (_input: { name: string }, ctx) => {
+      return {
+        message: `${ctx.input.metadata.authorization}:${ctx.grpc?.method}:${ctx.protocol}`,
+      }
+    })
+
+    const router = createRouter(registry)
+    adapter = createGrpcAdapter(router, { port: 0, protoPath })
+    await adapter.start()
+
+    const address = adapter.address!
+    client = createClient(protoPath, `${address.host}:${address.port}`)
+
+    const metadata = new grpc.Metadata()
+    metadata.set('authorization', 'Bearer test-token')
+    metadata.set('x-request-id', 'grpc-meta-test')
+
+    const response = await new Promise<any>((resolve, reject) => {
+      ;(client as any).Greet({ name: 'Ana' }, metadata, (err: Error | null, res: any) => {
+        if (err) reject(err)
+        else resolve(res)
+      })
+    })
+
+    expect(response).toEqual({ message: 'Bearer test-token:Greet:grpc' })
+  })
+
   it('handles server streaming', async () => {
     protoPath = await createTempProto()
 

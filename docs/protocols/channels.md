@@ -27,8 +27,8 @@ const server = createServer({
         return ctx.auth?.authenticated ?? false
       },
       presenceData: (socketId, channel, ctx) => ({
-        userId: ctx.auth?.principal,
-        name: ctx.auth?.claims?.name,
+        userId: ctx.auth?.principalId,
+        name: typeof ctx.auth?.principal === 'object' ? ctx.auth.principal.claims?.name : undefined,
       }),
     },
   },
@@ -39,6 +39,10 @@ await server.start()
 
 If you provide `authorize`, it runs for every channel (including public). Return
 `true` for public channels you want to allow.
+
+Use `raffel playground src/server.ts` to test subscribe/publish flows and
+inspect channel events from the same runtime graph used by `inspect` and
+`doctor`.
 
 ## Channel Types
 
@@ -103,9 +107,9 @@ const server = createServer({
 
       // Presence data generator (for presence channels)
       presenceData: (socketId, channel, ctx) => ({
-        userId: ctx.auth?.principal,
-        name: ctx.auth?.claims?.name,
-        avatar: ctx.auth?.claims?.avatar,
+        userId: ctx.auth?.principalId,
+        name: typeof ctx.auth?.principal === 'object' ? ctx.auth.principal.claims?.name : undefined,
+        avatar: typeof ctx.auth?.principal === 'object' ? ctx.auth.principal.claims?.avatar : undefined,
         status: 'online',
       }),
 
@@ -177,7 +181,7 @@ server.procedure('chat.send')
   }))
   .handler(async (input, ctx) => {
     server.channels?.broadcast(input.channel, 'message', {
-      from: ctx.auth?.principal,
+      from: ctx.auth?.principalId,
       text: input.text,
       timestamp: Date.now(),
     })

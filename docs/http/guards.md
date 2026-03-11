@@ -23,12 +23,15 @@ import { createGuardsRegistry } from 'raffel/http'
 
 const guards = createGuardsRegistry()
 
-guards.register('isOwner', (c) => c.get('user')?.id === c.req.param('id'))
+guards.register('isOwner', (c) => c.runtime?.auth.principalId === c.req.param('id'))
 
-guards.register('isVerified', (c) => c.get('user')?.verified === true)
+guards.register('isVerified', (c) => Boolean(c.get('auth')?.claims?.verified))
 
 app.delete('/users/:id', guards.all('isOwner', 'isVerified'), deleteHandler)
 ```
+
+Prefer canonical auth (`c.runtime?.auth` or `c.get('auth')`) for new code. `c.get('user')`
+remains a compatibility path for legacy middleware.
 
 ---
 

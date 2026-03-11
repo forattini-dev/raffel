@@ -1,114 +1,186 @@
-# Single-Port Protocol Detection
+# Shared-Port Protocol Fusion
 
-Raffel includes a **single-port detection** subsystem that automatically identifies the protocol of a TCP connection from the first bytes received — without requiring dedicated ports per protocol.
+Raffel treats shared-port protocol fusion as a primary runtime mode.
+The transport entrypoint can classify the first bytes of a TCP connection,
+route supported protocols to the right handler, and reject blocked traffic
+with structured diagnostics.
 
-This is useful for:
-- Servers that need to accept multiple protocols on the same port
-- Environments with firewall restrictions (only one port exposed)
-- Proxies and load balancers that forward mixed traffic
-
----
-
-## How it works
-
-When a new connection is received, the system reads the first bytes (`sniffMaxBytes`, default 4096) and applies detectors in priority order:
-
-| Order | Detector | Detected protocol |
-|:------|:---------|:------------------|
-| 1 | TLS ClientHello (`0x16 0x03...`) | `tls` |
-| 2 | HTTP/2 preface (`PRI * HTTP/2.0...`) | `http2` |
-| 3 | TCP length-prefix frame (uint32 BE) | `tcp` |
-| 4 | HTTP method prefix (`GET`, `POST`, etc.) | `http` |
-| 5 | Text protocol (printable + line break) | `tcp` |
-| 6 | Custom sniffers (pluggable) | any |
-
-If no detector matches, returns `unknown`.
+`sharedPort` is the canonical configuration name.
+`singlePort` and `enableSinglePort()` remain available as legacy aliases.
 
 ---
 
-## Configuration via `createServer`
+## Runtime Model
+
+When both layers are enabled, Raffel evaluates protocol fusion in two stages:
+
+```text
+TCP socket
+  -> shared-port classifier
+  -> HTTP parser (when protocol = http)
+  -> front-door router
+  -> procedure / stream / event runtime
+```
+
+- `sharedPort`: transport-layer classification from the first bytes on the socket
+- `frontDoor`: HTTP-layer routing across `http`, `websocket`, `jsonrpc`, and `graphql`
+- `server.getProtocolFusionState()`: inspection API for recent decisions and rejections
+
+---
+
+## Configure Shared-Port
 
 ```typescript
 import { createServer } from 'raffel'
 
 const server = createServer({
   port: 3000,
+  sharedPort: {
+    enabled: true,
+    protocols: ['http', 'tcp'],
+    sniffMaxBytes: 2048,
+    sniffTimeoutMs: 100,
+  },
+  frontDoor: {
+    enabled: true,
+    protocols: ['http', 'websocket', 'jsonrpc', 'graphql'],
+  },
+  websocket: { path: '/ws' },
+  jsonrpc: { path: '/rpc' },
+  graphql: { path: '/graphql' },
+})
+```
+
+### `sharedPort` options
+
+| Option | Type | Default | Description |
+|:-------|:-----|:--------|:------------|
+| `enabled` | boolean | `false` | Enables shared-port transport fusion |
+| `protocolFusion` | boolean | same as `enabled` | Legacy alias for `enabled` |
+| `protocols` | string[] | (all) | Allowlist of accepted transport protocols |
+| `sniffMaxBytes` | number | `4096` | Maximum bytes consumed for classification |
+| `sniffTimeoutMs` | number | `75` | Timeout to read the first chunk |
+| `maxConcurrentDetections` | number | `256` | Maximum concurrent classifications |
+| `sniffers` | `ProtocolSniffer[]` | `[]` | Custom detectors executed after built-ins |
+| `cert` | `string \| Buffer` | - | TLS certificate for terminated listeners |
+| `key` | `string \| Buffer` | - | TLS private key |
+| `alpn` | `string[]` | `[]` | ALPN values for TLS handshakes |
+
+Legacy equivalent:
+
+```typescript
+createServer({
+  port: 3000,
   singlePort: {
     enabled: true,
-    // Restrict accepted protocols (allowlist)
-    protocols: ['http', 'websocket', 'tls'],
-    // Maximum bytes for sniffing (default: 4096)
-    sniffMaxBytes: 2048,
-    // Timeout to read the first chunk (default: 75ms)
-    sniffTimeoutMs: 100,
-    // Maximum concurrent detections (default: 256)
-    maxConcurrentDetections: 128,
   },
 })
 ```
 
-### `singlePort` options
+---
 
-| Option | Type | Default | Description |
-|:-------|:-----|:--------|:------------|
-| `enabled` | boolean | `false` | Enables single-port detection |
-| `protocolFusion` | boolean | same as `enabled` | Legacy alias for `enabled` |
-| `protocols` | string[] | (all) | Allowlist of accepted protocols |
-| `sniffMaxBytes` | number | `4096` | Bytes consumed for detection |
-| `sniffTimeoutMs` | number | `75` | Timeout (ms) to read the first chunk |
-| `maxConcurrentDetections` | number | `256` | Maximum simultaneous detections |
-| `sniffers` | ProtocolSniffer[] | `[]` | Additional custom sniffers |
-| `cert` | string/Buffer | — | TLS certificate (for termination) |
-| `key` | string/Buffer | — | TLS private key |
-| `alpn` | string[] | `[]` | ALPN protocols for TLS |
+## Inspect Mode And Decisions
+
+Preview the resolved runtime mode before startup:
+
+```typescript
+const preview = server.previewConfig()
+
+console.log(preview.protocolFusion.mode)
+// 'disabled' | 'front-door' | 'shared-port' | 'front-door+shared-port'
+
+console.log(preview.sharedPort.enabled)
+console.log(preview.frontDoor.enabled)
+console.log(preview.sharedPort.sniffers)
+```
+
+Inspect recent runtime decisions after startup:
+
+```typescript
+await server.start()
+
+const state = server.getProtocolFusionState()
+
+console.log(state.mode)
+console.log(state.entrypoint)
+console.log(state.recentDecisions)
+```
+
+Example decision payload:
+
+```typescript
+{
+  timestamp: '2026-03-11T06:00:00.000Z',
+  mode: 'front-door+shared-port',
+  entrypoint: 'tcp',
+  layer: 'shared-port',
+  protocol: 'http',
+  outcome: 'route',
+  reason: 'matched',
+  detector: 'http-method',
+  bytesRead: 128,
+  target: { host: '0.0.0.0', port: 3000 }
+}
+```
+
+Rejected traffic keeps the detected protocol when possible. For example, HTTP
+traffic blocked by `sharedPort.protocols` is reported as `protocol: 'http'`
+with `outcome: 'reject'`, not as a generic unknown protocol.
+
+The inspection graph and `raffel doctor` also surface protocol-fusion
+diagnostics, including:
+
+- the active fusion mode
+- HTTP-family traffic blocked by `sharedPort.protocols`
+- custom sniffer names carried by the preview
+- front-door offload protocols such as `tcp`, `udp`, and `grpc`
 
 ---
 
-## Low-level API
+## Built-In Detection Order
 
-The detection functions can be used directly, outside the builder:
+| Order | Detector | Protocol |
+|:------|:---------|:---------|
+| 1 | TLS ClientHello (`0x16 0x03...`) | `tls` |
+| 2 | HTTP/2 preface (`PRI * HTTP/2.0...`) | `http2` |
+| 3 | Length-prefixed binary frame | `tcp` |
+| 4 | HTTP method prefix (`GET`, `POST`, etc.) | `http` |
+| 5 | Printable text frame with line break | `tcp` |
+| 6 | Custom sniffers | custom |
+
+If no detector matches, Raffel records a fallback decision and rejects the
+connection deterministically when no protocol can be routed.
+
+---
+
+## Low-Level Detector APIs
 
 ```typescript
 import {
   detectSinglePortProtocolFromChunk,
   detectSinglePortProtocolFromStream,
+  getSinglePortConcurrencyState,
   SinglePortRegistry,
 } from 'raffel'
-
-// Detect from an already available Buffer
-const result = detectSinglePortProtocolFromChunk({
-  chunk: Buffer.from('GET / HTTP/1.1\r\n...'),
-  // Filter accepted protocols (optional)
-  protocols: ['http', 'tls'],
-  sniffMaxBytes: 4096,
-})
-
-console.log(result.protocol)   // 'http'
-console.log(result.detector)   // 'http-method'
-console.log(result.reason)     // 'matched'
-console.log(result.elapsedMs)  // time spent
-console.log(result.bytesRead)  // bytes inspected
 ```
 
 ```typescript
-// Detect from an async stream (with timeout)
-const result = await detectSinglePortProtocolFromStream({
-  readChunk: () => socket.once('data'),
-  sniffTimeoutMs: 75,
-  sniffMaxBytes: 4096,
+const decision = detectSinglePortProtocolFromChunk({
+  chunk: Buffer.from('GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n'),
+  protocols: ['http', 'tls'],
 })
 
-if (result.timedOut) {
-  console.log('Timeout reading the first chunk')
-}
+console.log(decision.protocol)  // 'http'
+console.log(decision.detector)  // 'http-method'
+console.log(decision.reason)    // 'matched'
 ```
 
 ### `ProtocolDecisionPayload`
 
 ```typescript
 interface ProtocolDecisionPayload {
-  protocol: SinglePortProtocolKind   // 'http' | 'tls' | 'http2' | 'tcp' | 'websocket' | 'jsonrpc' | 'unknown'
-  detector: string                   // name of the detector that identified it
+  protocol: SinglePortProtocolKind
+  detector: string
   reason: 'matched' | 'unsupported' | 'unknown' | 'timeout' | 'concurrency_limit'
   elapsedMs: number
   bytesRead: number
@@ -116,44 +188,16 @@ interface ProtocolDecisionPayload {
 }
 ```
 
----
-
-## SinglePortRegistry
-
-To create a custom protocol dispatcher, use `SinglePortRegistry`:
-
-```typescript
-import { SinglePortRegistry } from 'raffel'
-
-const registry = new SinglePortRegistry()
-
-// Register handlers by protocol
-registry.register('http', async (socket) => {
-  // pass socket to the HTTP server
-})
-
-registry.register('tls', async (socket) => {
-  // start TLS handshake
-})
-
-// Look up a handler
-const handler = registry.get('http')
-if (handler) {
-  await handler(socket)
-}
-
-// List registered protocols
-const { protocols } = registry.snapshot()
-// ['http', 'tls']
-```
+`reason: 'unsupported'` means a protocol was detected but blocked by policy or
+by the current shared-port configuration.
 
 ---
 
 ## Protocol Aliases
 
-To simplify configuration, single-port accepts protocol aliases:
+`sharedPort` and `frontDoor` both support alias expansion:
 
-### `standard` mode (default)
+### `standard` mode
 
 | Alias | Final protocol |
 |:------|:---------------|
@@ -164,7 +208,7 @@ To simplify configuration, single-port accepts protocol aliases:
 
 ### `extended` mode
 
-Includes all standard mode aliases, plus:
+Includes `standard`, plus:
 
 | Alias | Final protocol |
 |:------|:---------------|
@@ -172,52 +216,36 @@ Includes all standard mode aliases, plus:
 | `ftp`, `whois`, `telnet` | `tcp` |
 
 ```typescript
-const server = createServer({
+createServer({
   port: 3000,
-  singlePort: {
+  protocolAliasMode: 'extended',
+  sharedPort: {
     enabled: true,
-    protocols: ['https', 'ws', 'rpc'], // aliases are expanded
+    protocols: ['icmp', 'ftp'],
   },
-  protocolAliasMode: 'extended', // enables extra aliases
 })
-```
-
----
-
-## Monitor concurrency
-
-```typescript
-import { getSinglePortConcurrencyState } from 'raffel'
-
-const state = getSinglePortConcurrencyState()
-console.log(state.activeDetections)   // detections in progress
-console.log(state.concurrencyLimit)   // configured limit
 ```
 
 ---
 
 ## Custom Sniffers
 
-For custom protocols, implement the `ProtocolSniffer` interface:
-
 ```typescript
-import { createServer } from 'raffel'
 import type { ProtocolSniffer } from 'raffel'
 
 const mqttSniffer: ProtocolSniffer = {
   name: 'mqtt',
   detect({ chunk }) {
-    // MQTT CONNECT: byte 0 = 0x10
     if (chunk.length >= 2 && chunk[0] === 0x10) {
-      return 'tcp' // route to the TCP adapter
+      return 'tcp'
     }
     return null
   },
 }
 
-const server = createServer({
+createServer({
   port: 3000,
-  singlePort: {
+  sharedPort: {
     enabled: true,
     sniffers: [mqttSniffer],
   },
@@ -226,14 +254,14 @@ const server = createServer({
 
 ---
 
-## Relationship with Front-Door
+## Shared-Port vs Front-Door
 
-Single-port and Front-Door are complementary:
+| Capability | Layer | Responsibility |
+|:-----------|:------|:---------------|
+| `sharedPort` | TCP transport | Classify the socket from the first bytes |
+| `frontDoor` | HTTP application | Route parsed HTTP traffic across shared HTTP protocols |
 
-| Feature | Layer | Purpose |
-|:--------|:------|:--------|
-| **Single-Port** | Transport (TCP) | Detects protocol from the initial bytes of the socket |
-| **Front-Door** | Application (HTTP) | Routes already-parsed HTTP requests by application protocol |
-
-Use single-port when you want to multiplex protocols on a single TCP listener.
-Use front-door when you want to control which application protocols (WebSocket, JSON-RPC, GraphQL) share the HTTP port.
+Use `sharedPort` when one TCP listener must accept mixed transports.
+Use `frontDoor` when one HTTP listener must host multiple HTTP-native protocols.
+Use both when you want a single public port with inspectable protocol-fusion
+diagnostics across the entire entrypoint.

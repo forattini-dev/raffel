@@ -8,10 +8,10 @@ import type { Registry } from '../../core/registry.js'
 import type { SchemaRegistry, HandlerSchema } from '../../validation/index.js'
 import type { USDPaths, USDOperation, USDParameter, USDResponses, USDSchema, USDHeader } from '../../usd/index.js'
 import type { LoadedRestResource } from '../../server/fs-routes/index.js'
-import type { HttpMethod } from '../../types/index.js'
+import type { HttpMethod, ContractPolicies } from '../../types/index.js'
 import {
   convertSchema,
-  createSchemaRegistry,
+  createDocSchemaRegistry,
   generateSchemaName,
   createRef,
   createErrorSchema,
@@ -85,7 +85,7 @@ export function generateHttpPaths(
 
   const paths: USDPaths = {}
   const tags = new Set<string>()
-  const schemaRegistry = createSchemaRegistry()
+  const schemaRegistry = createDocSchemaRegistry()
 
   // Add standard error schemas
   if (includeErrorResponses) {
@@ -215,7 +215,7 @@ export function generateHttpPaths(
  * Create operation for a procedure
  */
 function createProcedureOperation(
-  meta: { name: string; summary?: string; description?: string },
+  meta: { name: string; summary?: string; description?: string; policies?: ContractPolicies },
   handlerSchema: HandlerSchema | undefined,
   schemaRegistry: ConvertedSchemaRegistry,
   tags: string[] | undefined,
@@ -232,6 +232,7 @@ function createProcedureOperation(
     description: meta.description,
     tags,
     responses: createProcedureResponses(meta.name, handlerSchema, schemaRegistry, includeErrorResponses),
+    ...(meta.policies && { 'x-raffel-policies': meta.policies }),
   }
 
   // Extract parameters from input schema based on path and naming conventions

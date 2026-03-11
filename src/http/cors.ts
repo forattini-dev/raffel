@@ -1,7 +1,7 @@
 /**
  * CORS Middleware
  *
- * Cross-Origin Resource Sharing middleware compatible with hono/cors.
+ * Cross-Origin Resource Sharing middleware for Raffel HTTP handlers.
  * Handles preflight requests and sets appropriate CORS headers.
  *
  * @example

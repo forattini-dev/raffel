@@ -87,7 +87,7 @@ export {
 
   // Schema converter
   convertSchema,
-  createSchemaRegistry,
+  createDocSchemaRegistry,
   isZodSchema,
   isJsonSchema,
   convertAndRegister,

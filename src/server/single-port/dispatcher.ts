@@ -50,8 +50,11 @@ function normalizeSinglePortProtocols(
     .map((protocol) => normalizeSinglePortProtocol(protocol))
     .filter((protocol) => protocol.length > 0)
     .map((protocol) => aliases[protocol as keyof typeof aliases] ?? protocol)
-
-  return normalized.length > 0 ? new Set(normalized) : null
+  const allowed = normalized.length > 0 ? new Set(normalized) : null
+  if (allowed?.has('grpc')) {
+    allowed.add('http2')
+  }
+  return allowed
 }
 
 function isProtocolAllowed(protocol: string, allowedProtocols: Set<string> | null): boolean {
@@ -60,6 +63,22 @@ function isProtocolAllowed(protocol: string, allowedProtocols: Set<string> | nul
   }
 
   return allowedProtocols.has(protocol)
+}
+
+function finalizeDetectedProtocol(
+  protocol: SinglePortProtocolKind,
+  detector: string,
+  startedAt: number,
+  bytesRead: number,
+  allowedProtocols: Set<string> | null
+): ProtocolDecisionPayload {
+  return createDecision(
+    protocol,
+    detector,
+    isProtocolAllowed(protocol, allowedProtocols) ? 'matched' : 'unsupported',
+    Date.now() - startedAt,
+    bytesRead
+  )
 }
 
 function createDecision(
@@ -162,24 +181,24 @@ export function detectSinglePortProtocolFromChunk(
     )
   }
 
-  if (isTlsClientHello(chunk) && isProtocolAllowed('tls', allowedProtocols)) {
-    return createDecision('tls', 'tls', 'matched', Date.now() - startedAt, bytesRead)
+  if (isTlsClientHello(chunk)) {
+    return finalizeDetectedProtocol('tls', 'tls', startedAt, bytesRead, allowedProtocols)
   }
 
-  if (isHttp2Preface(chunk) && isProtocolAllowed('http2', allowedProtocols)) {
-    return createDecision('http2', 'http2-preface', 'matched', Date.now() - startedAt, bytesRead)
+  if (isHttp2Preface(chunk)) {
+    return finalizeDetectedProtocol('http2', 'http2-preface', startedAt, bytesRead, allowedProtocols)
   }
 
-  if (isLikelyTcpFrame(chunk) && isProtocolAllowed('tcp', allowedProtocols)) {
-    return createDecision('tcp', 'tcp-length-prefix', 'matched', Date.now() - startedAt, bytesRead)
+  if (isLikelyTcpFrame(chunk)) {
+    return finalizeDetectedProtocol('tcp', 'tcp-length-prefix', startedAt, bytesRead, allowedProtocols)
   }
 
-  if (looksLikeHttp(chunk) && isProtocolAllowed('http', allowedProtocols)) {
-    return createDecision('http', 'http-method', 'matched', Date.now() - startedAt, bytesRead)
+  if (looksLikeHttp(chunk)) {
+    return finalizeDetectedProtocol('http', 'http-method', startedAt, bytesRead, allowedProtocols)
   }
 
-  if (isLikelyTextProtocolFrame(chunk) && isProtocolAllowed('tcp', allowedProtocols)) {
-    return createDecision('tcp', 'text-protocol', 'matched', Date.now() - startedAt, bytesRead)
+  if (isLikelyTextProtocolFrame(chunk)) {
+    return finalizeDetectedProtocol('tcp', 'text-protocol', startedAt, bytesRead, allowedProtocols)
   }
 
   const sniffers = input.sniffers ?? []
@@ -190,8 +209,14 @@ export function detectSinglePortProtocolFromChunk(
       context: input.context,
     })
 
-    if (result && isProtocolAllowed(normalizeSinglePortProtocol(result), allowedProtocols)) {
-      return createDecision(result, `sniffer:${sniffer.name}`, 'matched', Date.now() - startedAt, bytesRead)
+    if (result) {
+      return finalizeDetectedProtocol(
+        normalizeSinglePortProtocol(result) as SinglePortProtocolKind,
+        `sniffer:${sniffer.name}`,
+        startedAt,
+        bytesRead,
+        allowedProtocols
+      )
     }
   }
 

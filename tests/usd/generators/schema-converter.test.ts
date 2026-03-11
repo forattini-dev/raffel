@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import { z } from 'zod'
 
 import {
-  createSchemaRegistry,
+  createDocSchemaRegistry,
   isZodSchema,
   isJsonSchema,
   convertSchema,
@@ -373,15 +373,15 @@ describe('Schema Converter', () => {
     })
   })
 
-  describe('createSchemaRegistry', () => {
+  describe('createDocSchemaRegistry', () => {
     it('should create empty registry', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       assert.ok(registry.schemas instanceof Map)
       assert.equal(registry.schemas.size, 0)
     })
 
     it('should add JSON schema to registry', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       const schema = { type: 'object', properties: { name: { type: 'string' } } }
       const result = registry.add('User', schema)
 
@@ -391,7 +391,7 @@ describe('Schema Converter', () => {
     })
 
     it('should add multiple schemas', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       registry.add('User', { type: 'object', properties: { name: { type: 'string' } } })
       registry.add('Post', { type: 'object', properties: { title: { type: 'string' } } })
 
@@ -401,14 +401,14 @@ describe('Schema Converter', () => {
     })
 
     it('should create $ref for named schema', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       const ref = registry.ref('User')
 
       assert.deepEqual(ref, { $ref: '#/components/schemas/User' })
     })
 
     it('should convert to object', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       registry.add('User', { type: 'object', properties: { name: { type: 'string' } } })
       registry.add('Post', { type: 'object', properties: { title: { type: 'string' } } })
 
@@ -420,13 +420,13 @@ describe('Schema Converter', () => {
     })
 
     it('should return empty object when empty', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       const obj = registry.toObject()
       assert.deepEqual(obj, {})
     })
 
     it('should overwrite schema with same name', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       registry.add('User', { type: 'object', properties: { name: { type: 'string' } } })
       registry.add('User', { type: 'object', properties: { email: { type: 'string' } } })
 
@@ -439,7 +439,7 @@ describe('Schema Converter', () => {
 
   describe('convertAndRegister', () => {
     it('should convert and add schema to registry', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       const schema = { type: 'object', properties: { name: { type: 'string' } } }
 
       const result = convertAndRegister(registry, 'User', schema)
@@ -449,7 +449,7 @@ describe('Schema Converter', () => {
     })
 
     it('should return the converted schema', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
       const schema = { type: 'string', format: 'email' }
 
       const result = convertAndRegister(registry, 'Email', schema)
@@ -863,7 +863,7 @@ describe('Schema Converter', () => {
     })
 
     it('should handle tree structures with refs', () => {
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
 
       // Add Node schema
       registry.add('Node', {
@@ -895,7 +895,7 @@ describe('Schema Converter', () => {
 
     it('should work with full workflow', () => {
       // Create registry
-      const registry = createSchemaRegistry()
+      const registry = createDocSchemaRegistry()
 
       // Define schemas (JSON Schema format)
       const userSchema = {

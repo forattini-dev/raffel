@@ -16,7 +16,8 @@
 import { createSocket, type Socket as UdpSocket, type RemoteInfo } from 'node:dgram'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, EnvelopeType, Context } from '../types/index.js'
+import type { Envelope, EnvelopeType, Context, ContextSeed } from '../types/index.js'
+import { mergeContextSeeds } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
@@ -62,7 +63,7 @@ export interface UdpAdapterOptions {
   ackTimeout?: number
 
   /** Context factory for creating request context */
-  contextFactory?: (rinfo: RemoteInfo) => Partial<Context>
+  contextFactory?: (rinfo: RemoteInfo) => ContextSeed | Promise<ContextSeed>
 
   /** Inbound connection filter — controls which source IPs may send datagrams */
   filter?: ConnectionFilter
@@ -253,19 +254,33 @@ export function createUdpAdapter(
 
     const requestId = parsed.id !== undefined ? String(parsed.id) : sid()
     const abortController = new AbortController()
+    const metadata = sanitizeMetadataRecord(parsed.metadata as Record<string, unknown> | undefined)
 
     // Build context
-    const ctx = createContext(requestId, {
-      ...options.contextFactory?.(rinfo),
-      signal: abortController.signal,
-    })
+    const ctx = createContext(requestId, mergeContextSeeds(
+      {
+        signal: abortController.signal,
+        protocol: 'udp',
+        input: {
+          body: parsed.payload ?? {},
+          metadata,
+        },
+        udp: {
+          kind: 'udp',
+          remoteAddress: rinfo.address,
+          remotePort: rinfo.port,
+          remoteFamily: rinfo.family,
+        },
+      },
+      await options.contextFactory?.(rinfo)
+    ))
 
     const envelope: Envelope = {
       id: requestId,
       procedure: String(parsed.procedure),
       type: String(parsed.type) as EnvelopeType,
       payload: parsed.payload ?? {},
-      metadata: sanitizeMetadataRecord(parsed.metadata as Record<string, unknown> | undefined),
+      metadata,
       context: ctx,
     }
 

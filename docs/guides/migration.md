@@ -3,9 +3,12 @@
 API mapping reference for teams moving an existing project to Raffel.
 Each section covers import changes, API equivalents, and a before/after example.
 
+For the capability-based runtime context and the official DEVX golden path, see
+[DEVX Migration](/guides/devx-migration.md).
+
 - [From Express](#from-express)
 - [From Fastify](#from-fastify)
-- [From Hono](#from-hono)
+- [From Fetch-first routers](#from-fetch-first-routers)
 - [WebSocket: from `ws`](#websocket-from-ws)
 - [WebSocket: from Socket.IO](#websocket-from-socketio)
 
@@ -415,15 +418,16 @@ pnpm remove @fastify/swagger @fastify/swagger-ui
 
 ---
 
-## From Hono
+## From Fetch-first Routers
 
-Raffel's `HttpApp` shares the same routing API and middleware signature as Hono.
-Most code can be migrated by changing import paths alone.
+If your current router already thinks in `Request`/`Response` style handlers,
+the conceptual mapping into Raffel is shallow. The important difference is that
+Raffel treats HTTP as the front door of a larger runtime, not the whole product.
 
 ### Import changes
 
-| Hono | Raffel |
-|------|--------|
+| Example source | Raffel |
+|---------------|--------|
 | `import { Hono } from 'hono'` | `import { HttpApp } from 'raffel/http'` |
 | `import { serve } from '@hono/node-server'` | `import { serve } from 'raffel/http'` |
 | `import { cors } from 'hono/cors'` | `import { cors } from 'raffel/http'` |
@@ -432,11 +436,12 @@ Most code can be migrated by changing import paths alone.
 
 ### Routes, middleware, context
 
-All Hono methods map 1:1: `get`, `post`, `put`, `patch`, `delete`, `options`, `head`, `all`, `on`,
-`use`, `route`, `notFound`, `onError`.
+Most Fetch-first router concepts map directly: `get`, `post`, `put`, `patch`,
+`delete`, `options`, `head`, `all`, `on`, `use`, `route`, `notFound`, and `onError`.
 
-Context API is identical: `c.req.param()`, `c.req.query()`, `c.req.header()`, `c.req.json()`,
-`c.json()`, `c.html()`, `c.text()`, `c.redirect()`, `c.get()`, `c.set()`, `c.var`.
+Context concepts are similar: `c.req.param()`, `c.req.query()`, `c.req.header()`,
+`c.req.json()`, `c.json()`, `c.html()`, `c.text()`, `c.redirect()`, `c.get()`,
+`c.set()`, and `c.var`.
 
 ### serve() callback → onListen option
 

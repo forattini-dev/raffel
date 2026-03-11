@@ -211,6 +211,7 @@ export function buildProtocolConfig(options: ProtocolBuildOptions): ProtocolConf
     protocols.grpc = {
       enabled: true,
       options: grpc,
+      shared: false,
       frontDoor: useFrontDoor,
       strategy: useFrontDoor ? strategyFor('grpc', 'offload') : strategyFor('grpc', 'native'),
     }

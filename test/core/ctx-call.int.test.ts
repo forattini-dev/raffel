@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { createRouter, RaffelError } from '../../src/core/router.js'
 import { createRegistry } from '../../src/core/registry.js'
 import type { Envelope, Context, ProcedureHandler, Interceptor } from '../../src/types/index.js'
-import { createContext } from '../../src/types/index.js'
+import { CONTRACT_POLICY_METADATA_KEY, createAuthContext, createContext } from '../../src/types/index.js'
 
 function createEnvelope(
   procedure: string,
@@ -155,7 +155,67 @@ describe('ctx.call()', () => {
         authenticated: true,
         principal: 'user-123',
         claims: { role: 'admin' },
+        principalId: 'user-123',
+        roles: [],
+        scopes: [],
+        tenantId: undefined,
+        require: expect.any(Function),
+        hasRole: expect.any(Function),
+        hasScope: expect.any(Function),
       })
+    })
+
+    it('should preserve typed auth and drop transport capabilities on nested calls', async () => {
+      const registry = createRegistry()
+      let capturedCtx: Context | undefined
+
+      registry.procedure('inner', async (_input, ctx) => {
+        capturedCtx = ctx
+        return {
+          principalId: ctx.auth.principalId,
+          principal: ctx.auth.require(),
+          protocol: ctx.protocol,
+          hasHttp: Boolean(ctx.http),
+        }
+      })
+
+      registry.procedure('outer', async (_input, ctx) => ctx.call!('inner', {}))
+
+      const context = createContext('req-typed', {
+        auth: createAuthContext({
+          authenticated: true,
+          principal: {
+            type: 'user',
+            id: 'user-123',
+            roles: ['admin'],
+          },
+        }),
+        protocol: 'http',
+        http: {
+          kind: 'http',
+          method: 'GET',
+          path: '/users/123',
+          url: 'http://localhost/users/123',
+          headers: {},
+        },
+      })
+
+      const router = createRouter(registry)
+      const result = await router.handle(createEnvelope('outer', {}, context))
+
+      expect('type' in result && result.type === 'response').toBe(true)
+      const payload = (result as Envelope).payload as {
+        principalId: string
+        principal: { type: string; id: string; roles?: string[] }
+        protocol?: string
+        hasHttp: boolean
+      }
+
+      expect(payload.principalId).toBe('user-123')
+      expect(payload.principal).toMatchObject({ type: 'user', id: 'user-123', roles: ['admin'] })
+      expect(payload.protocol).toBe('internal')
+      expect(payload.hasHttp).toBe(false)
+      expect(capturedCtx?.http).toBeUndefined()
     })
 
     it('should propagate tracing context', async () => {
@@ -183,6 +243,56 @@ describe('ctx.call()', () => {
       await router.handle(createEnvelope('outer', {}, context))
 
       expect(capturedTracing.traceId).toBe('trace-abc')
+    })
+
+    it('should propagate request metadata and policy context to nested calls', async () => {
+      const registry = createRegistry()
+      let capturedMetadata: Record<string, string> | undefined
+      let capturedContract: Context['contract'] | undefined
+
+      const captureMetadata: Interceptor = async (envelope, ctx, next) => {
+        capturedMetadata = { ...envelope.metadata }
+        capturedContract = ctx.contract
+        return next()
+      }
+
+      registry.procedure('inner', async () => ({ ok: true }), {
+        interceptors: [captureMetadata],
+      })
+
+      registry.procedure(
+        'outer',
+        async (_input, ctx) => ctx.call!('inner', {}),
+        {
+          policies: {
+            auth: { mode: 'required' },
+            timeout: { timeoutMs: 1000 },
+            rateLimit: { windowMs: 60000, maxRequests: 10 },
+          },
+        }
+      )
+
+      const context = createContext('policy-request-id', {
+        deadline: Date.now() + 5000,
+      })
+      ;(context as any).auth = {
+        authenticated: true,
+        principal: 'user-123',
+        claims: { roles: ['admin'] },
+      }
+
+      const router = createRouter(registry)
+      await router.handle(createEnvelope('outer', {}, context))
+
+      expect(capturedMetadata?.['x-request-id']).toBe('policy-request-id')
+      expect(capturedMetadata?.['x-deadline']).toBeDefined()
+      expect(capturedMetadata?.[CONTRACT_POLICY_METADATA_KEY]).toBeDefined()
+      expect(capturedContract?.name).toBe('inner')
+      expect(capturedContract?.policyContext).toMatchObject({
+        auth: { mode: 'required' },
+        timeout: { timeoutMs: 1000 },
+        rateLimit: { windowMs: 60000, maxRequests: 10 },
+      })
     })
   })
 

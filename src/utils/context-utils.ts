@@ -2,7 +2,7 @@
  * Shared context utilities for protocol adapters.
  */
 
-import type { Context } from '../types/index.js'
+import type { Context, ContextSeed } from '../types/index.js'
 import { createContext } from '../types/context.js'
 
 /**
@@ -12,7 +12,7 @@ import { createContext } from '../types/context.js'
  */
 export function createAbortableContext(
   requestId: string,
-  overrides: Partial<Context> | undefined,
+  overrides: ContextSeed | undefined,
   abortController: AbortController
 ): Context {
   const { signal: upstreamSignal, ...rest } = overrides ?? {}
@@ -33,6 +33,15 @@ export function createAbortableContext(
 
   return createContext(
     requestId,
-    { ...(rest as Partial<Omit<Context, 'requestId' | 'extensions'>>), signal: abortController.signal }
+    { ...rest, signal: abortController.signal }
   )
+}
+
+export async function createAbortableContextAsync(
+  requestId: string,
+  overrides: ContextSeed | Promise<ContextSeed> | undefined,
+  abortController: AbortController
+): Promise<Context> {
+  const resolvedOverrides = overrides ? await overrides : undefined
+  return createAbortableContext(requestId, resolvedOverrides, abortController)
 }

@@ -366,14 +366,14 @@ const server = createServer({
 
 ---
 
-## Single-Port Detection
+## Shared-Port Protocol Fusion
 
 Serve every protocol on one port — Raffel sniffs the first bytes to detect the protocol:
 
 ```typescript
 const server = createServer({
   port: 3000,
-  singlePort: {
+  sharedPort: {
     enabled: true,
     protocols: ['http', 'tls', 'websocket', 'tcp'],
     sniffMaxBytes: 2048,

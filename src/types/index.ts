@@ -23,18 +23,56 @@ export {
 export type {
   Context,
   AuthContext,
+  AuthPrincipal,
+  AuthRequirement,
+  Principal,
   TracingContext,
+  ContextSeed,
+  ContextInput,
+  ContextLogger,
+  ProtocolKind,
+  HttpContextCapability,
+  WebSocketContextCapability,
+  JsonRpcContextCapability,
+  GraphQLContextCapability,
+  GrpcContextCapability,
+  TcpContextCapability,
+  UdpContextCapability,
+  StreamContextCapability,
   ExtensionKey,
   CallFunction,
 } from './context.js'
 export {
+  ContextAuthError,
+  createAuthContext,
   createContext,
+  getAuthRoles,
+  getAuthScopes,
+  getPrincipalId,
+  isTypedPrincipal,
+  mergeContextSeeds,
+  stripTransportCapabilities,
   withDeadline,
   withAuth,
   withExtension,
   getExtension,
   createExtensionKey,
 } from './context.js'
+
+export type {
+  ContractAuthPolicy,
+  ContractTimeoutPolicy,
+  ContractRateLimitPolicy,
+  ContractPolicies,
+  ContractContext,
+} from './policies.js'
+export {
+  CONTRACT_POLICY_METADATA_KEY,
+  normalizeContractPolicies,
+  mergeContractPolicies,
+  serializeContractPolicies,
+  parseContractPolicies,
+} from './policies.js'
 
 // Handler types
 export type {
