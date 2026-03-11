@@ -8,10 +8,13 @@
 - **Guides**
   - [REST API](/guides/rest-api.md)
   - [Authentication](/guides/auth.md)
+  - [Multi-Protocol Service](/guides/multi-protocol-service.md)
   - **Migration**
     - [From Express](/guides/migration.md#from-express)
     - [From Fastify](/guides/migration.md#from-fastify)
-    - [From Hono](/guides/migration.md#from-hono)
+    - [From Fetch-first Routers](/guides/migration.md#from-fetch-first-routers)
+    - [DEVX Golden Path](/guides/devx-migration.md)
+    - [Protocol Fusion](/guides/protocol-fusion-migration.md)
 
 - **Handler Types**
   - [Procedures (RPC)](/handlers/procedures.md)
@@ -27,7 +30,7 @@
   - [GraphQL](/protocols/graphql.md)
   - [TCP](/protocols/tcp.md)
   - [UDP](/protocols/udp.md)
-  - [Single-Port Detection](/single-port.md)
+  - [Shared-Port Fusion](/single-port.md)
 
 - **Interceptors**
   - [Overview](/interceptors.md)
@@ -61,6 +64,7 @@
 
 - **HTTP Module**
   - [Overview](/http/overview.md)
+  - [Routing Contract](/http/routing.md)
   - [Middleware](/http/middleware.md)
   - [Guards](/http/guards.md)
   - [Static Files](/http/static.md)
@@ -72,6 +76,8 @@
   - [Schemas](/schemas.md)
   - [Cache Drivers](/cache.md)
   - [OpenAPI](/openapi.md)
+  - [Mock Server](/mock-server.md)
+  - [JSON Server](/json-server.md)
   - [USD Spec](/usd.md)
 
 - **Developer Experience**

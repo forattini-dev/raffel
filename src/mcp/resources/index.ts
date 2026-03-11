@@ -33,6 +33,9 @@ const GUIDE_TOPIC_ALIASES: Record<string, string> = {
   'quick-start': 'quickstart',
   'quick-start-guide': 'quickstart',
   'quick-start-doc': 'quickstart',
+  'mock': 'mock-server',
+  'json-server': 'mock-server',
+  'jsonserver': 'mock-server',
   'universal-service-documentation': 'usd',
   'unified-service-documentation': 'usd',
   'unified-service-doc': 'usd',
@@ -87,8 +90,82 @@ function refreshGuideResources(): void {
     {
       topic: 'migration',
       name: 'Migration Guide',
-      description: 'Migrating from Express, Fastify, Hono, ws, or Socket.IO to Raffel',
+      description: 'Migrating from Express, Fastify, Fetch-first routers, ws, or Socket.IO to Raffel',
       content: MIGRATION_GUIDE,
+    },
+    {
+      topic: 'mock-server',
+      name: 'Mock Server Guide',
+      description: 'Spec-driven mock server from OpenAPI/USD, JSON data server, and CLI usage',
+      content: `# Mock Server
+
+Raffel ships with two mock server modes accessible via CLI and programmatic API.
+
+## CLI
+
+\`\`\`bash
+# From OpenAPI spec (local or remote URL)
+raffel mock petstore.yaml
+raffel mock https://petstore3.swagger.io/api/v3/openapi.json -p 4000
+
+# From JSON data file (full CRUD json-server)
+raffel mock db.json
+raffel mock db.json --readonly --ws --jsonrpc
+raffel mock db.json --watch
+\`\`\`
+
+Auto-detection: files with \`openapi\`/\`paths\` keys → spec mock; plain JSON with arrays → json-server.
+
+## Programmatic: OpenAPI Mock
+
+\`\`\`typescript
+import { createMockServer } from 'raffel'
+
+const { server, routes } = await createMockServer({
+  spec: './openapi.yaml',
+  port: 4000,
+  validateRequests: true,
+  protocols: { ws: true, jsonrpc: true },
+})
+\`\`\`
+
+Responses resolved: example → named examples → schema.example → generated fake data.
+Mutations (POST/PUT/PATCH) merge request body over template.
+
+## Programmatic: JSON Server
+
+\`\`\`typescript
+import { createJsonServer } from 'raffel'
+
+const { server, store } = await createJsonServer({
+  db: {
+    posts: [{ id: 1, title: 'Hello' }],
+    users: [{ id: 1, name: 'Alice' }],
+  },
+  port: 3000,
+})
+// GET/POST/PUT/PATCH/DELETE /posts[/:id]
+// WebSocket: posts.list, posts.get, posts.create, posts.$watch
+\`\`\`
+
+## Mountable Modules
+
+Both modes support mounting into existing servers:
+
+\`\`\`typescript
+import { createServer, createMockModule, createJsonModule } from 'raffel'
+
+const mock = createMockModule(openapiSpec)
+const json = createJsonModule({ posts: [{ id: 1, title: 'Test' }] })
+
+const server = createServer({
+  port: 3000,
+  http: { middleware: [mock.middleware, json.middleware] },
+})
+  .mount('mock', mock.module)
+  .mount('data', json.module)
+\`\`\`
+`,
     },
     {
       topic: 'usd',
@@ -592,17 +669,17 @@ Package replacements:
 | \`@fastify/static\` | \`serveStatic\` from \`raffel/http\` |
 | \`@fastify/swagger\` + \`@fastify/swagger-ui\` | \`mountOpenApiDocs\` from \`raffel/http\` |
 
-## From Hono (drop-in replacement)
+## From Fetch-first Routers
 
-Raffel's \`HttpApp\` is a drop-in replacement — same routing API, same middleware signature, same context.
+Raffel's \`HttpApp\` uses familiar Fetch-style routing and middleware concepts, but it remains the HTTP front door of a larger multi-transport runtime.
 
 \`\`\`typescript
-// Before (Hono)                             // After (Raffel)
+// Before (router-first stack)               // After (Raffel)
 import { Hono } from 'hono'                  import { HttpApp } from 'raffel/http'
 import { serve } from '@hono/node-server'    import { serve } from 'raffel/http'
 import { cors } from 'hono/cors'             import { cors } from 'raffel/http'
 const app = new Hono()                       const app = new HttpApp()
-// All routes and middleware: IDENTICAL
+// Map routes and middleware concepts, then reuse contracts across transports
 
 // @hono/swagger-ui
 import { swaggerUI } from '@hono/swagger-ui' import { mountOpenApiDocs } from 'raffel/http'

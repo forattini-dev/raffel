@@ -532,6 +532,41 @@ export const tools: MCPTool[] = [
     },
   },
   {
+    name: 'raffel_mock_server',
+    description:
+      'Generate code to start a mock server from an OpenAPI spec or JSON data file. Supports CLI usage (`raffel mock`) and programmatic API (`createMockServer`, `createJsonServer`).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mode: {
+          type: 'string',
+          description: 'Mock server mode',
+          enum: ['spec', 'data', 'cli'],
+          default: 'cli',
+        },
+        source: {
+          type: 'string',
+          description: 'Spec file path, URL, or JSON data file path (for CLI examples)',
+        },
+        standalone: {
+          type: 'boolean',
+          description: 'Standalone server (true) or mountable module (false)',
+          default: true,
+        },
+        protocols: {
+          type: 'array',
+          description: 'Extra protocols to enable',
+          items: { type: 'string', enum: ['ws', 'jsonrpc'] },
+        },
+        port: {
+          type: 'number',
+          description: 'Server port',
+          default: 3000,
+        },
+      },
+    },
+  },
+  {
     name: 'raffel_version',
     description: 'Get Raffel version information and check compatibility with project dependencies.',
     inputSchema: {
@@ -575,6 +610,7 @@ export const toolCategories = {
     'raffel_api_patterns',
     'raffel_explain_error',
     'raffel_implement_auth',
+    'raffel_mock_server',
   ],
   codegen: [
     'raffel_create_server',
@@ -588,6 +624,7 @@ export const toolCategories = {
     'raffel_api_endpoint_blueprint',
     'raffel_runtime_config',
     'raffel_boilerplate',
+    'raffel_mock_server',
   ],
   architecture: [
     'raffel_project_blueprint',

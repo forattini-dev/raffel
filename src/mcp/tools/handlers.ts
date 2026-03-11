@@ -1073,14 +1073,15 @@ const tracer = createTracer({
     structure += `└─ index.ts\n`
 
     let setupPlan = ''
-    setupPlan += `1) Create core server entry in \`src/index.ts\` with \`createServer()\`.\n`
-    setupPlan += `2) Add environment loading from \`src/config/env.ts\`.\n`
-    setupPlan += `3) Build shared middleware stack in \`src/plugins/middleware.ts\`.\n`
+    setupPlan += `1) Start from \`raffel new api ${safeName}\` or the closest official preset.\n`
+    setupPlan += `2) Move environment loading into \`src/config/env.ts\`.\n`
+    setupPlan += `3) Build the shared middleware stack in \`src/plugins/middleware.ts\`.\n`
     setupPlan += `4) Register domain modules from \`src/modules/\`.\n`
     setupPlan += `5) Add integrations (database, cache, streams, observability).\n`
-    setupPlan += `6) Add tests for one happy path and one error path per module.\n`
+    setupPlan += `6) Run \`raffel inspect\`, \`raffel doctor\`, \`raffel playground\`, and \`raffel contract-tests\` before first release.\n`
 
-    let starterCode = `import { createServer } from 'raffel'\n`
+    let starterCode = `// Prefer: npx raffel new api ${safeName}\n\n`
+    starterCode += `import { createServer } from 'raffel'\n`
     starterCode += `import { createRouterModule } from 'raffel'\n`
     starterCode += `import { createServerConfig } from './config/env.js'\n`
     starterCode += `import { errorMiddleware, loggerMiddleware } from './plugins/middleware/index.js'\n`
@@ -1440,16 +1441,18 @@ const tracer = createTracer({
       switch (method) {
         case 'list':
           code += `    .handler(async (input, ctx) => {\n`
-          code += `      if (!ctx.db?.${name}?.findMany) {\n`
+          code += `      const services = ctx.services as { ${name}?: { findMany?: () => Promise<unknown[]> } }\n`
+          code += `      if (!services.${name}?.findMany) {\n`
           code += `        return []\n`
           code += `      }\n`
-          code += `      return await ctx.db.${name}.findMany()\n`
+          code += `      return await services.${name}.findMany()\n`
           code += `    })\n\n`
           break
         case 'get':
           code += `    .input(z.object({ id: z.string() }))\n`
           code += `    .handler(async ({ id }, ctx) => {\n`
-          code += `      const item = await ctx.db.${name}.findUnique({ where: { id } })\n`
+          code += `      const services = ctx.services as { ${name}: { findUnique(args: { where: { id: string } }): Promise<unknown> } }\n`
+          code += `      const item = await services.${name}.findUnique({ where: { id } })\n`
           code += `      if (!item) throw new RaffelError('NOT_FOUND', \`\${id} not found\`)\n`
           code += `      return item\n`
           code += `    })\n\n`
@@ -1457,19 +1460,22 @@ const tracer = createTracer({
         case 'create':
           code += `    .input(Create${name.charAt(0).toUpperCase() + name.slice(1)}Input)\n`
           code += `    .handler(async (input, ctx) => {\n`
-          code += `      return await ctx.db.${name}.create({ data: input })\n`
+          code += `      const services = ctx.services as { ${name}: { create(args: { data: unknown }): Promise<unknown> } }\n`
+          code += `      return await services.${name}.create({ data: input })\n`
           code += `    })\n\n`
           break
         case 'update':
           code += `    .input(Update${name.charAt(0).toUpperCase() + name.slice(1)}Input)\n`
           code += `    .handler(async ({ id, ...data }, ctx) => {\n`
-          code += `      return await ctx.db.${name}.update({ where: { id }, data })\n`
+          code += `      const services = ctx.services as { ${name}: { update(args: { where: { id: string }, data: Record<string, unknown> }): Promise<unknown> } }\n`
+          code += `      return await services.${name}.update({ where: { id }, data })\n`
           code += `    })\n\n`
           break
         case 'delete':
           code += `    .input(z.object({ id: z.string() }))\n`
           code += `    .handler(async ({ id }, ctx) => {\n`
-          code += `      await ctx.db.${name}.delete({ where: { id } })\n`
+          code += `      const services = ctx.services as { ${name}: { delete(args: { where: { id: string } }): Promise<unknown> } }\n`
+          code += `      await services.${name}.delete({ where: { id } })\n`
           code += `      return { success: true }\n`
           code += `    })\n\n`
           break
@@ -1589,7 +1595,7 @@ const tracer = createTracer({
         md += `  })\n\n`
         md += `  server.procedure('users.me').handler(async (_input, ctx) => {\n`
         md += `    requireAuth(ctx)\n`
-        md += `    return { userId: ctx.auth!.principal, email: ctx.auth!.claims?.email }\n`
+        md += `    return { userId: ctx.auth!.principalId, roles: ctx.auth!.roles }\n`
         md += `  })\n`
         md += `}\n\`\`\`\n\n`
         md += `## Step 4 — Server setup (src/server.ts)\n\`\`\`typescript\n`
@@ -1932,6 +1938,138 @@ const tracer = createTracer({
     md += `- Events with delivery guarantees\n`
     md += `- Metrics (Prometheus) and Tracing (OpenTelemetry)\n`
     md += `- Pusher-like pub/sub channels\n`
+
+    return text(md)
+  },
+
+  raffel_mock_server: async (args) => {
+    const mode = String(args.mode || 'cli')
+    const source = String(args.source || 'openapi.yaml')
+    const standalone = args.standalone !== false
+    const protocols = (args.protocols as string[]) || []
+    const port = Number(args.port) || 3000
+
+    let md = `# Raffel Mock Server\n\n`
+
+    if (mode === 'cli') {
+      md += `## CLI Usage\n\n`
+      md += `The \`raffel mock\` command auto-detects the source type and starts the appropriate server.\n\n`
+      md += `### From OpenAPI spec\n\n`
+      md += '```bash\n'
+      md += `raffel mock ${source} -p ${port}\n`
+      md += '```\n\n'
+      md += `### From remote URL\n\n`
+      md += '```bash\n'
+      md += `raffel mock https://petstore3.swagger.io/api/v3/openapi.json -p ${port}\n`
+      md += '```\n\n'
+      md += `### From JSON data file (json-server mode)\n\n`
+      md += '```bash\n'
+      md += `raffel mock db.json -p ${port}\n`
+      md += '```\n\n'
+      md += `### All options\n\n`
+      md += '```\n'
+      md += `raffel mock <source> [options]\n\n`
+      md += `  -p, --port <port>       Server port (default: 3000)\n`
+      md += `  --host <host>           Bind address (default: 0.0.0.0)\n`
+      md += `  -d, --delay <ms>        Simulate network latency\n`
+      md += `  --readonly              Disable writes (data mode)\n`
+      md += `  --no-validate           Skip request validation (spec mode)\n`
+      md += `  --ws                    Enable WebSocket\n`
+      md += `  --jsonrpc               Enable JSON-RPC on /rpc\n`
+      md += `  --id-key <field>        Record ID field (default: id)\n`
+      md += `  -w, --watch             Watch file for changes\n`
+      md += '```\n\n'
+      md += `### Auto-detection rules\n\n`
+      md += `| Content | Mode |\n`
+      md += `|---------|------|\n`
+      md += `| Has \`openapi\`/\`swagger\`/\`paths\` key | OpenAPI → mock responses |\n`
+      md += `| Has \`operations\` key | USD → multi-protocol mock |\n`
+      md += `| Object with array values | JSON data → CRUD json-server |\n`
+      md += `| URL (\`http://\`/\`https://\`) | Remote fetch → spec mode |\n`
+      return text(md)
+    }
+
+    if (mode === 'data') {
+      md += `## JSON Server (Data Mode)\n\n`
+      if (standalone) {
+        md += '```typescript\n'
+        md += `import { createJsonServer } from 'raffel'\n\n`
+        md += `const { server, store } = await createJsonServer({\n`
+        md += `  db: {\n`
+        md += `    posts: [\n`
+        md += `      { id: 1, title: 'Hello World', userId: 1 },\n`
+        md += `    ],\n`
+        md += `    users: [\n`
+        md += `      { id: 1, name: 'Alice' },\n`
+        md += `    ],\n`
+        md += `  },\n`
+        md += `  port: ${port},\n`
+        if (protocols.includes('jsonrpc')) md += `  protocols: { ws: true, jsonrpc: true },\n`
+        md += `})\n\n`
+        md += `// HTTP REST:\n`
+        md += `// GET    /posts         → list with ?_sort=&_order=&_page=&_limit=&_q=\n`
+        md += `// GET    /posts/:id     → get by id\n`
+        md += `// POST   /posts         → create\n`
+        md += `// PUT    /posts/:id     → replace\n`
+        md += `// PATCH  /posts/:id     → update\n`
+        md += `// DELETE /posts/:id     → delete\n`
+        md += `//\n`
+        md += `// WebSocket: posts.list, posts.get, posts.create, posts.$watch (real-time)\n`
+        md += '```\n'
+      } else {
+        md += '```typescript\n'
+        md += `import { createServer, createJsonModule } from 'raffel'\n\n`
+        md += `const { module, middleware, store } = createJsonModule({\n`
+        md += `  posts: [{ id: 1, title: 'Hello' }],\n`
+        md += `})\n\n`
+        md += `const server = createServer({\n`
+        md += `  port: ${port},\n`
+        md += `  http: { middleware: [middleware] },\n`
+        md += `})\n`
+        md += `  .enableWebSocket('/ws')\n`
+        md += `  .mount('', module)\n\n`
+        md += `await server.start()\n`
+        md += '```\n'
+      }
+      return text(md)
+    }
+
+    // mode === 'spec'
+    md += `## OpenAPI/USD Mock Server\n\n`
+    if (standalone) {
+      md += '```typescript\n'
+      md += `import { createMockServer } from 'raffel'\n\n`
+      md += `const { server, routes } = await createMockServer({\n`
+      md += `  spec: '${source}',\n`
+      md += `  port: ${port},\n`
+      md += `  validateRequests: true,\n`
+      if (protocols.length > 0) {
+        md += `  protocols: { ${protocols.map((p) => `${p}: true`).join(', ')} },\n`
+      }
+      md += `})\n\n`
+      md += `console.log(\`Mock server with \${routes.length} routes\`)\n`
+      md += '```\n'
+    } else {
+      md += '```typescript\n'
+      md += `import { createServer, createMockModule } from 'raffel'\n\n`
+      md += `const mock = createMockModule(openapiSpec)\n\n`
+      md += `const server = createServer({\n`
+      md += `  port: ${port},\n`
+      md += `  http: { middleware: [mock.middleware] },\n`
+      md += `})\n`
+      if (protocols.includes('ws')) md += `  .enableWebSocket('/ws')\n`
+      if (protocols.includes('jsonrpc')) md += `  .enableJsonRpc('/rpc')\n`
+      md += `  .mount('', mock.module)\n\n`
+      md += `await server.start()\n`
+      md += '```\n'
+    }
+
+    md += `\n### Response Resolution Order\n\n`
+    md += `1. \`content[application/json].example\`\n`
+    md += `2. First named example under \`examples\`\n`
+    md += `3. \`schema.example\`\n`
+    md += `4. Generated fake data from schema\n`
+    md += `\nFor mutations (POST/PUT/PATCH), request body is merged over the template.\n`
 
     return text(md)
   },
