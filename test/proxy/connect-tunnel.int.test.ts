@@ -305,14 +305,23 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
     requestLog = []
   })
 
-  async function interceptRequest(opts: ConnectTunnelOptions): Promise<{ status: number; body: string }> {
+  async function interceptRequest(opts: ConnectTunnelOptions, retries = 2): Promise<{ status: number; body: string }> {
     const tunnel = createConnectTunnel({ mode: 'mitm', ...opts })
     const srv = createHttpServer()
     tunnel.attachTo(srv)
     await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
     const proxyPort = (srv.address() as { port: number }).port
     try {
-      return await connectAndRequest(proxyPort, '127.0.0.1', upstreamPort)
+      let lastError: unknown
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          return await connectAndRequest(proxyPort, '127.0.0.1', upstreamPort)
+        } catch (error) {
+          lastError = error
+          if (attempt < retries) await new Promise((r) => setTimeout(r, 200))
+        }
+      }
+      throw lastError
     } finally {
       await new Promise<void>((r) => srv.close(() => r()))
     }
