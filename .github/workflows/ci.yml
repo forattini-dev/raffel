@@ -36,8 +36,13 @@ jobs:
 
       - name: Type Check & Build
         run: |
+          pnpm run check:boundaries
           pnpm run typecheck
           pnpm run build
+
+      - name: Run Benchmark Gates
+        if: matrix.node-version == 22
+        run: pnpm run bench:ci
 
       - name: Run Tests
         run: pnpm test

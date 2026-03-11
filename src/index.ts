@@ -4,6 +4,19 @@
  * One core, multiple transports.
  */
 
+// === Ports (Hexagonal Architecture Boundaries) ===
+export type {
+  LoggerPort,
+  LoggerFactory,
+  LogData,
+  CacheStore,
+  ChannelPresencePort,
+} from './ports/index.js'
+// Note: SessionStore, SessionData, Session, RateLimitDriver, RateLimitRecord,
+// CacheDriver, CacheEntry, CacheGetResult, CacheStats, EventDeliveryStore,
+// ValidatorAdapter, ValidationResult, ValidationErrorDetails are already
+// exported from their respective modules below.
+
 // === Stream ===
 export { createStream } from './stream/index.js'
 export type {
@@ -199,6 +212,8 @@ export {
   serializeRuntimeInspectionService,
   serializeRuntimeInspectionChannel,
   serializeRuntimeInspectionDiagnostic,
+  serializeRuntimeInspectionSchema,
+  serializeRuntimeInspectionPolicies,
   loadRuntimeInspectionPreview,
   createSchemaExample,
   createSchemaInvalidExample,
@@ -870,3 +885,27 @@ export type {
   MockServerResult,
   ResolvedParam,
 } from './mock-server/index.js'
+export { runMockCommand, mockParser } from './mock-server/cli.js'
+
+// === Application Layer (Hexagonal) ===
+export { createRegistrationService } from './application/index.js'
+export type { RegistrationService, RegistrationContext } from './application/index.js'
+export { createRuntimePreviewService } from './application/index.js'
+export type { RuntimePreviewService } from './application/index.js'
+export { buildServerConfigPreview, emitConfigWarnings, logSinglePortConfig, getConfigWarnings, resolveProtocolFusionMode } from './application/index.js'
+export type {
+  ServerConfigPreview,
+  ServerConfigPreviewContext,
+  ProtocolConfig,
+  ProtocolPreviewConfig,
+  FrontDoorTransport,
+} from './application/index.js'
+
+// === Bootstrap Layer (Hexagonal) ===
+// createServer is already exported from ./server/index.js above.
+export { buildProtocolConfig, resolveSinglePortConfig } from './bootstrap/config-normalization.js'
+export { createProtocolWiring, createServerLifecycle } from './bootstrap/protocol-wiring.js'
+export type { ServerLifecycleContext } from './bootstrap/protocol-wiring.js'
+
+// === Outbound Adapters (Hexagonal) ===
+export { createPinoLoggerAdapter, pinoLoggerFactory } from './adapters/outbound/logger/index.js'

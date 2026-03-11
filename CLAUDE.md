@@ -9,13 +9,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The core is **protocol-agnostic**: it receives normalized messages (Envelope) and returns responses or streams. HTTP, gRPC, WebSocket, and TCP are just adapters that translate to/from the Envelope.
 
-## Architecture
+## Architecture (Hexagonal)
 
 ```
-[Client] → [Adapter HTTP/WS/gRPC/TCP] → [Envelope] → [Router] → [Handler]
-                                                         ↓
-[Client] ← [Adapter HTTP/WS/gRPC/TCP] ← [Envelope] ← [Router] ←
+┌─────────────────────────────────────────────────────────┐
+│ bootstrap/          (composition root)                   │
+│   create-server · config-normalization · protocol-wiring │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ application/      (orchestration)                   │  │
+│  │   registration · lifecycle · discovery · preview    │  │
+│  │                                                     │  │
+│  │  ┌──────────────────────────────────────────────┐  │  │
+│  │  │ core/           (domain — zero external deps) │  │  │
+│  │  │   Registry · Router · Envelope · EventDelivery│  │  │
+│  │  └──────────────────────────────────────────────┘  │  │
+│  │  ┌──────────────────────────────────────────────┐  │  │
+│  │  │ ports/outbound/  (interfaces only)            │  │  │
+│  │  │   LoggerPort · SessionStore · CacheDriver     │  │  │
+│  │  │   RateLimitDriver · ValidatorAdapter          │  │  │
+│  │  │   EventDeliveryStore · ChannelPresencePort    │  │  │
+│  │  └──────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  adapters/inbound/     adapters/outbound/                │
+│    http · websocket      session/{memory,redis}          │
+│    grpc · tcp · udp      rate-limit/{memory,redis,fs}    │
+│    jsonrpc               cache/{memory,file,redis}       │
+│                          logger/pino                     │
+└─────────────────────────────────────────────────────────┘
 ```
+
+### Boundary Rules
+
+1. `core/` has zero imports from adapters/, bootstrap/, application/
+2. `application/` depends on core/ and ports/ — never on concrete outbound adapters
+3. `ports/` defines interfaces only — no implementation logic
+4. `bootstrap/` is the composition root — wires everything together
 
 ### Core Abstractions
 
@@ -40,32 +70,27 @@ The core is **protocol-agnostic**: it receives normalized messages (Envelope) an
 
 ```bash
 pnpm install          # Install dependencies
-pnpm test             # Run tests (not configured yet)
+pnpm vitest run       # Run all tests
+pnpm tsc --noEmit     # Type-check without emitting
 ```
+
+## Key Directories
+
+| Directory | Purpose |
+|:----------|:--------|
+| `src/core/` | Domain logic (Registry, Router, EventDelivery) |
+| `src/ports/outbound/` | Port interfaces (LoggerPort, SessionStore, etc.) |
+| `src/application/` | Orchestration (registration, lifecycle, discovery) |
+| `src/bootstrap/` | Composition root (createServer, config, wiring) |
+| `src/adapters/inbound/` | Protocol adapters (HTTP, WS, gRPC, TCP, UDP, JSON-RPC) |
+| `src/adapters/outbound/` | Driver implementations (session, cache, rate-limit, logger) |
+| `src/server/` | Builder, router-module, handler-builders, types |
+| `src/http/` | Standalone HttpApp (Hono-compatible) |
+| `src/middleware/` | Protocol-agnostic interceptors |
+| `src/channels/` | Pusher-like channel management |
+| `src/validation/` | Multi-validator support (Zod, Yup, Joi, AJV) |
 
 ## Documentation
 
+- **docs/architecture.md** - Full architecture docs with hexagonal diagram
 - **docs/CORE_MODEL.md** - Complete core model specification
-
-## Reference Implementations
-
-The `node_modules/` directory contains cloned reference implementations:
-
-| Category | Repos |
-|----------|-------|
-| HTTP Frameworks | express, fastify, hono, koa, polka |
-| WebSocket | ws, uWebSockets.js, rpc-websockets |
-| gRPC | grpc-node, protobuf.js |
-| Serialization | msgpack-javascript, node-cbor |
-| Streaming | streams, length-prefixed-stream |
-| Realtime | livekit, mediasoup |
-
-## Development Roadmap
-
-1. ~~Define core model (Envelope, Context, abstractions)~~
-2. Define schema/validation
-3. Implement RaffelStream
-4. Implement Router + Registry
-5. Implement HTTP adapter
-6. Implement WebSocket adapter
-7. MVP: same handler exposed via HTTP + WS

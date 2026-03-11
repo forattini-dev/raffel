@@ -41,3 +41,4 @@ pnpm-debug.log*
 # Temp
 tmp/
 temp/
+.tmp-scaffold-debug-*/

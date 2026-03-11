@@ -1,3 +1,18 @@
+/**
+ * Adapters — Protocol & Infrastructure Adapters
+ *
+ * This barrel re-exports from both inbound/ (protocol adapters) and the
+ * legacy flat paths for backward compatibility.
+ *
+ * Canonical import paths:
+ * - Inbound (protocol):  'raffel/adapters/inbound'
+ * - Outbound (drivers):  'raffel/adapters/outbound'
+ *
+ * @deprecated Import from 'adapters/inbound' or 'adapters/outbound' for hexagonal clarity.
+ */
+
+// === Inbound Adapters (protocol → Envelope) ===
+
 // WebSocket adapter
 export { createWebSocketAdapter } from './websocket.js'
 export type { WebSocketAdapter, WebSocketAdapterOptions } from './websocket.js'

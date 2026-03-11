@@ -6,6 +6,8 @@
  */
 
 import type { Context } from '../types/index.js'
+import { getPrincipalId } from '../types/index.js'
+import type { ChannelPresencePort } from '../ports/outbound/channel-presence.js'
 import type {
   ChannelOptions,
   ChannelManager,
@@ -19,6 +21,46 @@ import { getChannelType } from './types.js'
  * Function to send a message to a socket
  */
 export type SendToSocketFn = (socketId: string, message: unknown) => void
+
+function createInMemoryChannelPresencePort(): ChannelPresencePort {
+  const membersByChannel = new Map<string, Map<string, ChannelMember>>()
+
+  function getOrCreateMembers(channel: string): Map<string, ChannelMember> {
+    let members = membersByChannel.get(channel)
+    if (!members) {
+      members = new Map()
+      membersByChannel.set(channel, members)
+    }
+    return members
+  }
+
+  return {
+    getMembers(channel: string): ChannelMember[] {
+      const members = membersByChannel.get(channel)
+      return members ? Array.from(members.values()) : []
+    },
+    getMember(channel: string, socketId: string): ChannelMember | undefined {
+      return membersByChannel.get(channel)?.get(socketId)
+    },
+    getMemberCount(channel: string): number {
+      return membersByChannel.get(channel)?.size ?? 0
+    },
+    addMember(channel: string, member: ChannelMember): void {
+      getOrCreateMembers(channel).set(member.id, member)
+    },
+    removeMember(channel: string, socketId: string): void {
+      const members = membersByChannel.get(channel)
+      if (!members) return
+      members.delete(socketId)
+      if (members.size === 0) {
+        membersByChannel.delete(channel)
+      }
+    },
+    hasMember(channel: string, socketId: string): boolean {
+      return membersByChannel.get(channel)?.has(socketId) ?? false
+    },
+  }
+}
 
 /**
  * Create a channel manager instance
@@ -48,7 +90,8 @@ export type SendToSocketFn = (socketId: string, message: unknown) => void
  */
 export function createChannelManager(
   options: ChannelOptions,
-  sendToSocket: SendToSocketFn
+  sendToSocket: SendToSocketFn,
+  presence: ChannelPresencePort = createInMemoryChannelPresencePort()
 ): ChannelManager {
   /** Channel state storage */
   const channels = new Map<string, ChannelState>()
@@ -67,7 +110,6 @@ export function createChannelManager(
         name,
         type,
         subscribers: new Set(),
-        members: type === 'presence' ? new Map() : undefined,
         createdAt: Date.now(),
       }
       channels.set(name, channel)
@@ -178,10 +220,10 @@ export function createChannelManager(
       // Already subscribed?
       if (channel.subscribers.has(socketId)) {
         // For presence, return current members
-        if (type === 'presence' && channel.members) {
+        if (type === 'presence') {
           return {
             success: true,
-            members: Array.from(channel.members.values()),
+            members: presence.getMembers(channelName),
           }
         }
         return { success: true }
@@ -192,15 +234,15 @@ export function createChannelManager(
       trackSubscription(socketId, channelName)
 
       // Presence: track member and notify others
-      if (type === 'presence' && channel.members) {
+      if (type === 'presence') {
         const info = options.presenceData?.(socketId, channelName, ctx) ?? {}
         const member: ChannelMember = {
           id: socketId,
-          userId: ctx.auth?.principal,
+          userId: getPrincipalId(ctx.auth?.principal),
           info,
           joinedAt: Date.now(),
         }
-        channel.members.set(socketId, member)
+        presence.addMember(channelName, member)
 
         // Notify existing members (not the new one)
         broadcastMessage(
@@ -216,7 +258,7 @@ export function createChannelManager(
 
         return {
           success: true,
-          members: Array.from(channel.members.values()),
+          members: presence.getMembers(channelName),
         }
       }
 
@@ -233,10 +275,10 @@ export function createChannelManager(
       untrackSubscription(socketId, channelName)
 
       // Presence: remove member and notify others
-      if (channel.type === 'presence' && channel.members) {
-        const member = channel.members.get(socketId)
+      if (channel.type === 'presence') {
+        const member = presence.getMember(channelName, socketId)
         if (member) {
-          channel.members.delete(socketId)
+          presence.removeMember(channelName, socketId)
           broadcastMessage(channelName, 'member_removed', {
             id: socketId,
             userId: member.userId,
@@ -305,19 +347,15 @@ export function createChannelManager(
     // ─────────────────────────────────────────────────────────────
 
     getMembers(channelName: string): ChannelMember[] {
-      const channel = channels.get(channelName)
-      if (!channel || !channel.members) return []
-      return Array.from(channel.members.values())
+      return presence.getMembers(channelName)
     },
 
     getMember(channelName: string, socketId: string): ChannelMember | undefined {
-      const channel = channels.get(channelName)
-      return channel?.members?.get(socketId)
+      return presence.getMember(channelName, socketId)
     },
 
     getMemberCount(channelName: string): number {
-      const channel = channels.get(channelName)
-      return channel?.members?.size ?? 0
+      return presence.getMemberCount(channelName)
     },
 
     // ─────────────────────────────────────────────────────────────

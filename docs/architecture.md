@@ -1,14 +1,19 @@
 # Architecture
 
-This page explains how Raffel works under the hood. Understanding the architecture will help you use the framework more efficiently and debug issues.
+This page explains how Raffel works under the hood. Understanding the architecture
+will help you use the runtime more efficiently and reason about contracts,
+policies, transports, and observability as one system.
 
 ---
 
 ## The Core Idea
 
-Raffel solves a common problem: you want to expose the same business logic over multiple protocols (HTTP, WebSocket, gRPC, etc), but you don't want to duplicate code.
+Raffel solves a broader problem than routing HTTP requests: you want one contract
+and one operational model to drive HTTP, WebSocket, gRPC, JSON-RPC, GraphQL,
+streams, and events without duplicating business logic or policy wiring.
 
-The solution is simple: **normalize everything to a single format**.
+The solution is simple: **normalize everything to a single format**, then attach
+policies, tooling, and transport adapters around that contract.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -45,7 +50,8 @@ The solution is simple: **normalize everything to a single format**.
                     └─────────────┘
 ```
 
-No matter where the request came from — HTTP, WebSocket, gRPC — it is converted to an **Envelope** and processed the same way.
+No matter where the request came from — HTTP, WebSocket, gRPC — it is converted
+to an **Envelope** and processed through the same runtime model.
 
 ---
 
@@ -121,7 +127,9 @@ Also becomes the same Envelope. The procedure name is `Users.Create`.
 
 ## The Context
 
-The Context carries information about the request that is not the data itself:
+The Context carries information about the request that is not the data itself.
+In Raffel, context is also the vehicle for deadlines, tracing, auth, extensions,
+and internal-call propagation:
 
 ```typescript
 interface Context {
@@ -508,19 +516,98 @@ Useful when only one port is available (restricted firewall) and you need to ser
 
 ---
 
+## Hexagonal Architecture
+
+Raffel follows a pragmatic hexagonal (ports & adapters) architecture. The codebase is organized into concentric layers with explicit boundaries:
+
+```
+                    ┌─────────────────────────────────────────────┐
+                    │              bootstrap/                      │
+                    │   create-server · config-normalization       │
+                    │   protocol-wiring                            │
+                    │                                              │
+                    │  ┌───────────────────────────────────────┐  │
+                    │  │           application/                 │  │
+                    │  │   registration · lifecycle             │  │
+                    │  │   discovery · runtime-preview          │  │
+                    │  │                                        │  │
+                    │  │  ┌─────────────────────────────────┐  │  │
+                    │  │  │            core/                 │  │  │
+                    │  │  │   Registry · Router · Envelope   │  │  │
+                    │  │  │   EventDelivery · RaffelError    │  │  │
+                    │  │  └─────────────────────────────────┘  │  │
+                    │  │                                        │  │
+                    │  │  ┌─────────────────────────────────┐  │  │
+                    │  │  │         ports/outbound/          │  │  │
+                    │  │  │   LoggerPort · SessionStore      │  │  │
+                    │  │  │   CacheDriver · RateLimitDriver  │  │  │
+                    │  │  │   ValidatorAdapter · EventStore  │  │  │
+                    │  │  │   ChannelPresencePort            │  │  │
+                    │  │  └─────────────────────────────────┘  │  │
+                    │  └───────────────────────────────────────┘  │
+                    │                                              │
+  ┌──────────┐     │  ┌──────────────┐   ┌──────────────────┐    │
+  │  Client   │◄──►│  │ adapters/    │   │  adapters/        │    │
+  │  HTTP/WS  │    │  │ inbound/     │   │  outbound/        │    │
+  │  gRPC/TCP │    │  │  http        │   │   session/memory  │    │
+  │  JSON-RPC │    │  │  websocket   │   │   rate-limit/redis│    │
+  └──────────┘     │  │  grpc · tcp  │   │   cache/file      │    │
+                    │  │  udp · jsonrpc│   │   logger/pino     │    │
+                    │  └──────────────┘   └──────────────────┘    │
+                    └─────────────────────────────────────────────┘
+```
+
+### Directory Structure
+
+| Layer | Directory | Purpose |
+|:------|:----------|:--------|
+| **Core** | `src/core/` | Domain logic — Registry, Router, EventDelivery. Zero external deps. |
+| **Ports** | `src/ports/outbound/` | Interfaces (contracts) for infrastructure dependencies. |
+| **Application** | `src/application/` | Orchestration — registration, lifecycle, discovery, preview. |
+| **Bootstrap** | `src/bootstrap/` | Composition root — creates server, normalizes config, wires adapters. |
+| **Inbound Adapters** | `src/adapters/inbound/` | Protocol → Envelope translation (HTTP, WS, gRPC, TCP, UDP, JSON-RPC). |
+| **Outbound Adapters** | `src/adapters/outbound/` | Concrete port implementations (session, rate-limit, cache, logger drivers). |
+
+### Boundary Rules
+
+1. **core/** has zero imports from adapters/, bootstrap/, or application/
+2. **application/** depends on core/ and ports/ — never on concrete outbound adapters
+3. **ports/** defines interfaces only — no implementation logic
+4. **bootstrap/** is the composition root — it wires everything together
+5. **adapters/inbound/** translate protocols to Envelopes
+6. **adapters/outbound/** implement port interfaces with concrete infrastructure
+
+### Key Ports
+
+| Port | Interface | Default Adapter |
+|:-----|:----------|:----------------|
+| `LoggerPort` | `debug/info/warn/error` | pino (`adapters/outbound/logger/pino`) |
+| `SessionStore` | `get/set/delete/touch` | memory, redis |
+| `RateLimitDriver` | `increment/get/reset` | memory, filesystem, redis, s3db |
+| `CacheDriver` | `get/set/delete/clear` | memory, file, redis |
+| `EventDeliveryStore` | `getRetryState/isDuplicate` | in-memory |
+| `ValidatorAdapter` | `validate/toJsonSchema` | zod, yup, joi, ajv |
+| `ChannelPresencePort` | `getMembers/addMember` | in-memory (ChannelManager) |
+
+---
+
 ## Internal Builder Modules
 
 The server builder is composed of independent modules:
 
 | Module | Responsibility |
 |:-------|:---------------|
-| `front-door.ts` | Application protocol detection at the HTTP edge |
-| `single-port/` | Transport protocol detection (TCP sniffing) |
-| `protocol-aliases.ts` | Shared alias maps (standard/extended) |
-| `discovery-bootstrap.ts` | Lifecycle of filesystem-based route discovery |
-| `telemetry-bootstrap.ts` | Metrics and tracing initialization |
-| `protocol-config.ts` | Protocol option normalization |
-| `handler-builders.ts` | Fluent API for registering procedures, streams, events |
+| `application/registration.ts` | Handler, channel, and resource registration orchestration |
+| `application/config-preview.ts` | Pure config preview and warning derivation |
+| `application/runtime-preview.ts` | Config preview and runtime inspection graph |
+| `bootstrap/config-normalization.ts` | Protocol option normalization |
+| `bootstrap/create-server.ts` | Canonical bootstrap entrypoint for `createServer()` |
+| `bootstrap/protocol-wiring.ts` | Protocol lifecycle wiring façade |
+| `server/discovery-bootstrap.ts` | Filesystem-based route discovery and hot-reload |
+| `server/builder/lifecycle.ts` | Startup/shutdown sequencing and adapter composition |
+| `server/front-door.ts` | Application protocol detection at the HTTP edge |
+| `server/single-port/` | Transport protocol detection (TCP sniffing) |
+| `server/handler-builders.ts` | Fluent API for registering procedures, streams, events |
 
 ---
 
@@ -528,12 +615,14 @@ The server builder is composed of independent modules:
 
 1. **Envelope** - Normalized format that represents any request
 2. **Context** - Request metadata (auth, tracing, cancellation, extensions)
-3. **Adapters** - Convert specific protocols to/from Envelope
-4. **Router** - Finds and executes the correct handler
-5. **Interceptors** - Logic that runs before/after every handler
-6. **Registry** - Stores all server configuration
-7. **Front-Door** - Application protocol routing at the HTTP edge
-8. **Single-Port** - Protocol detection at the TCP transport level
+3. **Ports** - Interfaces defining infrastructure boundaries
+4. **Inbound Adapters** - Convert specific protocols to/from Envelope
+5. **Outbound Adapters** - Implement ports with concrete infrastructure
+6. **Router** - Finds and executes the correct handler
+7. **Interceptors** - Logic that runs before/after every handler
+8. **Registry** - Stores all server configuration
+9. **Application** - Orchestrates registration, lifecycle, discovery
+10. **Bootstrap** - Composition root that wires everything together
 
 The beauty of the design is that your business logic (the handler) knows nothing about protocols. It receives data, processes it, and returns a result. The adapters take care of the rest.
 
