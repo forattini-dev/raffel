@@ -14,7 +14,7 @@ import type { Context } from '../types/index.js'
 /**
  * Channel type based on name prefix
  */
-export type ChannelType = 'public' | 'private' | 'presence'
+export type ChannelType = 'public' | 'private' | 'presence' | 'queue'
 
 // ─── Ticket-Based Authentication ─────────────────────────────────────────────
 
@@ -322,6 +322,22 @@ export interface ChannelOptions {
   ) => unknown | null | Promise<unknown | null>
 
   /**
+   * Maximum subscribers per channel.
+   * Can be a fixed number or a function that returns the limit per channel name.
+   */
+  maxSubscribersPerChannel?: number | ((channel: string) => number)
+
+  /**
+   * Typing indicator configuration
+   */
+  typing?: {
+    /** Enable typing indicators (default: false) */
+    enabled?: boolean
+    /** Auto-stop typing after ms (default: 5000) */
+    timeout?: number
+  }
+
+  /**
    * REST API configuration for server-side publishing.
    * When enabled, mounts HTTP endpoints for channel management.
    */
@@ -369,6 +385,8 @@ export interface ChannelState {
   sequence: number
   /** Epoch identifier — changes on server restart (for detecting stale offsets) */
   epoch: string
+  /** Round-robin index for queue channels */
+  roundRobinIndex?: number
 }
 
 /**
@@ -651,6 +669,12 @@ export interface ChannelManager {
    * Get the current sequence number for a channel.
    */
   getSequence(channel: string): number
+
+  /**
+   * Handle a typing indicator for a socket on a channel.
+   * Only works when typing indicators are enabled in options.
+   */
+  handleTyping(socketId: string, channel: string, isTyping: boolean): void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -747,6 +771,47 @@ export interface AuthRefreshedMessage {
   type: 'auth:refreshed'
 }
 
+// ─── Batch Messages ──────────────────────────────────────────────────────────
+
+/**
+ * Client → Server: Batch subscribe to multiple channels
+ */
+export interface BatchSubscribeMessage {
+  id: string
+  type: 'subscribe:batch'
+  channels: Array<{ channel: string; since?: { seq: number; epoch: string } }>
+}
+
+/**
+ * Server → Client: Batch subscription results
+ */
+export interface BatchSubscribedMessage {
+  id: string
+  type: 'subscribed:batch'
+  results: Record<string, SubscribeResult>
+}
+
+/**
+ * Client → Server: Batch publish to multiple channels
+ */
+export interface BatchPublishMessage {
+  id: string
+  type: 'publish:batch'
+  messages: Array<{ channel: string; event: string; data: unknown }>
+}
+
+// ─── Typing Indicators ──────────────────────────────────────────────────────
+
+/**
+ * Client → Server: Typing indicator
+ */
+export interface TypingMessage {
+  id: string
+  type: 'typing'
+  channel: string
+  isTyping: boolean
+}
+
 /**
  * Server → Client: Channel error
  */
@@ -772,19 +837,26 @@ export type ChannelMessage =
   | AuthRefreshMessage
   | AuthRefreshedMessage
   | RecoverMessage
+  | BatchSubscribeMessage
+  | BatchSubscribedMessage
+  | BatchPublishMessage
+  | TypingMessage
 
 /**
  * Check if a message is a channel-related message
  */
 export function isChannelMessage(
   message: unknown
-): message is SubscribeMessage | UnsubscribeMessage | PublishMessage {
+): message is SubscribeMessage | UnsubscribeMessage | PublishMessage | BatchSubscribeMessage | BatchPublishMessage | TypingMessage {
   if (!message || typeof message !== 'object') return false
   const msg = message as Record<string, unknown>
   return (
     msg.type === 'subscribe' ||
     msg.type === 'unsubscribe' ||
-    msg.type === 'publish'
+    msg.type === 'publish' ||
+    msg.type === 'subscribe:batch' ||
+    msg.type === 'publish:batch' ||
+    msg.type === 'typing'
   )
 }
 
@@ -805,6 +877,7 @@ export function isRecoverMessage(
 export function getChannelType(name: string): ChannelType {
   if (name.startsWith('presence-')) return 'presence'
   if (name.startsWith('private-')) return 'private'
+  if (name.startsWith('queue-')) return 'queue'
   return 'public'
 }
 

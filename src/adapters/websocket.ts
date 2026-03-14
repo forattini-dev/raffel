@@ -27,6 +27,9 @@ import {
   type SubscribeMessage,
   type UnsubscribeMessage,
   type PublishMessage,
+  type BatchSubscribeMessage,
+  type BatchPublishMessage,
+  type TypingMessage,
   type WebSocketAuthConfig,
   type BackpressureConfig,
 } from '../channels/index.js'
@@ -103,6 +106,14 @@ export interface WebSocketAdapterOptions {
   /** Backpressure handling for slow consumers */
   backpressure?: BackpressureConfig
 
+  /** Enable per-message compression (default: false) */
+  compression?: boolean | {
+    /** Minimum payload size in bytes to compress (default: 1024) */
+    threshold?: number
+    /** zlib compression level 1-9 (default: 1) */
+    level?: number
+  }
+
   /** Connection state recovery (requires channels to be enabled) */
   recovery?: {
     /** Enable connection recovery (default: false) */
@@ -176,6 +187,18 @@ export function createWebSocketAdapter(
   // Backpressure config
   const bpMaxBuffered = options.backpressure?.maxBufferedAmount ?? 1024 * 1024
   const bpStrategy = options.backpressure?.strategy ?? 'drop'
+
+  // Compression config
+  const perMessageDeflate = (() => {
+    if (!options.compression) return false
+    if (options.compression === true) {
+      return { threshold: 1024, zlibDeflateOptions: { level: 1 } }
+    }
+    return {
+      threshold: options.compression.threshold ?? 1024,
+      zlibDeflateOptions: { level: options.compression.level ?? 1 },
+    }
+  })()
 
   // Auth config
   const authConfig = options.auth
@@ -388,6 +411,72 @@ export function createWebSocketAdapter(
         Promise.resolve(options.channels.hooks.onPublish(client.id, msg.channel, msg.event, finalData)).catch(() => {})
       }
 
+      return true
+    }
+
+    // ─── Batch Subscribe ─────────────────────────────────────────────────────
+    if (messageType === 'subscribe:batch') {
+      const msg = parsed as unknown as BatchSubscribeMessage
+      const results: Record<string, import('../channels/types.js').SubscribeResult> = {}
+
+      for (const entry of msg.channels) {
+        const result = await channelManager.subscribe(client.id, entry.channel, ctx, entry.since)
+        results[entry.channel] = result
+
+        if (result.success && entry.since) {
+          channelManager.replayHistory(client.id, entry.channel, entry.since.seq, entry.since.epoch)
+        }
+      }
+
+      sendRawMessage(client, {
+        id: msg.id,
+        type: 'subscribed:batch',
+        results,
+      })
+      return true
+    }
+
+    // ─── Batch Publish ───────────────────────────────────────────────────────
+    if (messageType === 'publish:batch') {
+      const msg = parsed as unknown as BatchPublishMessage
+
+      for (const entry of msg.messages) {
+        if (!channelManager.isSubscribed(client.id, entry.channel)) continue
+
+        // Check onPublish hook
+        if (options.channels?.onPublish) {
+          const allowed = await options.channels.onPublish(
+            client.id, entry.channel, entry.event, entry.data, ctx
+          )
+          if (!allowed) continue
+        }
+
+        // Apply transform
+        let finalData = entry.data
+        if (options.channels?.transform) {
+          const clientInfo = channelManager.getClient(client.id)
+          const transformed = await options.channels.transform(
+            entry.channel, entry.event, entry.data,
+            { socketId: client.id, userId: clientInfo?.userId }
+          )
+          if (transformed === null) continue
+          finalData = transformed
+        }
+
+        channelManager.broadcast(entry.channel, entry.event, finalData, client.id)
+
+        if (options.channels?.hooks?.onPublish) {
+          Promise.resolve(options.channels.hooks.onPublish(client.id, entry.channel, entry.event, finalData)).catch(() => {})
+        }
+      }
+
+      return true
+    }
+
+    // ─── Typing Indicators ───────────────────────────────────────────────────
+    if (messageType === 'typing') {
+      const msg = parsed as unknown as TypingMessage
+      channelManager.handleTyping(client.id, msg.channel, msg.isTyping)
       return true
     }
 
@@ -930,8 +1019,8 @@ export function createWebSocketAdapter(
       return new Promise((resolve, reject) => {
         wss = new WebSocketServer(
           sharedServer
-            ? { server: sharedServer, path, maxPayload: maxPayloadSize }
-            : { port: port!, host, path, maxPayload: maxPayloadSize }
+            ? { server: sharedServer, path, maxPayload: maxPayloadSize, perMessageDeflate }
+            : { port: port!, host, path, maxPayload: maxPayloadSize, perMessageDeflate }
         )
 
         wss.on('connection', handleConnection)

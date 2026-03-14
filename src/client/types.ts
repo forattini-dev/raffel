@@ -61,6 +61,40 @@ export interface ClientStream<T = unknown> {
 }
 
 /**
+ * A channel member (presence channels)
+ */
+export interface ClientChannelMember {
+  /** Socket/connection ID */
+  id: string
+  /** User ID from auth context */
+  userId?: string
+  /** Custom presence data */
+  info: Record<string, unknown>
+  /** Timestamp when member joined */
+  joinedAt: number
+}
+
+/**
+ * Client-side channel handle
+ */
+export interface ClientChannel {
+  /** Listen for a specific event */
+  on(event: string, handler: (data: unknown) => void): void
+
+  /** Remove listener */
+  off(event: string, handler: (data: unknown) => void): void
+
+  /** Unsubscribe from the channel */
+  unsubscribe(): void
+
+  /** Channel name */
+  readonly name: string
+
+  /** Current members (presence channels) */
+  readonly members: ClientChannelMember[]
+}
+
+/**
  * Raffel client interface
  */
 export interface RaffelClient {
@@ -77,6 +111,18 @@ export interface RaffelClient {
     payload?: unknown,
     options?: CallOptions
   ): ClientStream<T>
+
+  /** Subscribe to a channel */
+  subscribe(channel: string, since?: { seq: number; epoch: string }): ClientChannel
+
+  /** Unsubscribe from a channel */
+  unsubscribe(channel: string): void
+
+  /** Publish to a channel */
+  publish(channel: string, event: string, data: unknown): void
+
+  /** Send auth:refresh */
+  refreshAuth(token: string): Promise<void>
 
   /** Close the connection */
   close(): void

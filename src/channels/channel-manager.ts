@@ -19,6 +19,7 @@ import type {
   RoomInfo,
   GroupInfo,
   ChannelRateLimits,
+  ChannelType,
 } from './types.js'
 import { getChannelType } from './types.js'
 import type { ChannelHistoryPort } from './history.js'
@@ -166,6 +167,10 @@ export function createChannelManager(
   const rateLimiter = options.rateLimits ? createRateLimiter(options.rateLimits) : null
   const rateLimits = options.rateLimits
 
+  /** Typing state: channel → socketId → timeout timer */
+  const typingState = new Map<string, Map<string, ReturnType<typeof setTimeout>>>()
+  const typingTimeout = options.typing?.timeout ?? 5000
+
   /** History store (optional) */
   const historyStore: ChannelHistoryPort | null = options.history?.enabled
     ? createMemoryHistoryStore({
@@ -263,6 +268,18 @@ export function createChannelManager(
       })
     }
 
+    // Queue channels: round-robin to a single subscriber
+    if (channel.type === 'queue') {
+      const subscribers = Array.from(channel.subscribers)
+      // Filter out excluded socket if present
+      const eligible = except ? subscribers.filter((s) => s !== except) : subscribers
+      if (eligible.length === 0) return
+      channel.roundRobinIndex = ((channel.roundRobinIndex ?? -1) + 1) % eligible.length
+      const target = eligible[channel.roundRobinIndex]!
+      sendToSocket(target, message)
+      return
+    }
+
     for (const socketId of channel.subscribers) {
       if (socketId !== except) {
         sendToSocket(socketId, message)
@@ -283,6 +300,89 @@ export function createChannelManager(
       if (options.hooks?.onChannelDestroyed) {
         Promise.resolve(options.hooks.onChannelDestroyed(channelName, type)).catch(() => {})
       }
+    }
+  }
+
+  /**
+   * Clear typing state for a socket on a channel and broadcast typing:stop
+   */
+  function clearTypingForSocket(socketId: string, channelName: string): void {
+    const channelTyping = typingState.get(channelName)
+    if (!channelTyping) return
+    const timer = channelTyping.get(socketId)
+    if (timer) {
+      clearTimeout(timer)
+      channelTyping.delete(socketId)
+      if (channelTyping.size === 0) typingState.delete(channelName)
+
+      // Broadcast typing:stop
+      const channel = channels.get(channelName)
+      if (channel) {
+        for (const sub of channel.subscribers) {
+          if (sub !== socketId) {
+            sendToSocket(sub, {
+              type: 'event',
+              channel: channelName,
+              event: 'typing:stop',
+              data: { socketId },
+            })
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Clear all typing state for a socket (on disconnect)
+   */
+  function clearAllTypingForSocket(socketId: string): void {
+    for (const [channelName, channelTyping] of typingState) {
+      if (channelTyping.has(socketId)) {
+        clearTypingForSocket(socketId, channelName)
+      }
+    }
+  }
+
+  /**
+   * Handle a typing indicator message
+   */
+  function handleTyping(socketId: string, channelName: string, isTyping: boolean): void {
+    if (!options.typing?.enabled) return
+
+    const channel = channels.get(channelName)
+    if (!channel || !channel.subscribers.has(socketId)) return
+
+    if (isTyping) {
+      // Set or reset the typing timeout
+      let channelTyping = typingState.get(channelName)
+      if (!channelTyping) {
+        channelTyping = new Map()
+        typingState.set(channelName, channelTyping)
+      }
+
+      // Clear existing timer
+      const existing = channelTyping.get(socketId)
+      if (existing) clearTimeout(existing)
+
+      // Set timeout to auto-stop
+      const timer = setTimeout(() => {
+        clearTypingForSocket(socketId, channelName)
+      }, typingTimeout)
+      channelTyping.set(socketId, timer)
+
+      // Broadcast typing event
+      for (const sub of channel.subscribers) {
+        if (sub !== socketId) {
+          sendToSocket(sub, {
+            type: 'event',
+            channel: channelName,
+            event: 'typing',
+            data: { socketId, isTyping: true },
+          })
+        }
+      }
+    } else {
+      clearTypingForSocket(socketId, channelName)
     }
   }
 
@@ -343,7 +443,7 @@ export function createChannelManager(
             },
           }
         }
-      } else if (type !== 'public') {
+      } else if (type !== 'public' && type !== 'queue') {
         // No authorize function → deny by default for private/presence
         return {
           success: false,
@@ -352,6 +452,26 @@ export function createChannelManager(
             status: 403,
             message: `Authorization required for ${type} channels`,
           },
+        }
+      }
+
+      // Max subscribers per channel check
+      if (options.maxSubscribersPerChannel != null) {
+        const existingChannel = channels.get(channelName)
+        if (existingChannel && !existingChannel.subscribers.has(socketId)) {
+          const limit = typeof options.maxSubscribersPerChannel === 'function'
+            ? options.maxSubscribersPerChannel(channelName)
+            : options.maxSubscribersPerChannel
+          if (existingChannel.subscribers.size >= limit) {
+            return {
+              success: false,
+              error: {
+                code: 'CHANNEL_FULL',
+                status: 429,
+                message: `Channel ${channelName} is full (max ${limit} subscribers)`,
+              },
+            }
+          }
         }
       }
 
@@ -560,6 +680,9 @@ export function createChannelManager(
     },
 
     removeClient(socketId: string): void {
+      // Clean up typing state
+      clearAllTypingForSocket(socketId)
+
       // Clean up rate limiter state
       rateLimiter?.removeSocket(socketId)
 
@@ -882,6 +1005,10 @@ export function createChannelManager(
 
     getSequence(channelName: string): number {
       return channels.get(channelName)?.sequence ?? 0
+    },
+
+    handleTyping(socketId: string, channelName: string, isTyping: boolean): void {
+      handleTyping(socketId, channelName, isTyping)
     },
   }
 

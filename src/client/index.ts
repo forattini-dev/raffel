@@ -32,6 +32,8 @@ import type {
   RaffelClient,
   ClientStream,
   CallOptions,
+  ClientChannel,
+  ClientChannelMember,
 } from './types.js'
 
 export type {
@@ -39,6 +41,8 @@ export type {
   RaffelClient,
   ClientStream,
   CallOptions,
+  ClientChannel,
+  ClientChannelMember,
 } from './types.js'
 export { createReconnectController, getReconnectDelay } from './reconnect.js'
 export type { ReconnectConfig, ReconnectState } from './reconnect.js'
@@ -96,6 +100,13 @@ export function createRaffelClient(urlOrOptions: string | RaffelClientOptions): 
   let intentionalClose = false
   const pendingRequests = new Map<string, PendingRequest>()
   const pendingStreams = new Map<string, PendingStream<unknown>>()
+
+  /** Channel subscriptions: channel name → event listeners */
+  interface ChannelSubscription {
+    listeners: Map<string, Set<(data: unknown) => void>>
+    members: ClientChannelMember[]
+  }
+  const channelSubs = new Map<string, ChannelSubscription>()
 
   // Build URL with token if provided
   const wsUrl = token
@@ -191,10 +202,121 @@ export function createRaffelClient(urlOrOptions: string | RaffelClientOptions): 
       return // Ignore unparseable messages
     }
 
+    const type = parsed.type as string
+
+    // ─── Channel Messages ──────────────────────────────────────────────────
+    // Handle incoming channel events (broadcast from server)
+    if (type === 'event' && parsed.channel) {
+      const channelName = parsed.channel as string
+      const eventName = parsed.event as string
+      const sub = channelSubs.get(channelName)
+      if (sub) {
+        // Update members for presence events
+        if (eventName === 'member_added' && parsed.data) {
+          const memberData = parsed.data as ClientChannelMember
+          sub.members.push(memberData)
+        } else if (eventName === 'member_removed' && parsed.data) {
+          const memberData = parsed.data as { id: string }
+          sub.members = sub.members.filter((m) => m.id !== memberData.id)
+        }
+
+        const handlers = sub.listeners.get(eventName)
+        if (handlers) {
+          for (const handler of handlers) {
+            handler(parsed.data)
+          }
+        }
+        // Also fire wildcard '*' listeners
+        const wildcardHandlers = sub.listeners.get('*')
+        if (wildcardHandlers) {
+          for (const handler of wildcardHandlers) {
+            handler({ event: eventName, data: parsed.data })
+          }
+        }
+      }
+      return
+    }
+
+    // Handle subscribed response
+    if (type === 'subscribed') {
+      const channelName = parsed.channel as string
+      const sub = channelSubs.get(channelName)
+      if (sub && parsed.members) {
+        sub.members = parsed.members as ClientChannelMember[]
+      }
+      // Resolve pending subscribe request
+      const id = parsed.id as string | undefined
+      if (id) {
+        const pending = pendingRequests.get(id)
+        if (pending) {
+          if (pending.timer) clearTimeout(pending.timer)
+          pending.resolve(parsed)
+          pendingRequests.delete(id)
+        }
+      }
+      return
+    }
+
+    // Handle subscribed:batch response
+    if (type === 'subscribed:batch') {
+      const id = parsed.id as string | undefined
+      if (id) {
+        const pending = pendingRequests.get(id)
+        if (pending) {
+          if (pending.timer) clearTimeout(pending.timer)
+          pending.resolve(parsed)
+          pendingRequests.delete(id)
+        }
+      }
+      return
+    }
+
+    // Handle unsubscribed response
+    if (type === 'unsubscribed') {
+      const id = parsed.id as string | undefined
+      if (id) {
+        const pending = pendingRequests.get(id)
+        if (pending) {
+          if (pending.timer) clearTimeout(pending.timer)
+          pending.resolve(parsed)
+          pendingRequests.delete(id)
+        }
+      }
+      return
+    }
+
+    // Handle auth:refreshed response
+    if (type === 'auth:refreshed') {
+      const id = parsed.id as string | undefined
+      if (id) {
+        const pending = pendingRequests.get(id)
+        if (pending) {
+          if (pending.timer) clearTimeout(pending.timer)
+          pending.resolve(parsed)
+          pendingRequests.delete(id)
+        }
+      }
+      return
+    }
+
+    // ─── Envelope Messages ─────────────────────────────────────────────────
     const id = parsed.id as string | undefined
     if (!id) return
 
-    const type = parsed.type as string
+    // Handle channel-level errors (with id)
+    if (type === 'error' && (parsed.code || parsed.status)) {
+      // Check if this is a channel error (has code+status fields at top level)
+      const pending = pendingRequests.get(id)
+      if (pending) {
+        if (pending.timer) clearTimeout(pending.timer)
+        const error = new Error((parsed.message as string) ?? 'Unknown error')
+        ;(error as unknown as Record<string, unknown>).code = parsed.code
+        ;(error as unknown as Record<string, unknown>).status = parsed.status
+        pending.reject(error)
+        pendingRequests.delete(id)
+        return
+      }
+    }
 
     // Check if this is a stream chunk
     if (type === 'stream:data' || type === 'stream:chunk') {
@@ -392,6 +514,115 @@ export function createRaffelClient(urlOrOptions: string | RaffelClientOptions): 
       }
     },
 
+    subscribe(channel: string, since?: { seq: number; epoch: string }): ClientChannel {
+      // Create subscription tracking
+      const sub: ChannelSubscription = {
+        listeners: new Map(),
+        members: [],
+      }
+      channelSubs.set(channel, sub)
+
+      // Send subscribe message
+      const msgId = nextId()
+      try {
+        send({
+          id: msgId,
+          type: 'subscribe',
+          channel,
+          ...(since ? { since } : {}),
+        })
+      } catch {
+        // Will be handled by reconnection
+      }
+
+      const clientChannel: ClientChannel = {
+        on(event: string, handler: (data: unknown) => void): void {
+          let handlers = sub.listeners.get(event)
+          if (!handlers) {
+            handlers = new Set()
+            sub.listeners.set(event, handlers)
+          }
+          handlers.add(handler)
+        },
+
+        off(event: string, handler: (data: unknown) => void): void {
+          const handlers = sub.listeners.get(event)
+          if (handlers) {
+            handlers.delete(handler)
+            if (handlers.size === 0) sub.listeners.delete(event)
+          }
+        },
+
+        unsubscribe(): void {
+          client.unsubscribe(channel)
+        },
+
+        get name(): string {
+          return channel
+        },
+
+        get members(): ClientChannelMember[] {
+          return sub.members
+        },
+      }
+
+      return clientChannel
+    },
+
+    unsubscribe(channel: string): void {
+      channelSubs.delete(channel)
+      const msgId = nextId()
+      try {
+        send({
+          id: msgId,
+          type: 'unsubscribe',
+          channel,
+        })
+      } catch {
+        // Ignore send errors on unsubscribe
+      }
+    },
+
+    publish(channel: string, event: string, data: unknown): void {
+      const msgId = nextId()
+      send({
+        id: msgId,
+        type: 'publish',
+        channel,
+        event,
+        data,
+      })
+    },
+
+    async refreshAuth(token: string): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          reject(new Error('Not connected'))
+          return
+        }
+
+        const id = nextId()
+        const timer = setTimeout(() => {
+          pendingRequests.delete(id)
+          reject(new Error('Auth refresh timeout'))
+        }, requestTimeout)
+
+        pendingRequests.set(id, {
+          resolve: () => resolve(),
+          reject,
+          timer,
+        })
+
+        try {
+          send({ id, type: 'auth:refresh', token })
+        } catch (err) {
+          clearTimeout(timer)
+          pendingRequests.delete(id)
+          reject(err)
+        }
+      })
+    },
+
     close() {
       intentionalClose = true
       reconnectController.stop()
@@ -401,6 +632,7 @@ export function createRaffelClient(urlOrOptions: string | RaffelClientOptions): 
         ws = null
       }
       connected = false
+      channelSubs.clear()
     },
 
     get connected() {

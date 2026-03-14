@@ -56,11 +56,12 @@ inspect channel events from the same runtime graph used by `inspect` and
 
 ## Channel Types
 
-| Prefix | Type | Auth Required | Member Tracking |
-|--------|------|---------------|-----------------|
-| (none) | Public | No | No |
-| `private-` | Private | Yes | No |
-| `presence-` | Presence | Yes | Yes |
+| Prefix | Type | Auth Required | Member Tracking | Delivery |
+|--------|------|---------------|-----------------|----------|
+| (none) | Public | No | No | Broadcast (all) |
+| `private-` | Private | Yes | No | Broadcast (all) |
+| `presence-` | Presence | Yes | Yes | Broadcast (all) |
+| `queue-` | Queue | No | No | Round-robin (one) |
 
 ## Channel Parameters (USD)
 
@@ -1538,4 +1539,233 @@ server.procedure('system.broadcast')
   })
 
 await server.start()
+```
+
+---
+
+## Queue Channels (Fan-In)
+
+Queue channels deliver each message to exactly ONE subscriber using round-robin. No other WS-as-a-service platform offers this natively.
+
+### Use Cases
+
+- **Task distribution**: distribute work items to a pool of workers
+- **Support routing**: route incoming tickets to the next available agent
+- **IoT command dispatch**: send commands to one device in a fleet
+- **Load balancing**: spread events across consumers
+
+### How It Works
+
+Any channel with the `queue-` prefix uses round-robin delivery instead of broadcast:
+
+```typescript
+// Three workers subscribe to the same queue
+await channels.subscribe('worker-1', 'queue-tasks', ctx)
+await channels.subscribe('worker-2', 'queue-tasks', ctx)
+await channels.subscribe('worker-3', 'queue-tasks', ctx)
+
+// Each publish goes to ONE worker (round-robin)
+channels.broadcast('queue-tasks', 'task', { id: 1 })  // -> worker-1
+channels.broadcast('queue-tasks', 'task', { id: 2 })  // -> worker-2
+channels.broadcast('queue-tasks', 'task', { id: 3 })  // -> worker-3
+channels.broadcast('queue-tasks', 'task', { id: 4 })  // -> worker-1 (wraps)
+```
+
+Queue channels:
+- Do NOT require authorization (like public channels)
+- Support sequence numbers and history
+- Auto-delete when last subscriber leaves
+- Work with the REST API for publishing
+
+---
+
+## Typing Indicators
+
+Built-in typing state management with auto-timeout. No more implementing this from scratch in every chat app.
+
+### Configuration
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      typing: {
+        enabled: true,
+        timeout: 5000,  // auto-stop after 5 seconds (default)
+      },
+    },
+  },
+})
+```
+
+### Client Protocol
+
+```json
+{ "id": "t1", "type": "typing", "channel": "chat-room", "isTyping": true }
+```
+
+Other subscribers receive:
+
+```json
+{ "type": "event", "channel": "chat-room", "event": "typing", "data": { "socketId": "abc", "isTyping": true } }
+```
+
+After 5 seconds of no typing messages, the server auto-broadcasts `isTyping: false`.
+
+On disconnect, all typing state for that client is cleared automatically.
+
+### Server-Side API
+
+```typescript
+// Trigger typing programmatically
+server.channels?.handleTyping('socket-123', 'chat-room', true)
+```
+
+---
+
+## Batch Operations
+
+Subscribe to multiple channels or publish to multiple channels in a single message, reducing round trips.
+
+### Batch Subscribe
+
+```json
+{
+  "id": "batch-1",
+  "type": "subscribe:batch",
+  "channels": [
+    { "channel": "chat-general" },
+    { "channel": "presence-lobby" },
+    { "channel": "private-user-123", "since": { "seq": 42, "epoch": "abc" } }
+  ]
+}
+```
+
+Response:
+
+```json
+{
+  "id": "batch-1",
+  "type": "subscribed:batch",
+  "results": {
+    "chat-general": { "success": true },
+    "presence-lobby": { "success": true, "members": [] },
+    "private-user-123": { "success": true }
+  }
+}
+```
+
+### Batch Publish
+
+```json
+{
+  "id": "batch-2",
+  "type": "publish:batch",
+  "messages": [
+    { "channel": "chat-general", "event": "message", "data": { "text": "Hello" } },
+    { "channel": "chat-support", "event": "alert", "data": { "level": "high" } }
+  ]
+}
+```
+
+---
+
+## Compression
+
+Enable WebSocket per-message compression (RFC 7692) for 60-80% bandwidth reduction on text payloads.
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    compression: true,
+    // Or fine-tune:
+    // compression: { threshold: 1024, level: 1 },
+  },
+})
+```
+
+No client changes needed -- browsers and ws library negotiate compression automatically via the WebSocket handshake.
+
+---
+
+## Max Subscribers Per Channel
+
+Limit how many clients can subscribe to a single channel. Useful for video calls (max 50), game lobbies (max 10), etc.
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      maxSubscribersPerChannel: 1000,
+      // Or dynamic per channel:
+      // maxSubscribersPerChannel: (ch) => ch.startsWith('presence-call-') ? 50 : 10000,
+    },
+  },
+})
+```
+
+When a channel is full, subscribe returns:
+
+```json
+{
+  "id": "sub-1",
+  "type": "error",
+  "code": "CHANNEL_FULL",
+  "status": 429,
+  "message": "Channel at maximum capacity (50)"
+}
+```
+
+---
+
+## Client SDK
+
+The Raffel client SDK provides a complete TypeScript client for Raffel WebSocket servers.
+
+### Connection
+
+```typescript
+import { createRaffelClient } from 'raffel'
+
+const client = createRaffelClient({
+  url: 'ws://localhost:3000/ws',
+  token: 'jwt-or-ticket',
+  reconnect: true,
+  onConnect: () => console.log('Connected'),
+  onDisconnect: (code, reason) => console.log(`Disconnected: ${code}`),
+})
+```
+
+### RPC Calls
+
+```typescript
+const user = await client.call('users.get', { id: '123' })
+```
+
+### Server Streams
+
+```typescript
+const stream = client.stream('logs.tail', { service: 'api' })
+for await (const entry of stream) {
+  console.log(entry.level, entry.message)
+}
+stream.cancel()
+```
+
+### Channels
+
+```typescript
+const chat = client.subscribe('chat-room')
+chat.on('message', (data) => console.log(data.text))
+client.publish('chat-room', 'message', { text: 'Hello!' })
+chat.unsubscribe()
+```
+
+### Auth Refresh
+
+```typescript
+await client.refreshAuth(newJwtToken)
 ```

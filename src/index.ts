@@ -605,6 +605,10 @@ export type {
   ConnectionRecoveryPort,
   MemoryRecoveryStoreOptions,
   ChannelRestApiOptions,
+  BatchSubscribeMessage,
+  BatchSubscribedMessage,
+  BatchPublishMessage,
+  TypingMessage,
 } from './channels/index.js'
 
 // === GraphQL ===
@@ -992,6 +996,8 @@ export type {
   RaffelClient,
   ClientStream,
   CallOptions,
+  ClientChannel,
+  ClientChannelMember,
 } from './client/index.js'
 
 // === Outbound Adapters (Hexagonal) ===

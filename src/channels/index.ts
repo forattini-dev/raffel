@@ -100,6 +100,14 @@ export {
   type ChannelErrorMessage,
   type ChannelMessage,
 
+  // Batch Messages
+  type BatchSubscribeMessage,
+  type BatchSubscribedMessage,
+  type BatchPublishMessage,
+
+  // Typing Indicators
+  type TypingMessage,
+
   // Helpers
   isChannelMessage,
   isRecoverMessage,
