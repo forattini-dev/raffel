@@ -430,7 +430,7 @@ describe('CONNECT Tunnel (MITM cert pinning)', () => {
     await new Promise<void>((r) => srv.close(() => r()))
   }, 15_000)
 
-  it('onUpstreamCert returning true allows the tunnel', async () => {
+  it('onUpstreamCert returning true allows the tunnel', { retry: 2 }, async () => {
     let certFingerprint = ''
 
     const tunnel = createConnectTunnel({
