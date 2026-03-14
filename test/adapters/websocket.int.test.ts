@@ -480,24 +480,29 @@ describe('WebSocketAdapter', () => {
   })
 
   describe('Connection filter', () => {
-    // Helper: connect with optional custom headers; resolves with close code
-    function connectAndGetCloseCode(
+    // Helper: connect with optional custom headers; resolves with handshake error
+    function connectAndGetHandshakeError(
       headers?: Record<string, string>,
-    ): Promise<number> {
+      query = '',
+    ): Promise<string> {
       return new Promise((resolve) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`, headers ? { headers } : undefined)
-        ws.on('error', () => {})
-        ws.on('close', (code) => resolve(code))
+        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}${query}`, headers ? { headers } : undefined)
+        ws.on('unexpected-response', (_, response) => {
+          resolve(`HTTP ${response.statusCode}`)
+        })
+        ws.on('error', (err) => {
+          resolve(err.message)
+        })
       })
     }
 
-    it('denyHosts — connection closed with 1008', async () => {
+    it('denyHosts — handshake rejected with 403', async () => {
       const filter: WebSocketConnectionFilter = { denyHosts: ['127.0.0.1'] }
       adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
       await adapter.start()
 
-      const code = await connectAndGetCloseCode()
-      expect(code).toBe(1008)
+      const error = await connectAndGetHandshakeError()
+      expect(error).toContain('403')
       expect(adapter.clientCount).toBe(0)
     })
 
@@ -511,13 +516,13 @@ describe('WebSocketAdapter', () => {
       ws.close()
     })
 
-    it('denyOrigins with blocked origin — connection closed with 1008', async () => {
+    it('denyOrigins with blocked origin — handshake rejected with 403', async () => {
       const filter: WebSocketConnectionFilter = { denyOrigins: ['http://evil.com'] }
       adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
       await adapter.start()
 
-      const code = await connectAndGetCloseCode({ Origin: 'http://evil.com' })
-      expect(code).toBe(1008)
+      const error = await connectAndGetHandshakeError({ Origin: 'http://evil.com' })
+      expect(error).toContain('403')
     })
 
     it('allowOrigins with correct origin — connection accepted', async () => {
@@ -545,11 +550,40 @@ describe('WebSocketAdapter', () => {
       adapter = createWebSocketAdapter(router, { port: TEST_PORT, host: '127.0.0.1', filter })
       await adapter.start()
 
-      await connectAndGetCloseCode()
+      await connectAndGetHandshakeError()
       await new Promise(r => setTimeout(r, 50))
 
       expect(deniedCalls.length).toBeGreaterThanOrEqual(1)
       expect(deniedCalls[0].reason).toContain('denyHosts')
+    })
+
+    it('auth rejection fails the handshake with 401', async () => {
+      adapter = createWebSocketAdapter(router, {
+        port: TEST_PORT,
+        host: '127.0.0.1',
+        auth: {
+          mode: 'bearer',
+          validateToken: async (token) => (
+            token === 'valid-token'
+              ? { auth: { authenticated: true, principal: 'user-1', principalId: 'user-1' } }
+              : null
+          ),
+        },
+      })
+      await adapter.start()
+
+      const error = await connectAndGetHandshakeError()
+      expect(error).toContain('401')
+      expect(adapter.clientCount).toBe(0)
+
+      const ws = await new Promise<WebSocket>((resolve, reject) => {
+        const client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}?token=valid-token`)
+        client.on('open', () => resolve(client))
+        client.on('error', reject)
+      })
+
+      expect(adapter.clientCount).toBe(1)
+      ws.close()
     })
   })
 })

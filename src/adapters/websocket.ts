@@ -46,6 +46,7 @@ import {
 } from './utils/connection-filter.js'
 
 const logger = createLogger('ws-adapter')
+const AUTH_SEED_SYMBOL = Symbol('raffel.ws.authSeed')
 
 /**
  * WebSocket adapter configuration
@@ -194,6 +195,10 @@ interface ClientConnection {
   authSeed?: ContextSeed
   /** When the client connected */
   connectedAt: number
+}
+
+interface HandshakeAuthenticatedRequest extends IncomingMessage {
+  [AUTH_SEED_SYMBOL]?: ContextSeed
 }
 
 /**
@@ -931,49 +936,43 @@ export function createWebSocketAdapter(
     return {}
   }
 
-  /**
-   * Handle new client connection
-   */
-  function handleConnection(ws: WebSocket, req: IncomingMessage): void {
-    // Connection filter
+  async function evaluateHandshake(req: IncomingMessage): Promise<{
+    ok: boolean
+    statusCode?: number
+    message?: string
+    authSeed?: ContextSeed
+  }> {
     if (options.filter) {
       const filter = options.filter
       const host = req.socket.remoteAddress ?? ''
       const port = req.socket.remotePort ?? 0
-      const origin = req.headers['origin'] as string | undefined
-      checkWebSocketConnectionFilter(filter, host, port, origin).then(({ allowed, reason }) => {
-        if (!allowed) {
-          filter.onDenied?.({ host, port, reason: reason! })
-          ws.close(1008, 'Policy Violation')
-          return
-        }
-        authenticateAndConnect(ws, req)
-      }).catch(() => { ws.close(1008, 'Policy Violation') })
-      return
+      const origin = req.headers.origin as string | undefined
+      const { allowed, reason } = await checkWebSocketConnectionFilter(filter, host, port, origin)
+      if (!allowed) {
+        filter.onDenied?.({ host, port, reason: reason ?? 'connection rejected' })
+        return { ok: false, statusCode: 403, message: 'Forbidden' }
+      }
     }
-    authenticateAndConnect(ws, req)
+
+    if (!authConfig) {
+      return { ok: true }
+    }
+
+    const seed = await validateConnectionAuth(req)
+    if (!seed) {
+      logger.warn({ remoteAddress: req.socket.remoteAddress }, 'WebSocket auth rejected')
+      return { ok: false, statusCode: 401, message: 'Unauthorized' }
+    }
+
+    return { ok: true, authSeed: seed }
   }
 
   /**
-   * Authenticate and then connect
+   * Handle new client connection
    */
-  function authenticateAndConnect(ws: WebSocket, req: IncomingMessage): void {
-    if (!authConfig) {
-      _doConnect(ws, req)
-      return
-    }
-
-    validateConnectionAuth(req).then((seed) => {
-      if (!seed) {
-        logger.warn({ remoteAddress: req.socket.remoteAddress }, 'WebSocket auth rejected')
-        ws.close(1008, 'Authentication required')
-        return
-      }
-      _doConnect(ws, req, seed)
-    }).catch((err) => {
-      logger.error({ err }, 'WebSocket auth error')
-      ws.close(1011, 'Authentication error')
-    })
+  function handleConnection(ws: WebSocket, req: IncomingMessage): void {
+    const authSeed = (req as HandshakeAuthenticatedRequest)[AUTH_SEED_SYMBOL]
+    _doConnect(ws, req, authSeed)
   }
 
   /**
@@ -1152,8 +1151,45 @@ export function createWebSocketAdapter(
       return new Promise((resolve, reject) => {
         wss = new WebSocketServer(
           sharedServer
-            ? { server: sharedServer, path, maxPayload: maxPayloadSize, perMessageDeflate }
-            : { port: port!, host, path, maxPayload: maxPayloadSize, perMessageDeflate }
+            ? {
+              server: sharedServer,
+              path,
+              maxPayload: maxPayloadSize,
+              perMessageDeflate,
+              verifyClient: (info, done) => {
+                evaluateHandshake(info.req).then((result) => {
+                  if (!result.ok) {
+                    done(false, result.statusCode ?? 403, result.message ?? 'Forbidden')
+                    return
+                  }
+                  ;(info.req as HandshakeAuthenticatedRequest)[AUTH_SEED_SYMBOL] = result.authSeed
+                  done(true)
+                }).catch((err) => {
+                  logger.error({ err }, 'WebSocket handshake validation error')
+                  done(false, 500, 'Internal Server Error')
+                })
+              },
+            }
+            : {
+              port: port!,
+              host,
+              path,
+              maxPayload: maxPayloadSize,
+              perMessageDeflate,
+              verifyClient: (info, done) => {
+                evaluateHandshake(info.req).then((result) => {
+                  if (!result.ok) {
+                    done(false, result.statusCode ?? 403, result.message ?? 'Forbidden')
+                    return
+                  }
+                  ;(info.req as HandshakeAuthenticatedRequest)[AUTH_SEED_SYMBOL] = result.authSeed
+                  done(true)
+                }).catch((err) => {
+                  logger.error({ err }, 'WebSocket handshake validation error')
+                  done(false, 500, 'Internal Server Error')
+                })
+              },
+            }
         )
 
         wss.on('connection', handleConnection)
