@@ -123,6 +123,255 @@ const server = createServer({
 })
 ```
 
+---
+
+## Authentication
+
+WebSocket connections in browsers cannot set custom headers. Raffel provides three auth modes to solve this.
+
+### Ticket-Based Auth (Recommended for Browsers)
+
+Generate a short-lived, single-use ticket via HTTP, then pass it on the WebSocket URL. The ticket encodes user identity and is consumed on connect.
+
+**Server setup:**
+
+```typescript
+import { createServer, createMemoryTicketStore, generateTicket } from 'raffel'
+
+const ticketStore = createMemoryTicketStore()
+
+const server = createServer({
+  port: 3000,
+  websocket: {
+    auth: {
+      mode: 'ticket',
+      ticketStore,
+      ticketTTL: 30000,  // 30 seconds
+    },
+    channels: {
+      authorize: (socketId, channel, ctx) => ctx.auth?.authenticated ?? false,
+    },
+  },
+})
+
+// HTTP endpoint to generate tickets
+server.procedure('auth.ticket')
+  .handler(async (input, ctx) => {
+    ctx.auth.require()  // Must be authenticated via HTTP
+
+    const ticket = generateTicket(ctx.auth.principalId!, {
+      ttl: 30000,
+      permissions: ['private-*', 'presence-*'],
+      metadata: { role: ctx.auth.claims?.role },
+    })
+
+    await ticketStore.create(ticket)
+    return { ticketId: ticket.id }
+  })
+```
+
+**Client:**
+
+```javascript
+// 1. Get ticket via HTTP
+const { ticketId } = await fetch('/api/auth.ticket', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${jwt}` },
+}).then(r => r.json())
+
+// 2. Connect WebSocket with ticket
+const ws = new WebSocket(`ws://localhost:3000/?ticket=${ticketId}`)
+// Ticket is consumed on connect — cannot be reused
+```
+
+### Bearer Token Auth
+
+Pass a JWT or API key as a query parameter or Authorization header.
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    auth: {
+      mode: 'bearer',
+      validateToken: async (token) => {
+        const payload = await verifyJWT(token)
+        if (!payload) return null  // Reject connection
+
+        return {
+          auth: {
+            authenticated: true,
+            principal: payload.sub,
+            principalId: payload.sub,
+            claims: payload,
+          },
+        }
+      },
+    },
+  },
+})
+```
+
+Client connects with `?token=xxx` or `Authorization: Bearer xxx`.
+
+### Custom Auth
+
+```typescript
+auth: {
+  mode: 'custom',
+  extractToken: (req) => {
+    // Extract from cookie, custom header, etc.
+    const cookies = parseCookies(req.headers.cookie)
+    return cookies.session_id
+  },
+  validateToken: async (sessionId) => {
+    const session = await sessionStore.get(sessionId)
+    if (!session) return null
+    return { auth: { authenticated: true, principal: session.userId } }
+  },
+}
+```
+
+### Token Extraction Order
+
+When no custom `extractToken` is provided, the adapter checks in order:
+
+1. `?ticket=xxx` query parameter
+2. `?token=xxx` query parameter
+3. `Authorization: Bearer xxx` header
+
+---
+
+## Token Refresh
+
+Refresh auth tokens mid-connection without disconnecting. No lost subscriptions, no presence flicker.
+
+**Server:**
+
+```typescript
+auth: {
+  mode: 'bearer',
+  validateToken: (token) => verifyJWT(token),
+  refreshToken: async (newToken) => {
+    const payload = await verifyJWT(newToken)
+    if (!payload) return null
+    return { auth: { authenticated: true, principal: payload.sub } }
+  },
+}
+```
+
+**Client:**
+
+```javascript
+// When JWT is about to expire, send refresh
+ws.send(JSON.stringify({
+  id: 'refresh-1',
+  type: 'auth:refresh',
+  token: newJWT,
+}))
+
+// Server responds:
+// Success: { id: 'refresh-1', type: 'auth:refreshed' }
+// Failure: { id: 'refresh-1', type: 'error', code: 'AUTH_FAILED', status: 401 }
+```
+
+---
+
+## Rate Limiting
+
+Per-connection rate limits protect the server from abusive or buggy clients.
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      rateLimits: {
+        maxChannelsPerClient: 100,       // Max subscriptions per socket
+        maxSubscribesPerSecond: 10,      // Subscribe operations per second
+        maxPublishesPerSecond: 10,       // Publish operations per second
+        onRateLimited: (socketId, operation, limit) => {
+          console.log(`Rate limited: ${socketId} on ${operation} (limit: ${limit})`)
+        },
+      },
+    },
+  },
+})
+```
+
+When a client exceeds a limit, the operation fails with:
+
+```json
+{
+  "id": "sub-1",
+  "type": "error",
+  "code": "RATE_LIMITED",
+  "status": 429,
+  "message": "Too many subscribe operations"
+}
+```
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| `maxChannelsPerClient` | unlimited | Max channels a single client can subscribe to |
+| `maxSubscribesPerSecond` | unlimited | Subscribe operations per second per client |
+| `maxPublishesPerSecond` | unlimited | Publish operations per second per client |
+
+Rate limit state is automatically cleaned up when a client disconnects.
+
+---
+
+## Backpressure
+
+Prevents server OOM when a client can't keep up with message rate (slow consumer).
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    backpressure: {
+      maxBufferedAmount: 1024 * 1024,  // 1MB buffer limit
+      strategy: 'drop',                // 'drop' or 'disconnect'
+      onSlowConsumer: (socketId, bufferedAmount) => {
+        console.warn(`Slow consumer: ${socketId} (${bufferedAmount} bytes buffered)`)
+      },
+    },
+  },
+})
+```
+
+| Strategy | Behavior |
+|----------|----------|
+| `drop` | Silently skip sending the message to the slow client |
+| `disconnect` | Close the connection with code 1008 |
+
+Backpressure is checked at every send point: procedure responses, stream chunks, channel broadcasts, direct messages, and room/group sends.
+
+---
+
+## Sequence Numbers
+
+Every broadcast message includes a monotonically increasing sequence number and a server epoch. This enables:
+
+- **Gap detection**: clients know if they missed messages
+- **Ordering guarantees**: messages within a channel are ordered
+- **Stale offset detection**: epoch changes on server restart
+
+```json
+{
+  "type": "event",
+  "channel": "chat-room",
+  "event": "message",
+  "data": { "text": "Hello!" },
+  "seq": 42,
+  "epoch": "abc123"
+}
+```
+
+Sequences are independent per channel. The epoch is generated once when the channel manager is created.
+
+---
+
 ## Server-Side API
 
 ### Broadcasting

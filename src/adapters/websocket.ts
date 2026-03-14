@@ -26,7 +26,10 @@ import {
   type SubscribeMessage,
   type UnsubscribeMessage,
   type PublishMessage,
+  type WebSocketAuthConfig,
+  type BackpressureConfig,
 } from '../channels/index.js'
+import { createMemoryTicketStore } from '../channels/ticket-store.js'
 import {
   checkWebSocketConnectionFilter,
   type WebSocketConnectionFilter,
@@ -86,6 +89,12 @@ export interface WebSocketAdapterOptions {
 
   /** Inbound connection filter — controls which source IPs/origins may connect */
   filter?: WebSocketConnectionFilter
+
+  /** WebSocket authentication (ticket, bearer, or custom) */
+  auth?: WebSocketAuthConfig
+
+  /** Backpressure handling for slow consumers */
+  backpressure?: BackpressureConfig
 }
 
 /**
@@ -99,6 +108,8 @@ interface ClientConnection {
   connectionMetadata: Record<string, string>
   activeStreams: Map<string, AbortController>
   activeRequests: Map<string, AbortController>
+  /** Auth context seed from ticket/bearer auth (merged into every request context) */
+  authSeed?: ContextSeed
 }
 
 /**
@@ -145,11 +156,33 @@ export function createWebSocketAdapter(
   let heartbeatTimer: NodeJS.Timeout | null = null
   const clients = new Map<string, ClientConnection>()
 
+  // Backpressure config
+  const bpMaxBuffered = options.backpressure?.maxBufferedAmount ?? 1024 * 1024
+  const bpStrategy = options.backpressure?.strategy ?? 'drop'
+
+  // Auth config
+  const authConfig = options.auth
+  // Ensure ticket store exists for ticket mode
+  if (authConfig?.mode === 'ticket' && !authConfig.ticketStore) {
+    authConfig.ticketStore = createMemoryTicketStore()
+  }
+
   // Create channel manager if channels are enabled
   const channelManager: ChannelManager | null = options.channels
     ? createChannelManager(options.channels, (socketId, message) => {
         const client = clients.get(socketId)
         if (client && client.ws.readyState === WebSocket.OPEN) {
+          // Backpressure check on channel sends
+          if (options.backpressure && client.ws.bufferedAmount > bpMaxBuffered) {
+            if (bpStrategy === 'disconnect') {
+              options.backpressure.onSlowConsumer?.(socketId, client.ws.bufferedAmount)
+              client.ws.close(1008, 'Slow consumer')
+            } else {
+              options.backpressure.onSlowConsumer?.(socketId, client.ws.bufferedAmount)
+              // Drop silently
+            }
+            return
+          }
           client.ws.send(JSON.stringify(message))
         }
       })
@@ -178,10 +211,27 @@ export function createWebSocketAdapter(
 
 
   /**
+   * Check backpressure before sending
+   */
+  function checkBackpressure(client: ClientConnection): boolean {
+    if (!options.backpressure) return true
+    if (client.ws.bufferedAmount <= bpMaxBuffered) return true
+
+    if (bpStrategy === 'disconnect') {
+      options.backpressure.onSlowConsumer?.(client.id, client.ws.bufferedAmount)
+      client.ws.close(1008, 'Slow consumer')
+    } else {
+      options.backpressure.onSlowConsumer?.(client.id, client.ws.bufferedAmount)
+    }
+    return false
+  }
+
+  /**
    * Send a raw message to client (for channel responses)
    */
   function sendRawMessage(client: ClientConnection, message: unknown): void {
     if (client.ws.readyState !== WebSocket.OPEN) return
+    if (!checkBackpressure(client)) return
     client.ws.send(JSON.stringify(message))
   }
 
@@ -203,7 +253,10 @@ export function createWebSocketAdapter(
     const ctx = await createAbortableContextAsync(
       sid(),
       mergeContextSeeds(
-        buildWebSocketSeed(client, metadata, parsed),
+        mergeContextSeeds(
+          buildWebSocketSeed(client, metadata, parsed),
+          client.authSeed
+        ),
         await options.contextFactory?.(client.ws, client.request)
       ),
       new AbortController()
@@ -305,6 +358,12 @@ export function createWebSocketAdapter(
         return
       }
 
+      // Handle auth:refresh
+      if (parsed.type === 'auth:refresh') {
+        await handleAuthRefresh(client, parsed)
+        return
+      }
+
       // Check if this is a channel message
       if (await handleChannelMessage(client, parsed)) {
         return
@@ -324,11 +383,14 @@ export function createWebSocketAdapter(
       const requestId = incomingMetadata['x-request-id'] ?? messageId
       const abortController = new AbortController()
 
-      // Build context
+      // Build context (merge: ws seed → auth seed → contextFactory)
       const ctx = await createAbortableContextAsync(
         requestId,
         mergeContextSeeds(
-          buildWebSocketSeed(client, incomingMetadata, parsed.payload ?? {}),
+          mergeContextSeeds(
+            buildWebSocketSeed(client, incomingMetadata, parsed.payload ?? {}),
+            client.authSeed
+          ),
           await options.contextFactory?.(client.ws, client.request)
         ),
         abortController
@@ -405,6 +467,7 @@ export function createWebSocketAdapter(
    */
   function sendEnvelope(client: ClientConnection, envelope: Envelope): void {
     if (client.ws.readyState !== WebSocket.OPEN) return
+    if (!checkBackpressure(client)) return
 
     const message = JSON.stringify({
       id: envelope.id,
@@ -465,9 +528,108 @@ export function createWebSocketAdapter(
   }
 
   /**
+   * Handle auth:refresh message — update auth context mid-connection
+   */
+  async function handleAuthRefresh(
+    client: ClientConnection,
+    parsed: Record<string, unknown>
+  ): Promise<void> {
+    const token = parsed.token as string
+    const msgId = parsed.id as string
+
+    if (!token) {
+      sendRawMessage(client, { id: msgId, type: 'error', code: 'INVALID_TOKEN', status: 400, message: 'Token required' })
+      return
+    }
+
+    if (!authConfig?.refreshToken) {
+      sendRawMessage(client, { id: msgId, type: 'error', code: 'NOT_SUPPORTED', status: 501, message: 'Token refresh not configured' })
+      return
+    }
+
+    try {
+      const newSeed = await authConfig.refreshToken(token)
+      if (!newSeed) {
+        sendRawMessage(client, { id: msgId, type: 'error', code: 'AUTH_FAILED', status: 401, message: 'Invalid refresh token' })
+        return
+      }
+
+      // Update connection metadata with new auth info
+      if (newSeed.input?.metadata) {
+        client.connectionMetadata = { ...client.connectionMetadata, ...newSeed.input.metadata }
+      }
+
+      logger.info({ clientId: client.id }, 'Auth token refreshed')
+      sendRawMessage(client, { id: msgId, type: 'auth:refreshed' })
+    } catch (err) {
+      logger.error({ err, clientId: client.id }, 'Auth refresh error')
+      sendRawMessage(client, { id: msgId, type: 'error', code: 'AUTH_FAILED', status: 401, message: 'Token refresh failed' })
+    }
+  }
+
+  /**
+   * Extract auth token from upgrade request
+   */
+  function extractAuthToken(req: IncomingMessage): string | undefined {
+    // Custom extractor
+    if (authConfig?.extractToken) {
+      return authConfig.extractToken(req)
+    }
+
+    // Default: ?ticket=xxx or ?token=xxx from query string
+    const url = new URL(req.url || '/', 'http://localhost')
+    const ticket = url.searchParams.get('ticket')
+    if (ticket) return ticket
+
+    const token = url.searchParams.get('token')
+    if (token) return token
+
+    // Authorization: Bearer xxx header
+    const authHeader = req.headers['authorization']
+    if (authHeader?.startsWith('Bearer ')) {
+      return authHeader.slice(7)
+    }
+
+    return undefined
+  }
+
+  /**
+   * Validate connection auth — returns context seed or null (reject)
+   */
+  async function validateConnectionAuth(req: IncomingMessage): Promise<ContextSeed | null> {
+    if (!authConfig) return {} // No auth configured → allow all
+
+    const token = extractAuthToken(req)
+    if (!token) return null // No token → reject
+
+    if (authConfig.mode === 'ticket') {
+      const store = authConfig.ticketStore!
+      const ticket = await store.consume(token)
+      if (!ticket) return null // Invalid/expired/used ticket
+
+      return {
+        auth: {
+          authenticated: true,
+          principal: ticket.userId,
+          principalId: ticket.userId,
+          claims: ticket.metadata,
+        },
+      }
+    }
+
+    if (authConfig.mode === 'bearer' || authConfig.mode === 'custom') {
+      if (!authConfig.validateToken) return null
+      return await authConfig.validateToken(token)
+    }
+
+    return {}
+  }
+
+  /**
    * Handle new client connection
    */
   function handleConnection(ws: WebSocket, req: IncomingMessage): void {
+    // Connection filter
     if (options.filter) {
       const filter = options.filter
       const host = req.socket.remoteAddress ?? ''
@@ -479,17 +641,39 @@ export function createWebSocketAdapter(
           ws.close(1008, 'Policy Violation')
           return
         }
-        _doConnect(ws, req)
+        authenticateAndConnect(ws, req)
       }).catch(() => { ws.close(1008, 'Policy Violation') })
       return
     }
-    _doConnect(ws, req)
+    authenticateAndConnect(ws, req)
   }
 
   /**
-   * Perform the actual client connection setup (after filter passes).
+   * Authenticate and then connect
    */
-  function _doConnect(ws: WebSocket, req: IncomingMessage): void {
+  function authenticateAndConnect(ws: WebSocket, req: IncomingMessage): void {
+    if (!authConfig) {
+      _doConnect(ws, req)
+      return
+    }
+
+    validateConnectionAuth(req).then((seed) => {
+      if (!seed) {
+        logger.warn({ remoteAddress: req.socket.remoteAddress }, 'WebSocket auth rejected')
+        ws.close(1008, 'Authentication required')
+        return
+      }
+      _doConnect(ws, req, seed)
+    }).catch((err) => {
+      logger.error({ err }, 'WebSocket auth error')
+      ws.close(1011, 'Authentication error')
+    })
+  }
+
+  /**
+   * Perform the actual client connection setup (after filter + auth passes).
+   */
+  function _doConnect(ws: WebSocket, req: IncomingMessage, authSeed?: ContextSeed): void {
     const clientId = sid()
     const client: ClientConnection = {
       id: clientId,
@@ -501,12 +685,19 @@ export function createWebSocketAdapter(
       activeRequests: new Map(),
     }
 
+    // Store auth seed for context building
+    if (authSeed) {
+      client.authSeed = authSeed
+    }
+
     clients.set(clientId, client)
     logger.info({ clientId, remoteAddress: req.socket.remoteAddress }, 'Client connected')
 
     // Register client in channel manager inventory
     if (channelManager) {
-      channelManager.registerClient(clientId)
+      const userId = authSeed?.auth?.principalId
+        ?? (typeof authSeed?.auth?.principal === 'string' ? authSeed.auth.principal : undefined)
+      channelManager.registerClient(clientId, { userId: userId ?? undefined })
 
       // Lifecycle hook: onConnect
       if (options.channels?.hooks?.onConnect) {

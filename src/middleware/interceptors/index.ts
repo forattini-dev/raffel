@@ -112,3 +112,11 @@ export type {
   EnvelopeMeta,
   EnvelopeResponse,
 } from './envelope.js'
+
+// Field Filter
+export { createFieldFilterInterceptor } from './field-filter.js'
+export type { FieldFilterConfig } from './field-filter.js'
+
+// Guard
+export { createGuardInterceptor } from './guard.js'
+export type { GuardCheckFn, GuardErrorOptions } from './guard.js'

@@ -733,6 +733,35 @@ export interface WebSocketOptions {
     ws: import('ws').WebSocket,
     req: import('http').IncomingMessage
   ) => ContextSeed | Promise<ContextSeed>
+
+  /**
+   * WebSocket authentication.
+   *
+   * Supports ticket-based (recommended for browsers), bearer token, or custom auth.
+   *
+   * @example
+   * ```typescript
+   * auth: {
+   *   mode: 'ticket',
+   *   ticketTTL: 30000,
+   * }
+   * ```
+   */
+  auth?: import('../channels/types.js').WebSocketAuthConfig
+
+  /**
+   * Backpressure handling for slow consumers.
+   * Prevents OOM from clients that can't keep up with message rate.
+   *
+   * @example
+   * ```typescript
+   * backpressure: {
+   *   maxBufferedAmount: 1024 * 1024,  // 1MB
+   *   strategy: 'drop',
+   * }
+   * ```
+   */
+  backpressure?: import('../channels/types.js').BackpressureConfig
 }
 
 export interface JsonRpcOptions {

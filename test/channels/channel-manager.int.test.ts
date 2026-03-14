@@ -85,7 +85,7 @@ describe('ChannelManager', () => {
       manager.broadcast('chat-room', 'message', { text: 'Hello!' })
 
       expect(sentMessages).toHaveLength(3)
-      expect(sentMessages[0]).toEqual({
+      expect(sentMessages[0]).toMatchObject({
         socketId: 'socket-1',
         message: {
           type: 'event',
@@ -94,6 +94,10 @@ describe('ChannelManager', () => {
           data: { text: 'Hello!' },
         },
       })
+      // Verify sequence number is present
+      const msg = sentMessages[0]!.message as Record<string, unknown>
+      expect(msg.seq).toBe(1)
+      expect(msg.epoch).toBeTruthy()
     })
 
     it('should exclude sender from broadcast', async () => {

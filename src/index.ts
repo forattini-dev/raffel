@@ -349,6 +349,10 @@ export {
   isEnvelopeSuccess,
   isEnvelopeError,
   EnvelopePresets,
+  // Field Filter
+  createFieldFilterInterceptor,
+  // Guard
+  createGuardInterceptor,
 } from './middleware/interceptors/index.js'
 export type {
   // Auth types
@@ -367,6 +371,11 @@ export type {
   CreateJWKSVerifierOptions,
   JWKSVerifier,
 } from './middleware/index.js'
+export type {
+  FieldFilterConfig,
+  GuardCheckFn,
+  GuardErrorOptions,
+} from './middleware/interceptors/index.js'
 
 // === Rate Limit Drivers ===
 export {
@@ -552,6 +561,8 @@ export {
   isChannelMessage,
   getChannelType,
   requiresAuth,
+  createMemoryTicketStore,
+  generateTicket,
 } from './channels/index.js'
 export type {
   ChannelType,
@@ -574,6 +585,13 @@ export type {
   ChannelLifecycleHooks,
   ClientConnectEvent,
   ClientDisconnectEvent,
+  ConnectionTicket,
+  TicketStore,
+  WebSocketAuthConfig,
+  ChannelRateLimits,
+  BackpressureConfig,
+  AuthRefreshMessage,
+  AuthRefreshedMessage,
 } from './channels/index.js'
 
 // === GraphQL ===
@@ -940,6 +958,28 @@ export type {
 export { buildProtocolConfig, resolveSinglePortConfig } from './bootstrap/config-normalization.js'
 export { createProtocolWiring, createServerLifecycle } from './bootstrap/protocol-wiring.js'
 export type { ServerLifecycleContext } from './bootstrap/protocol-wiring.js'
+
+// === Resource Module ===
+export { createResourceModule, createFilteredWatchStream } from './resource-module/index.js'
+export type {
+  ResourceAdapter,
+  ResourceChangeEvent,
+  ResourceListQuery,
+  ResourceListResult,
+  ResourceGuards,
+  ResourceFieldPolicy,
+  ResourceModuleOptions,
+  WatchFilter,
+} from './resource-module/index.js'
+
+// === Client SDK ===
+export { createRaffelClient, createReconnectController } from './client/index.js'
+export type {
+  RaffelClientOptions,
+  RaffelClient,
+  ClientStream,
+  CallOptions,
+} from './client/index.js'
 
 // === Outbound Adapters (Hexagonal) ===
 export { createPinoLoggerAdapter, pinoLoggerFactory } from './adapters/outbound/logger/index.js'

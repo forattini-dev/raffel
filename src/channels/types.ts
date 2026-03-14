@@ -16,6 +16,111 @@ import type { Context } from '../types/index.js'
  */
 export type ChannelType = 'public' | 'private' | 'presence'
 
+// ─── Ticket-Based Authentication ─────────────────────────────────────────────
+
+/**
+ * A short-lived, single-use connection ticket.
+ * Generated server-side via HTTP, consumed on WS connect.
+ */
+export interface ConnectionTicket {
+  /** Unique ticket ID */
+  id: string
+  /** User/principal identifier */
+  userId: string
+  /** Allowed channel patterns (glob-like: 'private-user-123', 'presence-*') */
+  permissions?: string[]
+  /** Expiration timestamp (ms since epoch) */
+  expiresAt: number
+  /** Whether this ticket has been consumed */
+  usedAt?: number
+  /** Custom metadata carried into the connection context */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Storage backend for connection tickets (port interface).
+ * Default: in-memory. Can be backed by Redis for multi-instance.
+ */
+export interface TicketStore {
+  /** Store a new ticket */
+  create(ticket: ConnectionTicket): Promise<void>
+  /** Consume a ticket (single-use). Returns null if not found, expired, or already used. */
+  consume(ticketId: string): Promise<ConnectionTicket | null>
+  /** Revoke a ticket before use */
+  revoke(ticketId: string): Promise<void>
+}
+
+/**
+ * WebSocket authentication configuration
+ */
+export interface WebSocketAuthConfig {
+  /**
+   * Auth mode:
+   * - 'ticket': single-use token from HTTP endpoint (recommended for browsers)
+   * - 'bearer': JWT/token in query param or first message
+   * - 'custom': your own extraction logic
+   */
+  mode: 'ticket' | 'bearer' | 'custom'
+
+  /** Ticket store (required for 'ticket' mode, default: in-memory) */
+  ticketStore?: TicketStore
+
+  /** Ticket TTL in ms (default: 30000 = 30s) */
+  ticketTTL?: number
+
+  /**
+   * Extract auth token from the HTTP upgrade request.
+   * Default: reads `?ticket=xxx` or `?token=xxx` from query string,
+   * or `Authorization: Bearer xxx` header.
+   */
+  extractToken?: (req: import('http').IncomingMessage) => string | undefined
+
+  /**
+   * Validate a token and return auth context seed.
+   * Called for 'bearer' and 'custom' modes.
+   * Return null to reject the connection.
+   */
+  validateToken?: (token: string) => import('../types/index.js').ContextSeed | null | Promise<import('../types/index.js').ContextSeed | null>
+
+  /**
+   * Validate a refresh token sent mid-connection.
+   * Return new context seed or null to reject.
+   */
+  refreshToken?: (token: string) => import('../types/index.js').ContextSeed | null | Promise<import('../types/index.js').ContextSeed | null>
+}
+
+// ─── Rate Limiting ───────────────────────────────────────────────────────────
+
+/**
+ * Per-connection rate limits for WebSocket operations
+ */
+export interface ChannelRateLimits {
+  /** Max channels a single client can subscribe to (default: 100) */
+  maxChannelsPerClient?: number
+  /** Max subscribe operations per second per client (default: 10) */
+  maxSubscribesPerSecond?: number
+  /** Max publish operations per second per client (default: 10) */
+  maxPublishesPerSecond?: number
+  /** Max total messages per second per client (default: 50) */
+  maxMessagesPerSecond?: number
+  /** Called when a client is rate-limited */
+  onRateLimited?: (socketId: string, operation: string, limit: number) => void
+}
+
+// ─── Backpressure ────────────────────────────────────────────────────────────
+
+/**
+ * Backpressure handling for slow consumers
+ */
+export interface BackpressureConfig {
+  /** Max bytes buffered in the socket's write queue before action (default: 1MB) */
+  maxBufferedAmount?: number
+  /** What to do when buffer exceeds limit */
+  strategy?: 'drop' | 'disconnect'
+  /** Called when a slow consumer is detected */
+  onSlowConsumer?: (socketId: string, bufferedAmount: number) => void
+}
+
 /**
  * Connected client info exposed via the manager
  */
@@ -177,6 +282,9 @@ export interface ChannelOptions {
     socketId: string,
     ctx: Context
   ) => Record<string, unknown>
+
+  /** Per-connection rate limits */
+  rateLimits?: ChannelRateLimits
 }
 
 /**
@@ -207,6 +315,10 @@ export interface ChannelState {
   members?: Map<string, ChannelMember>
   /** When channel was created */
   createdAt: number
+  /** Monotonically increasing sequence number for message ordering */
+  sequence: number
+  /** Epoch identifier — changes on server restart (for detecting stale offsets) */
+  epoch: string
 }
 
 /**
@@ -514,6 +626,27 @@ export interface ChannelEventMessage {
   channel: string
   event: string
   data: unknown
+  /** Sequence number (monotonically increasing per channel) */
+  seq?: number
+  /** Server epoch (changes on restart, used to detect stale offsets) */
+  epoch?: string
+}
+
+/**
+ * Client → Server: Refresh auth token mid-connection
+ */
+export interface AuthRefreshMessage {
+  id: string
+  type: 'auth:refresh'
+  token: string
+}
+
+/**
+ * Server → Client: Auth refresh result
+ */
+export interface AuthRefreshedMessage {
+  id: string
+  type: 'auth:refreshed'
 }
 
 /**
@@ -538,6 +671,8 @@ export type ChannelMessage =
   | PublishMessage
   | ChannelEventMessage
   | ChannelErrorMessage
+  | AuthRefreshMessage
+  | AuthRefreshedMessage
 
 /**
  * Check if a message is a channel-related message

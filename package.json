@@ -118,6 +118,14 @@
       "types": "./dist/http/events.d.ts",
       "import": "./dist/http/events.js"
     },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    },
+    "./resource-module": {
+      "types": "./dist/resource-module/index.d.ts",
+      "import": "./dist/resource-module/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"

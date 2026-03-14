@@ -50,6 +50,53 @@ createServer({
 | `heartbeatInterval` | number | `30000` | Ping interval in ms (0 to disable) |
 | `channels` | object | - | Enable channels/presence configuration |
 | `contextFactory` | function | - | Build connection context from upgrade request |
+| `auth` | object | - | Authentication config (ticket, bearer, or custom) |
+| `backpressure` | object | - | Slow consumer handling (drop or disconnect) |
+
+## Authentication
+
+Raffel supports three auth modes for WebSocket connections:
+
+| Mode | How it works | Best for |
+|------|-------------|----------|
+| `ticket` | Single-use token from HTTP, passed as `?ticket=xxx` | Browsers (recommended) |
+| `bearer` | JWT/API key as `?token=xxx` or `Authorization` header | Server-to-server, mobile |
+| `custom` | Your own `extractToken` + `validateToken` logic | Cookies, custom protocols |
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    auth: {
+      mode: 'ticket',
+      ticketStore: createMemoryTicketStore(),
+    },
+  },
+})
+```
+
+Clients can also refresh tokens mid-connection without reconnecting:
+
+```json
+{ "id": "r1", "type": "auth:refresh", "token": "new-jwt-here" }
+```
+
+See [Channels > Authentication](/protocols/channels.md#authentication) for full details and examples.
+
+## Backpressure
+
+Protect the server from slow consumers that can't keep up with message rate:
+
+```typescript
+websocket: {
+  backpressure: {
+    maxBufferedAmount: 1024 * 1024,  // 1MB
+    strategy: 'drop',                // or 'disconnect'
+  },
+}
+```
+
+See [Channels > Backpressure](/protocols/channels.md#backpressure) for details.
 
 ## USD Content Types
 

@@ -44,6 +44,8 @@
 
 export { createChannelManager } from './channel-manager.js'
 export type { SendToSocketFn } from './channel-manager.js'
+export { createMemoryTicketStore, generateTicket } from './ticket-store.js'
+export type { MemoryTicketStoreOptions } from './ticket-store.js'
 
 export {
   // Types
@@ -59,6 +61,13 @@ export {
   type ChannelLifecycleHooks,
   type ClientConnectEvent,
   type ClientDisconnectEvent,
+  type ConnectionTicket,
+  type TicketStore,
+  type WebSocketAuthConfig,
+  type ChannelRateLimits,
+  type BackpressureConfig,
+  type AuthRefreshMessage,
+  type AuthRefreshedMessage,
 
   // Messages
   type SubscribeMessage,

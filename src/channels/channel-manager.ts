@@ -7,6 +7,7 @@
 
 import type { Context } from '../types/index.js'
 import { getPrincipalId } from '../types/index.js'
+import { sid } from '../utils/id/index.js'
 import type { ChannelPresencePort } from '../ports/outbound/channel-presence.js'
 import type {
   ChannelOptions,
@@ -17,8 +18,47 @@ import type {
   ClientInfo,
   RoomInfo,
   GroupInfo,
+  ChannelRateLimits,
 } from './types.js'
 import { getChannelType } from './types.js'
+
+// ─── Rate Limiter (sliding window per socket) ────────────────────────────────
+
+interface RateBucket {
+  count: number
+  windowStart: number
+}
+
+function createRateLimiter(limits: ChannelRateLimits) {
+  const buckets = new Map<string, RateBucket>()
+
+  function checkLimit(key: string, maxPerSecond: number): boolean {
+    const now = Date.now()
+    const bucket = buckets.get(key)
+
+    if (!bucket || now - bucket.windowStart >= 1000) {
+      buckets.set(key, { count: 1, windowStart: now })
+      return true
+    }
+
+    if (bucket.count >= maxPerSecond) {
+      return false
+    }
+
+    bucket.count++
+    return true
+  }
+
+  function removeSocket(socketId: string): void {
+    for (const key of buckets.keys()) {
+      if (key.startsWith(socketId + ':')) {
+        buckets.delete(key)
+      }
+    }
+  }
+
+  return { checkLimit, removeSocket }
+}
 
 /**
  * Function to send a message to a socket
@@ -117,6 +157,13 @@ export function createChannelManager(
   /** Reverse index: socket → groups */
   const socketGroups = new Map<string, Set<string>>()
 
+  /** Server epoch (unique per createChannelManager call / server restart) */
+  const serverEpoch = sid()
+
+  /** Rate limiter instance */
+  const rateLimiter = options.rateLimits ? createRateLimiter(options.rateLimits) : null
+  const rateLimits = options.rateLimits
+
   /**
    * Get or create a channel
    */
@@ -129,6 +176,8 @@ export function createChannelManager(
         type,
         subscribers: new Set(),
         createdAt: Date.now(),
+        sequence: 0,
+        epoch: serverEpoch,
       }
       channels.set(name, channel)
     }
@@ -172,11 +221,16 @@ export function createChannelManager(
     const channel = channels.get(channelName)
     if (!channel) return
 
+    // Increment sequence number
+    channel.sequence++
+
     const message = {
       type: 'event',
       channel: channelName,
       event,
       data,
+      seq: channel.sequence,
+      epoch: channel.epoch,
     }
 
     for (const socketId of channel.subscribers) {
@@ -206,6 +260,37 @@ export function createChannelManager(
       channelName: string,
       ctx: Context
     ): Promise<SubscribeResult> {
+      // Rate limit: max subscribes per second
+      if (rateLimiter && rateLimits?.maxSubscribesPerSecond) {
+        if (!rateLimiter.checkLimit(`${socketId}:sub`, rateLimits.maxSubscribesPerSecond)) {
+          rateLimits.onRateLimited?.(socketId, 'subscribe', rateLimits.maxSubscribesPerSecond)
+          return {
+            success: false,
+            error: {
+              code: 'RATE_LIMITED',
+              status: 429,
+              message: 'Too many subscribe operations',
+            },
+          }
+        }
+      }
+
+      // Rate limit: max channels per client
+      if (rateLimits?.maxChannelsPerClient) {
+        const currentCount = socketChannels.get(socketId)?.size ?? 0
+        if (currentCount >= rateLimits.maxChannelsPerClient) {
+          rateLimits.onRateLimited?.(socketId, 'max_channels', rateLimits.maxChannelsPerClient)
+          return {
+            success: false,
+            error: {
+              code: 'RATE_LIMITED',
+              status: 429,
+              message: `Max channels per client (${rateLimits.maxChannelsPerClient}) exceeded`,
+            },
+          }
+        }
+      }
+
       const type = getChannelType(channelName)
 
       // Authorization check (all channels when authorize is provided)
@@ -438,6 +523,9 @@ export function createChannelManager(
     },
 
     removeClient(socketId: string): void {
+      // Clean up rate limiter state
+      rateLimiter?.removeSocket(socketId)
+
       // Clean up rooms
       const clientRoomSet = socketRooms.get(socketId)
       if (clientRoomSet) {
