@@ -18,6 +18,12 @@ Channels provide:
 - **REST API**: Server-side publishing via HTTP
 - **Webhooks**: Lifecycle hooks for all events
 - **Transformers**: Server-side message transformation
+- **Queue Channels**: Fan-in round-robin delivery (unique to Raffel)
+- **Typing Indicators**: Built-in with auto-timeout
+- **Batch Operations**: Multi-channel subscribe/publish in one message
+- **Compression**: Per-message deflate (60-80% bandwidth savings)
+- **Client SDK**: TypeScript client with auto-reconnect, channels, and streams
+- **Custom Protocol**: Bring your own message types alongside channels
 
 ## Quick Start
 
