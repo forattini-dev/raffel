@@ -21,6 +21,8 @@ import type {
   ChannelRateLimits,
 } from './types.js'
 import { getChannelType } from './types.js'
+import type { ChannelHistoryPort } from './history.js'
+import { createMemoryHistoryStore } from './history.js'
 
 // ─── Rate Limiter (sliding window per socket) ────────────────────────────────
 
@@ -164,6 +166,14 @@ export function createChannelManager(
   const rateLimiter = options.rateLimits ? createRateLimiter(options.rateLimits) : null
   const rateLimits = options.rateLimits
 
+  /** History store (optional) */
+  const historyStore: ChannelHistoryPort | null = options.history?.enabled
+    ? createMemoryHistoryStore({
+        maxSize: options.history.maxSize,
+        ttl: options.history.ttl,
+      })
+    : null
+
   /**
    * Get or create a channel
    */
@@ -180,6 +190,11 @@ export function createChannelManager(
         epoch: serverEpoch,
       }
       channels.set(name, channel)
+
+      // Lifecycle hook: channel created
+      if (options.hooks?.onChannelCreated) {
+        Promise.resolve(options.hooks.onChannelCreated(name, type)).catch(() => {})
+      }
     }
     return channel
   }
@@ -216,7 +231,8 @@ export function createChannelManager(
     channelName: string,
     event: string,
     data: unknown,
-    except?: string
+    except?: string,
+    senderId?: string
   ): void {
     const channel = channels.get(channelName)
     if (!channel) return
@@ -233,6 +249,20 @@ export function createChannelManager(
       epoch: channel.epoch,
     }
 
+    // Append to history store if enabled
+    if (historyStore) {
+      historyStore.append({
+        id: sid(),
+        channel: channelName,
+        event,
+        data,
+        seq: channel.sequence,
+        epoch: channel.epoch,
+        senderId,
+        timestamp: Date.now(),
+      })
+    }
+
     for (const socketId of channel.subscribers) {
       if (socketId !== except) {
         sendToSocket(socketId, message)
@@ -246,7 +276,13 @@ export function createChannelManager(
   function cleanupIfEmpty(channelName: string): void {
     const channel = channels.get(channelName)
     if (channel && channel.subscribers.size === 0) {
+      const type = channel.type
       channels.delete(channelName)
+
+      // Lifecycle hook: channel destroyed
+      if (options.hooks?.onChannelDestroyed) {
+        Promise.resolve(options.hooks.onChannelDestroyed(channelName, type)).catch(() => {})
+      }
     }
   }
 
@@ -258,7 +294,8 @@ export function createChannelManager(
     async subscribe(
       socketId: string,
       channelName: string,
-      ctx: Context
+      ctx: Context,
+      since?: { seq: number; epoch: string }
     ): Promise<SubscribeResult> {
       // Rate limit: max subscribes per second
       if (rateLimiter && rateLimits?.maxSubscribesPerSecond) {
@@ -445,7 +482,7 @@ export function createChannelManager(
       data: unknown,
       except?: string
     ): void {
-      broadcastMessage(channelName, event, data, except)
+      broadcastMessage(channelName, event, data, except, except)
     },
 
     sendToSocket(
@@ -787,6 +824,64 @@ export function createChannelManager(
       }
 
       groups.delete(groupName)
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Recovery
+    // ─────────────────────────────────────────────────────────────
+
+    recoverClient(
+      _oldSocketId: string,
+      newSocketId: string,
+      channelList: { name: string; lastSeq: number }[]
+    ): void {
+      for (const { name, lastSeq } of channelList) {
+        const channel = getOrCreateChannel(name)
+        channel.subscribers.add(newSocketId)
+        trackSubscription(newSocketId, name)
+
+        // Replay missed messages from history
+        if (historyStore) {
+          const missed = historyStore.getAfterSeq(name, lastSeq, channel.epoch)
+          for (const entry of missed) {
+            sendToSocket(newSocketId, {
+              type: 'event',
+              channel: name,
+              event: entry.event,
+              data: entry.data,
+              seq: entry.seq,
+              epoch: entry.epoch,
+            })
+          }
+        }
+      }
+    },
+    replayHistory(
+      socketId: string,
+      channelName: string,
+      sinceSeq: number,
+      epoch: string
+    ): void {
+      if (!historyStore) return
+      const missed = historyStore.getAfterSeq(channelName, sinceSeq, epoch)
+      for (const entry of missed) {
+        sendToSocket(socketId, {
+          type: 'event',
+          channel: channelName,
+          event: entry.event,
+          data: entry.data,
+          seq: entry.seq,
+          epoch: entry.epoch,
+        })
+      }
+    },
+
+    getEpoch(): string {
+      return serverEpoch
+    },
+
+    getSequence(channelName: string): number {
+      return channels.get(channelName)?.sequence ?? 0
     },
   }
 

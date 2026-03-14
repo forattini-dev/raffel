@@ -83,6 +83,12 @@ export function createFieldFilterInterceptor(config: FieldFilterConfig = {}): In
   return async (_envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     const result = await next()
 
+    // Skip async iterables (stream results) — they are consumed by the router's
+    // wrapStreamInEnvelopes. Each chunk will go through its own interceptor chain.
+    if (result !== null && result !== undefined && typeof result === 'object' && Symbol.asyncIterator in result) {
+      return result
+    }
+
     let filtered = result
 
     // Apply static field stripping

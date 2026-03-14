@@ -47,6 +47,26 @@ export type { SendToSocketFn } from './channel-manager.js'
 export { createMemoryTicketStore, generateTicket } from './ticket-store.js'
 export type { MemoryTicketStoreOptions } from './ticket-store.js'
 
+// History
+export { createMemoryHistoryStore } from './history.js'
+export type {
+  ChannelHistoryEntry,
+  ChannelHistoryPort,
+  MemoryHistoryStoreOptions,
+} from './history.js'
+
+// Recovery
+export { createMemoryRecoveryStore, generateRecoveryToken } from './recovery.js'
+export type {
+  RecoverableSession,
+  ConnectionRecoveryPort,
+  MemoryRecoveryStoreOptions,
+} from './recovery.js'
+
+// REST API
+export { createChannelRestApi } from './rest-api.js'
+export type { ChannelRestApiOptions } from './rest-api.js'
+
 export {
   // Types
   type ChannelType,
@@ -68,6 +88,7 @@ export {
   type BackpressureConfig,
   type AuthRefreshMessage,
   type AuthRefreshedMessage,
+  type RecoverMessage,
 
   // Messages
   type SubscribeMessage,
@@ -81,6 +102,7 @@ export {
 
   // Helpers
   isChannelMessage,
+  isRecoverMessage,
   getChannelType,
   requiresAuth,
 } from './types.js'

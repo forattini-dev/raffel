@@ -559,10 +559,15 @@ export type {
 export {
   createChannelManager,
   isChannelMessage,
+  isRecoverMessage,
   getChannelType,
   requiresAuth,
   createMemoryTicketStore,
   generateTicket,
+  createMemoryHistoryStore,
+  createMemoryRecoveryStore,
+  generateRecoveryToken,
+  createChannelRestApi,
 } from './channels/index.js'
 export type {
   ChannelType,
@@ -579,6 +584,7 @@ export type {
   ChannelEventMessage,
   ChannelErrorMessage,
   ChannelMessage,
+  RecoverMessage,
   ClientInfo,
   RoomInfo,
   GroupInfo,
@@ -592,6 +598,13 @@ export type {
   BackpressureConfig,
   AuthRefreshMessage,
   AuthRefreshedMessage,
+  ChannelHistoryEntry,
+  ChannelHistoryPort,
+  MemoryHistoryStoreOptions,
+  RecoverableSession,
+  ConnectionRecoveryPort,
+  MemoryRecoveryStoreOptions,
+  ChannelRestApiOptions,
 } from './channels/index.js'
 
 // === GraphQL ===

@@ -21,6 +21,7 @@ import {
 import {
   createChannelManager,
   isChannelMessage,
+  isRecoverMessage,
   type ChannelOptions,
   type ChannelManager,
   type SubscribeMessage,
@@ -29,6 +30,12 @@ import {
   type WebSocketAuthConfig,
   type BackpressureConfig,
 } from '../channels/index.js'
+import {
+  createMemoryRecoveryStore,
+  generateRecoveryToken,
+  type ConnectionRecoveryPort,
+  type RecoverableSession,
+} from '../channels/recovery.js'
 import { createMemoryTicketStore } from '../channels/ticket-store.js'
 import {
   checkWebSocketConnectionFilter,
@@ -95,6 +102,16 @@ export interface WebSocketAdapterOptions {
 
   /** Backpressure handling for slow consumers */
   backpressure?: BackpressureConfig
+
+  /** Connection state recovery (requires channels to be enabled) */
+  recovery?: {
+    /** Enable connection recovery (default: false) */
+    enabled: boolean
+    /** TTL in ms for recovery sessions (default: 120000 = 2 minutes) */
+    ttl?: number
+    /** Custom recovery store (default: in-memory) */
+    store?: ConnectionRecoveryPort
+  }
 }
 
 /**
@@ -166,6 +183,15 @@ export function createWebSocketAdapter(
   if (authConfig?.mode === 'ticket' && !authConfig.ticketStore) {
     authConfig.ticketStore = createMemoryTicketStore()
   }
+
+  // Recovery store (only when channels + recovery are enabled)
+  const recoveryStore: ConnectionRecoveryPort | null =
+    options.channels && options.recovery?.enabled
+      ? options.recovery.store ?? createMemoryRecoveryStore({ ttl: options.recovery.ttl })
+      : null
+
+  /** Map socketId → recoveryToken (sent to client on connect) */
+  const clientRecoveryTokens = new Map<string, string>()
 
   // Create channel manager if channels are enabled
   const channelManager: ChannelManager | null = options.channels
@@ -264,7 +290,7 @@ export function createWebSocketAdapter(
 
     if (messageType === 'subscribe') {
       const msg = parsed as SubscribeMessage
-      const result = await channelManager.subscribe(client.id, msg.channel, ctx)
+      const result = await channelManager.subscribe(client.id, msg.channel, ctx, msg.since)
 
       if (result.success) {
         sendRawMessage(client, {
@@ -273,6 +299,11 @@ export function createWebSocketAdapter(
           channel: msg.channel,
           members: result.members,
         })
+
+        // Replay history after subscribed response (if since is provided)
+        if (msg.since) {
+          channelManager.replayHistory(client.id, msg.channel, msg.since.seq, msg.since.epoch)
+        }
       } else {
         sendRawMessage(client, {
           id: msg.id,
@@ -311,7 +342,7 @@ export function createWebSocketAdapter(
         return true
       }
 
-      // Check onPublish hook if provided
+      // Check onPublish hook if provided (ChannelOptions.onPublish — authorization)
       if (options.channels?.onPublish) {
         const allowed = await options.channels.onPublish(
           client.id,
@@ -332,8 +363,31 @@ export function createWebSocketAdapter(
         }
       }
 
+      // Apply transform if configured
+      let finalData = msg.data
+      if (options.channels?.transform) {
+        const clientInfo = channelManager.getClient(client.id)
+        const transformed = await options.channels.transform(
+          msg.channel,
+          msg.event,
+          msg.data,
+          { socketId: client.id, userId: clientInfo?.userId }
+        )
+        if (transformed === null) {
+          // Message dropped by transform
+          return true
+        }
+        finalData = transformed
+      }
+
       // Broadcast to all subscribers except sender
-      channelManager.broadcast(msg.channel, msg.event, msg.data, client.id)
+      channelManager.broadcast(msg.channel, msg.event, finalData, client.id)
+
+      // Lifecycle hook: onPublish (notification, not authorization)
+      if (options.channels?.hooks?.onPublish) {
+        Promise.resolve(options.channels.hooks.onPublish(client.id, msg.channel, msg.event, finalData)).catch(() => {})
+      }
+
       return true
     }
 
@@ -361,6 +415,52 @@ export function createWebSocketAdapter(
       // Handle auth:refresh
       if (parsed.type === 'auth:refresh') {
         await handleAuthRefresh(client, parsed)
+        return
+      }
+
+      // Handle recovery message
+      if (recoveryStore && channelManager && isRecoverMessage(parsed)) {
+        const session = recoveryStore.get(parsed.recoveryToken)
+        if (session) {
+          recoveryStore.delete(parsed.recoveryToken)
+
+          // Re-register with previous user info
+          const existingClient = channelManager.getClient(client.id)
+          if (!existingClient) {
+            channelManager.registerClient(client.id, {
+              userId: session.userId,
+              data: session.metadata,
+            })
+          }
+
+          // Recover channel subscriptions
+          channelManager.recoverClient(session.socketId, client.id, session.channels)
+
+          // Re-join groups
+          for (const groupName of session.groups) {
+            channelManager.joinGroup(groupName, client.id)
+          }
+
+          // Generate new recovery token for this session
+          const newToken = generateRecoveryToken()
+          clientRecoveryTokens.set(client.id, newToken)
+
+          sendRawMessage(client, {
+            type: 'connection:recovered',
+            socketId: client.id,
+            recoveryToken: newToken,
+            channels: session.channels.map((c) => c.name),
+            groups: session.groups,
+          })
+          logger.info({ clientId: client.id, oldSocketId: session.socketId }, 'Client recovered')
+        } else {
+          sendRawMessage(client, {
+            type: 'error',
+            code: 'RECOVERY_FAILED',
+            status: 404,
+            message: 'Recovery token not found or expired',
+          })
+        }
         return
       }
 
@@ -699,6 +799,17 @@ export function createWebSocketAdapter(
         ?? (typeof authSeed?.auth?.principal === 'string' ? authSeed.auth.principal : undefined)
       channelManager.registerClient(clientId, { userId: userId ?? undefined })
 
+      // Send recovery token if recovery is enabled
+      if (recoveryStore) {
+        const token = generateRecoveryToken()
+        clientRecoveryTokens.set(clientId, token)
+        sendRawMessage(client, {
+          type: 'connection:established',
+          socketId: clientId,
+          recoveryToken: token,
+        })
+      }
+
       // Lifecycle hook: onConnect
       if (options.channels?.hooks?.onConnect) {
         const headers = client.connectionMetadata
@@ -728,6 +839,37 @@ export function createWebSocketAdapter(
     ws.on('close', (code, reason) => {
       const reasonStr = reason.toString()
       logger.info({ clientId, code, reason: reasonStr }, 'Client disconnected')
+
+      // Save recovery session before removing client
+      if (recoveryStore && channelManager) {
+        const token = clientRecoveryTokens.get(clientId)
+        if (token) {
+          const subs = channelManager.getSubscriptions(clientId)
+          const clientInfo = channelManager.getClient(clientId)
+          const groups = channelManager.getClientGroups(clientId).map((g) => g.name)
+
+          // Build channel list with last seen seq (from channel state)
+          const channelSeqs = subs.map((name) => {
+            // We can't access internal channel state from outside, so we use 0
+            // The channel manager's recoverClient will replay from the stored seq
+            return { name, lastSeq: 0 }
+          })
+
+          const ttl = options.recovery?.ttl ?? 120_000
+          const session: RecoverableSession = {
+            recoveryToken: token,
+            socketId: clientId,
+            userId: clientInfo?.userId,
+            channels: channelSeqs,
+            groups,
+            metadata: clientInfo?.data ?? {},
+            expiresAt: Date.now() + ttl,
+          }
+
+          recoveryStore.save(session)
+          clientRecoveryTokens.delete(clientId)
+        }
+      }
 
       // Remove client from inventory (also unsubscribes, cleans rooms/groups)
       if (channelManager) {

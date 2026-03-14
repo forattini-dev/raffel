@@ -245,9 +245,8 @@ export function createRaffelClient(urlOrOptions: string | RaffelClientOptions): 
       return
     }
 
-    // Error response
+    // Error response — router sends id as `${requestId}:error`
     if (type === 'error') {
-      // The WS adapter sends error ids as `${requestId}:error`
       const baseId = id.endsWith(':error') ? id.slice(0, -6) : id
       const pending = pendingRequests.get(baseId) ?? pendingRequests.get(id)
       if (pending) {
@@ -262,12 +261,14 @@ export function createRaffelClient(urlOrOptions: string | RaffelClientOptions): 
       return
     }
 
-    // Response (procedure result)
+    // Response (procedure result) — router sends id as `${requestId}:response`
     if (type === 'response') {
-      const pending = pendingRequests.get(id)
+      const baseId = id.endsWith(':response') ? id.slice(0, -9) : id
+      const pending = pendingRequests.get(baseId) ?? pendingRequests.get(id)
       if (pending) {
         if (pending.timer) clearTimeout(pending.timer)
         pending.resolve(parsed.payload)
+        pendingRequests.delete(baseId)
         pendingRequests.delete(id)
       }
       return

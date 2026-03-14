@@ -199,6 +199,15 @@ export interface ChannelLifecycleHooks {
 
   /** Called when a member leaves a presence channel */
   onMemberRemoved?: (channel: string, member: ChannelMember) => void | Promise<void>
+
+  /** Called after a successful publish to a channel */
+  onPublish?: (socketId: string, channel: string, event: string, data: unknown) => void | Promise<void>
+
+  /** Called when a new channel is created (first subscriber) */
+  onChannelCreated?: (channel: string, type: ChannelType) => void | Promise<void>
+
+  /** Called when a channel is destroyed (last subscriber left) */
+  onChannelDestroyed?: (channel: string, type: ChannelType) => void | Promise<void>
 }
 
 /**
@@ -285,6 +294,47 @@ export interface ChannelOptions {
 
   /** Per-connection rate limits */
   rateLimits?: ChannelRateLimits
+
+  /**
+   * Message history configuration for catchup on reconnect.
+   * When enabled, recent messages are stored and can be replayed
+   * to clients that provide a `since` field in their subscribe message.
+   */
+  history?: {
+    /** Enable message history (default: false) */
+    enabled: boolean
+    /** Max entries per channel (default: 100) */
+    maxSize?: number
+    /** TTL in ms for history entries (default: 300000 = 5 minutes) */
+    ttl?: number
+  }
+
+  /**
+   * Transform messages before broadcast.
+   * Return null to drop the message.
+   * Return modified data to transform.
+   */
+  transform?: (
+    channel: string,
+    event: string,
+    data: unknown,
+    ctx: { socketId: string; userId?: string }
+  ) => unknown | null | Promise<unknown | null>
+
+  /**
+   * REST API configuration for server-side publishing.
+   * When enabled, mounts HTTP endpoints for channel management.
+   */
+  restApi?: {
+    /** Enable REST API (default: false) */
+    enabled: boolean
+    /** Base path for REST endpoints (default: '/channels') */
+    path?: string
+    /** API key for authentication (simple string check) */
+    apiKey?: string
+    /** Custom auth function (overrides apiKey) */
+    auth?: (req: import('http').IncomingMessage) => boolean | Promise<boolean>
+  }
 }
 
 /**
@@ -346,12 +396,14 @@ export interface ChannelManager {
   // ─────────────────────────────────────────────────────────────
 
   /**
-   * Subscribe a socket to a channel
+   * Subscribe a socket to a channel.
+   * Optionally pass `since` to replay missed messages from history.
    */
   subscribe(
     socketId: string,
     channel: string,
-    ctx: Context
+    ctx: Context,
+    since?: { seq: number; epoch: string }
   ): Promise<SubscribeResult>
 
   /**
@@ -563,6 +615,42 @@ export interface ChannelManager {
    * Delete a group
    */
   deleteGroup(groupName: string): void
+
+  // ─────────────────────────────────────────────────────────────
+  // Recovery
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Recover a client's subscriptions from a previous session.
+   * Re-subscribes the new socket to all channels and replays
+   * missed messages from history (if available).
+   */
+  recoverClient(
+    oldSocketId: string,
+    newSocketId: string,
+    channels: { name: string; lastSeq: number }[]
+  ): void
+
+  /**
+   * Replay missed messages from history for a specific channel.
+   * Called after subscribe+subscribed to send catchup messages.
+   */
+  replayHistory(
+    socketId: string,
+    channel: string,
+    sinceSeq: number,
+    epoch: string
+  ): void
+
+  /**
+   * Get the current epoch for the server (used for history queries).
+   */
+  getEpoch(): string
+
+  /**
+   * Get the current sequence number for a channel.
+   */
+  getSequence(channel: string): number
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -576,6 +664,16 @@ export interface SubscribeMessage {
   id: string
   type: 'subscribe'
   channel: string
+  /** Resume from a specific sequence (for catchup on reconnect) */
+  since?: { seq: number; epoch: string }
+}
+
+/**
+ * Client → Server: Recover a previous session
+ */
+export interface RecoverMessage {
+  type: 'recover'
+  recoveryToken: string
 }
 
 /**
@@ -673,6 +771,7 @@ export type ChannelMessage =
   | ChannelErrorMessage
   | AuthRefreshMessage
   | AuthRefreshedMessage
+  | RecoverMessage
 
 /**
  * Check if a message is a channel-related message
@@ -687,6 +786,17 @@ export function isChannelMessage(
     msg.type === 'unsubscribe' ||
     msg.type === 'publish'
   )
+}
+
+/**
+ * Check if a message is a recovery message
+ */
+export function isRecoverMessage(
+  message: unknown
+): message is RecoverMessage {
+  if (!message || typeof message !== 'object') return false
+  const msg = message as Record<string, unknown>
+  return msg.type === 'recover' && typeof msg.recoveryToken === 'string'
 }
 
 /**

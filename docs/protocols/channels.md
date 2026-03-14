@@ -8,6 +8,16 @@ Channels provide:
 - **Public Channels**: Anyone can subscribe
 - **Private Channels**: Require authentication
 - **Presence Channels**: Track online members
+- **Rooms**: 1:1 private communication between two clients
+- **Groups**: Server-managed N-client collections
+- **Message History**: Catchup on reconnect with sequence tracking
+- **Connection Recovery**: Seamless reconnect without re-subscribing
+- **Authentication**: Ticket-based, bearer, and custom auth
+- **Rate Limiting**: Per-connection subscribe/publish limits
+- **Backpressure**: Slow consumer protection
+- **REST API**: Server-side publishing via HTTP
+- **Webhooks**: Lifecycle hooks for all events
+- **Transformers**: Server-side message transformation
 
 ## Quick Start
 
@@ -369,6 +379,307 @@ Every broadcast message includes a monotonically increasing sequence number and 
 ```
 
 Sequences are independent per channel. The epoch is generated once when the channel manager is created.
+
+---
+
+## Message History
+
+Store recent channel messages and replay them to clients that reconnect. Eliminates the "missed messages" problem that plagues every WebSocket app.
+
+### Configuration
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      history: {
+        enabled: true,
+        maxSize: 100,       // entries per channel (default: 100)
+        ttl: 300000,        // 5 minutes (default)
+      },
+    },
+  },
+})
+```
+
+### Catchup on Subscribe
+
+Clients include `since` when subscribing to receive missed messages:
+
+```json
+{
+  "id": "sub-1",
+  "type": "subscribe",
+  "channel": "chat-room",
+  "since": { "seq": 42, "epoch": "abc123" }
+}
+```
+
+The server sends the `subscribed` response followed by all messages with `seq > 42` and matching `epoch`. If the epoch doesn't match (server restarted), a full replay from the start of history is sent.
+
+### How It Works
+
+1. Every `broadcast()` appends to an in-memory circular buffer
+2. Old entries are evicted by `maxSize` and `ttl`
+3. On subscribe with `since`, the server replays entries after the given sequence
+4. Sequence numbers are per-channel and monotonically increasing
+
+### Server-Side Replay
+
+```typescript
+// Replay history manually
+server.channels?.replayHistory('socket-123', 'chat-room', sinceSeq, epoch)
+
+// Get current sequence for a channel
+const seq = server.channels?.getSequence('chat-room')
+
+// Get server epoch
+const epoch = server.channels?.getEpoch()
+```
+
+---
+
+## Connection Recovery
+
+When a client disconnects briefly (network blip, page navigation), it can recover its entire session without re-subscribing to every channel. No visible disruption.
+
+### Configuration
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      history: { enabled: true },  // Required for replay
+    },
+    recovery: {
+      enabled: true,
+      ttl: 120000,    // 2 minutes (default)
+    },
+  },
+})
+```
+
+### How It Works
+
+1. **On connect**: Server sends `connection:established` with a `recoveryToken`
+2. **On disconnect**: Server saves session (subscriptions, groups, metadata) for `ttl` ms
+3. **On reconnect**: Client sends `{ type: 'recover', recoveryToken: 'xxx' }` as first message
+4. **Server restores**: Re-subscribes to all channels, re-joins groups, replays missed messages
+
+### Client Protocol
+
+**Initial connection** — server sends:
+
+```json
+{
+  "type": "connection:established",
+  "socketId": "abc123",
+  "recoveryToken": "rec_xyz789"
+}
+```
+
+**Reconnect** — client sends as first message:
+
+```json
+{ "type": "recover", "recoveryToken": "rec_xyz789" }
+```
+
+**Recovery success** — server responds:
+
+```json
+{
+  "type": "connection:recovered",
+  "socketId": "new456",
+  "recoveryToken": "rec_newtoken",
+  "channels": ["chat-room", "presence-lobby"],
+  "groups": ["team-alpha"]
+}
+```
+
+After this, missed messages from each channel are replayed automatically (using history).
+
+**Recovery failure** (token expired or invalid):
+
+```json
+{
+  "type": "error",
+  "code": "RECOVERY_FAILED",
+  "status": 404,
+  "message": "Recovery token not found or expired"
+}
+```
+
+### What Gets Recovered
+
+| State | Recovered |
+|-------|-----------|
+| Channel subscriptions | Yes |
+| Group memberships | Yes |
+| Missed messages | Yes (if history enabled) |
+| Presence membership | No (re-join needed) |
+| Room memberships | No (rooms close on disconnect) |
+| Auth context | Yes (from saved session) |
+
+---
+
+## Channel Transformers
+
+Transform messages server-side before they reach subscribers. Use cases: strip PII, sanitize HTML, add timestamps, enforce schemas.
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      transform: async (channel, event, data, ctx) => {
+        // Strip sensitive fields
+        if (event === 'user:profile') {
+          const { email, phone, ...safe } = data as Record<string, unknown>
+          return safe
+        }
+
+        // Add server timestamp
+        return { ...(data as Record<string, unknown>), serverTime: Date.now() }
+      },
+    },
+  },
+})
+```
+
+Return `null` to drop the message silently:
+
+```typescript
+transform: (channel, event, data, ctx) => {
+  // Block messages containing banned words
+  const text = (data as { text?: string }).text ?? ''
+  if (bannedWords.some(w => text.includes(w))) return null
+  return data
+}
+```
+
+The transform receives `ctx.socketId` and `ctx.userId` for access control decisions.
+
+---
+
+## REST API for Publishing
+
+HTTP endpoints for server-side channel operations. Lets backend services, cron jobs, and webhooks publish to channels without a WebSocket connection.
+
+### Configuration
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      restApi: {
+        enabled: true,
+        path: '/channels',       // default
+        apiKey: 'my-secret-key', // simple auth
+      },
+    },
+  },
+})
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/channels` | List active channels with subscriber counts |
+| `GET` | `/channels/:channel` | Channel info (subscribers, members for presence) |
+| `POST` | `/channels/:channel/events` | Broadcast event to channel |
+| `POST` | `/channels/clients/:socketId/events` | Send event to specific client |
+| `POST` | `/channels/broadcast` | Broadcast to ALL connected clients |
+
+### Examples
+
+**Broadcast to channel:**
+
+```bash
+curl -X POST http://localhost:3000/channels/chat-room/events \
+  -H "Authorization: Bearer my-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "event": "message", "data": { "text": "Hello from API!" } }'
+```
+
+**Send to specific client:**
+
+```bash
+curl -X POST http://localhost:3000/channels/clients/socket-123/events \
+  -H "Authorization: Bearer my-secret-key" \
+  -d '{ "event": "notification", "data": { "title": "New order" } }'
+```
+
+**List channels:**
+
+```bash
+curl http://localhost:3000/channels \
+  -H "Authorization: Bearer my-secret-key"
+
+# Response:
+# {
+#   "channels": [
+#     { "name": "chat-room", "subscribers": 5 },
+#     { "name": "presence-lobby", "subscribers": 3 }
+#   ]
+# }
+```
+
+### Custom Auth
+
+```typescript
+restApi: {
+  enabled: true,
+  auth: async (req) => {
+    const token = req.headers.authorization?.slice(7)
+    return token ? await verifyServiceToken(token) : false
+  },
+}
+```
+
+---
+
+## Extended Webhooks
+
+Beyond the basic lifecycle hooks, the channel manager emits events for publish, channel creation, and channel destruction.
+
+```typescript
+channels: {
+  hooks: {
+    // Basic lifecycle
+    onConnect: (e) => webhook('ws.connect', e),
+    onDisconnect: (e) => webhook('ws.disconnect', e),
+    onSubscribe: (sid, ch) => webhook('channel.subscribe', { sid, ch }),
+    onUnsubscribe: (sid, ch) => webhook('channel.unsubscribe', { sid, ch }),
+
+    // Presence
+    onMemberAdded: (ch, m) => webhook('presence.join', { ch, member: m }),
+    onMemberRemoved: (ch, m) => webhook('presence.leave', { ch, member: m }),
+
+    // Extended (Phase 2+3)
+    onPublish: (sid, ch, event, data) => webhook('channel.publish', { sid, ch, event, data }),
+    onChannelCreated: (ch, type) => webhook('channel.created', { ch, type }),
+    onChannelDestroyed: (ch, type) => webhook('channel.destroyed', { ch, type }),
+  },
+}
+```
+
+### Complete Webhook Event Reference
+
+| Hook | Fires when | Arguments |
+|------|-----------|-----------|
+| `onConnect` | Client connects | `{ socketId, remoteAddress, headers }` |
+| `onDisconnect` | Client disconnects | `{ socketId, code, reason }` |
+| `onSubscribe` | Subscribes to channel | `(socketId, channel)` |
+| `onUnsubscribe` | Unsubscribes | `(socketId, channel)` |
+| `onMemberAdded` | Joins presence channel | `(channel, member)` |
+| `onMemberRemoved` | Leaves presence channel | `(channel, member)` |
+| `onPublish` | Publishes to channel | `(socketId, channel, event, data)` |
+| `onChannelCreated` | First subscriber creates channel | `(channel, type)` |
+| `onChannelDestroyed` | Last subscriber leaves | `(channel, type)` |
 
 ---
 
