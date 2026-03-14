@@ -476,3 +476,506 @@ interface ChannelMember {
    // Use middleware for rate limiting
    server.use(createRateLimitMiddleware({ limit: 100, window: 60000 }))
    ```
+
+---
+
+## Client Inventory
+
+The channel manager tracks all connected clients, allowing you to inspect, message, and broadcast to them independently of channel subscriptions.
+
+### Registering Clients
+
+Clients are automatically registered by the WebSocket adapter when `channels` is configured. You can also register them manually:
+
+```typescript
+// Automatic (WebSocket adapter does this on connect)
+// Manual usage:
+server.channels?.registerClient('socket-123', {
+  userId: 'user-alice',
+  data: { role: 'admin', department: 'engineering' },
+})
+```
+
+### Querying Clients
+
+```typescript
+// Get a specific client
+const client = server.channels?.getClient('socket-123')
+// {
+//   id: 'socket-123',
+//   userId: 'user-alice',
+//   data: { role: 'admin' },
+//   channels: ['chat-room', 'presence-lobby'],
+//   connectedAt: 1710000000000,
+// }
+
+// List all connected clients
+const clients = server.channels?.getClients()
+
+// Count
+const count = server.channels?.getClientCount()
+```
+
+### Direct Messaging (No Channel)
+
+Send events to a specific client without requiring channel membership:
+
+```typescript
+// Send a notification directly to a client
+server.channels?.sendToClient('socket-123', 'notification', {
+  title: 'New message',
+  body: 'You have a new message from Alice',
+})
+```
+
+The client receives:
+
+```json
+{
+  "type": "event",
+  "event": "notification",
+  "data": { "title": "New message", "body": "..." }
+}
+```
+
+### Broadcast to All
+
+Broadcast an event to every connected client, regardless of channel subscriptions:
+
+```typescript
+// System-wide announcement
+server.channels?.broadcastAll('system:announcement', {
+  message: 'Server restart in 5 minutes',
+  severity: 'warning',
+})
+
+// Broadcast excluding sender
+server.channels?.broadcastAll('user:typing', { userId: 'alice' }, senderSocketId)
+```
+
+### ClientInfo Type
+
+```typescript
+interface ClientInfo {
+  id: string                        // Socket/connection ID
+  userId?: string                   // User ID from auth context
+  data: Record<string, unknown>     // Custom data set on connect
+  channels: string[]                // Subscribed channel names
+  connectedAt: number               // Unix timestamp
+}
+```
+
+---
+
+## Rooms (1:1 Private Channels)
+
+Rooms provide a lightweight way to create private communication between exactly two clients. They are automatically managed — created on demand, cleaned up on disconnect.
+
+### Creating a Room
+
+```typescript
+const room = server.channels?.createRoom('socket-alice', 'socket-bob')
+// {
+//   name: 'room:socket-alice:socket-bob',  (deterministic, sorted)
+//   participants: ['socket-alice', 'socket-bob'],
+//   createdAt: 1710000000000,
+// }
+```
+
+Room names are deterministic: `createRoom('a', 'b')` and `createRoom('b', 'a')` return the same room.
+
+Both participants receive a `room:created` event:
+
+```json
+{
+  "type": "event",
+  "event": "room:created",
+  "data": {
+    "room": "room:socket-alice:socket-bob",
+    "participants": ["socket-alice", "socket-bob"]
+  }
+}
+```
+
+### Sending Messages
+
+```typescript
+// Send to both participants
+server.channels?.sendToRoom(room.name, 'message', {
+  from: 'alice',
+  text: 'Hey Bob!',
+})
+
+// Send to the other participant only (exclude sender)
+server.channels?.sendToRoom(room.name, 'message', {
+  from: 'alice',
+  text: 'Hey Bob!',
+}, 'socket-alice')
+```
+
+### Querying Rooms
+
+```typescript
+// Get room details
+const room = server.channels?.getRoom('room:socket-alice:socket-bob')
+
+// Get all rooms for a client
+const aliceRooms = server.channels?.getClientRooms('socket-alice')
+```
+
+### Closing Rooms
+
+```typescript
+server.channels?.closeRoom(room.name)
+```
+
+Both participants receive a `room:closed` event. Rooms are also **automatically closed** when either participant disconnects.
+
+### Use Cases
+
+- **Direct messaging** between two users
+- **Support chat** between agent and customer
+- **Game matches** between two players
+- **Peer-to-peer negotiation** (WebRTC signaling)
+
+---
+
+## Groups (N-Client Collections)
+
+Groups are named collections of clients for targeted messaging. Unlike channels (which are client-driven via subscribe/unsubscribe), groups are **server-managed** — your application code decides who joins and leaves.
+
+### Creating Groups
+
+```typescript
+// Create a named group with optional metadata
+const group = server.channels?.createGroup('team-engineering', {
+  project: 'tetis',
+  lead: 'alice',
+})
+```
+
+### Adding and Removing Members
+
+```typescript
+// Add clients to the group
+server.channels?.joinGroup('team-engineering', 'socket-alice')
+server.channels?.joinGroup('team-engineering', 'socket-bob')
+server.channels?.joinGroup('team-engineering', 'socket-charlie')
+
+// Remove from group
+server.channels?.leaveGroup('team-engineering', 'socket-charlie')
+```
+
+When a member joins, existing members receive a notification:
+
+```json
+{
+  "type": "event",
+  "channel": "group:team-engineering",
+  "event": "group:member_added",
+  "data": { "group": "team-engineering", "socketId": "socket-bob" }
+}
+```
+
+When a member leaves:
+
+```json
+{
+  "type": "event",
+  "channel": "group:team-engineering",
+  "event": "group:member_removed",
+  "data": { "group": "team-engineering", "socketId": "socket-charlie" }
+}
+```
+
+### Sending to Groups
+
+```typescript
+// Deploy notification to all engineers
+server.channels?.sendToGroup('team-engineering', 'deploy', {
+  env: 'production',
+  version: '2.1.0',
+  deployedBy: 'alice',
+})
+
+// Typing indicator (exclude sender)
+server.channels?.sendToGroup('team-engineering', 'typing', {
+  user: 'alice',
+}, 'socket-alice')
+```
+
+### Querying Groups
+
+```typescript
+// Get group info
+const group = server.channels?.getGroup('team-engineering')
+// { name: 'team-engineering', members: Set(3), data: { project: 'tetis' }, createdAt: ... }
+
+// List all groups
+const groups = server.channels?.getGroups()
+
+// Get all groups a client belongs to
+const aliceGroups = server.channels?.getClientGroups('socket-alice')
+```
+
+### Deleting Groups
+
+```typescript
+server.channels?.deleteGroup('team-engineering')
+```
+
+All members receive a `group:deleted` event. Groups are also **automatically cleaned up** when the last member leaves (via `leaveGroup` or disconnect).
+
+### Auto-Create on Join
+
+You don't need to call `createGroup` before `joinGroup`. Joining a non-existent group creates it automatically:
+
+```typescript
+// This creates the group AND adds the member
+server.channels?.joinGroup('ad-hoc-room', 'socket-alice')
+```
+
+### Groups vs Channels
+
+| Feature | Channels | Groups |
+|---------|----------|--------|
+| **Who controls membership** | Client (subscribe/unsubscribe) | Server (joinGroup/leaveGroup) |
+| **Authorization** | authorize callback | Application logic |
+| **Prefix convention** | `private-`, `presence-` | Any name |
+| **Presence tracking** | Presence channels only | N/A (member list via getGroup) |
+| **Client protocol** | JSON messages over WS | Transparent to client |
+| **Ideal for** | Client-driven pub/sub | Server-driven targeting |
+
+### Use Cases
+
+- **Team notifications** -- send deploy/CI events to specific teams
+- **Multi-tenant routing** -- group sockets by tenant/org
+- **Game lobbies** -- manage players in game rooms
+- **Webhook fan-out** -- route incoming webhooks to interested clients
+- **Role-based messaging** -- group by role (admin, support, user)
+
+---
+
+## Lifecycle Hooks
+
+Lifecycle hooks let you react to connection and channel events. They are designed to feed **webhook systems**, **audit logs**, **analytics**, and **external integrations**.
+
+All hooks are **fire-and-forget** -- they run asynchronously and never block the WebSocket event loop. Errors in hooks are caught and logged.
+
+### Configuration
+
+```typescript
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      authorize: (socketId, channel, ctx) => ctx.auth?.authenticated ?? false,
+
+      hooks: {
+        onConnect: async (event) => {
+          console.log(`Client connected: ${event.socketId} from ${event.remoteAddress}`)
+          await webhookService.send('client.connected', event)
+        },
+
+        onDisconnect: async (event) => {
+          console.log(`Client disconnected: ${event.socketId} (code: ${event.code})`)
+          await webhookService.send('client.disconnected', event)
+        },
+
+        onSubscribe: async (socketId, channel) => {
+          await analytics.track('channel.subscribe', { socketId, channel })
+        },
+
+        onUnsubscribe: async (socketId, channel) => {
+          await analytics.track('channel.unsubscribe', { socketId, channel })
+        },
+
+        onMemberAdded: async (channel, member) => {
+          await webhookService.send('presence.member_added', {
+            channel,
+            memberId: member.id,
+            userId: member.userId,
+            info: member.info,
+          })
+        },
+
+        onMemberRemoved: async (channel, member) => {
+          await webhookService.send('presence.member_removed', {
+            channel,
+            memberId: member.id,
+            userId: member.userId,
+          })
+        },
+      },
+    },
+  },
+})
+```
+
+### Hook Reference
+
+| Hook | When it fires | Event data |
+|------|---------------|------------|
+| `onConnect` | Client connects (after auth/filter) | `{ socketId, remoteAddress, headers }` |
+| `onDisconnect` | Client disconnects | `{ socketId, code, reason }` |
+| `onSubscribe` | Client subscribes to a channel | `(socketId, channel)` |
+| `onUnsubscribe` | Client unsubscribes from a channel | `(socketId, channel)` |
+| `onMemberAdded` | Member joins a presence channel | `(channel, member: ChannelMember)` |
+| `onMemberRemoved` | Member leaves a presence channel | `(channel, member: ChannelMember)` |
+
+### Event Types
+
+```typescript
+interface ClientConnectEvent {
+  socketId: string
+  remoteAddress?: string
+  headers: Record<string, string>
+}
+
+interface ClientDisconnectEvent {
+  socketId: string
+  code: number        // WebSocket close code (1000 = normal, 1001 = going away, etc.)
+  reason: string      // Close reason text
+}
+```
+
+### Webhook Integration Example
+
+```typescript
+import { createServer } from 'raffel'
+
+// Webhook delivery service
+class WebhookService {
+  private endpoints: string[] = []
+
+  register(url: string) { this.endpoints.push(url) }
+
+  async send(event: string, data: unknown) {
+    await Promise.allSettled(
+      this.endpoints.map((url) =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event, data, timestamp: Date.now() }),
+        })
+      )
+    )
+  }
+}
+
+const webhooks = new WebhookService()
+webhooks.register('https://api.example.com/webhooks/realtime')
+
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      authorize: () => true,
+      hooks: {
+        onConnect: (e) => webhooks.send('connection.established', e),
+        onDisconnect: (e) => webhooks.send('connection.closed', e),
+        onSubscribe: (sid, ch) => webhooks.send('channel.subscribed', { socketId: sid, channel: ch }),
+        onUnsubscribe: (sid, ch) => webhooks.send('channel.unsubscribed', { socketId: sid, channel: ch }),
+        onMemberAdded: (ch, m) => webhooks.send('presence.joined', { channel: ch, member: m }),
+        onMemberRemoved: (ch, m) => webhooks.send('presence.left', { channel: ch, member: m }),
+      },
+    },
+  },
+})
+```
+
+### Webhook Payload Format
+
+All webhook events follow a consistent structure:
+
+```json
+{
+  "event": "connection.established",
+  "data": {
+    "socketId": "abc123",
+    "remoteAddress": "192.168.1.100",
+    "headers": {
+      "user-agent": "Mozilla/5.0 ...",
+      "authorization": "Bearer ..."
+    }
+  },
+  "timestamp": 1710000000000
+}
+```
+
+### Available Webhook Events
+
+| Event | Trigger | Data |
+|-------|---------|------|
+| `connection.established` | Client connects | `{ socketId, remoteAddress, headers }` |
+| `connection.closed` | Client disconnects | `{ socketId, code, reason }` |
+| `channel.subscribed` | Subscribes to channel | `{ socketId, channel }` |
+| `channel.unsubscribed` | Unsubscribes from channel | `{ socketId, channel }` |
+| `presence.joined` | Joins presence channel | `{ channel, member: { id, userId, info } }` |
+| `presence.left` | Leaves presence channel | `{ channel, member: { id, userId } }` |
+
+### Combining Everything
+
+A complete real-time system with rooms, groups, presence, and webhooks:
+
+```typescript
+import { createServer } from 'raffel'
+
+const server = createServer({
+  port: 3000,
+  websocket: {
+    channels: {
+      authorize: async (socketId, channel, ctx) => {
+        return ctx.auth?.authenticated ?? channel.startsWith('public-')
+      },
+      presenceData: (socketId, channel, ctx) => ({
+        userId: ctx.auth?.principalId,
+        name: ctx.auth?.claims?.name,
+      }),
+      hooks: {
+        onConnect: async ({ socketId }) => {
+          // Auto-join user to their team group
+          const user = await db.users.get(socketId)
+          if (user?.teamId) {
+            server.channels?.joinGroup(`team-${user.teamId}`, socketId)
+          }
+        },
+        onDisconnect: async ({ socketId }) => {
+          // Notify team members that someone went offline
+          const groups = server.channels?.getClientGroups(socketId) ?? []
+          for (const group of groups) {
+            server.channels?.sendToGroup(group.name, 'member:offline', {
+              socketId,
+            }, socketId)
+          }
+        },
+      },
+    },
+  },
+})
+
+// API endpoint: start a DM
+server.procedure('dm.start')
+  .handler(async (input, ctx) => {
+    const { targetSocketId } = input
+    const room = server.channels?.createRoom(ctx.ws?.connectionId!, targetSocketId)
+    return { room: room?.name }
+  })
+
+// API endpoint: send to team
+server.procedure('team.notify')
+  .handler(async (input, ctx) => {
+    const { teamId, event, data } = input
+    server.channels?.sendToGroup(`team-${teamId}`, event, data)
+    return { sent: true }
+  })
+
+// API endpoint: broadcast system message
+server.procedure('system.broadcast')
+  .handler(async (input) => {
+    server.channels?.broadcastAll('system:message', input)
+    return { sent: true }
+  })
+
+await server.start()
+```

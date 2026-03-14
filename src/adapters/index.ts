@@ -43,6 +43,10 @@ export type {
 export { createGrpcAdapter } from './grpc.js'
 export type { GrpcAdapter, GrpcAdapterOptions, GrpcTlsOptions, GrpcMethodInfo } from './grpc.js'
 
+// SMTP adapter
+export { createSmtpAdapter, createSmtpClient } from './smtp.js'
+export type { SmtpAdapter, SmtpAdapterOptions, SmtpContextCapability, SmtpTlsOptions, SmtpAuthVerifier, SmtpRecipientValidator } from './smtp.js'
+
 // Connection Filter (TCP, UDP, WebSocket)
 export { checkConnectionFilter, checkWebSocketConnectionFilter } from './utils/connection-filter.js'
 export type { ConnectionFilter, WebSocketConnectionFilter } from './utils/connection-filter.js'

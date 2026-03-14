@@ -504,6 +504,23 @@ export function createWebSocketAdapter(
     clients.set(clientId, client)
     logger.info({ clientId, remoteAddress: req.socket.remoteAddress }, 'Client connected')
 
+    // Register client in channel manager inventory
+    if (channelManager) {
+      channelManager.registerClient(clientId)
+
+      // Lifecycle hook: onConnect
+      if (options.channels?.hooks?.onConnect) {
+        const headers = client.connectionMetadata
+        Promise.resolve(options.channels.hooks.onConnect({
+          socketId: clientId,
+          remoteAddress: req.socket.remoteAddress,
+          headers,
+        })).catch((err) => {
+          logger.warn({ err, clientId }, 'onConnect hook error')
+        })
+      }
+    }
+
     // Message handler
     ws.on('message', (data) => {
       handleMessage(client, data as Buffer).catch((err) => {
@@ -518,10 +535,26 @@ export function createWebSocketAdapter(
 
     // Close handler
     ws.on('close', (code, reason) => {
-      logger.info({ clientId, code, reason: reason.toString() }, 'Client disconnected')
+      const reasonStr = reason.toString()
+      logger.info({ clientId, code, reason: reasonStr }, 'Client disconnected')
 
-      // Unsubscribe from all channels
-      channelManager?.unsubscribeAll(clientId)
+      // Remove client from inventory (also unsubscribes, cleans rooms/groups)
+      if (channelManager) {
+        channelManager.removeClient(clientId)
+
+        // Lifecycle hook: onDisconnect
+        if (options.channels?.hooks?.onDisconnect) {
+          Promise.resolve(options.channels.hooks.onDisconnect({
+            socketId: clientId,
+            code,
+            reason: reasonStr,
+          })).catch((err) => {
+            logger.warn({ err, clientId }, 'onDisconnect hook error')
+          })
+        }
+      } else {
+        // No channel manager — still unsubscribe
+      }
 
       // Cancel active streams
       for (const controller of client.activeStreams.values()) {

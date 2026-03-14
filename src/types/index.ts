@@ -38,6 +38,7 @@ export type {
   GrpcContextCapability,
   TcpContextCapability,
   UdpContextCapability,
+  SmtpContextCapability,
   StreamContextCapability,
   ExtensionKey,
   CallFunction,

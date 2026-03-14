@@ -15,6 +15,8 @@
     - [From Fetch-first Routers](/guides/migration.md#from-fetch-first-routers)
     - [DEVX Golden Path](/guides/devx-migration.md)
     - [Protocol Fusion](/guides/protocol-fusion-migration.md)
+  - [SMTP Server](/guides/smtp-server.md)
+  - [SMTP Relay](/guides/smtp-relay.md)
 
 - **Handler Types**
   - [Procedures (RPC)](/handlers/procedures.md)
@@ -30,6 +32,7 @@
   - [GraphQL](/protocols/graphql.md)
   - [TCP](/protocols/tcp.md)
   - [UDP](/protocols/udp.md)
+  - [SMTP](/protocols/smtp.md)
   - [Shared-Port Fusion](/single-port.md)
 
 - **Interceptors**

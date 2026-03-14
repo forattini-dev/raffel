@@ -14,6 +14,9 @@ import type {
   ChannelState,
   ChannelMember,
   SubscribeResult,
+  ClientInfo,
+  RoomInfo,
+  GroupInfo,
 } from './types.js'
 import { getChannelType } from './types.js'
 
@@ -98,6 +101,21 @@ export function createChannelManager(
 
   /** Reverse index: socket → channels */
   const socketChannels = new Map<string, Set<string>>()
+
+  /** Connected clients inventory */
+  const clientInventory = new Map<string, ClientInfo>()
+
+  /** Rooms (1:1 private channels) */
+  const rooms = new Map<string, RoomInfo>()
+
+  /** Reverse index: socket → rooms */
+  const socketRooms = new Map<string, Set<string>>()
+
+  /** Groups (N-client collections) */
+  const groups = new Map<string, GroupInfo>()
+
+  /** Reverse index: socket → groups */
+  const socketGroups = new Map<string, Set<string>>()
 
   /**
    * Get or create a channel
@@ -256,10 +274,20 @@ export function createChannelManager(
           socketId
         )
 
+        // Lifecycle hook: member added
+        if (options.hooks?.onMemberAdded) {
+          Promise.resolve(options.hooks.onMemberAdded(channelName, member)).catch(() => {})
+        }
+
         return {
           success: true,
           members: presence.getMembers(channelName),
         }
+      }
+
+      // Lifecycle hook: subscribe
+      if (options.hooks?.onSubscribe) {
+        Promise.resolve(options.hooks.onSubscribe(socketId, channelName)).catch(() => {})
       }
 
       return { success: true }
@@ -283,7 +311,17 @@ export function createChannelManager(
             id: socketId,
             userId: member.userId,
           })
+
+          // Lifecycle hook: member removed
+          if (options.hooks?.onMemberRemoved) {
+            Promise.resolve(options.hooks.onMemberRemoved(channelName, member)).catch(() => {})
+          }
         }
+      }
+
+      // Lifecycle hook: unsubscribe
+      if (options.hooks?.onUnsubscribe) {
+        Promise.resolve(options.hooks.onUnsubscribe(socketId, channelName)).catch(() => {})
       }
 
       cleanupIfEmpty(channelName)
@@ -382,6 +420,285 @@ export function createChannelManager(
     getSubscriberCount(channelName: string): number {
       const channel = channels.get(channelName)
       return channel?.subscribers.size ?? 0
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Client Inventory
+    // ─────────────────────────────────────────────────────────────
+
+    registerClient(socketId: string, info?: Partial<Pick<ClientInfo, 'userId' | 'data'>>): void {
+      if (clientInventory.has(socketId)) return
+      clientInventory.set(socketId, {
+        id: socketId,
+        userId: info?.userId,
+        data: info?.data ?? {},
+        channels: [],
+        connectedAt: Date.now(),
+      })
+    },
+
+    removeClient(socketId: string): void {
+      // Clean up rooms
+      const clientRoomSet = socketRooms.get(socketId)
+      if (clientRoomSet) {
+        for (const roomName of Array.from(clientRoomSet)) {
+          manager.closeRoom(roomName)
+        }
+        socketRooms.delete(socketId)
+      }
+
+      // Clean up groups
+      const clientGroupSet = socketGroups.get(socketId)
+      if (clientGroupSet) {
+        for (const groupName of Array.from(clientGroupSet)) {
+          manager.leaveGroup(groupName, socketId)
+        }
+        socketGroups.delete(socketId)
+      }
+
+      // Unsubscribe from all channels
+      manager.unsubscribeAll(socketId)
+
+      clientInventory.delete(socketId)
+    },
+
+    getClient(socketId: string): ClientInfo | undefined {
+      const info = clientInventory.get(socketId)
+      if (!info) return undefined
+      return {
+        ...info,
+        channels: manager.getSubscriptions(socketId),
+      }
+    },
+
+    getClients(): ClientInfo[] {
+      return Array.from(clientInventory.values()).map((info) => ({
+        ...info,
+        channels: manager.getSubscriptions(info.id),
+      }))
+    },
+
+    getClientCount(): number {
+      return clientInventory.size
+    },
+
+    sendToClient(socketId: string, event: string, data: unknown): void {
+      sendToSocket(socketId, {
+        type: 'event',
+        event,
+        data,
+      })
+    },
+
+    broadcastAll(event: string, data: unknown, except?: string): void {
+      const message = { type: 'event', event, data }
+      for (const socketId of clientInventory.keys()) {
+        if (socketId !== except) {
+          sendToSocket(socketId, message)
+        }
+      }
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Rooms (1:1)
+    // ─────────────────────────────────────────────────────────────
+
+    createRoom(socketA: string, socketB: string): RoomInfo {
+      // Deterministic room name (sorted IDs)
+      const sorted = [socketA, socketB].sort()
+      const roomName = `room:${sorted[0]}:${sorted[1]}`
+
+      // Return existing room if already created
+      const existing = rooms.get(roomName)
+      if (existing) return existing
+
+      const room: RoomInfo = {
+        name: roomName,
+        participants: [sorted[0]!, sorted[1]!],
+        createdAt: Date.now(),
+      }
+      rooms.set(roomName, room)
+
+      // Track reverse index
+      for (const id of sorted) {
+        let set = socketRooms.get(id!)
+        if (!set) { set = new Set(); socketRooms.set(id!, set) }
+        set.add(roomName)
+      }
+
+      // Notify both participants
+      for (const id of sorted) {
+        sendToSocket(id!, {
+          type: 'event',
+          event: 'room:created',
+          data: { room: roomName, participants: room.participants },
+        })
+      }
+
+      return room
+    },
+
+    sendToRoom(roomName: string, event: string, data: unknown, except?: string): void {
+      const room = rooms.get(roomName)
+      if (!room) return
+
+      const message = { type: 'event', channel: roomName, event, data }
+      for (const id of room.participants) {
+        if (id !== except) {
+          sendToSocket(id, message)
+        }
+      }
+    },
+
+    getRoom(roomName: string): RoomInfo | undefined {
+      return rooms.get(roomName)
+    },
+
+    getClientRooms(socketId: string): RoomInfo[] {
+      const set = socketRooms.get(socketId)
+      if (!set) return []
+      return Array.from(set)
+        .map((name) => rooms.get(name))
+        .filter((r): r is RoomInfo => !!r)
+    },
+
+    closeRoom(roomName: string): void {
+      const room = rooms.get(roomName)
+      if (!room) return
+
+      // Notify participants
+      for (const id of room.participants) {
+        sendToSocket(id, {
+          type: 'event',
+          event: 'room:closed',
+          data: { room: roomName },
+        })
+
+        // Clean reverse index
+        socketRooms.get(id)?.delete(roomName)
+      }
+
+      rooms.delete(roomName)
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Groups
+    // ─────────────────────────────────────────────────────────────
+
+    createGroup(name: string, data?: Record<string, unknown>): GroupInfo {
+      const existing = groups.get(name)
+      if (existing) return existing
+
+      const group: GroupInfo = {
+        name,
+        members: new Set(),
+        data: data ?? {},
+        createdAt: Date.now(),
+      }
+      groups.set(name, group)
+      return group
+    },
+
+    joinGroup(groupName: string, socketId: string): void {
+      let group = groups.get(groupName)
+      if (!group) {
+        group = manager.createGroup(groupName)
+      }
+
+      if (group.members.has(socketId)) return
+
+      group.members.add(socketId)
+
+      // Track reverse index
+      let set = socketGroups.get(socketId)
+      if (!set) { set = new Set(); socketGroups.set(socketId, set) }
+      set.add(groupName)
+
+      // Notify existing members
+      const message = {
+        type: 'event',
+        channel: `group:${groupName}`,
+        event: 'group:member_added',
+        data: { group: groupName, socketId },
+      }
+      for (const memberId of group.members) {
+        if (memberId !== socketId) {
+          sendToSocket(memberId, message)
+        }
+      }
+    },
+
+    leaveGroup(groupName: string, socketId: string): void {
+      const group = groups.get(groupName)
+      if (!group) return
+
+      if (!group.members.has(socketId)) return
+
+      group.members.delete(socketId)
+      socketGroups.get(socketId)?.delete(groupName)
+
+      // Notify remaining members
+      const message = {
+        type: 'event',
+        channel: `group:${groupName}`,
+        event: 'group:member_removed',
+        data: { group: groupName, socketId },
+      }
+      for (const memberId of group.members) {
+        sendToSocket(memberId, message)
+      }
+
+      // Auto-delete empty groups
+      if (group.members.size === 0) {
+        groups.delete(groupName)
+      }
+    },
+
+    sendToGroup(groupName: string, event: string, data: unknown, except?: string): void {
+      const group = groups.get(groupName)
+      if (!group) return
+
+      const message = { type: 'event', channel: `group:${groupName}`, event, data }
+      for (const memberId of group.members) {
+        if (memberId !== except) {
+          sendToSocket(memberId, message)
+        }
+      }
+    },
+
+    getGroup(groupName: string): GroupInfo | undefined {
+      return groups.get(groupName)
+    },
+
+    getGroups(): GroupInfo[] {
+      return Array.from(groups.values())
+    },
+
+    getClientGroups(socketId: string): GroupInfo[] {
+      const set = socketGroups.get(socketId)
+      if (!set) return []
+      return Array.from(set)
+        .map((name) => groups.get(name))
+        .filter((g): g is GroupInfo => !!g)
+    },
+
+    deleteGroup(groupName: string): void {
+      const group = groups.get(groupName)
+      if (!group) return
+
+      // Notify all members
+      const message = {
+        type: 'event',
+        channel: `group:${groupName}`,
+        event: 'group:deleted',
+        data: { group: groupName },
+      }
+      for (const memberId of group.members) {
+        sendToSocket(memberId, message)
+        socketGroups.get(memberId)?.delete(groupName)
+      }
+
+      groups.delete(groupName)
     },
   }
 

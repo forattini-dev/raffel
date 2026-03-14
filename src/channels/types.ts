@@ -17,6 +17,86 @@ import type { Context } from '../types/index.js'
 export type ChannelType = 'public' | 'private' | 'presence'
 
 /**
+ * Connected client info exposed via the manager
+ */
+export interface ClientInfo {
+  /** Socket/connection ID */
+  id: string
+  /** User ID from auth context (if available) */
+  userId?: string
+  /** Custom data attached at connect time */
+  data: Record<string, unknown>
+  /** Channels this client is subscribed to */
+  channels: string[]
+  /** When the client connected */
+  connectedAt: number
+}
+
+/**
+ * Room: a private 1:1 channel between exactly two clients
+ */
+export interface RoomInfo {
+  /** Auto-generated room name */
+  name: string
+  /** The two participant socket IDs */
+  participants: [string, string]
+  /** When the room was created */
+  createdAt: number
+}
+
+/**
+ * Group: a named collection of N clients for targeted messaging
+ */
+export interface GroupInfo {
+  /** Group name */
+  name: string
+  /** Member socket IDs */
+  members: Set<string>
+  /** Custom metadata */
+  data: Record<string, unknown>
+  /** When the group was created */
+  createdAt: number
+}
+
+/**
+ * Lifecycle event data passed to hooks
+ */
+export interface ClientConnectEvent {
+  socketId: string
+  remoteAddress?: string
+  headers: Record<string, string>
+}
+
+export interface ClientDisconnectEvent {
+  socketId: string
+  code: number
+  reason: string
+}
+
+/**
+ * Webhook-ready lifecycle hooks
+ */
+export interface ChannelLifecycleHooks {
+  /** Called when a client connects (after auth/filter) */
+  onConnect?: (event: ClientConnectEvent) => void | Promise<void>
+
+  /** Called when a client disconnects */
+  onDisconnect?: (event: ClientDisconnectEvent) => void | Promise<void>
+
+  /** Called after a successful subscribe */
+  onSubscribe?: (socketId: string, channel: string) => void | Promise<void>
+
+  /** Called after unsubscribe */
+  onUnsubscribe?: (socketId: string, channel: string) => void | Promise<void>
+
+  /** Called when a member joins a presence channel */
+  onMemberAdded?: (channel: string, member: ChannelMember) => void | Promise<void>
+
+  /** Called when a member leaves a presence channel */
+  onMemberRemoved?: (channel: string, member: ChannelMember) => void | Promise<void>
+}
+
+/**
  * Configuration options for channels
  */
 export interface ChannelOptions {
@@ -88,6 +168,15 @@ export interface ChannelOptions {
     data: unknown,
     ctx: Context
   ) => boolean | Promise<boolean>
+
+  /** Lifecycle hooks for webhook integration */
+  hooks?: ChannelLifecycleHooks
+
+  /** Custom data to attach to clients on connect */
+  clientData?: (
+    socketId: string,
+    ctx: Context
+  ) => Record<string, unknown>
 }
 
 /**
@@ -249,6 +338,119 @@ export interface ChannelManager {
    * Get subscriber count for a channel
    */
   getSubscriberCount(channel: string): number
+
+  // ─────────────────────────────────────────────────────────────
+  // Client Inventory
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Register a connected client (called by WS adapter on connect)
+   */
+  registerClient(socketId: string, info?: Partial<Pick<ClientInfo, 'userId' | 'data'>>): void
+
+  /**
+   * Remove a connected client (called by WS adapter on disconnect)
+   */
+  removeClient(socketId: string): void
+
+  /**
+   * Get info about a specific client
+   */
+  getClient(socketId: string): ClientInfo | undefined
+
+  /**
+   * Get all connected clients
+   */
+  getClients(): ClientInfo[]
+
+  /**
+   * Get total connected client count
+   */
+  getClientCount(): number
+
+  /**
+   * Send an event directly to a client (no channel needed)
+   */
+  sendToClient(socketId: string, event: string, data: unknown): void
+
+  /**
+   * Broadcast an event to ALL connected clients
+   */
+  broadcastAll(event: string, data: unknown, except?: string): void
+
+  // ─────────────────────────────────────────────────────────────
+  // Rooms (1:1 private channels)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Create a private room between exactly two clients.
+   * Both clients are auto-subscribed and can exchange messages.
+   */
+  createRoom(socketA: string, socketB: string): RoomInfo
+
+  /**
+   * Send an event to a room (both participants receive it)
+   */
+  sendToRoom(roomName: string, event: string, data: unknown, except?: string): void
+
+  /**
+   * Get room info
+   */
+  getRoom(roomName: string): RoomInfo | undefined
+
+  /**
+   * Get all rooms a client is in
+   */
+  getClientRooms(socketId: string): RoomInfo[]
+
+  /**
+   * Close a room (unsubscribe both participants)
+   */
+  closeRoom(roomName: string): void
+
+  // ─────────────────────────────────────────────────────────────
+  // Groups (N-client named collections)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Create a named group
+   */
+  createGroup(name: string, data?: Record<string, unknown>): GroupInfo
+
+  /**
+   * Add a client to a group
+   */
+  joinGroup(groupName: string, socketId: string): void
+
+  /**
+   * Remove a client from a group
+   */
+  leaveGroup(groupName: string, socketId: string): void
+
+  /**
+   * Send an event to all members of a group
+   */
+  sendToGroup(groupName: string, event: string, data: unknown, except?: string): void
+
+  /**
+   * Get group info
+   */
+  getGroup(groupName: string): GroupInfo | undefined
+
+  /**
+   * Get all groups
+   */
+  getGroups(): GroupInfo[]
+
+  /**
+   * Get all groups a client belongs to
+   */
+  getClientGroups(socketId: string): GroupInfo[]
+
+  /**
+   * Delete a group
+   */
+  deleteGroup(groupName: string): void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

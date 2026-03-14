@@ -73,6 +73,7 @@ export type {
   GrpcContextCapability,
   TcpContextCapability,
   UdpContextCapability,
+  SmtpContextCapability,
   StreamContextCapability,
   ExtensionKey,
   ContractAuthPolicy,
@@ -133,6 +134,8 @@ export {
   createWebSocketAdapter,
   createHttpAdapter,
   createTcpAdapter,
+  createSmtpAdapter,
+  createSmtpClient,
   createJsonRpcAdapter,
   createGrpcAdapter,
   JsonRpcErrorCode,
@@ -147,6 +150,11 @@ export type {
   HttpAdapterOptions,
   TcpAdapter,
   TcpAdapterOptions,
+  SmtpAdapter,
+  SmtpAdapterOptions,
+  SmtpTlsOptions,
+  SmtpAuthVerifier,
+  SmtpRecipientValidator,
   JsonRpcAdapter,
   JsonRpcAdapterOptions,
   JsonRpcRequest,
@@ -560,6 +568,12 @@ export type {
   ChannelEventMessage,
   ChannelErrorMessage,
   ChannelMessage,
+  ClientInfo,
+  RoomInfo,
+  GroupInfo,
+  ChannelLifecycleHooks,
+  ClientConnectEvent,
+  ClientDisconnectEvent,
 } from './channels/index.js'
 
 // === GraphQL ===
@@ -786,6 +800,26 @@ export type {
   TransparentProxyOptions,
   ProxyFilter,
 } from './proxy/index.js'
+
+// === SMTP (Client + Relay) ===
+export {
+  createSmtpClientConnection,
+  buildRawMessage,
+  createSmtpRelay,
+} from './smtp/index.js'
+export type {
+  MailAddress,
+  MailMessage,
+  SmtpClientConfig,
+  SmtpClientConnection,
+  SmtpResponse,
+  SmtpSendResult,
+  SmtpRelayConfig,
+  SmtpRelay,
+  SmtpRelayStats,
+  RelayQueueEntry,
+  DkimSignConfig,
+} from './smtp/index.js'
 
 // === Testing Mocks ===
 export * from './testing/index.js'

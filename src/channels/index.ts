@@ -53,6 +53,12 @@ export {
   type ChannelState,
   type ChannelManager,
   type SubscribeResult,
+  type ClientInfo,
+  type RoomInfo,
+  type GroupInfo,
+  type ChannelLifecycleHooks,
+  type ClientConnectEvent,
+  type ClientDisconnectEvent,
 
   // Messages
   type SubscribeMessage,

@@ -16,6 +16,7 @@ export type ProtocolKind =
   | 'grpc'
   | 'tcp'
   | 'udp'
+  | 'smtp'
   | 'stream'
   | 'internal'
 
@@ -120,6 +121,18 @@ export interface UdpContextCapability {
   readonly remoteFamily?: string
 }
 
+export interface SmtpContextCapability {
+  readonly kind: 'smtp'
+  readonly remoteAddress?: string
+  readonly remotePort?: number
+  readonly sender?: string
+  readonly recipients?: readonly string[]
+  readonly authenticated?: boolean
+  readonly authenticatedUser?: string
+  readonly tlsActive?: boolean
+  readonly ehloHostname?: string
+}
+
 export interface StreamContextCapability {
   readonly kind: 'stream'
   readonly mode?: string
@@ -143,6 +156,7 @@ export interface ContextSeed {
   grpc?: GrpcContextCapability
   tcp?: TcpContextCapability
   udp?: UdpContextCapability
+  smtp?: SmtpContextCapability
   stream?: StreamContextCapability
 }
 
@@ -279,6 +293,9 @@ export interface Context {
 
   /** UDP-specific request metadata */
   udp?: UdpContextCapability
+
+  /** SMTP-specific request metadata */
+  smtp?: SmtpContextCapability
 
   /** Stream-specific request metadata */
   stream?: StreamContextCapability
@@ -430,6 +447,7 @@ export function stripTransportCapabilities(ctx: Context): Context {
     grpc: undefined,
     tcp: undefined,
     udp: undefined,
+    smtp: undefined,
     stream: undefined,
     extensions: new Map(ctx.extensions),
   }
@@ -466,6 +484,7 @@ export function mergeContextSeeds(
     grpc: override.grpc ?? base.grpc,
     tcp: override.tcp ?? base.tcp,
     udp: override.udp ?? base.udp,
+    smtp: override.smtp ?? base.smtp,
     stream: override.stream ?? base.stream,
   }
 }
@@ -499,6 +518,7 @@ export function createContext(
     grpc: cloneProtocolFacet(options.grpc),
     tcp: cloneProtocolFacet(options.tcp),
     udp: cloneProtocolFacet(options.udp),
+    smtp: cloneProtocolFacet(options.smtp),
     stream: cloneProtocolFacet(options.stream),
   }
 }
