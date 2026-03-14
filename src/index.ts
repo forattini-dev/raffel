@@ -146,6 +146,7 @@ export {
 export type {
   WebSocketAdapter,
   WebSocketAdapterOptions,
+  WebSocketClientInfo,
   HttpAdapter,
   HttpAdapterOptions,
   TcpAdapter,

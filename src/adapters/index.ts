@@ -15,7 +15,7 @@
 
 // WebSocket adapter
 export { createWebSocketAdapter } from './websocket.js'
-export type { WebSocketAdapter, WebSocketAdapterOptions } from './websocket.js'
+export type { WebSocketAdapter, WebSocketAdapterOptions, WebSocketClientInfo } from './websocket.js'
 
 // HTTP adapter
 export { createHttpAdapter } from './http.js'

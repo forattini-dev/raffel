@@ -123,6 +123,60 @@ export interface WebSocketAdapterOptions {
     /** Custom recovery store (default: in-memory) */
     store?: ConnectionRecoveryPort
   }
+
+  // ─── Custom Protocol Hooks ──────────────────────────────────────
+
+  /**
+   * Raw message handler — called BEFORE any Raffel processing.
+   * Return `true` to indicate the message was handled (skip default processing).
+   * Return `false` to let Raffel process it normally.
+   *
+   * Use this to implement your own protocol on top of WebSocket,
+   * or to intercept/modify messages before they reach the router.
+   *
+   * @example
+   * ```typescript
+   * onMessage: (socketId, raw, send) => {
+   *   const msg = JSON.parse(raw)
+   *   if (msg.type === 'my-custom-type') {
+   *     send({ type: 'my-response', data: 'handled' })
+   *     return true // Handled, skip Raffel
+   *   }
+   *   return false // Let Raffel handle it
+   * }
+   * ```
+   */
+  onMessage?: (
+    socketId: string,
+    raw: string | Buffer,
+    send: (message: unknown) => void
+  ) => boolean | Promise<boolean>
+
+  /**
+   * Called when a new client connects (after auth + filter).
+   * Receives the socket ID and a send function for the connection.
+   *
+   * @example
+   * ```typescript
+   * onConnection: (socketId, send, req) => {
+   *   send({ type: 'welcome', socketId })
+   * }
+   * ```
+   */
+  onConnection?: (
+    socketId: string,
+    send: (message: unknown) => void,
+    req: IncomingMessage
+  ) => void | Promise<void>
+
+  /**
+   * Called when a client disconnects.
+   */
+  onClose?: (
+    socketId: string,
+    code: number,
+    reason: string
+  ) => void | Promise<void>
 }
 
 /**
@@ -138,6 +192,24 @@ interface ClientConnection {
   activeRequests: Map<string, AbortController>
   /** Auth context seed from ticket/bearer auth (merged into every request context) */
   authSeed?: ContextSeed
+  /** When the client connected */
+  connectedAt: number
+}
+
+/**
+ * Minimal client info exposed by the adapter
+ */
+export interface WebSocketClientInfo {
+  /** Unique socket ID */
+  id: string
+  /** Remote IP address */
+  remoteAddress?: string
+  /** Connection metadata (headers) */
+  metadata: Record<string, string>
+  /** Auth context seed (if authenticated) */
+  authSeed?: ContextSeed
+  /** When the client connected */
+  connectedAt: number
 }
 
 /**
@@ -158,6 +230,40 @@ export interface WebSocketAdapter {
    * Only available when `channels` option is provided.
    */
   readonly channels: ChannelManager | null
+
+  // ─── Low-Level API (Custom Protocol) ──────────────────────────
+
+  /**
+   * Send a raw message to a specific client by socket ID.
+   * Works regardless of channel subscriptions.
+   */
+  send(socketId: string, message: unknown): void
+
+  /**
+   * Send raw data (string or Buffer) to a specific client.
+   * Bypasses JSON serialization — use for binary or custom protocols.
+   */
+  sendRaw(socketId: string, data: string | Buffer): void
+
+  /**
+   * Broadcast a message to ALL connected clients.
+   */
+  broadcast(message: unknown, except?: string): void
+
+  /**
+   * Get info about a specific connected client.
+   */
+  getClient(socketId: string): WebSocketClientInfo | undefined
+
+  /**
+   * Get all connected clients.
+   */
+  getClients(): WebSocketClientInfo[]
+
+  /**
+   * Disconnect a specific client.
+   */
+  disconnect(socketId: string, code?: number, reason?: string): void
 }
 
 /**
@@ -490,6 +596,17 @@ export function createWebSocketAdapter(
     client: ClientConnection,
     data: Buffer | string
   ): Promise<void> {
+    // Custom protocol hook — intercept before any Raffel processing
+    if (options.onMessage) {
+      const sendFn = (msg: unknown) => sendRawMessage(client, msg)
+      try {
+        const handled = await options.onMessage(client.id, data, sendFn)
+        if (handled) return
+      } catch (err) {
+        logger.error({ err, clientId: client.id }, 'onMessage hook error')
+      }
+    }
+
     let envelope: Envelope
 
     try {
@@ -872,6 +989,7 @@ export function createWebSocketAdapter(
       connectionMetadata: extractMetadataFromHeaders(req.headers),
       activeStreams: new Map(),
       activeRequests: new Map(),
+      connectedAt: Date.now(),
     }
 
     // Store auth seed for context building
@@ -910,6 +1028,14 @@ export function createWebSocketAdapter(
           logger.warn({ err, clientId }, 'onConnect hook error')
         })
       }
+    }
+
+    // Custom protocol: onConnection hook
+    if (options.onConnection) {
+      const sendFn = (msg: unknown) => sendRawMessage(client, msg)
+      Promise.resolve(options.onConnection(clientId, sendFn, req)).catch((err) => {
+        logger.warn({ err, clientId }, 'onConnection hook error')
+      })
     }
 
     // Message handler
@@ -976,6 +1102,13 @@ export function createWebSocketAdapter(
         }
       } else {
         // No channel manager — still unsubscribe
+      }
+
+      // Custom protocol: onClose hook
+      if (options.onClose) {
+        Promise.resolve(options.onClose(clientId, code, reasonStr)).catch((err) => {
+          logger.warn({ err, clientId }, 'onClose hook error')
+        })
       }
 
       // Cancel active streams
@@ -1085,6 +1218,64 @@ export function createWebSocketAdapter(
 
     get channels(): ChannelManager | null {
       return channelManager
+    },
+
+    // ─── Low-Level API ─────────────────────────────────────────────
+
+    send(socketId: string, message: unknown): void {
+      const client = clients.get(socketId)
+      if (!client || client.ws.readyState !== WebSocket.OPEN) return
+      if (!checkBackpressure(client)) return
+      client.ws.send(JSON.stringify(message))
+    },
+
+    sendRaw(socketId: string, data: string | Buffer): void {
+      const client = clients.get(socketId)
+      if (!client || client.ws.readyState !== WebSocket.OPEN) return
+      if (!checkBackpressure(client)) return
+      client.ws.send(data)
+    },
+
+    broadcast(message: unknown, except?: string): void {
+      const json = JSON.stringify(message)
+      for (const [id, client] of clients) {
+        if (id === except) continue
+        if (client.ws.readyState !== WebSocket.OPEN) continue
+        if (!checkBackpressure(client)) continue
+        client.ws.send(json)
+      }
+    },
+
+    getClient(socketId: string): WebSocketClientInfo | undefined {
+      const client = clients.get(socketId)
+      if (!client) return undefined
+      return {
+        id: client.id,
+        remoteAddress: client.request.socket.remoteAddress,
+        metadata: { ...client.connectionMetadata },
+        authSeed: client.authSeed,
+        connectedAt: client.connectedAt,
+      }
+    },
+
+    getClients(): WebSocketClientInfo[] {
+      const result: WebSocketClientInfo[] = []
+      for (const client of clients.values()) {
+        result.push({
+          id: client.id,
+          remoteAddress: client.request.socket.remoteAddress,
+          metadata: { ...client.connectionMetadata },
+          authSeed: client.authSeed,
+          connectedAt: Date.now(),
+        })
+      }
+      return result
+    },
+
+    disconnect(socketId: string, code?: number, reason?: string): void {
+      const client = clients.get(socketId)
+      if (!client) return
+      client.ws.close(code ?? 1000, reason ?? 'Disconnected by server')
     },
   }
 }
