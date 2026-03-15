@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/**/*.int.test.ts'],
+    setupFiles: ['test/setup-test-logger.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
     // Run test files sequentially to avoid port conflicts

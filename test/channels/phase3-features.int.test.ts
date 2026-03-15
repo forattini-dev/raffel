@@ -83,6 +83,20 @@ describe('Channel REST API', () => {
     headers?: Record<string, string>
   ): Promise<{ status: number; body: unknown }> {
     return new Promise((resolve, reject) => {
+      const requestTimeoutMs = 5000
+      const requestTimer = setTimeout(
+        () => fail(new Error(`Request timeout after ${requestTimeoutMs}ms`)),
+        requestTimeoutMs
+      )
+      let done = false
+
+      const fail = (error: Error) => {
+        if (done) return
+        clearTimeout(requestTimer)
+        done = true
+        reject(error)
+      }
+
       const opts: http.RequestOptions = {
         hostname: '127.0.0.1',
         port,
@@ -95,8 +109,12 @@ describe('Channel REST API', () => {
       }
       const req = http.request(opts, (res) => {
         const chunks: Buffer[] = []
+        res.on('error', (error: NodeJS.ErrnoException) => fail(error))
         res.on('data', (chunk: Buffer) => chunks.push(chunk))
         res.on('end', () => {
+          if (done) return
+          done = true
+          clearTimeout(requestTimer)
           const raw = Buffer.concat(chunks).toString('utf-8')
           try {
             resolve({ status: res.statusCode!, body: JSON.parse(raw) })
@@ -105,9 +123,25 @@ describe('Channel REST API', () => {
           }
         })
       })
-      req.on('error', reject)
+      req.on('error', (error) => fail(error))
       if (body) req.write(JSON.stringify(body))
       req.end()
+    })
+  }
+
+  function listenOnRandomPort(server: http.Server): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const onListen = () => {
+        const address = server.address()
+        if (typeof address === 'string' || address === null) {
+          reject(new Error('Unable to determine server port'))
+          return
+        }
+        port = address.port
+        resolve(address.port)
+      }
+      server.listen(0, '127.0.0.1', onListen)
+      server.once('error', reject)
     })
   }
 
@@ -130,7 +164,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     // Subscribe some clients
     await manager.subscribe('s1', 'chat-room', makeCtx())
@@ -161,7 +195,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     await manager.subscribe('s1', 'chat-room', makeCtx())
     await manager.subscribe('s2', 'chat-room', makeCtx())
@@ -189,7 +223,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     const res = await request('GET', '/channels/nonexistent')
     expect(res.status).toBe(404)
@@ -208,7 +242,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     manager.registerClient('s1')
     await manager.subscribe('s1', 'chat-room', makeCtx())
@@ -240,7 +274,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     manager.registerClient('s1')
     manager.registerClient('s2')
@@ -273,7 +307,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     manager.registerClient('s1')
     manager.registerClient('s2')
@@ -304,7 +338,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     const res = await request('POST', '/channels/clients/nonexistent/events', {
       event: 'test',
@@ -326,7 +360,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     // Without key
     const res1 = await request('GET', '/channels')
@@ -360,7 +394,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     const res1 = await request('GET', '/channels')
     expect(res1.status).toBe(401)
@@ -384,7 +418,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     // Default path should not work
     const res1 = await request('GET', '/channels')
@@ -408,7 +442,7 @@ describe('Channel REST API', () => {
         res.end('Not found')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
     await manager.subscribe('s1', 'chat', makeCtx())
 
@@ -431,9 +465,10 @@ describe('Channel REST API', () => {
         res.end('OK')
       }
     })
-    await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', resolve))
+    await listenOnRandomPort(httpServer)
 
-    await request('GET', '/some/other/path')
+    const result = await request('GET', '/some/other/path')
+    expect(result.status).toBe(200)
     expect(fallthrough).toBe(true)
   })
 })
