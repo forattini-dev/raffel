@@ -99,13 +99,15 @@ function resolveWebSocket(explicit?: RaffelClientOptions['WebSocket']): WebSocke
   const connecting = typeof (WS as any).CONNECTING === 'number' ? (WS as any).CONNECTING : WS_CONNECTING
   const open = typeof (WS as any).OPEN === 'number' ? (WS as any).OPEN : WS_OPEN
 
-  return {
-    new(url: string, protocols?: string | string[]) {
-      return new (WS as any)(url, protocols)
-    },
-    CONNECTING: connecting,
-    OPEN: open,
-  } as unknown as WebSocketConstructor
+  const WrappedWebSocket = ((
+    url: string,
+    protocols?: string | string[]
+  ) => new (WS as any)(url, protocols)) as unknown as WebSocketConstructor
+
+  ;(WrappedWebSocket as unknown as { CONNECTING: number; OPEN: number }).CONNECTING = connecting
+  ;(WrappedWebSocket as unknown as { CONNECTING: number; OPEN: number }).OPEN = open
+
+  return WrappedWebSocket
 }
 
 /**
