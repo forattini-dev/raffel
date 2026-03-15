@@ -96,11 +96,16 @@ function resolveWebSocket(explicit?: RaffelClientOptions['WebSocket']): WebSocke
     )
   }
 
-  // Normalize: ensure CONNECTING/OPEN constants exist
-  return Object.assign(WS, {
-    CONNECTING: WS.CONNECTING ?? WS_CONNECTING,
-    OPEN: WS.OPEN ?? WS_OPEN,
-  }) as WebSocketConstructor
+  const connecting = typeof (WS as any).CONNECTING === 'number' ? (WS as any).CONNECTING : WS_CONNECTING
+  const open = typeof (WS as any).OPEN === 'number' ? (WS as any).OPEN : WS_OPEN
+
+  return {
+    new(url: string, protocols?: string | string[]) {
+      return new (WS as any)(url, protocols)
+    },
+    CONNECTING: connecting,
+    OPEN: open,
+  } as WebSocketConstructor
 }
 
 /**
