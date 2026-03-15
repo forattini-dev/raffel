@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { WebSocket } from 'ws'
+import { createClient } from 'recker/client'
 import { createRegistry } from '../../src/core/registry.js'
 import { createRouter } from '../../src/core/router.js'
 import { createWebSocketAdapter, type WebSocketAdapter } from '../../src/adapters/websocket.js'
@@ -20,6 +21,42 @@ function waitForMessage(ws: WebSocket): Promise<Record<string, unknown>> {
     ws.once('message', (data) => {
       resolve(JSON.parse(data.toString()))
     })
+  })
+}
+
+interface ReckerWebSocketMessage {
+  data: string | Uint8Array | ArrayBuffer | Blob
+  isBinary: boolean
+}
+
+interface ReckerSocketLike {
+  connect(): Promise<void>
+  send(data: string | ArrayBuffer | ArrayBufferView | Blob): Promise<void>
+  close(code?: number, reason?: string): void
+  on(event: 'message', listener: (message: ReckerWebSocketMessage) => void): unknown
+  off(event: 'message', listener: (message: ReckerWebSocketMessage) => void): unknown
+}
+
+function decodeReckerMessage(message: ReckerWebSocketMessage): Record<string, unknown> {
+  if (typeof message.data !== 'string') {
+    throw new Error('Expected Recker websocket message as string payload')
+  }
+  return JSON.parse(message.data) as Record<string, unknown>
+}
+
+function waitForReckerMessage(
+  socket: ReckerSocketLike,
+  predicate: (message: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const handler = (message: ReckerWebSocketMessage) => {
+      const parsed = decodeReckerMessage(message)
+      if (!predicate(parsed)) return
+      socket.off('message', handler)
+      resolve(parsed)
+    }
+
+    socket.on('message', handler)
   })
 }
 
@@ -473,6 +510,67 @@ describe('WebSocket Custom Protocol', () => {
 
       bob.close()
       await new Promise((r) => setTimeout(r, 50))
+    })
+  })
+
+  describe('Recker integration', () => {
+    it('should exchange at least 10 messages with a Raffel websocket server', async () => {
+      const registry = createRegistry()
+      const router = createRouter(registry)
+      const inboundMessages: Array<{ seq: number; text: string }> = []
+
+      adapter = createWebSocketAdapter(router, {
+        port,
+        onConnection: (socketId, send) => {
+          send({ type: 'welcome', socketId, protocol: 'custom' })
+        },
+        onMessage: (_socketId, raw, send) => {
+          const message = JSON.parse(raw.toString()) as { type: string; seq: number; text: string }
+          if (message.type !== 'client:ping') return false
+
+          inboundMessages.push({ seq: message.seq, text: message.text })
+          send({
+            type: 'server:ack',
+            seq: message.seq,
+            text: message.text,
+            serverSeen: inboundMessages.length,
+          })
+          return true
+        },
+      })
+      await adapter.start()
+
+      const recker = createClient()
+      const socket = recker.ws(`ws://127.0.0.1:${port}`)
+      await socket.connect()
+
+      const welcome = await waitForReckerMessage(socket, (message) => message.type === 'welcome')
+      expect(welcome.type).toBe('welcome')
+      expect(welcome.protocol).toBe('custom')
+
+      for (let seq = 1; seq <= 10; seq++) {
+        await socket.send(JSON.stringify({
+          type: 'client:ping',
+          seq,
+          text: `message-${seq}`,
+        }))
+
+        const response = await waitForReckerMessage(
+          socket,
+          (message) => message.type === 'server:ack' && message.seq === seq,
+        )
+
+        expect(response.type).toBe('server:ack')
+        expect(response.seq).toBe(seq)
+        expect(response.text).toBe(`message-${seq}`)
+        expect(response.serverSeen).toBe(seq)
+      }
+
+      expect(inboundMessages).toHaveLength(10)
+      expect(inboundMessages.map((message) => message.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+
+      socket.close()
+      await new Promise((resolve) => setTimeout(resolve, 50))
     })
   })
 })

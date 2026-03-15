@@ -214,6 +214,7 @@
     "ajv": "^8.17.1",
     "fastest-validator": "^1.19.0",
     "joi": "^17.13.3",
+    "recker": "^1.0.84",
     "serve": "^14.2.4",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16",
