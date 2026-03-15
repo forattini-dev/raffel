@@ -935,11 +935,23 @@ export const createMockUdpServer = async (options: MockUdpServerOptions = {}): P
 
 /**
  * WebSocket Mock Server
+ *
+ * Two modes:
+ * - `raw` (default): Echo/pattern-based string handlers. Good for testing
+ *   raw WebSocket messaging without envelope protocol.
+ * - `full`: Raffel envelope protocol with RPC (call/response), channels
+ *   (subscribe/publish/presence), and streams. Compatible with RaffelClient.
  */
 export interface MockWebSocketServerOptions {
   host?: string
   port?: number
   path?: string
+  /**
+   * Server mode:
+   * - `'raw'` (default): Echo/pattern handler. Messages are strings/buffers.
+   * - `'full'`: Raffel envelope protocol. Understands RPC, channels, presence.
+   */
+  mode?: 'raw' | 'full'
   defaultResponse?: string
   echo?: MockEchoOptions
   /** Fraction of incoming messages to drop silently (0–1). Default: 0 */
@@ -948,40 +960,75 @@ export interface MockWebSocketServerOptions {
   maxConnections?: number
   /** Auto-close each connection after this many ms (0 = disabled). Default: 0 */
   autoCloseAfter?: number
+  /** Called on connection in full mode. Receives socketId and send function. */
+  onConnection?: (socketId: string, send: (msg: unknown) => void) => void
 }
 
 export type MockWsMessageHandler = (message: string | Buffer, socket: WebSocket) => MaybeAsync<string | Buffer | void>
+export type MockWsProcedureHandler = (payload: unknown, ctx: { socketId: string }) => MaybeAsync<unknown>
 
 interface PatternEntry {
   pattern: string | RegExp
   handler: string | ((msg: string) => string)
 }
 
+interface FullModeClient {
+  socketId: string
+  socket: WebSocket
+  channels: Set<string>
+}
+
+interface FullModeChannel {
+  subscribers: Set<string>
+  seq: number
+}
+
+let _mockIdCounter = 0
+function mockSid(): string {
+  return `mock-${++_mockIdCounter}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export class MockWebSocketServer extends EventEmitter {
-  private readonly options: Omit<Required<MockWebSocketServerOptions>, 'echo'>
+  private readonly options: Omit<Required<MockWebSocketServerOptions>, 'echo' | 'onConnection'>
   private server: WebSocketServer | null = null
   private _port = 0
   private _running = false
+  private _mode: 'raw' | 'full'
   private echo: NormalizedMockEchoOptions
   private handler: MockWsMessageHandler = (message) => message
   private patternHandlers: PatternEntry[] = []
   private _connections = new Set<WebSocket>()
 
+  // Full mode state
+  private _clients = new Map<string, FullModeClient>()
+  private _socketToId = new Map<WebSocket, string>()
+  private _channels = new Map<string, FullModeChannel>()
+  private _procedures = new Map<string, MockWsProcedureHandler>()
+  private _epoch = mockSid()
+  private _onConnection?: (socketId: string, send: (msg: unknown) => void) => void
+
   constructor(options: MockWebSocketServerOptions = {}) {
     super()
+    this._mode = options.mode ?? 'raw'
+    this._onConnection = options.onConnection
     this.options = {
       host: normalizeHost(options.host),
       port: options.port ?? 0,
       path: options.path ?? '/',
+      mode: this._mode,
       defaultResponse: options.defaultResponse ?? '',
       dropRate: options.dropRate ?? 0,
       maxConnections: options.maxConnections ?? 0,
       autoCloseAfter: options.autoCloseAfter ?? 0,
     }
-    this.echo = normalizeMockEchoOptions(options.echo ?? true)
+    this.echo = normalizeMockEchoOptions(options.echo ?? (this._mode === 'raw'))
     this.handler = this.options.defaultResponse.length > 0
       ? () => this.options.defaultResponse
       : (message) => this.createEchoPayload(message)
+  }
+
+  get mode(): 'raw' | 'full' {
+    return this._mode
   }
 
   setEcho(options: MockEchoOptions | boolean = true): void {
@@ -1018,15 +1065,23 @@ export class MockWebSocketServer extends EventEmitter {
     return this._connections.size
   }
 
+  /** Get all connected client IDs (full mode only) */
+  get clientIds(): string[] {
+    return [...this._clients.keys()]
+  }
+
+  /** Get all active channel names (full mode only) */
+  get channelNames(): string[] {
+    return [...this._channels.keys()]
+  }
+
   setMessageHandler(handler: MockWsMessageHandler): void {
     this.handler = handler
   }
 
   /**
-   * Register a pattern-based handler. Patterns are matched in order of
-   * registration; the first match wins. Falls back to `setMessageHandler`.
-   *
-   * @param handler - A static string response or a function `(msg) => response`.
+   * Register a pattern-based handler (raw mode).
+   * Patterns are matched in order; first match wins. Falls back to `setMessageHandler`.
    */
   setResponse(
     pattern: string | RegExp,
@@ -1036,12 +1091,73 @@ export class MockWebSocketServer extends EventEmitter {
     return this
   }
 
+  /**
+   * Register an RPC procedure handler (full mode).
+   * When a client sends `{ type: 'request', procedure: name }`, this handler is called
+   * and its return value is sent back as `{ type: 'response', payload: result }`.
+   *
+   * @example
+   * ```typescript
+   * server.setProcedure('users.get', async (payload) => {
+   *   return { id: '1', name: 'Alice' }
+   * })
+   * ```
+   */
+  setProcedure(name: string, handler: MockWsProcedureHandler): this {
+    this._procedures.set(name, handler)
+    return this
+  }
+
+  /** Send a JSON message to a specific client by socketId (full mode) */
+  sendTo(socketId: string, message: unknown): boolean {
+    const client = this._clients.get(socketId)
+    if (!client || client.socket.readyState !== WebSocket.OPEN) return false
+    client.socket.send(JSON.stringify(message))
+    return true
+  }
+
+  /** Broadcast an event to a channel (full mode) */
+  broadcastToChannel(channel: string, event: string, data: unknown, except?: string): number {
+    const ch = this._channels.get(channel)
+    if (!ch) return 0
+    let count = 0
+    const msg = JSON.stringify({
+      type: 'event',
+      channel,
+      event,
+      data,
+      seq: ++ch.seq,
+      epoch: this._epoch,
+    })
+    for (const socketId of ch.subscribers) {
+      if (socketId === except) continue
+      const client = this._clients.get(socketId)
+      if (client && client.socket.readyState === WebSocket.OPEN) {
+        client.socket.send(msg)
+        count++
+      }
+    }
+    return count
+  }
+
+  /** Get subscriber count for a channel (full mode) */
+  getChannelSubscriberCount(channel: string): number {
+    return this._channels.get(channel)?.subscribers.size ?? 0
+  }
+
+  /** Get channels a client is subscribed to (full mode) */
+  getClientChannels(socketId: string): string[] {
+    return [...(this._clients.get(socketId)?.channels ?? [])]
+  }
+
   /** Close all active WebSocket connections. */
   closeAllConnections(): void {
     for (const socket of this._connections) {
       socket.close()
     }
     this._connections.clear()
+    this._clients.clear()
+    this._socketToId.clear()
   }
 
   async start(): Promise<void> {
@@ -1063,7 +1179,6 @@ export class MockWebSocketServer extends EventEmitter {
         }
 
         this._connections.add(socket)
-        this.emit('connection', socket)
 
         // Auto-close after timeout
         let autoCloseTimer: ReturnType<typeof setTimeout> | null = null
@@ -1073,46 +1188,11 @@ export class MockWebSocketServer extends EventEmitter {
           }, this.options.autoCloseAfter)
         }
 
-        socket.on('close', () => {
-          this._connections.delete(socket)
-          if (autoCloseTimer) clearTimeout(autoCloseTimer)
-        })
-
-        socket.on('message', async (data) => {
-          // Drop rate simulation
-          if (this.options.dropRate > 0 && Math.random() < this.options.dropRate) {
-            return
-          }
-
-          const textOrBuffer = Buffer.isBuffer(data) ? data : data.toString()
-          const msgStr = Buffer.isBuffer(textOrBuffer) ? textOrBuffer.toString() : textOrBuffer
-
-          // Check pattern handlers first
-          let response: string | Buffer | void | undefined
-          for (const { pattern, handler: patHandler } of this.patternHandlers) {
-            const matched =
-              typeof pattern === 'string' ? msgStr === pattern : pattern.test(msgStr)
-            if (matched) {
-              response =
-                typeof patHandler === 'string' ? patHandler : patHandler(msgStr)
-              break
-            }
-          }
-
-          if (response === undefined) {
-            response = await Promise.resolve(this.handler(textOrBuffer, socket))
-          }
-
-          if (response === undefined) {
-            return
-          }
-
-          socket.send(response, (error) => {
-            if (error) {
-              this.emit('error', error)
-            }
-          })
-        })
+        if (this._mode === 'full') {
+          this._setupFullModeConnection(socket, autoCloseTimer)
+        } else {
+          this._setupRawModeConnection(socket, autoCloseTimer)
+        }
       })
 
       const onListening = () => {
@@ -1135,6 +1215,7 @@ export class MockWebSocketServer extends EventEmitter {
   async stop(): Promise<void> {
     if (!this._running || !this.server) return
     this.closeAllConnections()
+    this._channels.clear()
     await new Promise<void>((resolve) => {
       this.server?.close(() => {
         this._running = false
@@ -1151,6 +1232,277 @@ export class MockWebSocketServer extends EventEmitter {
       socket.send(payload, () => undefined)
     }
     return sockets.size
+  }
+
+  // ============================================================================
+  // Raw mode
+  // ============================================================================
+
+  private _setupRawModeConnection(socket: WebSocket, autoCloseTimer: ReturnType<typeof setTimeout> | null): void {
+    this.emit('connection', socket)
+
+    socket.on('close', () => {
+      this._connections.delete(socket)
+      if (autoCloseTimer) clearTimeout(autoCloseTimer)
+    })
+
+    socket.on('message', async (data) => {
+      if (this.options.dropRate > 0 && Math.random() < this.options.dropRate) return
+
+      const msgStr = Buffer.isBuffer(data) ? data.toString() : data.toString()
+
+      let response: string | Buffer | void | undefined
+      for (const { pattern, handler: patHandler } of this.patternHandlers) {
+        const matched = typeof pattern === 'string' ? msgStr === pattern : pattern.test(msgStr)
+        if (matched) {
+          response = typeof patHandler === 'string' ? patHandler : patHandler(msgStr)
+          break
+        }
+      }
+
+      if (response === undefined) {
+        response = await Promise.resolve(this.handler(msgStr, socket))
+      }
+
+      if (response === undefined) return
+
+      const payload = Buffer.isBuffer(response) ? response.toString() : response
+      socket.send(payload, (error) => {
+        if (error) this.emit('error', error)
+      })
+    })
+  }
+
+  // ============================================================================
+  // Full mode — Raffel envelope protocol
+  // ============================================================================
+
+  private _setupFullModeConnection(socket: WebSocket, autoCloseTimer: ReturnType<typeof setTimeout> | null): void {
+    const socketId = mockSid()
+    const client: FullModeClient = { socketId, socket, channels: new Set() }
+    this._clients.set(socketId, client)
+    this._socketToId.set(socket, socketId)
+
+    const send = (msg: unknown) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(msg))
+      }
+    }
+
+    this.emit('connection', socketId, send)
+
+    if (this._onConnection) {
+      this._onConnection(socketId, send)
+    }
+
+    socket.on('close', (code, reason) => {
+      this._connections.delete(socket)
+      if (autoCloseTimer) clearTimeout(autoCloseTimer)
+
+      // Unsubscribe from all channels + send presence events
+      for (const channel of client.channels) {
+        const ch = this._channels.get(channel)
+        if (ch) {
+          ch.subscribers.delete(socketId)
+          if (channel.startsWith('presence-')) {
+            this._broadcastChannelEvent(channel, 'member_removed', { id: socketId }, socketId)
+          }
+          if (ch.subscribers.size === 0) this._channels.delete(channel)
+        }
+      }
+      client.channels.clear()
+      this._clients.delete(socketId)
+      this._socketToId.delete(socket)
+
+      this.emit('disconnected', socketId, code, reason?.toString())
+    })
+
+    socket.on('message', async (data) => {
+      if (this.options.dropRate > 0 && Math.random() < this.options.dropRate) return
+
+      const raw = Buffer.isBuffer(data) ? data.toString() : data.toString()
+      let parsed: any
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        send({ type: 'error', code: 'INVALID_JSON', status: 400, message: 'Invalid JSON' })
+        return
+      }
+
+      this.emit('message', socketId, parsed)
+      await this._handleFullModeMessage(socketId, parsed, send)
+    })
+  }
+
+  private async _handleFullModeMessage(
+    socketId: string,
+    msg: any,
+    send: (response: unknown) => void,
+  ): Promise<void> {
+    const { id, type } = msg
+
+    switch (type) {
+      // RPC request → response
+      case 'request': {
+        const handler = this._procedures.get(msg.procedure)
+        if (!handler) {
+          send({
+            id: id ? `${id}:error` : undefined,
+            type: 'error',
+            payload: { code: 'NOT_FOUND', status: 404, message: `Procedure "${msg.procedure}" not found` },
+          })
+          return
+        }
+        try {
+          const result = await handler(msg.payload, { socketId })
+          send({ id: id ? `${id}:response` : undefined, type: 'response', payload: result })
+        } catch (err: any) {
+          send({
+            id: id ? `${id}:error` : undefined,
+            type: 'error',
+            payload: { code: err.code ?? 'INTERNAL_ERROR', status: err.status ?? 500, message: err.message ?? 'Internal error' },
+          })
+        }
+        return
+      }
+
+      // Fire-and-forget event from client
+      case 'event':
+      case 'notify': {
+        this.emit('procedure:event', msg.procedure, msg.payload, socketId)
+        return
+      }
+
+      // Channel subscribe
+      case 'subscribe': {
+        const { channel } = msg
+        if (!channel) {
+          send({ id, type: 'error', code: 'INVALID_REQUEST', status: 400, message: 'Channel name required' })
+          return
+        }
+        const client = this._clients.get(socketId)
+        if (!client) return
+
+        if (!this._channels.has(channel)) {
+          this._channels.set(channel, { subscribers: new Set(), seq: 0 })
+        }
+        const ch = this._channels.get(channel)!
+        ch.subscribers.add(socketId)
+        client.channels.add(channel)
+
+        // Build response
+        const response: any = { id, type: 'subscribed', channel }
+
+        // Presence channels: include members list and notify others
+        if (channel.startsWith('presence-')) {
+          response.members = [...ch.subscribers].map(sid => ({
+            id: sid,
+            info: {},
+            joinedAt: Date.now(),
+          }))
+          this._broadcastChannelEvent(channel, 'member_added', { id: socketId }, socketId)
+        }
+
+        send(response)
+        this.emit('channel:subscribed', socketId, channel)
+        return
+      }
+
+      // Channel unsubscribe
+      case 'unsubscribe': {
+        const { channel } = msg
+        if (!channel) return
+        const client = this._clients.get(socketId)
+        if (!client) return
+
+        client.channels.delete(channel)
+        const ch = this._channels.get(channel)
+        if (ch) {
+          ch.subscribers.delete(socketId)
+          if (channel.startsWith('presence-')) {
+            this._broadcastChannelEvent(channel, 'member_removed', { id: socketId }, socketId)
+          }
+          if (ch.subscribers.size === 0) this._channels.delete(channel)
+        }
+        send({ id, type: 'unsubscribed', channel })
+        this.emit('channel:unsubscribed', socketId, channel)
+        return
+      }
+
+      // Channel publish
+      case 'publish': {
+        const { channel, event, data } = msg
+        if (!channel || !event) return
+        this._broadcastChannelEvent(channel, event, data, socketId)
+        this.emit('channel:publish', socketId, channel, event, data)
+        return
+      }
+
+      // Batch subscribe
+      case 'subscribe:batch': {
+        const results: Record<string, { success: boolean; members?: any[] }> = {}
+        const client = this._clients.get(socketId)
+        if (!client) return
+
+        for (const item of (msg.channels ?? [])) {
+          const ch = item.channel ?? item
+          if (!this._channels.has(ch)) {
+            this._channels.set(ch, { subscribers: new Set(), seq: 0 })
+          }
+          const channel = this._channels.get(ch)!
+          channel.subscribers.add(socketId)
+          client.channels.add(ch)
+
+          const entry: any = { success: true }
+          if (ch.startsWith('presence-')) {
+            entry.members = [...channel.subscribers].map(sid => ({ id: sid, info: {}, joinedAt: Date.now() }))
+            this._broadcastChannelEvent(ch, 'member_added', { id: socketId }, socketId)
+          }
+          results[ch] = entry
+        }
+
+        send({ id, type: 'subscribed:batch', results })
+        return
+      }
+
+      // Typing indicator
+      case 'typing': {
+        const { channel, isTyping } = msg
+        if (!channel) return
+        this._broadcastChannelEvent(channel, isTyping ? 'typing' : 'typing:stop', { socketId }, socketId)
+        return
+      }
+
+      // Cancel (for streams/calls — just acknowledge)
+      case 'cancel': {
+        this.emit('cancel', socketId, id)
+        return
+      }
+
+      default: {
+        this.emit('unknown', socketId, msg)
+      }
+    }
+  }
+
+  private _broadcastChannelEvent(channel: string, event: string, data: unknown, except?: string): void {
+    const ch = this._channels.get(channel)
+    if (!ch) return
+    const msg = JSON.stringify({
+      type: 'event',
+      channel,
+      event,
+      data,
+      seq: ++ch.seq,
+      epoch: this._epoch,
+    })
+    for (const sid of ch.subscribers) {
+      if (sid === except) continue
+      const client = this._clients.get(sid)
+      if (client && client.socket.readyState === WebSocket.OPEN) {
+        client.socket.send(msg)
+      }
+    }
   }
 }
 
