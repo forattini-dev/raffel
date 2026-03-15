@@ -96,18 +96,15 @@ function resolveWebSocket(explicit?: RaffelClientOptions['WebSocket']): WebSocke
     )
   }
 
-  const connecting = typeof (WS as any).CONNECTING === 'number' ? (WS as any).CONNECTING : WS_CONNECTING
-  const open = typeof (WS as any).OPEN === 'number' ? (WS as any).OPEN : WS_OPEN
-
-  const WrappedWebSocket = ((
-    url: string,
-    protocols?: string | string[]
-  ) => new (WS as any)(url, protocols)) as unknown as WebSocketConstructor
-
-  ;(WrappedWebSocket as unknown as { CONNECTING: number; OPEN: number }).CONNECTING = connecting
-  ;(WrappedWebSocket as unknown as { CONNECTING: number; OPEN: number }).OPEN = open
-
-  return WrappedWebSocket
+  // WS is already a constructor — just attach constants if missing
+  const result = WS as unknown as WebSocketConstructor
+  if (typeof (result as any).CONNECTING !== 'number') {
+    Object.defineProperty(result, 'CONNECTING', { value: WS_CONNECTING })
+  }
+  if (typeof (result as any).OPEN !== 'number') {
+    Object.defineProperty(result, 'OPEN', { value: WS_OPEN })
+  }
+  return result
 }
 
 /**
