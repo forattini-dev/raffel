@@ -1,6 +1,6 @@
 {
   "name": "raffel",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Unified multi-protocol server runtime. One core, multiple transports.",
   "type": "module",
   "main": "./dist/index.js",
