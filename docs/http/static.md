@@ -71,6 +71,86 @@ Se você quiser mais de um prefixo, basta listar:
 fallbackIgnore: ['/api', '/ws', '/socket', '/internal']
 ```
 
+## Mais exemplos (cenários que aparecem sempre em projeto real)
+
+### Exemplo 1 — API raiz diferente (`/api/v1`) + WebSocket em `/ws`
+
+```ts
+app.get('/api/v1/ping', (c) => c.json({ ok: true }))
+app.get('/api/v1/users', (c) => c.json([{ id: 1 }]))
+app.get('/ws', (c) => c.text('ok'))
+
+app.use('/*', serveStatic({
+  root: './dist',
+  fallback: 'index.html',
+  fallbackIgnore: ['/api', '/ws'],
+}))
+```
+
+- `/` → `index.html`
+- `/dashboard` → `index.html`
+- `/api/v1/ping` → API
+- `/ws` e `/ws/socket` → não entram no fallback
+
+---
+
+### Exemplo 2 — Socket.IO em `/socket.io` e endpoint de webhook
+
+```ts
+app.get('/health', (c) => c.text('ok'))
+app.get('/webhook/payment', (c) => c.json({ received: true }))
+app.get('/socket.io/*', (c) => c.text('socket.io'))
+
+app.use('/*', serveStatic({
+  root: './dist',
+  fallback: 'index.html',
+  fallbackIgnore: ['/api', '/ws', '/socket.io', '/webhook', '/health'],
+}))
+```
+
+- `/socket.io/socket.io.js` e `/webhook/payment` não vão para SPA
+- `/health` não vai para SPA
+- `/any/route` segue SPA
+
+---
+
+### Exemplo 3 — assets imutáveis com fallback do app
+
+```ts
+app.use('/assets/*', serveStatic({
+  root: './dist/assets',
+  maxAge: 60 * 60 * 24 * 365,
+  immutable: true,
+}))
+
+app.use('/*', serveStatic({
+  root: './dist',
+  fallback: 'index.html',
+  fallbackIgnore: ['/api', '/ws'],
+}))
+```
+
+---
+
+### Exemplo 4 — Checklist de ordenação
+
+```ts
+// 1) API antes
+app.get('/api/*', apiHandler)
+
+// 2) WS antes
+app.get('/ws', wsHandler)
+
+// 3) fallback de estáticos por último
+app.use('/*', serveStatic({
+  root: './dist',
+  fallback: 'index.html',
+  fallbackIgnore: ['/api', '/ws'],
+}))
+```
+
+`serveStatic` com fallback deve ficar **após** todas as rotas da API/WS para evitar captura indevida.
+
 ---
 
 ## SPA + API + WebSocket em S3 (serveStaticS3)
