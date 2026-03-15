@@ -13,7 +13,7 @@ import { connect as tlsConnect } from 'node:tls'
 import { createConnectTunnel } from '../../src/proxy/connect-tunnel.js'
 import type { ConnectTunnelOptions } from '../../src/proxy/connect-tunnel.js'
 import { createMockHttpServer } from '../../src/testing/index.js'
-import { generateCA, generateCertificate } from '../../src/utils/certs.js'
+import { generateCertificate } from '../../src/utils/certs.js'
 
 type MockHttpServer = Awaited<ReturnType<typeof createMockHttpServer>>
 
@@ -220,8 +220,7 @@ describe('CONNECT Tunnel (mitm mode)', () => {
 async function startHttpsUpstream(
   handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void,
 ): Promise<{ server: import('node:https').Server; port: number }> {
-  const ca = generateCA()
-  const cert = await generateCertificate('127.0.0.1', { caKey: ca.key, caCert: ca.cert })
+  const cert = await generateCertificate('127.0.0.1')
   const server = createHttpsServer({ key: cert.key, cert: cert.cert }, handler)
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   const port = (server.address() as { port: number }).port
@@ -298,6 +297,7 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
   })
 
   afterAll(async () => {
+    if (!upstreamServer) return
     await new Promise<void>((r) => upstreamServer.close(() => r()))
   })
 
@@ -380,6 +380,7 @@ describe('CONNECT Tunnel (MITM cert pinning)', () => {
   })
 
   afterAll(async () => {
+    if (!upstreamServer) return
     await new Promise<void>((r) => upstreamServer.close(() => r()))
   })
 

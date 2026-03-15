@@ -51,6 +51,18 @@ function getPort(): number {
   return 29900 + Math.floor(Math.random() * 90)
 }
 
+function waitForHandshakeFailure(ws: WebSocket): Promise<number> {
+  return new Promise((resolve) => {
+    ws.on('unexpected-response', (_req, response) => {
+      resolve(response.statusCode ?? 0)
+    })
+    ws.on('error', () => {})
+    ws.on('close', (code) => {
+      if (code === 1006) resolve(401)
+    })
+  })
+}
+
 // ─── Sequence Numbers ─────────────────────────────────────────────────────
 
 describe('Sequence Numbers', () => {
@@ -389,13 +401,8 @@ describe('WebSocket Ticket Auth', () => {
     await adapter.start()
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}/`)
-
-    const closeCode = await new Promise<number>((resolve) => {
-      ws.on('close', (code) => resolve(code))
-      ws.on('error', () => {}) // Suppress error
-    })
-
-    expect(closeCode).toBe(1008) // Policy Violation
+    const statusCode = await waitForHandshakeFailure(ws)
+    expect(statusCode).toBe(401)
   })
 
   it('should reject connection with expired ticket', async () => {
@@ -415,13 +422,8 @@ describe('WebSocket Ticket Auth', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}/?ticket=${ticket.id}`)
-
-    const closeCode = await new Promise<number>((resolve) => {
-      ws.on('close', (code) => resolve(code))
-      ws.on('error', () => {})
-    })
-
-    expect(closeCode).toBe(1008)
+    const statusCode = await waitForHandshakeFailure(ws)
+    expect(statusCode).toBe(401)
   })
 
   it('should reject reuse of consumed ticket', async () => {
@@ -449,12 +451,8 @@ describe('WebSocket Ticket Auth', () => {
 
     // Second connection with same ticket: rejected
     const ws2 = new WebSocket(`ws://127.0.0.1:${port}/?ticket=${ticket.id}`)
-    const closeCode = await new Promise<number>((resolve) => {
-      ws2.on('close', (code) => resolve(code))
-      ws2.on('error', () => {})
-    })
-
-    expect(closeCode).toBe(1008)
+    const statusCode = await waitForHandshakeFailure(ws2)
+    expect(statusCode).toBe(401)
   })
 })
 
@@ -534,12 +532,8 @@ describe('WebSocket Bearer Auth', () => {
     await adapter.start()
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=invalid`)
-    const closeCode = await new Promise<number>((resolve) => {
-      ws.on('close', (code) => resolve(code))
-      ws.on('error', () => {})
-    })
-
-    expect(closeCode).toBe(1008)
+    const statusCode = await waitForHandshakeFailure(ws)
+    expect(statusCode).toBe(401)
   })
 })
 
