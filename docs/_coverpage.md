@@ -6,5 +6,5 @@
 
 Write your handler once. Expose it everywhere.
 
-[Get Started](#quickstart)
+[Get Started](#learn/quickstart)
 [GitHub](https://github.com/forattini-dev/raffel)

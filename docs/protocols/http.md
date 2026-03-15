@@ -332,4 +332,4 @@ Response:
 }
 ```
 
-See [Health Checks](../dx.md) for advanced configuration.
+See [Health Checks](/tooling/dx.md) for advanced configuration.

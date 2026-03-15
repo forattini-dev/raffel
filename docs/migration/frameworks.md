@@ -4,7 +4,7 @@ API mapping reference for teams moving an existing project to Raffel.
 Each section covers import changes, API equivalents, and a before/after example.
 
 For the capability-based runtime context and the official DEVX golden path, see
-[DEVX Migration](/guides/devx-migration.md).
+[DEVX Migration](/migration/devx.md).
 
 - [From Express](#from-express)
 - [From Fastify](#from-fastify)

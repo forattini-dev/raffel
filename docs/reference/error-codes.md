@@ -123,5 +123,5 @@ try {
 
 ## Related Docs
 
-- **[Logging](logging.md)** - Error logging and debugging
-- **[Interceptors](interceptors.md)** - Error handling middleware
+- **[Logging](/observability/logging.md)** - Error logging and debugging
+- **[Interceptors](/core/interceptors/overview.md)** - Error handling middleware

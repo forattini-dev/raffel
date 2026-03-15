@@ -274,7 +274,7 @@ npx raffel-mcp --debug
 
 ## Next Steps
 
-- **[Quickstart](quickstart.md)** - Run your first server
-- **[MCP Tools](mcp.md#tools)** - Full tool list
-- **[Patterns](interceptors.md)** - Middleware + composition
-- **[USD](usd.md)** - Auto-generated docs
+- **[Quickstart](/learn/quickstart.md)** - Run your first server
+- **[MCP Tools](/reference/mcp.md#tools)** - Full tool list
+- **[Patterns](/core/interceptors/overview.md)** - Middleware + composition
+- **[OpenAPI](/tooling/openapi.md)** - Auto-generated docs

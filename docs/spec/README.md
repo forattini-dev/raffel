@@ -12,7 +12,7 @@ Universal Service Documentation (USD) is a specification for documenting multi-p
 
 - [Full Specification](usd-1.0.0.md)
 - [JSON Schema](usd-schema-1.0.0.json)
-- [Usage Guide](../usd.md)
+- [Usage Guide](../tooling/openapi.md)
 
 ## Key Concepts
 

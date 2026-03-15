@@ -107,6 +107,6 @@ const server = createServer({
 
 ## Next Steps
 
-- **[Metrics](metrics.md)** - Prometheus metrics
-- **[Tracing](tracing.md)** - OpenTelemetry tracing
-- **[DX](dx.md)** - Developer experience features
+- **[Metrics](/observability/metrics.md)** - Prometheus metrics
+- **[Tracing](/observability/tracing.md)** - OpenTelemetry tracing
+- **[DX](/tooling/dx.md)** - Developer experience features

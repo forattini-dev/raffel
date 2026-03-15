@@ -33,7 +33,7 @@ createServer({
 })
 ```
 
-See [Single-Port Detection](single-port.md).
+See [Single-Port Detection](/protocols/single-port.md).
 
 ### Protocol Aliases
 

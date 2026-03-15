@@ -276,4 +276,4 @@ New docs, new scaffolds, and new examples now prefer:
 - canonical context access
 - `ctx.services` in app code
 
-If you are migrating older code, see [DEVX Migration](/guides/devx-migration.md).
+If you are migrating older code, see [DEVX Migration](/migration/devx.md).

@@ -226,4 +226,4 @@ curl http://127.0.0.1:3000/api/graphql \
 ## Next
 
 If you are migrating older code that relies on adapter-specific state, continue
-with [DEVX Migration](/guides/devx-migration.md).
+with [DEVX Migration](/migration/devx.md).

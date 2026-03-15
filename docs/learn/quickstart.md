@@ -182,8 +182,8 @@ Treat these as compatibility surfaces, not the main path:
 
 ## What To Read Next
 
-- [Developer Experience](/dx.md)
-- [Mock Server](/mock-server.md)
-- [Procedures (RPC)](/handlers/procedures.md)
+- [Developer Experience](/tooling/dx.md)
+- [Mock Server](/tooling/mock-server.md)
+- [Procedures (RPC)](/core/procedures.md)
 - [Multi-Protocol Service Example](/guides/multi-protocol-service.md)
-- [DEVX Migration](/guides/devx-migration.md)
+- [DEVX Migration](/migration/devx.md)

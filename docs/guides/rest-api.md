@@ -238,7 +238,7 @@ HTTP/1.1 404 Not Found
 }
 ```
 
-Available error codes and their HTTP equivalents — see [Error Codes](/error-codes.md).
+Available error codes and their HTTP equivalents — see [Error Codes](/reference/error-codes.md).
 
 ---
 
@@ -303,8 +303,8 @@ console.log('Server running at http://localhost:3000')
 
 ## See also
 
-- [Interceptors](/interceptors.md) — rate limiting, caching, logging
+- [Interceptors](/core/interceptors/overview.md) — rate limiting, caching, logging
 - [Authentication Guide](/guides/auth.md) — all auth strategies
-- [Validation](/validation.md) — all validation adapters
-- [Error Codes](/error-codes.md) — complete list
-- [REST Auto-CRUD](/rest-autocrud.md) — file-based CRUD
+- [Validation](/tooling/validation.md) — all validation adapters
+- [Error Codes](/reference/error-codes.md) — complete list
+- [REST Auto-CRUD](/routing/auto-crud.md) — file-based CRUD

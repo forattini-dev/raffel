@@ -15,11 +15,11 @@ const server = createServer({ port: 3000 })
 
 Key builder APIs:
 
-- `server.procedure(name)` → [Procedures](handlers/procedures.md)
-- `server.stream(name)` → [Streams](streams.md)
-- `server.event(name)` → [Events](events.md)
-- `server.use(interceptor)` → [Interceptors](interceptors.md)
-- `server.mount(prefix, module)` → [Router Modules](router-modules.md)
+- `server.procedure(name)` → [Procedures](/core/procedures.md)
+- `server.stream(name)` → [Streams](/core/streams.md)
+- `server.event(name)` → [Events](/core/events.md)
+- `server.use(interceptor)` → [Interceptors](/core/interceptors/overview.md)
+- `server.mount(prefix, module)` → [Router Modules](/core/router-modules.md)
 - `server.preview()` → canonical runtime inspection graph
 - `server.previewConfig()` → resolved runtime config before start
 - `server.getProtocolFusionState()` → runtime protocol-fusion diagnostics
@@ -91,7 +91,7 @@ Programmatic helpers:
 - `buildRuntimeContractTestSuite(graph)`
 - `startRuntimePlayground({ graph })`
 
-See [Developer Experience](dx.md).
+See [Developer Experience](/tooling/dx.md).
 
 ---
 
@@ -160,7 +160,7 @@ import {
 - `server.previewConfig().protocolFusion` — inspect resolved runtime mode before start
 - `server.getProtocolFusionState()` — inspect recent routing and rejection decisions after start
 
-See [Shared-Port Protocol Fusion](single-port.md).
+See [Shared-Port Protocol Fusion](/protocols/single-port.md).
 
 ---
 
@@ -170,7 +170,7 @@ See [Shared-Port Protocol Fusion](single-port.md).
 import { runMCPServer, createMCPServer } from 'raffel/mcp'
 ```
 
-See [MCP Server](mcp.md).
+See [MCP Server](/reference/mcp.md).
 
 ---
 
@@ -196,4 +196,4 @@ Main APIs:
 - `toExpressPath(path)`
 - `generateFromSchema(schema)`
 
-See [Mock Server](mock-server.md).
+See [Mock Server](/tooling/mock-server.md).

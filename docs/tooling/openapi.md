@@ -107,7 +107,7 @@ const json = generateOpenAPIJson(registry, schemaRegistry, options)
 const yaml = generateOpenAPIYaml(registry, schemaRegistry, options)
 ```
 
-See [Mock Server](/mock-server.md) for the full OpenAPI/USD mock workflow.
+See [Mock Server](/tooling/mock-server.md) for the full OpenAPI/USD mock workflow.
 
 ## Generator Options
 
@@ -531,7 +531,7 @@ await server.start()
 // GET /docs/openapi.json → OpenAPI 3.1
 ```
 
-See [Developer Experience](dx.md) for full USD UI configuration options.
+See [Developer Experience](/tooling/dx.md) for full USD UI configuration options.
 
 ## TypeScript Types
 

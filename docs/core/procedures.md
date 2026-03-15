@@ -358,6 +358,6 @@ server
 
 ## Next Steps
 
-- **[Streams](streams.md)** - Server-sent and bidirectional streaming
-- **[Events](events.md)** - Fire-and-forget pub/sub
-- **[Interceptors](interceptors.md)** - Cross-cutting concerns
+- **[Streams](/core/streams.md)** - Server-sent and bidirectional streaming
+- **[Events](/core/events.md)** - Fire-and-forget pub/sub
+- **[Interceptors](/core/interceptors/overview.md)** - Cross-cutting concerns

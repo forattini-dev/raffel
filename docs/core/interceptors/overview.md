@@ -194,13 +194,13 @@ server.use(createFallbackInterceptor({
 ### More Details
 
 See dedicated pages for details:
-- [Response Envelope](interceptors/envelope.md)
-- [Rate Limit](interceptors/rate-limit.md)
-- [Retry](interceptors/retry.md)
-- [Timeout](interceptors/timeout.md)
-- [Circuit Breaker](interceptors/circuit-breaker.md)
-- [Bulkhead](interceptors/bulkhead.md)
-- [Fallback](interceptors/fallback.md)
+- [Response Envelope](envelope.md)
+- [Rate Limit](rate-limit.md)
+- [Retry](retry.md)
+- [Timeout](timeout.md)
+- [Circuit Breaker](circuit-breaker.md)
+- [Bulkhead](bulkhead.md)
+- [Fallback](fallback.md)
 - [Cache](cache.md)
 
 Deduplication and size limits are available via `createDedupInterceptor` and

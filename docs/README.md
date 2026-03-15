@@ -395,7 +395,7 @@ const server = createServer({
 ## Next Steps
 
 <div class="grid-3">
-<a href="#/quickstart" class="card">
+<a href="#/learn/quickstart" class="card">
 <div class="icon">🚀</div>
 <h4>Quickstart</h4>
 <p>Up and running in 5 minutes</p>
@@ -407,7 +407,7 @@ const server = createServer({
 <p>HTTP, WS, gRPC, GraphQL and more</p>
 </a>
 
-<a href="#/interceptors" class="card">
+<a href="#/core/interceptors/overview" class="card">
 <div class="icon">🛡️</div>
 <h4>Interceptors</h4>
 <p>Auth, rate limiting, cache, retry</p>

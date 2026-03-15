@@ -631,6 +631,6 @@ The beauty of the design is that your business logic (the handler) knows nothing
 ## Next Steps
 
 - **[HTTP in Detail](/protocols/http.md)** - HTTP adapter customization
-- **[Single-Port Detection](/single-port.md)** - Multiplexing protocols on one port
-- **[Interceptors](/interceptors.md)** - All available interceptors
-- **[Streaming](/streams.md)** - How streams work in detail
+- **[Single-Port Detection](/protocols/single-port.md)** - Multiplexing protocols on one port
+- **[Interceptors](/core/interceptors/overview.md)** - All available interceptors
+- **[Streaming](/core/streams.md)** - How streams work in detail
