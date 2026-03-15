@@ -9,6 +9,9 @@ export interface RaffelClientOptions {
   /** WebSocket URL (e.g. 'ws://localhost:3000/ws') */
   url: string
 
+  /** Custom WebSocket constructor. Defaults to globalThis.WebSocket (browser) or `ws` (Node.js). */
+  WebSocket?: { new(url: string, protocols?: string | string[]): any }
+
   /** Auto-reconnect on disconnect (default: true) */
   reconnect?: boolean
 

@@ -120,7 +120,12 @@
     },
     "./client": {
       "types": "./dist/client/index.d.ts",
+      "browser": "./dist/client/browser.js",
       "import": "./dist/client/index.js"
+    },
+    "./client/browser": {
+      "types": "./dist/client/browser.d.ts",
+      "import": "./dist/client/browser.js"
     },
     "./resource-module": {
       "types": "./dist/resource-module/index.d.ts",
