@@ -137,6 +137,12 @@ export interface S3StaticOptions {
   fallback?: string
 
   /**
+   * Path prefixes that should skip fallback and continue the chain.
+   * Useful for backend API and websocket paths (e.g. /api, /ws).
+   */
+  fallbackIgnore?: string[]
+
+  /**
    * Custom headers to add to responses
    */
   headers?: Record<string, string>
@@ -269,6 +275,7 @@ export function serveStaticS3<E extends Record<string, unknown> = Record<string,
     immutable = false,
     index = 'index.html',
     fallback,
+    fallbackIgnore = [],
     headers: customHeaders,
     rewrite,
     stripPrefix = '',
@@ -281,6 +288,8 @@ export function serveStaticS3<E extends Record<string, unknown> = Record<string,
   if (!signedUrls && !GetObjectCommand) {
     throw new Error('serveStaticS3 requires GetObjectCommand in proxy mode')
   }
+
+  const normalizedFallbackIgnore = normalizeFallbackIgnore(fallbackIgnore)
 
   return async (c, next) => {
     // Only handle GET and HEAD requests
@@ -300,6 +309,11 @@ export function serveStaticS3<E extends Record<string, unknown> = Record<string,
     // Apply rewrite if configured
     if (rewrite) {
       requestPath = rewrite(requestPath)
+    }
+
+    if (shouldSkipFallback(requestPath, normalizedFallbackIgnore)) {
+      await next()
+      return
     }
 
     // Remove leading slash and build S3 key
@@ -456,7 +470,7 @@ export function serveStaticS3<E extends Record<string, unknown> = Record<string,
         status: 200,
         headers: responseHeaders,
       })
-    } catch (err: unknown) {
+  } catch (err: unknown) {
       const error = err as { name?: string }
       // S3 errors
       if (error.name === 'NotFound' || error.name === 'NoSuchKey' || error.name === 'AccessDenied') {
@@ -474,3 +488,19 @@ export function serveStaticS3<E extends Record<string, unknown> = Record<string,
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default serveStaticS3
+
+/**
+ * Normalize fallback ignore prefixes for comparison.
+ */
+function normalizeFallbackIgnore(prefixes: string[]): string[] {
+  return [...new Set(prefixes)]
+    .map((prefix) => `/${prefix.replace(/^\/*|\/+$/g, '')}`)
+    .filter((prefix) => prefix.length > 1)
+}
+
+/**
+ * Check whether fallback should be skipped for this request path.
+ */
+function shouldSkipFallback(pathname: string, ignoredPrefixes: string[]): boolean {
+  return ignoredPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}

@@ -44,3 +44,23 @@ app.use('/static/*', serveStaticS3({
   HeadObjectCommand,
 }))
 ```
+
+### SPA + API + WebSocket routes
+
+Use `fallbackIgnore` to keep protocol/backend prefixes out of SPA fallback:
+
+```typescript
+app.get('/api/ping', (c) => c.json({ ok: true }))
+
+app.use('/*', serveStatic({
+  root: './dist',
+  fallback: 'index.html',
+  fallbackIgnore: ['/api', '/ws'],
+}))
+```
+
+`/api/*` and `/ws*` will continue to your HTTP/WebSocket handlers, while every
+other unknown path goes to `index.html` for React Router and similar SPA
+routing.
+
+The same `fallbackIgnore` option is available in `serveStaticS3`.

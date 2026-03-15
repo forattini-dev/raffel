@@ -87,6 +87,12 @@ export interface StaticOptions {
   fallback?: string
 
   /**
+   * Path prefixes that should skip fallback and continue the chain.
+   * Useful for backend API and websocket paths (e.g. /api, /ws).
+   */
+  fallbackIgnore?: string[]
+
+  /**
    * Custom headers to add to responses
    */
   headers?: Record<string, string>
@@ -204,6 +210,7 @@ export function serveStatic<E extends Record<string, unknown> = Record<string, u
     etag = true,
     lastModified = true,
     fallback,
+    fallbackIgnore = [],
     headers: customHeaders,
     rewrite,
     prefix = '',
@@ -211,6 +218,7 @@ export function serveStatic<E extends Record<string, unknown> = Record<string, u
 
   // Resolve root to absolute path
   const rootPath = path.resolve(root)
+  const normalizedFallbackIgnore = normalizeFallbackIgnore(fallbackIgnore)
 
   return async (c, next) => {
     // Only handle GET and HEAD requests
@@ -228,13 +236,18 @@ export function serveStatic<E extends Record<string, unknown> = Record<string, u
     }
 
     // Apply rewrite if configured
-    if (rewrite) {
-      requestPath = rewrite(requestPath)
-    }
+      if (rewrite) {
+        requestPath = rewrite(requestPath)
+      }
 
-    // Normalize path and prevent directory traversal
-    const normalizedPath = path.normalize(requestPath).replace(/^(\.\.[\/\\])+/, '')
-    let filePath = path.join(rootPath, normalizedPath)
+      if (shouldSkipFallback(requestPath, normalizedFallbackIgnore)) {
+        await next()
+        return
+      }
+
+      // Normalize path and prevent directory traversal
+      const normalizedPath = path.normalize(requestPath).replace(/^(\.\.[\/\\])+/, '')
+      let filePath = path.join(rootPath, normalizedPath)
 
     // Check for dotfiles
     const basename = path.basename(filePath)
@@ -460,6 +473,22 @@ function parseRange(
   }
 
   return { start, end }
+}
+
+/**
+ * Normalize fallback ignore prefixes for comparison.
+ */
+function normalizeFallbackIgnore(prefixes: string[]): string[] {
+  return [...new Set(prefixes)]
+    .map((prefix) => `/${prefix.replace(/^\/*|\/+$/g, '')}`)
+    .filter((prefix) => prefix.length > 1)
+}
+
+/**
+ * Check whether fallback should be skipped for this request path.
+ */
+function shouldSkipFallback(pathname: string, ignoredPrefixes: string[]): boolean {
+  return ignoredPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 }
 
 /**
