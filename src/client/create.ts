@@ -105,7 +105,7 @@ function resolveWebSocket(explicit?: RaffelClientOptions['WebSocket']): WebSocke
     },
     CONNECTING: connecting,
     OPEN: open,
-  } as WebSocketConstructor
+  } as unknown as WebSocketConstructor
 }
 
 /**
