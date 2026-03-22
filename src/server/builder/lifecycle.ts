@@ -593,6 +593,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
           : cors,
         middleware: httpMiddleware.length > 0 ? httpMiddleware : undefined,
         listenOnStart: false,
+        tls: httpOptions?.tls,
       })
       await state.httpServer.value.start()
       startupStopTasks.push({

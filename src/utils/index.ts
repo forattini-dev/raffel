@@ -28,3 +28,7 @@ export type { SidOptions, AlphabetName } from './id/index.js'
 
 // Logger
 export { createLogger } from './logger.js'
+
+// TLS
+export { resolveTlsOptions } from './tls.js'
+export type { TlsOptions, ResolvedTls } from './tls.js'

@@ -16,10 +16,9 @@ import { createLogger } from '../utils/logger.js'
 
 const logger = createLogger('grpc-adapter')
 
-export interface GrpcTlsOptions {
-  key: string | Buffer
-  cert: string | Buffer
-  ca?: string | Buffer
+import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
+
+export interface GrpcTlsOptions extends TlsOptions {
   requireClientCert?: boolean
 }
 
@@ -49,7 +48,12 @@ export interface GrpcAdapterOptions {
   packageName?: string
   serviceNames?: string[]
   loaderOptions?: protoLoader.Options
-  tls?: GrpcTlsOptions
+  /**
+   * TLS configuration.
+   * - `true`: auto-generates a self-signed certificate
+   * - `GrpcTlsOptions`: inline PEM, file paths, or env vars
+   */
+  tls?: boolean | GrpcTlsOptions
   maxReceiveMessageLength?: number
   maxSendMessageLength?: number
   contextFactory?: (
@@ -194,26 +198,23 @@ export function createGrpcAdapter(
   let server: grpc.Server | null = null
   let address: { host: string; port: number } | null = null
 
-  function createServerCredentials(): grpc.ServerCredentials {
+  async function createServerCredentials(): Promise<grpc.ServerCredentials> {
     if (!tls) {
       return grpc.ServerCredentials.createInsecure()
     }
 
+    const tlsConfig = tls === true ? {} : tls
+    const resolved = await resolveTlsOptions(tlsConfig)
+
     const keyCertPair = {
-      private_key: typeof tls.key === 'string' ? Buffer.from(tls.key) : tls.key,
-      cert_chain: typeof tls.cert === 'string' ? Buffer.from(tls.cert) : tls.cert,
+      private_key: resolved.key,
+      cert_chain: resolved.cert,
     }
 
-    const rootCerts = tls.ca
-      ? typeof tls.ca === 'string'
-        ? Buffer.from(tls.ca)
-        : tls.ca
-      : null
-
     return grpc.ServerCredentials.createSsl(
-      rootCerts,
+      resolved.ca ?? null,
       [keyCertPair],
-      tls.requireClientCert ?? false
+      tlsConfig.requireClientCert ?? false
     )
   }
 
@@ -579,7 +580,7 @@ export function createGrpcAdapter(
         server.addService(service.service, createImplementation(serviceName, service.service))
       }
 
-      const credentials = createServerCredentials()
+      const credentials = await createServerCredentials()
       const boundPort = await new Promise<number>((resolve, reject) => {
         server!.bindAsync(`${host}:${port}`, credentials, (err, portNumber) => {
           if (err) {

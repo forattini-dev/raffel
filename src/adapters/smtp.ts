@@ -81,13 +81,9 @@ export interface SmtpContextCapability {
   readonly ehloHostname?: string
 }
 
-export interface SmtpTlsOptions {
-  /** TLS certificate (PEM) */
-  cert: string | Buffer
-  /** TLS private key (PEM) */
-  key: string | Buffer
-  /** CA certificates for client verification (optional) */
-  ca?: string | Buffer | Array<string | Buffer>
+import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
+
+export interface SmtpTlsOptions extends TlsOptions {
   /** Minimum TLS version (default: TLSv1.2) */
   minVersion?: tls.SecureVersion
 }
@@ -139,8 +135,13 @@ export interface SmtpAdapterOptions {
   /** SMTP-specific timeouts */
   timeouts?: SmtpTimeouts
 
-  /** TLS config for STARTTLS (omit to disable STARTTLS) */
-  tls?: SmtpTlsOptions
+  /**
+   * TLS config for STARTTLS.
+   * - `true`: auto-generates a self-signed certificate
+   * - `SmtpTlsOptions`: inline PEM, file paths, or env vars
+   * - omit to disable STARTTLS
+   */
+  tls?: boolean | SmtpTlsOptions
 
   /** Implicit TLS (port 465 / SMTPS) — wraps socket in TLS immediately */
   implicitTls?: boolean
@@ -232,6 +233,7 @@ interface SmtpSession {
 export interface SmtpConnectionHandler {
   handleConnection(socket: Socket): void
   closeAllConnections(): void
+  setResolvedTls(creds: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: import('node:tls').SecureVersion }): void
   readonly clientCount: number
 }
 
@@ -334,6 +336,7 @@ export function createSmtpConnectionHandler(
 
   const timeouts = { ...DEFAULT_TIMEOUTS, ...userTimeouts }
   const sessions = new Map<string, SmtpSession>()
+  let resolvedTlsCreds: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: tls.SecureVersion } | undefined
 
   // ─── Capabilities ────────────────────────────────────────────────────
 
@@ -403,16 +406,16 @@ export function createSmtpConnectionHandler(
   // ─── STARTTLS ────────────────────────────────────────────────────────
 
   function upgradeToTls(session: SmtpSession): void {
-    if (!options.tls) return
+    if (!options.tls || !resolvedTlsCreds) return
 
     reply(session, 220, '2.0.0 Ready to start TLS')
 
     const plainSocket = session.socket
     const secureContext = tls.createSecureContext({
-      cert: options.tls.cert,
-      key: options.tls.key,
-      ca: options.tls.ca,
-      minVersion: options.tls.minVersion ?? 'TLSv1.2',
+      cert: resolvedTlsCreds.cert,
+      key: resolvedTlsCreds.key,
+      ca: resolvedTlsCreds.ca,
+      minVersion: resolvedTlsCreds.minVersion ?? 'TLSv1.2',
     })
 
     const tlsSocket = new tls.TLSSocket(plainSocket, {
@@ -1296,6 +1299,10 @@ export function createSmtpConnectionHandler(
       sessions.clear()
     },
 
+    setResolvedTls(creds: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: tls.SecureVersion }): void {
+      resolvedTlsCreds = creds
+    },
+
     get clientCount(): number {
       return sessions.size
     },
@@ -1311,6 +1318,7 @@ export function createSmtpAdapter(
   const { port, host = '0.0.0.0' } = options
 
   let server: Server | null = null
+  let smtpResolvedTls: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: import('node:tls').SecureVersion } | undefined
   const connectionHandler = createSmtpConnectionHandler(router, options)
 
   function handleConnection(socket: Socket): void {
@@ -1325,8 +1333,8 @@ export function createSmtpAdapter(
             socket.destroy()
             return
           }
-          if (options.implicitTls && options.tls) {
-            wrapImplicitTls(socket, options.tls, (tlsSocket) => {
+          if (options.implicitTls && smtpResolvedTls) {
+            wrapImplicitTls(socket, smtpResolvedTls, (tlsSocket) => {
               connectionHandler.handleConnection(tlsSocket as unknown as Socket)
             })
           } else {
@@ -1339,8 +1347,8 @@ export function createSmtpAdapter(
       return
     }
 
-    if (options.implicitTls && options.tls) {
-      wrapImplicitTls(socket, options.tls, (tlsSocket) => {
+    if (options.implicitTls && smtpResolvedTls) {
+      wrapImplicitTls(socket, smtpResolvedTls, (tlsSocket) => {
         connectionHandler.handleConnection(tlsSocket as unknown as Socket)
       })
     } else {
@@ -1350,6 +1358,13 @@ export function createSmtpAdapter(
 
   return {
     async start(): Promise<void> {
+      if (options.tls) {
+        const tlsConfig = options.tls === true ? {} : options.tls
+        const resolved = await resolveTlsOptions(tlsConfig)
+        smtpResolvedTls = { ...resolved, minVersion: tlsConfig.minVersion }
+        connectionHandler.setResolvedTls(smtpResolvedTls)
+      }
+
       return new Promise((resolve, reject) => {
         server = createServer(handleConnection)
 
@@ -1395,14 +1410,14 @@ export function createSmtpAdapter(
 
 function wrapImplicitTls(
   socket: Socket,
-  tlsConfig: SmtpTlsOptions,
+  tlsCreds: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: tls.SecureVersion },
   onSecure: (tlsSocket: tls.TLSSocket) => void
 ): void {
   const secureContext = tls.createSecureContext({
-    cert: tlsConfig.cert,
-    key: tlsConfig.key,
-    ca: tlsConfig.ca,
-    minVersion: tlsConfig.minVersion ?? 'TLSv1.2',
+    cert: tlsCreds.cert,
+    key: tlsCreds.key,
+    ca: tlsCreds.ca,
+    minVersion: tlsCreds.minVersion ?? 'TLSv1.2',
   })
 
   const tlsSocket = new tls.TLSSocket(socket, {

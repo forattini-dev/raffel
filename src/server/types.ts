@@ -681,6 +681,13 @@ export interface HttpOptions {
 
   /** Context factory for creating request context */
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
+
+  /**
+   * TLS configuration for HTTPS.
+   * - `true`: auto-generates a self-signed certificate for localhost
+   * - `TlsOptions`: inline PEM, file paths (K8s volume mounts), or env vars (base64)
+   */
+  tls?: boolean | import('../utils/tls.js').TlsOptions
 }
 
 // === Protocol Options ===

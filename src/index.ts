@@ -524,6 +524,13 @@ export {
 } from './utils/index.js'
 export type { SidOptions, AlphabetName } from './utils/index.js'
 
+// TLS
+export { resolveTlsOptions } from './utils/tls.js'
+export type { TlsOptions, ResolvedTls } from './utils/tls.js'
+
+// Certificates
+export { generateCertificate, generateCA, getDefaultCA } from './utils/certs.js'
+
 // === OpenAPI ===
 export {
   generateOpenAPI,
