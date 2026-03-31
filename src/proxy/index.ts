@@ -28,14 +28,62 @@ export type {
 } from './connect-tunnel.js'
 
 export { createSocks5Proxy } from './socks5.js'
-export type { Socks5Options, Socks5ConnectionInfo } from './socks5.js'
+export type { Socks5Options, Socks5ConnectionInfo, Socks5TelemetryOptions, Socks5Proxy } from './socks5.js'
 
 export { createTransparentProxy } from './transparent.js'
 export type {
   TransparentProxyMode,
+  TransparentOriginalDestination,
+  TransparentOriginalDestinationResolverContext,
+  TransparentConnectionInfo,
   TransparentProxyOptions,
+  TransparentTelemetryOptions,
+  TransparentProxy,
 } from './transparent.js'
+
+export { createExplicitProxy } from './explicit.js'
+export type {
+  ExplicitProxyOptions,
+  ExplicitProxy,
+  ExplicitProxyUpgradeOptions,
+  ExplicitProxyTelemetryOptions,
+  UpgradeProxyRequest,
+  UpgradeConnectionInfo,
+} from './explicit.js'
+
+export { createProxySuite } from './suite.js'
+export type {
+  ProxySuite,
+  ProxySuiteOptions,
+  ProxySuiteTelemetryOptions,
+} from './suite.js'
+
+export { DEFAULT_PROXY_PERCENTILES } from './telemetry.js'
+export type {
+  ProxyFlowProtocol,
+  ProxyGraphNode,
+  ProxyGraphEdge,
+  ProxyGraphLatency,
+  ProxyGraphSnapshot,
+} from './telemetry.js'
+
+export type {
+  ProxyTelemetryPercentile,
+  ProxyNodeResolutionContext,
+} from './telemetry-options.js'
 
 export type { ProxyAuth, ProxyCredentials, ProxyStats, ProxyServer } from './types.js'
 
 export type { ProxyFilter } from './utils/access-control.js'
+
+export { createReverseProxy, loadReverseProxyConfig, parseReverseProxyConfig } from './reverse.js'
+export type {
+  ReverseProxy,
+  ReverseProxyConfig,
+  ReverseProxyServerConfig,
+  ReverseProxyServerTlsConfig,
+  ReverseProxyNoMatchConfig,
+  ReverseProxyProxyOptions,
+  ReverseProxyMatchCriteria,
+  ReverseProxyRouteConfig,
+} from './reverse.js'

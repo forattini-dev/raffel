@@ -45,6 +45,17 @@ const GUIDE_TOPIC_ALIASES: Record<string, string> = {
   'uds': 'usd',
   'x-usd': 'usd',
   'universal': 'usd',
+  'proxy': 'proxy',
+  'reverse-proxy': 'proxy',
+  'reverseproxy': 'proxy',
+  'reverse-proxy-guide': 'proxy',
+  'proxy-toolkit': 'proxy',
+  'proxy-reverse': 'proxy',
+  'reverse-proxy-toolkit': 'proxy',
+  'proxy-doc': 'proxy',
+  'proxy-docs': 'proxy',
+  'proxy-guide': 'proxy',
+  'traefik': 'proxy',
 }
 
 function normalizeGuideTopic(topic: string): string {
@@ -92,6 +103,13 @@ function refreshGuideResources(): void {
       name: 'Migration Guide',
       description: 'Migrating from Express, Fastify, Fetch-first routers, ws, or Socket.IO to Raffel',
       content: MIGRATION_GUIDE,
+    },
+    {
+      topic: 'proxy',
+      name: 'Reverse Proxy Guide',
+      description:
+        'Run HTTPS/HTTP edge routing with host/path/method rules, from JSON/YAML or programmatic config, with optional auto TLS generation.',
+      content: PROXY_GUIDE,
     },
     {
       topic: 'mock-server',
@@ -825,6 +843,240 @@ pnpm remove socket.io socket.io-client
 \`\`\`
 `
 
+const PROXY_GUIDE = `# Reverse Proxy Guide
+
+Raffel ships a native reverse proxy mode in \`createReverseProxy\` for edge traffic.
+It supports both:
+
+- **File-driven config** (\`.json\` / \`.yaml\`) via \`loadReverseProxyConfig\`.
+- **Programmatic config** via \`parseReverseProxyConfig\`.
+
+Both modes produce the same runtime behavior and let you route by host, path, methods, and rewrites.
+
+## 1) What you get from \`createReverseProxy\`
+
+The reverse proxy is an HTTP/HTTPS listener that can handle:
+
+- normal HTTP forwarding
+- CONNECT tunneling
+- WebSocket / upgrade forwarding
+
+All flows share a single \`routes\` model, so you can keep one source of truth for ingress behavior.
+
+## 2) File config (\`loadReverseProxyConfig\`) and JSON/YAML formats
+
+Use a file when routing is part of environment/version control and the runtime should be declarative.
+
+\`\`\`ts
+import { createReverseProxy, loadReverseProxyConfig } from 'raffel'
+
+const config = await loadReverseProxyConfig('./infra/reverse-proxy.yaml')
+const reverse = await createReverseProxy(config)
+await reverse.start()
+\`\`\`
+
+Supported format rules:
+
+- \`.json\` and \`.yaml\`/\`.yml\`
+- when extension is unknown, JSON is detected when file starts with \`{\` or \`[\`, otherwise YAML
+- \`server.host\` and \`server.port\` are mandatory
+- \`routes\` is mandatory and must contain at least one route
+
+## 3) Programmatic config (\`parseReverseProxyConfig\`)
+
+Use this for generated configs or early validation before bootstrap.
+
+\`\`\`ts
+import { createReverseProxy, parseReverseProxyConfig } from 'raffel'
+
+const raw = {
+  server: { host: '0.0.0.0', port: 3443 },
+  routes: [
+    {
+      match: { host: 'api.internal.local', pathPrefix: '/v1' },
+      target: 'http://127.0.0.1:4100',
+      stripPrefix: '/v1',
+    },
+  ],
+}
+
+const config = parseReverseProxyConfig(raw)
+const reverse = await createReverseProxy(config)
+await reverse.start()
+\`\`\`
+
+\`parseReverseProxyConfig\` will validate and normalize, so \`createReverseProxy\` only starts a running listener.
+
+## 4) Route matching by host, path, and method
+
+Routes are matched in order and stop at the first hit.
+
+### Host matching
+
+- \`match.host\` supports a string or array.
+- wildcard suffix is supported (for example \`*.internal.local\`).
+
+### Path matching
+
+- \`match.path\`: exact match after normalization.
+- \`match.pathPrefix\`: prefix match.
+- \`match.path\` supports \`*\` wildcards.
+
+### Method matching
+
+- \`match.methods\` accepts single method or array (\`GET\`, \`POST\`, etc.).
+- omitted methods match all.
+
+### Prefix rewrite
+
+- default: \`stripPrefix\` follows \`match.pathPrefix\`.
+- explicit \`stripPrefix: false\` disables rewrite.
+- explicit string sets exact prefix to remove.
+
+## 5) Examples for common Traefik-like patterns
+
+### Different subdomains, same path
+
+\`\`\`json
+[
+  {
+    "match": { "host": "api.internal.local", "path": "/users" },
+    "target": "http://127.0.0.1:4200"
+  },
+  {
+    "match": { "host": "admin.internal.local", "path": "/users" },
+    "target": "http://127.0.0.1:4210"
+  }
+]
+\`\`\`
+
+### Same subdomain, different paths
+
+\`\`\`json
+[
+  {
+    "match": { "host": "app.internal.local", "pathPrefix": "/api" },
+    "target": "http://127.0.0.1:4300"
+  },
+  {
+    "match": { "host": "app.internal.local", "path": "/health" },
+    "target": "http://127.0.0.1:4301",
+    "stripPrefix": false
+  }
+]
+\`\`\`
+
+## 6) No-match behavior
+
+Customize missing-route responses with \`noMatch\`.
+
+\`\`\`json
+{
+  "noMatch": {
+    "status": 404,
+    "body": "No route matched"
+  }
+}
+\`\`\`
+
+\`{route}\` in body is replaced with the route reason (\`request\`, \`connect\`, etc.).
+
+## 7) HTTPS and automatic TLS
+
+\`server.tls\` controls HTTPS:
+
+- omit \`server.tls\` for HTTP
+- \`server.tls: false\` to force HTTP explicitly
+- \`server.tls\` object to enable HTTPS
+- \`server.tls.cert\` / \`server.tls.key\` for inline certs
+- \`server.tls.certFile\` / \`server.tls.keyFile\` for file-based certs
+- \`server.tls: {}\` to auto-generate cert/key at startup
+
+This is the default local-friendly option for HTTPS tests and multi-subdomain simulations.
+
+\`\`\`ts
+import { createReverseProxy } from 'raffel'
+
+const reverse = await createReverseProxy({
+  server: {
+    host: '127.0.0.1',
+    port: 3443,
+    tls: {}, // auto-generate cert and key for local bootstrap
+  },
+  routes: [
+    {
+      match: { host: 'auto.internal.test', pathPrefix: '/' },
+      target: 'http://127.0.0.1:4100',
+    },
+  ],
+})
+
+await reverse.start()
+\`\`\`
+
+For production, keep stable certificates in files (cert/key, or CA-chain + files) and never
+rely on auto-generated certs for long-running public endpoints.
+
+\`\`\`ts
+server: {
+  tls: {
+    certFile: './certs/api.internal.test/fullchain.pem',
+    keyFile: './certs/api.internal.test/privkey.pem',
+    rejectUnauthorized: true,
+  }
+}
+\`\`\`
+
+## 8) Shared proxy options for all flows
+
+\`proxy\` options are shared with the explicit proxy internals:
+
+- \`auth\`
+- \`filter\`
+- \`forward\`
+- \`tunnel\`
+- \`upgrade\`
+- \`telemetry\`
+
+Use this to keep access rules and observability consistent between reverse and explicit flows.
+
+\`\`\`json
+{
+  "proxy": {
+    "filter": {
+      "allowHosts": ["api.internal.local"],
+      "denyTLDs": ["ru"]
+    },
+    "telemetry": {
+      "sourceHeader": "x-service-name",
+      "graphEndpoint": "/proxy/graph",
+      "metricsEndpoint": "/metrics"
+    }
+  }
+}
+\`\`\`
+
+## 9) Rollout checklist
+
+- Start local with one route and explicit \`host\` and \`path\`.
+- Add TLS (\`server.tls\`) only after route match order is validated.
+- Keep \`noMatch\` explicit to avoid leaking upstream errors.
+- Move to method-level splits once path-only routing is stable.
+- Add observability endpoints last, after production trust and service ownership are in place.
+- Run canary comparing old/new edge behavior before full cutover.
+
+## 10) Next docs
+
+- [Configuração por Arquivo](/proxy/config-file.md)
+- [Configuração Programática](/proxy/config-code.md)
+- [Roteamento](/proxy/routing.md)
+- [TLS/HTTPS](/proxy/tls.md)
+- [Arquitetura](/proxy/architecture.md)
+- [Operação e Integração](/proxy/operations.md)
+- [Troubleshooting](/proxy/troubleshooting.md)
+- [Migração de Traefik](/migration/traefik-replacement.md)
+`
+
 function getGuideContent(name: string): string | null {
   const resolvedTopic = resolveGuideTopic(name)
 
@@ -839,6 +1091,8 @@ function getGuideContent(name: string): string | null {
       return REST_API_GUIDE
     case 'migration':
       return MIGRATION_GUIDE
+    case 'proxy':
+      return PROXY_GUIDE
     default: {
       ensureGuideResourcesInitialized()
       const guide = GUIDE_RESOURCES.find((item) => resolveGuideTopic(item.topic) === resolvedTopic)

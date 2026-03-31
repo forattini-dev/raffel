@@ -361,14 +361,16 @@ Full proxy toolkit built into Raffel — no extra dependencies.
 ```typescript
 import { createHttpForwardProxy } from 'raffel'
 
-const proxy = createHttpForwardProxy(httpServer, {
-  auth: { type: 'basic', credentials: { admin: 'secret' } },
+const proxy = createHttpForwardProxy({
+  auth: { credentials: { username: 'admin', password: 'secret' } },
   filter: {
     allowHosts: ['*.trusted.com', 'api.internal'],
     denyHosts: ['*.evil.com'],
   },
   onRequest: (req) => { /* log or modify */ return req },
 })
+
+proxy.attachTo(httpServer)
 ```
 
 ### CONNECT Tunnel (with MITM)
@@ -376,8 +378,8 @@ const proxy = createHttpForwardProxy(httpServer, {
 ```typescript
 import { createConnectTunnel } from 'raffel'
 
-// Transparent tunnel
-const tunnel = createConnectTunnel({ mode: 'pipe' })
+// Plain CONNECT tunnel
+const tunnel = createConnectTunnel({ mode: 'forward' })
 
 // MITM: inspect and modify HTTPS traffic
 const mitm = createConnectTunnel({
@@ -394,6 +396,32 @@ const mitm = createConnectTunnel({
 })
 ```
 
+### Explicit Proxy Server
+
+```typescript
+import { createExplicitProxy } from 'raffel'
+
+const proxy = createExplicitProxy({
+  port: 8080,
+  auth: { credentials: { username: 'admin', password: 'secret' } },
+  tunnel: { mode: 'forward' },
+  telemetry: {
+    sourceHeader: 'x-service-name',
+    metricsEndpoint: '/metrics',
+    graphEndpoint: '/proxy/graph',
+    defaultLabels: { proxy: 'mesh-edge-a' },
+    percentiles: [0.5, 0.9, 0.95],
+  },
+})
+
+await proxy.start()
+
+// Prometheus: GET http://127.0.0.1:8080/metrics
+// Graph JSON: GET http://127.0.0.1:8080/proxy/graph
+// Programmatic: proxy.graphSnapshot()
+// Edge latency: snapshot.edges[0].latency.percentiles.p95
+```
+
 ### SOCKS5 Proxy
 
 ```typescript
@@ -401,9 +429,47 @@ import { createSocks5Proxy } from 'raffel'
 
 const socks5 = createSocks5Proxy({
   port: 1080,
-  auth: { type: 'userpass', users: { alice: 'secret' } },
+  auth: { credentials: { username: 'alice', password: 'secret' } },
+  telemetry: {
+    defaultLabels: { proxy: 'mesh-socks' },
+  },
 })
 await socks5.start()
+
+// Supports CONNECT, BIND, and UDP ASSOCIATE.
+// SOCKS5h is supported by sending hostnames (ATYP 0x03).
+// Telemetry protocols: socks5, socks5h, socks5-bind, socks5h-bind, socks5-udp, socks5h-udp.
+```
+
+### Unified HTTP + HTTPS + SOCKS5h Suite
+
+```typescript
+import { createProxySuite } from 'raffel'
+
+const suite = createProxySuite({
+  explicit: {
+    port: 8080,
+    tunnel: { mode: 'forward' }, // HTTPS via CONNECT
+  },
+  socks5: {
+    port: 1080,
+    auth: { credentials: { username: 'svc-billing', password: 'secret' } },
+  },
+  telemetry: {
+    sourceHeader: 'x-service-name',
+    metricsEndpoint: '/metrics',
+    graphEndpoint: '/proxy/graph',
+    percentiles: [0.5, 0.9, 0.95],
+    defaultLabels: { proxy: 'mesh-gateway' },
+  },
+})
+
+await suite.start()
+
+// Shared graph across HTTP, HTTPS/CONNECT, and SOCKS5 CONNECT/BIND/UDP:
+// GET http://127.0.0.1:8080/proxy/graph
+// Shared Prometheus metrics:
+// GET http://127.0.0.1:8080/metrics
 ```
 
 ### Transparent Proxy (Linux TPROXY)
@@ -414,8 +480,9 @@ import { createTransparentProxy } from 'raffel'
 const proxy = createTransparentProxy({
   mode: 'tproxy',
   port: 8080,
-  upstream: { host: 'backend.internal', port: 8080 },
 })
+
+await proxy.start()
 ```
 
 ---

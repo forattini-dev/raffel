@@ -15,6 +15,8 @@ import {
   type Server as HttpServer,
 } from 'node:http'
 import { request as httpsRequest } from 'node:https'
+import { Transform } from 'node:stream'
+import { pipeline as streamPipeline } from 'node:stream/promises'
 import type { ProxyAuth, ProxyStats } from './types.js'
 import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { stripHopByHopHeaders } from './utils/hop-headers.js'
@@ -77,6 +79,25 @@ export interface HttpForwardProxy {
   readonly stats: ProxyStats
 }
 
+const BODY_TOO_LARGE = 'BODY_TOO_LARGE'
+
+interface PreparedUpstreamRequest {
+  method: string
+  url: string
+  headers: Record<string, string>
+  body: Buffer | null
+}
+
+interface UpstreamRequestTarget {
+  hostname: string
+  port: number
+  path: string
+  protocol: 'http:' | 'https:'
+  method: string
+  headers: Record<string, string>
+  timeout: number
+}
+
 function flattenHeaders(
   headers: Record<string, string | string[] | undefined>,
 ): Record<string, string> {
@@ -85,6 +106,121 @@ function flattenHeaders(
       .filter(([, v]) => v != null)
       .map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : (v as string)]),
   )
+}
+
+function parseContentLength(value: string | string[] | undefined): number | null {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (!raw) return null
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function isJsonContentType(headers: Record<string, string>): boolean {
+  return (headers['content-type'] ?? '').toLowerCase().includes('application/json')
+}
+
+function applyBufferedBodyHeaders(headers: Record<string, string>, bodyLength: number): Record<string, string> {
+  const next = { ...headers }
+  if (bodyLength > 0 || next['content-length'] !== undefined) {
+    next['content-length'] = String(bodyLength)
+  }
+  delete next['transfer-encoding']
+  return next
+}
+
+function buildUpstreamTarget(
+  request: Pick<PreparedUpstreamRequest, 'method' | 'url' | 'headers'>,
+  timeout: number,
+): UpstreamRequestTarget {
+  const targetUrl = new URL(request.url)
+  return {
+    hostname: targetUrl.hostname,
+    port: targetUrl.port ? parseInt(targetUrl.port, 10) : (targetUrl.protocol === 'https:' ? 443 : 80),
+    path: targetUrl.pathname + (targetUrl.search ?? ''),
+    protocol: targetUrl.protocol as 'http:' | 'https:',
+    method: request.method,
+    headers: { ...request.headers, host: targetUrl.host },
+    timeout,
+  }
+}
+
+function createTrackingTransform(
+  onChunk: (size: number) => void,
+  maxBytes?: number,
+): Transform {
+  let total = 0
+
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))
+      total += size
+      if (maxBytes != null && total > maxBytes) {
+        callback(new Error(BODY_TOO_LARGE))
+        return
+      }
+
+      onChunk(size)
+      callback(null, chunk)
+    },
+  })
+}
+
+async function bufferRequestBody(req: IncomingMessage, maxBodySize: number): Promise<Buffer> {
+  const bodyChunks: Buffer[] = []
+  let bodySize = 0
+
+  await new Promise<void>((resolve, reject) => {
+    req.on('data', (chunk: Buffer) => {
+      bodySize += chunk.length
+      if (bodySize > maxBodySize) {
+        reject(new Error(BODY_TOO_LARGE))
+        return
+      }
+      bodyChunks.push(chunk)
+    })
+    req.on('end', resolve)
+    req.on('error', reject)
+  })
+
+  return Buffer.concat(bodyChunks)
+}
+
+async function bufferUpstreamResponse(upstreamRes: IncomingMessage): Promise<ForwardProxyResponse> {
+  return new Promise<ForwardProxyResponse>((resolve, reject) => {
+    const chunks: Buffer[] = []
+    upstreamRes.on('data', (chunk: Buffer) => chunks.push(chunk))
+    upstreamRes.on('end', () => {
+      resolve({
+        statusCode: upstreamRes.statusCode ?? 200,
+        statusMessage: upstreamRes.statusMessage ?? 'OK',
+        headers: flattenHeaders(upstreamRes.headers),
+        body: Buffer.concat(chunks),
+      })
+    })
+    upstreamRes.on('error', reject)
+  })
+}
+
+function validateJsonBody(
+  validate: ProxyValidateOptions,
+  schema: unknown,
+  body: Buffer,
+  invalidJsonMessage: string,
+): { ok: true } | { ok: false; errors: unknown[] } {
+  try {
+    const parsed = JSON.parse(body.toString()) as unknown
+    const result = validate.adapter.validate(schema, parsed)
+    if (result.success) {
+      return { ok: true }
+    }
+
+    return { ok: false, errors: result.errors ?? [] }
+  } catch {
+    return {
+      ok: false,
+      errors: [{ field: '', message: invalidJsonMessage, code: 'invalid_json' }],
+    }
+  }
 }
 
 export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): HttpForwardProxy {
@@ -104,14 +240,12 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/'
 
-    // Only handle absolute-form URLs (proxy requests)
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       res.writeHead(400, { 'Content-Type': 'text/plain' })
       res.end('Bad Request: only absolute URLs are supported')
       return
     }
 
-    // Proxy auth
     const creds = parseBasicProxyAuth(req.headers['proxy-authorization'] as string | undefined)
     const authed = await verifyProxyAuth(auth, creds)
     if (!authed) {
@@ -124,10 +258,9 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
       return
     }
 
-    // Parse target URL early to apply filter before reading body
     const earlyTargetUrl = new URL(url)
     const earlyPort = earlyTargetUrl.port
-      ? parseInt(earlyTargetUrl.port)
+      ? parseInt(earlyTargetUrl.port, 10)
       : earlyTargetUrl.protocol === 'https:'
         ? 443
         : 80
@@ -142,149 +275,163 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
       }
     }
 
+    const declaredLength = parseContentLength(req.headers['content-length'])
+    if (declaredLength != null && declaredLength > maxBodySize) {
+      res.writeHead(413, { 'Content-Type': 'text/plain' })
+      res.end('Request Entity Too Large')
+      return
+    }
+
     mutable.connectionsTotal++
     mutable.connectionsActive++
 
+    const requiresBufferedRequest = !!(onRequest || validate?.request)
+    const requiresBufferedResponse = !!(onResponse || validate?.response)
+
     try {
-      // Read request body with size limit
-      const bodyChunks: Buffer[] = []
-      let bodySize = 0
-      await new Promise<void>((resolve, reject) => {
-        req.on('data', (chunk: Buffer) => {
-          bodySize += chunk.length
-          if (bodySize > maxBodySize) {
-            reject(new Error('BODY_TOO_LARGE'))
+      let preparedRequest: PreparedUpstreamRequest
+
+      if (requiresBufferedRequest) {
+        const body = await bufferRequestBody(req, maxBodySize)
+        mutable.bytesFromClient += body.length
+
+        let proxyReq: ForwardProxyRequest | null = {
+          method: req.method ?? 'GET',
+          url,
+          headers: stripHopByHopHeaders(flattenHeaders(req.headers), stripHeaders),
+          body,
+        }
+
+        if (onRequest) {
+          proxyReq = await onRequest(proxyReq)
+          if (proxyReq === null) {
+            res.writeHead(403, { 'Content-Type': 'text/plain' })
+            res.end('Forbidden')
             return
           }
-          bodyChunks.push(chunk)
-        })
-        req.on('end', resolve)
-        req.on('error', reject)
-      })
-      const body = Buffer.concat(bodyChunks)
-      mutable.bytesFromClient += body.length
-
-      let proxyReq: ForwardProxyRequest | null = {
-        method: req.method ?? 'GET',
-        url,
-        headers: stripHopByHopHeaders(flattenHeaders(req.headers), stripHeaders),
-        body,
-      }
-
-      // onRequest hook
-      if (onRequest) {
-        proxyReq = await onRequest(proxyReq)
-        if (proxyReq === null) {
-          res.writeHead(403, { 'Content-Type': 'text/plain' })
-          res.end('Forbidden')
-          return
         }
-      }
 
-      // Request body validation (JSON only)
-      if (validate?.request) {
-        const ct = (proxyReq.headers['content-type'] ?? '').toLowerCase()
-        if (ct.includes('application/json')) {
-          try {
-            const parsed = JSON.parse(proxyReq.body.toString()) as unknown
-            const result = validate.adapter.validate(validate.request, parsed)
-            if (!result.success) {
-              res.writeHead(400, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ errors: result.errors }))
-              return
-            }
-          } catch {
+        if (validate?.request && isJsonContentType(proxyReq.headers)) {
+          const validation = validateJsonBody(validate, validate.request, proxyReq.body, 'Invalid JSON')
+          if ('errors' in validation) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ errors: [{ field: '', message: 'Invalid JSON', code: 'invalid_json' }] }))
+            res.end(JSON.stringify({ errors: validation.errors }))
             return
           }
         }
+
+        preparedRequest = {
+          method: proxyReq.method,
+          url: proxyReq.url,
+          headers: applyBufferedBodyHeaders(proxyReq.headers, proxyReq.body.length),
+          body: proxyReq.body,
+        }
+      } else {
+        preparedRequest = {
+          method: req.method ?? 'GET',
+          url,
+          headers: stripHopByHopHeaders(flattenHeaders(req.headers), stripHeaders),
+          body: null,
+        }
       }
 
-      const targetUrl = new URL(proxyReq.url)
-      const reqOpts = {
-        hostname: targetUrl.hostname,
-        port: targetUrl.port ? parseInt(targetUrl.port) : (targetUrl.protocol === 'https:' ? 443 : 80),
-        path: targetUrl.pathname + (targetUrl.search ?? ''),
-        method: proxyReq.method,
-        headers: { ...proxyReq.headers, host: targetUrl.host },
-        timeout,
-      }
+      const upstreamTarget = buildUpstreamTarget(preparedRequest, timeout)
+      const doRequest = upstreamTarget.protocol === 'https:' ? httpsRequest : httpRequest
 
-      const doRequest = targetUrl.protocol === 'https:' ? httpsRequest : httpRequest
+      const upstreamRes = await new Promise<IncomingMessage>((resolve, reject) => {
+        const upstreamReq = doRequest(
+          {
+            hostname: upstreamTarget.hostname,
+            port: upstreamTarget.port,
+            path: upstreamTarget.path,
+            method: upstreamTarget.method,
+            headers: upstreamTarget.headers,
+            timeout: upstreamTarget.timeout,
+          },
+          (message) => resolve(message),
+        )
 
-      const upstreamRes = await new Promise<ForwardProxyResponse>((resolve, reject) => {
-        const upstreamReq = doRequest(reqOpts, (upRes) => {
-          const chunks: Buffer[] = []
-          upRes.on('data', (chunk: Buffer) => chunks.push(chunk))
-          upRes.on('end', () => {
-            const responseBody = Buffer.concat(chunks)
-            resolve({
-              statusCode: upRes.statusCode ?? 200,
-              statusMessage: upRes.statusMessage ?? 'OK',
-              headers: flattenHeaders(upRes.headers),
-              body: responseBody,
-            })
-          })
-          upRes.on('error', reject)
-        })
-        upstreamReq.on('error', (err: NodeJS.ErrnoException) => {
-          const msg =
-            err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT'
-              ? 'Bad Gateway'
-              : 'Bad Gateway'
-          reject(Object.assign(new Error(msg), { _isBadGateway: true }))
+        let settled = false
+        const rejectOnce = (error: Error) => {
+          if (settled) return
+          settled = true
+          reject(error)
+        }
+
+        upstreamReq.on('error', () => {
+          rejectOnce(new Error('Bad Gateway'))
         })
         upstreamReq.on('timeout', () => {
-          upstreamReq.destroy(Object.assign(new Error('Bad Gateway'), { _isBadGateway: true }))
+          upstreamReq.destroy(new Error('Bad Gateway'))
         })
-        if (proxyReq!.body.length > 0) upstreamReq.write(proxyReq!.body)
-        upstreamReq.end()
+
+        if (preparedRequest.body) {
+          if (preparedRequest.body.length > 0) {
+            upstreamReq.write(preparedRequest.body)
+          }
+          upstreamReq.end()
+          return
+        }
+
+        const requestTracker = createTrackingTransform((size) => {
+          mutable.bytesFromClient += size
+        }, maxBodySize)
+
+        void streamPipeline(req, requestTracker, upstreamReq).catch((error: Error) => {
+          if (!upstreamReq.destroyed) {
+            upstreamReq.destroy(error)
+          }
+          rejectOnce(error)
+        })
       })
 
-      // Response body validation (JSON only)
-      if (validate?.response) {
-        const ct = (upstreamRes.headers['content-type'] ?? '').toLowerCase()
-        if (ct.includes('application/json')) {
-          try {
-            const parsed = JSON.parse(upstreamRes.body.toString()) as unknown
-            const result = validate.adapter.validate(validate.response, parsed)
-            if (!result.success) {
-              res.writeHead(502, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ errors: result.errors }))
-              return
-            }
-          } catch {
+      if (requiresBufferedResponse) {
+        const upstreamResponse = await bufferUpstreamResponse(upstreamRes)
+
+        if (validate?.response && isJsonContentType(upstreamResponse.headers)) {
+          const validation = validateJsonBody(validate, validate.response, upstreamResponse.body, 'Invalid JSON from upstream')
+          if ('errors' in validation) {
             res.writeHead(502, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ errors: [{ field: '', message: 'Invalid JSON from upstream', code: 'invalid_json' }] }))
+            res.end(JSON.stringify({ errors: validation.errors }))
             return
           }
         }
+
+        let finalRes = upstreamResponse
+        if (onResponse) {
+          finalRes = await onResponse(upstreamResponse)
+        }
+
+        mutable.bytesToClient += finalRes.body.length
+
+        const outHeaders = stripHopByHopHeaders(finalRes.headers)
+        outHeaders['content-length'] = String(finalRes.body.length)
+
+        res.writeHead(finalRes.statusCode, finalRes.statusMessage, outHeaders)
+        res.end(finalRes.body)
+        return
       }
 
-      let finalRes = upstreamRes
-      if (onResponse) {
-        finalRes = await onResponse(upstreamRes)
-      }
+      const outHeaders = stripHopByHopHeaders(flattenHeaders(upstreamRes.headers))
+      res.writeHead(upstreamRes.statusCode ?? 200, upstreamRes.statusMessage ?? 'OK', outHeaders)
 
-      mutable.bytesToClient += finalRes.body.length
+      const responseTracker = createTrackingTransform((size) => {
+        mutable.bytesToClient += size
+      })
 
-      const outHeaders = stripHopByHopHeaders(finalRes.headers)
-      outHeaders['content-length'] = String(finalRes.body.length)
-
-      res.writeHead(finalRes.statusCode, finalRes.statusMessage, outHeaders)
-      res.end(finalRes.body)
+      await streamPipeline(upstreamRes, responseTracker, res)
     } catch (err: unknown) {
       mutable.connectionsErrored++
-      const e = err as Error & { _isBadGateway?: boolean; message?: string }
-      if (!res.headersSent) {
-        if (e.message === 'BODY_TOO_LARGE') {
-          res.writeHead(413, { 'Content-Type': 'text/plain' })
-          res.end('Request Entity Too Large')
-        } else {
-          res.writeHead(502, { 'Content-Type': 'text/plain' })
-          res.end('Bad Gateway')
-        }
+      const error = err as Error
+
+      if (res.headersSent) {
+        res.destroy()
+      } else if (error.message === BODY_TOO_LARGE) {
+        res.writeHead(413, { 'Content-Type': 'text/plain' })
+        res.end('Request Entity Too Large')
+      } else {
+        res.writeHead(502, { 'Content-Type': 'text/plain' })
+        res.end('Bad Gateway')
       }
     } finally {
       mutable.connectionsActive--

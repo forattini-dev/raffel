@@ -233,11 +233,16 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
     upstream.on('connect', () => {
       upstream.setTimeout(0)
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
-      if (head.length > 0) upstream.write(head)
+      if (head.length > 0) {
+        mutable.bytesFromClient += head.length
+        upstream.write(head)
+      }
       pipeBidirectional(clientSocket, upstream, {
-        onStats: (s) => {
-          mutable.bytesFromClient += s.bytesFromA
-          mutable.bytesToClient += s.bytesToA
+        onDataFromA: (bytes) => {
+          mutable.bytesFromClient += bytes
+        },
+        onDataToA: (bytes) => {
+          mutable.bytesToClient += bytes
         },
         onEnd: () => onEnd('closed'),
         onError: (err) => {
@@ -306,7 +311,7 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
       onEnd('tls client error')
     })
 
-    const isIntercepting = !!(onRequest || onResponse)
+    const isIntercepting = !!(onRequest || onResponse || validate)
 
     // Build upstream TLS base options
     const upstreamTlsBase: UpstreamTlsBase = {
@@ -357,9 +362,11 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
         } else {
           // Pipe mode: forward decrypted data bidirectionally
           pipeBidirectional(tlsClient as unknown as Socket, tlsUpstream as unknown as Socket, {
-            onStats: (s) => {
-              mutable.bytesFromClient += s.bytesFromA
-              mutable.bytesToClient += s.bytesToA
+            onDataFromA: (bytes) => {
+              mutable.bytesFromClient += bytes
+            },
+            onDataToA: (bytes) => {
+              mutable.bytesToClient += bytes
             },
             onEnd: () => onEnd('closed'),
             onError: (err) => {

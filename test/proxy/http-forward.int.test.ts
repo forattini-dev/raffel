@@ -115,6 +115,52 @@ describe('HTTP Forward Proxy', () => {
     expect(response.body).toBe('world')
   })
 
+  it('streams upstream responses when body inspection is disabled', async () => {
+    upstream.get('/stream', () => ({
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+      stream: { chunks: ['chunk-a', 'chunk-b'], interval: 150 },
+    }))
+    await startProxy()
+
+    const timing = await new Promise<{ firstChunkAt: number; totalDuration: number; body: string }>((resolve, reject) => {
+      const startedAt = performance.now()
+      const req = httpRequest(
+        {
+          host: '127.0.0.1',
+          port: proxyPort,
+          path: `http://127.0.0.1:${upstream.port}/stream`,
+          method: 'GET',
+          headers: { host: `127.0.0.1:${upstream.port}` },
+        },
+        (res) => {
+          const chunks: Buffer[] = []
+          let firstChunkAt = Number.POSITIVE_INFINITY
+
+          res.on('data', (chunk: Buffer) => {
+            if (!Number.isFinite(firstChunkAt)) {
+              firstChunkAt = performance.now() - startedAt
+            }
+            chunks.push(chunk)
+          })
+          res.on('end', () => {
+            resolve({
+              firstChunkAt,
+              totalDuration: performance.now() - startedAt,
+              body: Buffer.concat(chunks).toString(),
+            })
+          })
+        },
+      )
+      req.on('error', reject)
+      req.end()
+    })
+
+    expect(timing.body).toBe('chunk-achunk-b')
+    expect(timing.firstChunkAt).toBeLessThan(120)
+    expect(timing.totalDuration).toBeGreaterThan(120)
+  })
+
   it('returns 400 for non-absolute URLs', async () => {
     await startProxy()
     const response = await fetchViaProxy('/relative', proxyPort)

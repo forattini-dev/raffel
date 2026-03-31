@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import { createTransparentProxy } from '../../src/proxy/transparent.js'
-import { connect as netConnect } from 'node:net'
+import { createServer, connect as netConnect } from 'node:net'
 
 type TransparentProxy = ReturnType<typeof createTransparentProxy>
 
@@ -120,6 +120,96 @@ describe('Transparent Proxy', () => {
 
     // At least one connection was made (though the loop may cause more)
     expect(proxy.stats.connectionsTotal).toBeGreaterThanOrEqual(1)
+  })
+
+  it('exports telemetry for transparent tcp edges when destination resolution is overridden', async () => {
+    const upstream = createServer((socket) => {
+      socket.on('data', (chunk: Buffer) => {
+        socket.write(Buffer.concat([Buffer.from('echo:'), chunk]))
+      })
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      upstream.once('error', reject)
+      upstream.listen(0, '127.0.0.1', () => {
+        upstream.off('error', reject)
+        resolve()
+      })
+    })
+
+    const upstreamAddress = upstream.address()
+    if (typeof upstreamAddress !== 'object' || upstreamAddress == null) {
+      throw new Error('Failed to resolve upstream address')
+    }
+
+    try {
+      proxy = createTransparentProxy({
+        port: 0,
+        host: '127.0.0.1',
+        mode: 'redirect',
+        resolveOriginalDestination: () => ({ host: '127.0.0.1', port: upstreamAddress.port }),
+        telemetry: {
+          defaultLabels: { proxy: 'transparent-edge' },
+          rateWindowSeconds: 5,
+          resolveNode: (ctx) => ctx.role === 'source' ? 'svc-transparent' : undefined,
+        },
+      })
+      await proxy.start()
+
+      const response = await new Promise<string>((resolve, reject) => {
+        const sock = netConnect(proxy!.boundPort!, '127.0.0.1')
+        const chunks: Buffer[] = []
+        sock.once('error', reject)
+        sock.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+          if (Buffer.concat(chunks).toString() === 'echo:ping') {
+            sock.end()
+          }
+        })
+        sock.on('connect', () => {
+          sock.write('ping')
+        })
+        sock.on('close', () => resolve(Buffer.concat(chunks).toString()))
+      })
+
+      expect(response).toBe('echo:ping')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+
+      const metrics = proxy.metricsRegistry?.export('prometheus') ?? ''
+      expect(metrics).toContain('raffel_proxy_edge_flow_rate_per_second')
+      expect(metrics).toContain('raffel_proxy_edge_failure_ratio')
+      expect(metrics).toContain('protocol="tcp"')
+      expect(metrics).toContain('source="svc-transparent"')
+      expect(metrics).toContain(`destination="127.0.0.1:${upstreamAddress.port}"`)
+      expect(metrics).toContain('proxy="transparent-edge"')
+
+      const snapshot = proxy.graphSnapshot()
+      expect(snapshot.rateWindowSeconds).toBe(5)
+      expect(snapshot.edges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: 'svc-transparent',
+            target: `127.0.0.1:${upstreamAddress.port}`,
+            protocol: 'tcp',
+            flowsTotal: 1,
+          }),
+        ]),
+      )
+
+      const edge = snapshot.edges.find((item) =>
+        item.source === 'svc-transparent'
+        && item.target === `127.0.0.1:${upstreamAddress.port}`
+        && item.protocol === 'tcp',
+      )
+      expect(edge?.bytesFromSource).toBeGreaterThan(0)
+      expect(edge?.bytesToSource).toBeGreaterThan(0)
+      expect(edge?.rates.windowSeconds).toBe(5)
+      expect(edge?.rates.flowsPerSecond ?? 0).toBeGreaterThan(0)
+      expect(edge?.rates.bytesPerSecond ?? 0).toBeGreaterThan(0)
+      expect(edge?.rates.failureRatio).toBe(0)
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()))
+    }
   })
 })
 

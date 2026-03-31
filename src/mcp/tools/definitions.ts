@@ -20,14 +20,14 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_search',
     description:
-      'Search across Raffel docs including interceptors, adapters, patterns, errors, and USD documentation. Keywords are matched by term; quoted text is treated as an exact phrase.',
+      'Search across Raffel docs including interceptors, adapters, patterns, errors, and guides (USD, Proxy, etc.). Keywords are matched by term; quoted text is treated as an exact phrase.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description:
-            'Search query (keyword mode by default, e.g., "USD", "auth rate limit", "websocket"). Use quotes for exact phrases: `"Universal Service Documentation"`.',
+            'Search query (keyword mode by default, e.g., "USD", "proxy", "auth rate limit", "websocket"). Use quotes for exact phrases: `"Universal Service Documentation"`, `"reverse proxy"`.',
         },
         type: {
           type: 'string',
@@ -45,7 +45,7 @@ export const tools: MCPTool[] = [
   },
   {
     name: 'raffel_list_guides',
-    description: 'List available documentation guides available through the guide resource path.',
+    description: 'List all documentation guides available through the guide resource path (including proxy and migration topics).',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -54,14 +54,14 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_get_guide',
     description:
-      'Get a full guide by topic slug (quickstart, auth, sessions, rest-api, migration, usd).',
+      'Get a full guide by topic slug (quickstart, auth, sessions, rest-api, migration, usd, proxy).',
     inputSchema: {
       type: 'object',
       properties: {
         topic: {
           type: 'string',
           description:
-            'Guide topic slug (e.g., quickstart, auth, sessions, rest-api, migration, usd)',
+            'Guide topic slug (e.g., quickstart, auth, sessions, rest-api, migration, usd, proxy)',
         },
       },
       required: ['topic'],

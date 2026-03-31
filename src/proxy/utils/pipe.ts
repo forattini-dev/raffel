@@ -4,6 +4,10 @@
 import type { Socket } from 'node:net'
 
 export interface PipeBidirectionalOptions {
+  /** Called on each chunk flowing from socket A to socket B. */
+  onDataFromA?(bytes: number): void
+  /** Called on each chunk flowing from socket B to socket A. */
+  onDataToA?(bytes: number): void
   /** Called when piping ends (either side closes or errors). Reports total bytes. */
   onStats?(d: { bytesFromA: number; bytesToA: number }): void
   /** Called when piping ends cleanly or with error. */
@@ -36,35 +40,32 @@ export function pipeBidirectional(
     if (!b.destroyed) b.destroy()
   }
 
-  // a → b
   a.on('data', (chunk: Buffer) => {
     if (b.destroyed) {
       teardown()
       return
     }
     bytesFromA += chunk.length
+    opts?.onDataFromA?.(chunk.length)
     if (!b.write(chunk)) a.pause()
   })
 
-  // b → a
   b.on('data', (chunk: Buffer) => {
     if (a.destroyed) {
       teardown()
       return
     }
     bytesToA += chunk.length
+    opts?.onDataToA?.(chunk.length)
     if (!a.write(chunk)) b.pause()
   })
 
-  // Backpressure drain
   b.on('drain', () => { if (!a.destroyed) a.resume() })
   a.on('drain', () => { if (!b.destroyed) b.resume() })
 
-  // Half-close propagation
   a.on('end', () => { if (!b.destroyed) b.end() })
   b.on('end', () => { if (!a.destroyed) a.end() })
 
-  // Teardown on close / error
   a.on('close', () => teardown(undefined, 'a'))
   b.on('close', () => teardown(undefined, 'b'))
   a.on('error', (err) => teardown(err, 'a'))

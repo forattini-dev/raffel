@@ -362,6 +362,50 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
   }, 15_000)
 })
 
+describe('CONNECT Tunnel (MITM validate)', () => {
+  function makeAdapter(requireName: boolean) {
+    return {
+      name: 'test',
+      validate(_schema: unknown, data: unknown) {
+        if (!requireName) return { success: true, data }
+        const record = data as Record<string, unknown>
+        if (typeof record?.name === 'string') return { success: true, data }
+        return {
+          success: false,
+          errors: [{ field: 'name', message: 'required', code: 'required' }],
+        }
+      },
+      isValidSchema: () => true,
+    }
+  }
+
+  it('validate.response intercepts even without hooks', async () => {
+    const { server, port } = await startHttpsUpstream((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end('{"missing_name":true}')
+    })
+
+    const tunnel = createConnectTunnel({
+      mode: 'mitm',
+      validate: { adapter: makeAdapter(true), response: {} },
+    })
+    const srv = createHttpServer()
+    tunnel.attachTo(srv)
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
+    const proxyPort = (srv.address() as { port: number }).port
+
+    try {
+      const result = await connectAndRequest(proxyPort, '127.0.0.1', port)
+      expect(result.status).toBe(502)
+      const parsed = JSON.parse(result.body) as { errors: unknown[] }
+      expect(parsed.errors.length).toBeGreaterThan(0)
+    } finally {
+      await new Promise<void>((resolve) => srv.close(() => resolve()))
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }, 15_000)
+})
+
 // ---------------------------------------------------------------------------
 // Certificate pinning tests
 // ---------------------------------------------------------------------------

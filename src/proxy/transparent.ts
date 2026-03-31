@@ -18,6 +18,13 @@
  *   ip route add local 0.0.0.0/0 dev lo table 100
  */
 import { createServer, connect as netConnect, type Socket, type Server as NetServer } from 'node:net'
+import type { MetricRegistry } from '../metrics/types.js'
+import {
+  createOrReuseProxyTelemetry,
+  resolveNodeName,
+  type ProxyTelemetryOptionsBase,
+} from './telemetry-options.js'
+import type { ProxyGraphSnapshot } from './telemetry.js'
 import type { ProxyServer, ProxyStats } from './types.js'
 import { createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
@@ -25,6 +32,25 @@ import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
 
 export type TransparentProxyMode = 'tproxy' | 'redirect'
+
+export interface TransparentOriginalDestination {
+  host: string
+  port: number
+}
+
+export interface TransparentOriginalDestinationResolverContext {
+  clientSocket: Socket
+  mode: TransparentProxyMode
+  fallback: TransparentOriginalDestination
+}
+
+export interface TransparentConnectionInfo {
+  clientSocket: Socket
+  clientAddress: string
+  originalDest: TransparentOriginalDestination
+}
+
+export interface TransparentTelemetryOptions extends ProxyTelemetryOptionsBase {}
 
 export interface TransparentProxyOptions {
   port: number
@@ -35,42 +61,81 @@ export interface TransparentProxyOptions {
   connectTimeout?: number
   /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
   filter?: ProxyFilter
-  onConnection?: (info: {
-    clientSocket: Socket
-    clientAddress: string
-    originalDest: { host: string; port: number }
-  }) => void
+  /** Optional override for original-destination lookup, useful for controlled integration tests. */
+  resolveOriginalDestination?: (
+    ctx: TransparentOriginalDestinationResolverContext,
+  ) => TransparentOriginalDestination | null | undefined
+  onConnection?: (info: TransparentConnectionInfo) => void
+  onDisconnect?: (info: TransparentConnectionInfo & { reason: string }) => void
+  telemetry?: TransparentTelemetryOptions
+}
+
+export interface TransparentProxy extends ProxyServer {
+  readonly metricsRegistry: MetricRegistry | null
+  graphSnapshot(): ProxyGraphSnapshot
 }
 
 // Linux IP_TRANSPARENT socket option
 const IPPROTO_IP = 0
 const IP_TRANSPARENT = 19
 
-export function createTransparentProxy(options: TransparentProxyOptions): ProxyServer {
-  const { port, host = '0.0.0.0', mode = 'tproxy', connectTimeout = 10_000, filter, onConnection } = options
+function normalizeOriginalDestination(
+  candidate: TransparentOriginalDestination | null | undefined,
+  fallback: TransparentOriginalDestination,
+): TransparentOriginalDestination {
+  if (!candidate) return fallback
+  const host = typeof candidate.host === 'string' && candidate.host.length > 0
+    ? candidate.host
+    : fallback.host
+  const port = Number.isInteger(candidate.port) && candidate.port > 0
+    ? candidate.port
+    : fallback.port
+  return { host, port }
+}
+
+export function createTransparentProxy(options: TransparentProxyOptions): TransparentProxy {
+  const {
+    port,
+    host = '0.0.0.0',
+    mode = 'tproxy',
+    connectTimeout = 10_000,
+    filter,
+    resolveOriginalDestination,
+    onConnection,
+    onDisconnect,
+    telemetry: telemetryOptions,
+  } = options
   const { mutable, snapshot } = createProxyStats()
+  const telemetry = createOrReuseProxyTelemetry(telemetryOptions)
 
   let server: NetServer | null = null
-  let _boundPort: number | null = null
+  let boundPort: number | null = null
   let running = false
 
-  function getOriginalDest(socket: Socket): { host: string; port: number } {
-    // In TPROXY mode, the kernel routes the original destination IP to this
-    // process. The socket.localAddress / socket.localPort reflect the
-    // original destination, not the proxy bind address.
-    //
-    // In REDIRECT mode, socket.localAddress points to the proxy, not the
-    // real destination. SO_ORIGINAL_DST is not exposed by Node.js core, so
-    // we return the local address as a best-effort fallback.
-    return {
+  function getOriginalDest(socket: Socket): TransparentOriginalDestination {
+    const fallback = {
       host: socket.localAddress ?? '127.0.0.1',
       port: socket.localPort ?? 80,
     }
+
+    return normalizeOriginalDestination(
+      resolveOriginalDestination?.({
+        clientSocket: socket,
+        mode,
+        fallback,
+      }),
+      fallback,
+    )
   }
 
   function handleConnection(clientSocket: Socket): void {
     const originalDest = getOriginalDest(clientSocket)
-    const clientAddress = `${clientSocket.remoteAddress}:${clientSocket.remotePort}`
+    const clientAddress = `${clientSocket.remoteAddress ?? 'unknown'}:${clientSocket.remotePort ?? 0}`
+    const info: TransparentConnectionInfo = {
+      clientSocket,
+      clientAddress,
+      originalDest,
+    }
 
     if (filter) {
       checkProxyFilter(filter, originalDest.host, originalDest.port)
@@ -90,49 +155,91 @@ export function createTransparentProxy(options: TransparentProxyOptions): ProxyS
 
     doConnect()
 
-    function doConnect() {
-    mutable.connectionsTotal++
-    mutable.connectionsActive++
+    function doConnect(): void {
+      mutable.connectionsTotal++
+      mutable.connectionsActive++
+      onConnection?.(info)
 
-    onConnection?.({ clientSocket, clientAddress, originalDest })
+      const startedAt = performance.now()
+      const flow = telemetry?.startFlow({
+        source: resolveNodeName(telemetryOptions, {
+          role: 'source',
+          protocol: 'tcp',
+          clientAddress,
+        }),
+        destination: resolveNodeName(telemetryOptions, {
+          role: 'destination',
+          protocol: 'tcp',
+          host: originalDest.host,
+          port: originalDest.port,
+        }),
+        protocol: 'tcp',
+      }) ?? null
 
-    const upstream = netConnect({
-      host: originalDest.host,
-      port: originalDest.port,
-    })
-    upstream.setTimeout(connectTimeout)
-
-    upstream.on('connect', () => {
-      upstream.setTimeout(0)
-      pipeBidirectional(clientSocket, upstream, {
-        onStats: (s) => {
-          mutable.bytesFromClient += s.bytesFromA
-          mutable.bytesToClient += s.bytesToA
-        },
-        onEnd: () => {
-          mutable.connectionsActive--
-        },
-        onError: () => {
-          mutable.connectionsErrored++
-          mutable.connectionsActive--
-        },
+      const upstream = netConnect({
+        host: originalDest.host,
+        port: originalDest.port,
       })
-    })
+      upstream.setTimeout(connectTimeout)
 
-    upstream.on('timeout', () => {
-      upstream.destroy(new Error('connect timeout'))
-    })
+      let closed = false
+      let connected = false
 
-    upstream.on('error', () => {
-      mutable.connectionsErrored++
-      mutable.connectionsActive--
-      if (!clientSocket.destroyed) clientSocket.destroy()
-    })
+      function close(reason: string, error?: string): void {
+        if (closed) return
+        closed = true
+        mutable.connectionsActive = Math.max(0, mutable.connectionsActive - 1)
+        onDisconnect?.({ ...info, reason })
+        flow?.finish({
+          status: error ? 'error' : 'success',
+          error,
+          durationSeconds: Math.max(0, (performance.now() - startedAt) / 1000),
+        })
+        if (!upstream.destroyed) upstream.destroy()
+        if (!clientSocket.destroyed) clientSocket.destroy()
+      }
 
-    clientSocket.on('error', () => {
-      upstream.destroy()
-    })
-    } // end doConnect
+      upstream.on('connect', () => {
+        connected = true
+        upstream.setTimeout(0)
+        pipeBidirectional(clientSocket, upstream, {
+          onDataFromA: (bytes) => {
+            mutable.bytesFromClient += bytes
+            flow?.addBytesFromSource(bytes)
+          },
+          onDataToA: (bytes) => {
+            mutable.bytesToClient += bytes
+            flow?.addBytesToSource(bytes)
+          },
+          onEnd: () => {
+            close('closed')
+          },
+          onError: (error) => {
+            mutable.connectionsErrored++
+            close(error.message, error.message)
+          },
+        })
+      })
+
+      upstream.on('timeout', () => {
+        upstream.destroy(new Error('connect timeout'))
+      })
+
+      upstream.on('error', (error: NodeJS.ErrnoException) => {
+        mutable.connectionsErrored++
+        close('upstream_error', error.code ?? error.message)
+      })
+
+      clientSocket.on('error', () => {
+        upstream.destroy()
+      })
+
+      clientSocket.on('close', () => {
+        if (!connected) {
+          close('client_closed', 'client_closed')
+        }
+      })
+    }
   }
 
   return {
@@ -145,16 +252,14 @@ export function createTransparentProxy(options: TransparentProxyOptions): ProxyS
         server.listen({ port, host }, () => {
           const addr = server!.address()
           if (typeof addr === 'object' && addr !== null) {
-            _boundPort = addr.port
+            boundPort = addr.port
 
-            // Attempt to set IP_TRANSPARENT on the underlying socket handle
             if (mode === 'tproxy') {
               const handle = (server as unknown as { _handle?: { setsockopt?(level: number, option: number, value: number): void } })._handle
               try {
                 handle?.setsockopt?.(IPPROTO_IP, IP_TRANSPARENT, 1)
               } catch {
-                // Not fatal — warn at runtime but continue
-                // (tests run without CAP_NET_ADMIN)
+                // Not fatal — warn at runtime but continue.
               }
             }
 
@@ -174,7 +279,7 @@ export function createTransparentProxy(options: TransparentProxyOptions): ProxyS
           return
         }
         running = false
-        _boundPort = null
+        boundPort = null
         const timer = setTimeout(() => {
           ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
           resolve()
@@ -190,8 +295,16 @@ export function createTransparentProxy(options: TransparentProxyOptions): ProxyS
       return snapshot()
     },
 
+    get metricsRegistry(): MetricRegistry | null {
+      return telemetry?.registry ?? null
+    },
+
+    graphSnapshot(): ProxyGraphSnapshot {
+      return telemetry?.snapshot() ?? { generatedAt: new Date().toISOString(), percentiles: [], rateWindowSeconds: 60, nodes: [], edges: [] }
+    },
+
     get boundPort(): number | null {
-      return _boundPort
+      return boundPort
     },
 
     get isRunning(): boolean {

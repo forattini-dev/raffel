@@ -102,6 +102,20 @@ const docsGuideIndex = [
   },
   {
     type: 'guide' as const,
+    name: 'Reverse Proxy',
+    description:
+      'Raffel reverse proxy guide for HTTP/HTTPS routing by host/path/method, with JSON/YAML file configuration, programmatic config APIs, and automatic TLS certificate generation in local mode.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'Traefik Replacement Plan',
+    description:
+      'Operational roadmap for replacing Traefik: parity inventory, staged rollout, canary gates, observability, and TLS migration runbook.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
     name: 'USD output formats',
     description:
       'USD provides machine-readable docs plus richer protocol metadata, including schemas, content types, channels, stream directions, method signatures, and protocol-specific defaults for reuse across clients and AI-assisted development.',

@@ -75,8 +75,8 @@ npx raffel-mcp --list-categories
 | Tool | Description |
 |:-----|:------------|
 | `raffel_getting_started` | Quickstart guide |
-| `raffel_search` | Search across Raffel docs (interceptors, adapters, patterns, errors, USD guides). Supports keyword search and quoted phrases, optional `type` filter and `limit`. |
-| `raffel_list_guides` | List available documentation guides (quickstart, auth, sessions, rest-api, migration, usd). |
+| `raffel_search` | Search across Raffel docs (interceptors, adapters, patterns, errors, guides). Supports keyword search and quoted phrases, optional `type` filter and `limit`. |
+| `raffel_list_guides` | List available documentation guides (quickstart, auth, sessions, rest-api, migration, usd, proxy). |
 | `raffel_get_guide` | Read a full documentation guide by topic slug. |
 | `raffel_list_interceptors` | List interceptors by category |
 | `raffel_get_interceptor` | Interceptor docs + examples |
@@ -122,10 +122,15 @@ User: Add rate limiting to my Raffel API
 Assistant: [Uses raffel_search]
 Assistant: [Uses raffel_get_interceptor]
 
+User: I need local HTTPS reverse proxy with file-based routes
+
+Assistant: [Uses raffel_get_guide with topic "proxy"]
+
 ### Search behavior note
 
 - Keyword mode (default): `USD`, `rate limit`, `websocket` and other terms are matched independently.
-- Phrase mode: use quotes for exact phrase search, e.g. `"Universal Service Documentation"`, `"rate limiting"`.
+- Phrase mode: use quotes for exact phrase search, e.g. `"Universal Service Documentation"`, `"rate limiting"`, `"reverse proxy"`.
+- Useful proxy lookups: `proxy`, `reverse proxy`, `"TLS auto"`, `traefik replacement`.
 - Optional `type` filter: `interceptor`, `adapter`, `pattern`, `error`, `guide`.
 ```
 
@@ -163,6 +168,7 @@ The MCP server exposes docs and boilerplates as resources:
 
 | Resource | Description |
 |:---------|:------------|
+| `raffel://guide/proxy` | Reverse proxy guide (HTTP/HTTPS + routing + TLS) |
 | `raffel://guide/quickstart` | Quickstart guide |
 | `raffel://interceptor/{name}` | Interceptor documentation |
 | `raffel://adapter/{name}` | Adapter documentation |
