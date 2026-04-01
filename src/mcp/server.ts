@@ -122,6 +122,10 @@ export class MCPServer {
     })
 
     rl.on('line', async (line) => {
+      if (line.trim().length === 0) {
+        return
+      }
+
       try {
         const request = JSON.parse(line) as JsonRpcRequest
         const response = await this.handleRequest(request)
