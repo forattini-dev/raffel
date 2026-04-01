@@ -24,7 +24,7 @@ import {
   resolveNodeName,
   type ProxyTelemetryOptionsBase,
 } from './telemetry-options.js'
-import type { ProxyGraphSnapshot } from './telemetry.js'
+import type { ProxyGraphSnapshot, ProxyTelemetryListener } from './telemetry.js'
 import type { ProxyServer, ProxyStats } from './types.js'
 import { createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
@@ -79,6 +79,7 @@ export interface TransparentProxyOptions {
 export interface TransparentProxy extends ProxyServer {
   readonly metricsRegistry: MetricRegistry | null
   graphSnapshot(): ProxyGraphSnapshot
+  subscribe(listener: ProxyTelemetryListener): () => void
 }
 
 // Linux IP_TRANSPARENT socket option
@@ -338,7 +339,12 @@ export function createTransparentProxy(options: TransparentProxyOptions): Transp
     },
 
     graphSnapshot(): ProxyGraphSnapshot {
-      return telemetry?.snapshot() ?? { generatedAt: new Date().toISOString(), percentiles: [], rateWindowSeconds: 60, nodes: [], edges: [] }
+      const now = new Date().toISOString()
+      return telemetry?.snapshot() ?? { seq: 0, generatedAt: now, windowStart: new Date(Date.now() - 60_000).toISOString(), windowEnd: now, percentiles: [], rateWindowSeconds: 60, nodes: [], edges: [] }
+    },
+
+    subscribe(listener: ProxyTelemetryListener): () => void {
+      return telemetry?.subscribe(listener) ?? (() => {})
     },
 
     get boundPort(): number | null {

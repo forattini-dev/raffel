@@ -27,6 +27,7 @@ import {
   type ProxyFlowProtocol,
   type ProxyGraphSnapshot,
   type ProxyTelemetryCollector,
+  type ProxyTelemetryListener,
 } from './telemetry.js'
 import type { ProxyAuth, ProxyServer, ProxyStats } from './types.js'
 import { createProxyStats, parseBasicProxyAuth, verifyProxyAuth } from './utils/auth.js'
@@ -106,6 +107,7 @@ export interface ExplicitProxy extends ProxyServer {
   readonly metricsRegistry: MetricRegistry | null
   upgradeHandler(req: IncomingMessage, socket: Socket, head: Buffer): void
   graphSnapshot(): ProxyGraphSnapshot
+  subscribe(listener: ProxyTelemetryListener): () => void
 }
 
 const STATUS_TEXT: Record<number, string> = {
@@ -375,6 +377,7 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
         status,
         error,
         method: req.method ?? 'GET',
+        path: targetUrl.pathname + (targetUrl.search || ''),
         durationSeconds: getDurationSeconds(startedAt),
       })
     }
@@ -557,6 +560,7 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
         status,
         error: errorReason,
         method: upgradeReq?.method ?? 'GET',
+        path,
         durationSeconds: getDurationSeconds(startedAt),
       })
     }
@@ -811,13 +815,21 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
     },
 
     graphSnapshot(): ProxyGraphSnapshot {
+      const now = new Date().toISOString()
       return telemetry?.snapshot() ?? {
-        generatedAt: new Date().toISOString(),
+        seq: 0,
+        generatedAt: now,
+        windowStart: new Date(Date.now() - 60_000).toISOString(),
+        windowEnd: now,
         percentiles: [],
         rateWindowSeconds: 60,
         nodes: [],
         edges: [],
       }
+    },
+
+    subscribe(listener: ProxyTelemetryListener): () => void {
+      return telemetry?.subscribe(listener) ?? (() => {})
     },
   }
 }

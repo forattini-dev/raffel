@@ -71,7 +71,13 @@ export type {
   ProxyGraphNode,
   ProxyGraphEdge,
   ProxyGraphLatency,
+  ProxyGraphRates,
   ProxyGraphSnapshot,
+  ProxyTelemetryEvent,
+  ProxyTelemetryListener,
+  ProxyTelemetryCollector,
+  ProxyFlowHandle,
+  ProxyFlowFinishInput,
 } from './telemetry.js'
 
 export type {

@@ -24,6 +24,14 @@ export interface ProxyGraphNode {
   inboundEdges: number
   outboundEdges: number
   lastSeenAt: string
+  requestsOut: number
+  requestsIn: number
+  errorsOut: number
+  errorsIn: number
+  bytesOut: number
+  bytesIn: number
+  activeFlows: number
+  protocols: Record<string, number>
 }
 
 export interface ProxyGraphLatency {
@@ -47,6 +55,8 @@ export interface ProxyGraphEdge {
   source: string
   target: string
   protocol: ProxyFlowProtocol
+  firstSeenAt: string
+  lastSeenAt: string
   activeFlows: number
   flowsTotal: number
   requestsTotal: number
@@ -57,16 +67,30 @@ export interface ProxyGraphEdge {
   durationSumSeconds: number
   latency: ProxyGraphLatency
   rates: ProxyGraphRates
-  lastSeenAt: string
+  statusClassCounts: Record<string, number>
+  methodCounts: Record<string, number>
+  topPaths: Array<{ path: string; count: number }>
 }
 
 export interface ProxyGraphSnapshot {
+  seq: number
   generatedAt: string
+  windowStart: string
+  windowEnd: string
   percentiles: string[]
   rateWindowSeconds: number
   nodes: ProxyGraphNode[]
   edges: ProxyGraphEdge[]
 }
+
+export type ProxyTelemetryEvent =
+  | { type: 'node:new'; seq: number; nodeId: string; firstSeenAt: string }
+  | { type: 'edge:new'; seq: number; edge: ProxyGraphEdge }
+  | { type: 'edge:update'; seq: number; edge: ProxyGraphEdge }
+  | { type: 'edge:expire'; seq: number; edgeId: string; source: string; target: string; protocol: ProxyFlowProtocol }
+  | { type: 'reset'; seq: number }
+
+export type ProxyTelemetryListener = (event: ProxyTelemetryEvent) => void
 
 export interface ProxyTelemetryLabels extends Labels {
   source: string
@@ -78,6 +102,7 @@ export interface ProxyFlowFinishInput {
   status?: string
   error?: string
   method?: string
+  path?: string
   durationSeconds?: number
 }
 
@@ -93,6 +118,23 @@ export interface ProxyTelemetryCollector {
   readonly rateWindowSeconds: number
   startFlow(labels: ProxyTelemetryLabels): ProxyFlowHandle
   snapshot(): ProxyGraphSnapshot
+  /**
+   * Subscribe to incremental telemetry events.
+   * Listeners are called synchronously after each state mutation.
+   * Returns an unsubscribe function.
+   */
+  subscribe(listener: ProxyTelemetryListener): () => void
+  /**
+   * Clear all edges, nodes and reset seq to 0.
+   * Emits a single 'reset' event to all subscribers.
+   */
+  reset(): void
+  /**
+   * Remove edges whose lastSeenAt is strictly before the given ISO timestamp.
+   * Also removes nodes that have no remaining edges.
+   * Returns the number of edges removed.
+   */
+  expireEdgesBefore(iso: string): number
 }
 
 export const PROXY_AUTO_METRICS = {
@@ -154,6 +196,7 @@ interface EdgeState {
   source: string
   target: string
   protocol: ProxyFlowProtocol
+  firstSeenAt: string
   activeFlows: number
   flowsTotal: number
   requestsTotal: number
@@ -163,6 +206,9 @@ interface EdgeState {
   duration: EdgeDurationState
   rates: EdgeRateState
   lastSeenAt: string
+  statusClassCounts: Record<string, number>
+  methodCounts: Record<string, number>
+  pathCounts: Map<string, number>
 }
 
 interface NodeState {
@@ -182,6 +228,18 @@ function isErrorStatus(status: string | undefined): boolean {
   if (!status) return false
   const numeric = Number.parseInt(status, 10)
   return Number.isFinite(numeric) ? numeric >= 400 : status !== 'success'
+}
+
+function statusClass(status: string | undefined): string {
+  if (!status) return 'other'
+  const numeric = Number.parseInt(status, 10)
+  if (!Number.isFinite(numeric)) return 'other'
+  if (numeric >= 500) return '5xx'
+  if (numeric >= 400) return '4xx'
+  if (numeric >= 300) return '3xx'
+  if (numeric >= 200) return '2xx'
+  if (numeric >= 100) return '1xx'
+  return 'other'
 }
 
 function edgeKey(labels: ProxyTelemetryLabels): string {
@@ -466,8 +524,43 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
     ?? [...DEFAULT_PROXY_DURATION_BUCKETS]
   const rateWindowMs = normalizeRateWindowMs(config.rateWindowMs)
 
+  let seq = 0
   const nodes = new Map<string, NodeState>()
   const edges = new Map<string, EdgeState>()
+  const listeners = new Set<ProxyTelemetryListener>()
+
+  function emit(event: ProxyTelemetryEvent): void {
+    for (const listener of listeners) {
+      listener(event)
+    }
+  }
+
+  function buildEdgeSnapshot(edge: EdgeState, nowMs: number): ProxyGraphEdge {
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      protocol: edge.protocol,
+      firstSeenAt: edge.firstSeenAt,
+      lastSeenAt: edge.lastSeenAt,
+      activeFlows: edge.activeFlows,
+      flowsTotal: edge.flowsTotal,
+      requestsTotal: edge.requestsTotal,
+      errorsTotal: edge.errorsTotal,
+      bytesFromSource: edge.bytesFromSource,
+      bytesToSource: edge.bytesToSource,
+      durationCount: edge.duration.count,
+      durationSumSeconds: edge.duration.sum,
+      latency: summarizeLatency(edge.duration, percentiles),
+      rates: summarizeRates(edge.rates, nowMs, rateWindowMs),
+      statusClassCounts: { ...edge.statusClassCounts },
+      methodCounts: { ...edge.methodCounts },
+      topPaths: Array.from(edge.pathCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([path, count]) => ({ path, count })),
+    }
+  }
 
   function ensureNode(id: string, seenAt: string): NodeState {
     const existing = nodes.get(id)
@@ -478,15 +571,16 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
 
     const created: NodeState = { id, lastSeenAt: seenAt }
     nodes.set(id, created)
+    emit({ type: 'node:new', seq, nodeId: id, firstSeenAt: seenAt })
     return created
   }
 
-  function ensureEdge(labels: ProxyTelemetryLabels, seenAt: string): EdgeState {
+  function ensureEdge(labels: ProxyTelemetryLabels, seenAt: string): { edge: EdgeState; isNew: boolean } {
     const key = edgeKey(labels)
     const existing = edges.get(key)
     if (existing) {
       existing.lastSeenAt = seenAt
-      return existing
+      return { edge: existing, isNew: false }
     }
 
     const created: EdgeState = {
@@ -494,6 +588,7 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
       source: labels.source,
       target: labels.destination,
       protocol: labels.protocol,
+      firstSeenAt: seenAt,
       activeFlows: 0,
       flowsTotal: 0,
       requestsTotal: 0,
@@ -509,9 +604,12 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
         buckets: new Map<number, EdgeRateBucket>(),
       },
       lastSeenAt: seenAt,
+      statusClassCounts: {},
+      methodCounts: {},
+      pathCounts: new Map(),
     }
     edges.set(key, created)
-    return created
+    return { edge: created, isNew: true }
   }
 
   function updateRateMetrics(labels: ProxyTelemetryLabels, edge: EdgeState, nowMs: number): void {
@@ -529,18 +627,71 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
     percentiles,
     rateWindowSeconds: rateWindowMs / 1000,
 
+    subscribe(listener: ProxyTelemetryListener): () => void {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+
+    reset(): void {
+      nodes.clear()
+      edges.clear()
+      seq = 0
+      emit({ type: 'reset', seq })
+    },
+
+    expireEdgesBefore(iso: string): number {
+      let removed = 0
+      for (const [key, edge] of edges) {
+        if (edge.lastSeenAt < iso) {
+          edges.delete(key)
+          seq++
+          emit({
+            type: 'edge:expire',
+            seq,
+            edgeId: edge.id,
+            source: edge.source,
+            target: edge.target,
+            protocol: edge.protocol,
+          })
+          removed++
+        }
+      }
+
+      if (removed > 0) {
+        const referencedNodes = new Set<string>()
+        for (const edge of edges.values()) {
+          referencedNodes.add(edge.source)
+          referencedNodes.add(edge.target)
+        }
+        for (const nodeId of nodes.keys()) {
+          if (!referencedNodes.has(nodeId)) {
+            nodes.delete(nodeId)
+          }
+        }
+      }
+
+      return removed
+    },
+
     startFlow(labels: ProxyTelemetryLabels): ProxyFlowHandle {
       const startedAt = new Date().toISOString()
       const startedAtMs = Date.now()
       ensureNode(labels.source, startedAt)
       ensureNode(labels.destination, startedAt)
-      const edge = ensureEdge(labels, startedAt)
+      const { edge, isNew } = ensureEdge(labels, startedAt)
 
       edge.activeFlows++
       edge.flowsTotal++
+      seq++
       recordRateDelta(edge.rates, startedAtMs, rateWindowMs, { flows: 1 })
       registry.set(PROXY_AUTO_METRICS.ACTIVE_FLOWS, edge.activeFlows, labels)
       updateRateMetrics(labels, edge, startedAtMs)
+
+      emit({
+        type: isNew ? 'edge:new' : 'edge:update',
+        seq,
+        edge: buildEdgeSnapshot(edge, startedAtMs),
+      })
 
       let finished = false
 
@@ -578,8 +729,19 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
           const rateDelta: EdgeRateDelta = {}
 
           if (input.method) {
+            const method = input.method.toUpperCase()
             edge.requestsTotal++
+            edge.methodCounts[method] = (edge.methodCounts[method] ?? 0) + 1
             rateDelta.requests = 1
+          }
+
+          if (input.path) {
+            edge.pathCounts.set(input.path, (edge.pathCounts.get(input.path) ?? 0) + 1)
+          }
+
+          if (input.status) {
+            const cls = statusClass(input.status)
+            edge.statusClassCounts[cls] = (edge.statusClassCounts[cls] ?? 0) + 1
           }
 
           if (errorLabel) {
@@ -628,7 +790,10 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
             }
           }
 
+          seq++
           updateRateMetrics(labels, edge, nowMs)
+
+          emit({ type: 'edge:update', seq, edge: buildEdgeSnapshot(edge, nowMs) })
         },
       }
     },
@@ -636,15 +801,39 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
     snapshot(): ProxyGraphSnapshot {
       const inboundCounts = new Map<string, number>()
       const outboundCounts = new Map<string, number>()
+      const nodeRequestsOut = new Map<string, number>()
+      const nodeRequestsIn = new Map<string, number>()
+      const nodeErrorsOut = new Map<string, number>()
+      const nodeErrorsIn = new Map<string, number>()
+      const nodeBytesOut = new Map<string, number>()
+      const nodeBytesIn = new Map<string, number>()
+      const nodeActiveFlows = new Map<string, number>()
+      const nodeProtocols = new Map<string, Record<string, number>>()
       const nowMs = Date.now()
 
       for (const edge of edges.values()) {
         outboundCounts.set(edge.source, (outboundCounts.get(edge.source) ?? 0) + 1)
         inboundCounts.set(edge.target, (inboundCounts.get(edge.target) ?? 0) + 1)
+
+        nodeRequestsOut.set(edge.source, (nodeRequestsOut.get(edge.source) ?? 0) + edge.requestsTotal)
+        nodeErrorsOut.set(edge.source, (nodeErrorsOut.get(edge.source) ?? 0) + edge.errorsTotal)
+        nodeBytesOut.set(edge.source, (nodeBytesOut.get(edge.source) ?? 0) + edge.bytesFromSource)
+        nodeActiveFlows.set(edge.source, (nodeActiveFlows.get(edge.source) ?? 0) + edge.activeFlows)
+
+        const srcProtocols = nodeProtocols.get(edge.source) ?? {}
+        srcProtocols[edge.protocol] = (srcProtocols[edge.protocol] ?? 0) + edge.flowsTotal
+        nodeProtocols.set(edge.source, srcProtocols)
+
+        nodeRequestsIn.set(edge.target, (nodeRequestsIn.get(edge.target) ?? 0) + edge.requestsTotal)
+        nodeErrorsIn.set(edge.target, (nodeErrorsIn.get(edge.target) ?? 0) + edge.errorsTotal)
+        nodeBytesIn.set(edge.target, (nodeBytesIn.get(edge.target) ?? 0) + edge.bytesFromSource)
       }
 
       return {
+        seq,
         generatedAt: new Date(nowMs).toISOString(),
+        windowStart: new Date(nowMs - rateWindowMs).toISOString(),
+        windowEnd: new Date(nowMs).toISOString(),
         percentiles: percentiles.map((percentile) => percentile.label),
         rateWindowSeconds: rateWindowMs / 1000,
         nodes: Array.from(nodes.values())
@@ -654,26 +843,18 @@ export function createProxyTelemetry(config: ProxyTelemetryConfig = {}): ProxyTe
             inboundEdges: inboundCounts.get(node.id) ?? 0,
             outboundEdges: outboundCounts.get(node.id) ?? 0,
             lastSeenAt: node.lastSeenAt,
+            requestsOut: nodeRequestsOut.get(node.id) ?? 0,
+            requestsIn: nodeRequestsIn.get(node.id) ?? 0,
+            errorsOut: nodeErrorsOut.get(node.id) ?? 0,
+            errorsIn: nodeErrorsIn.get(node.id) ?? 0,
+            bytesOut: nodeBytesOut.get(node.id) ?? 0,
+            bytesIn: nodeBytesIn.get(node.id) ?? 0,
+            activeFlows: nodeActiveFlows.get(node.id) ?? 0,
+            protocols: nodeProtocols.get(node.id) ?? {},
           }))
           .sort((a, b) => a.id.localeCompare(b.id)),
         edges: Array.from(edges.values())
-          .map((edge) => ({
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
-            protocol: edge.protocol,
-            activeFlows: edge.activeFlows,
-            flowsTotal: edge.flowsTotal,
-            requestsTotal: edge.requestsTotal,
-            errorsTotal: edge.errorsTotal,
-            bytesFromSource: edge.bytesFromSource,
-            bytesToSource: edge.bytesToSource,
-            durationCount: edge.duration.count,
-            durationSumSeconds: edge.duration.sum,
-            latency: summarizeLatency(edge.duration, percentiles),
-            rates: summarizeRates(edge.rates, nowMs, rateWindowMs),
-            lastSeenAt: edge.lastSeenAt,
-          }))
+          .map((edge) => buildEdgeSnapshot(edge, nowMs))
           .sort((a, b) =>
             a.source.localeCompare(b.source)
             || a.target.localeCompare(b.target)

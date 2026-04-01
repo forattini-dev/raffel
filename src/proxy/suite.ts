@@ -8,7 +8,7 @@ import {
   createOrReuseProxyTelemetry,
   type ProxyTelemetryOptionsBase,
 } from './telemetry-options.js'
-import type { ProxyGraphSnapshot } from './telemetry.js'
+import type { ProxyGraphSnapshot, ProxyTelemetryListener } from './telemetry.js'
 import type { ProxyStats } from './types.js'
 
 export interface ProxySuiteTelemetryOptions extends ProxyTelemetryOptionsBase {
@@ -32,6 +32,7 @@ export interface ProxySuite {
   start(): Promise<{ explicitPort: number; socks5Port: number }>
   stop(drainTimeoutMs?: number): Promise<void>
   graphSnapshot(): ProxyGraphSnapshot
+  subscribe(listener: ProxyTelemetryListener): () => void
 }
 
 function sumStats(...parts: ProxyStats[]): ProxyStats {
@@ -106,6 +107,10 @@ export function createProxySuite(options: ProxySuiteOptions): ProxySuite {
 
     graphSnapshot(): ProxyGraphSnapshot {
       return collector?.snapshot() ?? explicit.graphSnapshot()
+    },
+
+    subscribe(listener: ProxyTelemetryListener): () => void {
+      return collector?.subscribe(listener) ?? explicit.subscribe(listener)
     },
 
     get metricsRegistry(): MetricRegistry | null {
