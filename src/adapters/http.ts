@@ -27,6 +27,11 @@ import {
 
 const logger = createLogger('http-adapter')
 
+type ClosableHttpServer = Server & {
+  closeIdleConnections?: () => void
+  closeAllConnections?: () => void
+}
+
 type RateLimitHeaderInfo = {
   limit?: number
   remaining?: number
@@ -830,11 +835,14 @@ export function createHttpAdapter(
     async stop(): Promise<void> {
       return new Promise((resolve) => {
         if (server) {
-          server.close(() => {
+          const activeServer = server as ClosableHttpServer
+          activeServer.closeIdleConnections?.()
+          activeServer.close(() => {
             logger.info('HTTP server stopped')
             server = null
             resolve()
           })
+          activeServer.closeAllConnections?.()
         } else {
           resolve()
         }

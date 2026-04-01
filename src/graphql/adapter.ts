@@ -47,6 +47,11 @@ import {
 const logger = createLogger('graphql-adapter')
 const CONNECTION_INIT_KEY = Symbol.for('raffel.connection_init')
 
+type ClosableHttpServer = Server & {
+  closeIdleConnections?: () => void
+  closeAllConnections?: () => void
+}
+
 class GraphQLAdapterError extends Error {
   code: string
   status: number
@@ -628,9 +633,12 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
       }
 
       if (server) {
+        const activeServer = server as ClosableHttpServer
+        activeServer.closeIdleConnections?.()
         await new Promise<void>((resolve) => {
-          server!.close(() => resolve())
+          activeServer.close(() => resolve())
         })
+        activeServer.closeAllConnections?.()
         server = null
         address = null
         logger.info('GraphQL server stopped')

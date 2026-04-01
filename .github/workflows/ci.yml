@@ -45,10 +45,12 @@ jobs:
         run: pnpm run bench:ci
 
       - name: Run Tests
-        run: pnpm test
+        run: |
+          pnpm test
+          pnpm run test:int
 
       - name: Run Coverage Gate (90%)
-        run: pnpm test:coverage
+        run: pnpm run test:coverage
 
   release-next:
     name: Release Next

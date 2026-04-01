@@ -15,52 +15,51 @@
 
 ---
 
-## What Raffel Gives You (in One Runtime)
+## Why Raffel
 
-Raffel is one runtime that starts as an API framework and scales into an edge + observability layer.
+Raffel starts as a clean TypeScript server runtime and grows into a full edge, proxy, and traffic-intelligence stack without forcing you into separate products.
 
-## MCP as Universal Discovery Layer
+With the same project, you can ship:
 
-Before implementation, use MCP to choose the right path:
+- HTTP APIs, WebSocket apps, gRPC services, JSON-RPC, GraphQL, TCP, and UDP
+- reverse proxy, explicit proxy, CONNECT MITM, SOCKS5/SOCKS5h, and transparent interception
+- service-mesh style telemetry with `source -> destination -> protocol` graphs, percentiles, bytes, throughput, and error rates
+- production controls like rate limit, retry, circuit breaker, timeout, validation, auth/session, and health checks
+- local DX tools for inspect, doctor, playground, discovery routing, mocks, and MCP-assisted implementation
 
-- `raffel_feature_catalog`: map feature surface by protocol/proxy/observability/security.
-- `raffel_proxy_capabilities`: compare reverse, explicit, SOCKS5, and transparent behavior in one view.
-- `raffel_get_guide`: jump directly to the exact guide topic for implementation.
-- `raffel_search`: find parameter and configuration details instantly.
+That makes Raffel useful in three very different roles:
 
-That makes onboarding, architecture decisions, and production hardening discoverable from one place.
+- an application runtime
+- an edge and proxy layer
+- an observability plane for traffic between services
 
-### Snapshot of capabilities
+## MCP: Find The Right Feature Fast
 
-| Layer | Capabilities |
-|---|---|
-| **API & protocols** | HTTP/Fetch, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, UDP, and single-port protocol sniffing |
-| **Proxy and network modes** | Reverse proxy (HTTP/HTTPS), explicit HTTP forward + CONNECT (with MITM), SOCKS5/SOCKS5h (CONNECT/BIND/UDP ASSOCIATE), transparent TCP interception |
-| **Service-mesh analytics** | Edge graph by **`source → destination → protocol`**, latency percentiles (`p50/p90/p95`), throughput, bytes, errors, and failure-rate |
-| **Reliability governance** | rate limit, circuit breaker, retry/backoff, timeout, cache, validation, auth/session, connection filters, health checks |
-| **Productivity surface** | MCP tooling, discovery/file routing, inspection tools (`inspect`, `doctor`, `playground`), contract-first mocks |
+Raffel ships with an MCP server so agents and internal tools can discover the right surface before generating code.
 
-### In one line: what you can ship with this stack
+- `raffel_feature_catalog` maps the platform by protocol, proxy, observability, security, and DX.
+- `raffel_proxy_capabilities` compares reverse, explicit, SOCKS5/SOCKS5h, transparent, telemetry, and middleware coverage.
+- `raffel_get_guide` jumps straight to the implementation guide you need.
+- `raffel_search` finds exact flags, option names, and example snippets.
 
-- **A full API platform** with one handler model across REST, realtime, streams, and procedures.
-- **A production edge layer** with HTTP/HTTPS, explicit proxy, SOCKS5h, and transparent interception.
-- **A service-mesh telemetry plane** for origin → destination reporting and protocol-level graphing.
-- **An operations platform** with resilience, tracing, and automated debugging workflows.
+This is the fastest way to answer questions like "should this be reverse proxy, explicit proxy, or SOCKS5?" or "where do I enable p95 and graph edges?"
 
-### What stays off by default
+## Heavy Features Stay Off Until You Ask
 
-To keep servers light, telemetry is **opt-in** on proxy modes.
+Raffel does not enable expensive proxy observability paths by default.
 
-- Reverse/explicit/SOCKS5/transparent run without heavy metric collectors unless `telemetry` is configured.
-- The same applies to graph snapshots, Prometheus endpoints, and extra edge-state buffers.
-- You pay for observability only where you enable it.
+- proxy telemetry is off unless you configure `telemetry`
+- Prometheus exporters and graph snapshots are off unless you expose them
+- proxy middleware only runs when you configure `middleware`
 
-### Start fast from the documentation map
+You only pay the memory and CPU cost for the edge features you actually turn on.
 
-1. **Protocols:** [HTTP](https://forattini-dev.github.io/raffel/#/protocols/http), [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket), [gRPC](https://forattini-dev.github.io/raffel/#/protocols/grpc), [UDP](https://forattini-dev.github.io/raffel/#/protocols/udp)
-2. **Proxy family:** [Proxy overview](https://forattini-dev.github.io/raffel/#/proxy), [Modes](https://forattini-dev.github.io/raffel/#/proxy/modes), [Routing](https://forattini-dev.github.io/raffel/#/proxy/routing), [Service mesh with proxies](https://forattini-dev.github.io/raffel/#/proxy/service-mesh)
-3. **Traffic intelligence:** [Flow metrics](https://forattini-dev.github.io/raffel/#/proxy/flow-metrics), [Observability](https://forattini-dev.github.io/raffel/#/observability), [Tracing](https://forattini-dev.github.io/raffel/#/observability/tracing)
-4. **Hardening and governance:** [Interceptors](https://forattini-dev.github.io/raffel/#/interceptors), [TLS](https://forattini-dev.github.io/raffel/#/proxy/tls), [Troubleshooting](https://forattini-dev.github.io/raffel/#/proxy/troubleshooting)
+## Documentation Map
+
+- **Build application protocols:** [HTTP](https://forattini-dev.github.io/raffel/#/protocols/http), [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket), [gRPC](https://forattini-dev.github.io/raffel/#/protocols/grpc), [UDP](https://forattini-dev.github.io/raffel/#/protocols/udp)
+- **Design your proxy stack:** [Proxy overview](https://forattini-dev.github.io/raffel/#/proxy), [Modes](https://forattini-dev.github.io/raffel/#/proxy/modes), [Routing](https://forattini-dev.github.io/raffel/#/proxy/routing), [Service mesh](https://forattini-dev.github.io/raffel/#/proxy/service-mesh)
+- **Observe live traffic:** [Flow metrics](https://forattini-dev.github.io/raffel/#/proxy/flow-metrics), [Observability](https://forattini-dev.github.io/raffel/#/observability), [Tracing](https://forattini-dev.github.io/raffel/#/observability/tracing)
+- **Harden for production:** [Interceptors](https://forattini-dev.github.io/raffel/#/interceptors), [TLS](https://forattini-dev.github.io/raffel/#/proxy/tls), [Troubleshooting](https://forattini-dev.github.io/raffel/#/proxy/troubleshooting)
 
 ## Start with HTTP
 

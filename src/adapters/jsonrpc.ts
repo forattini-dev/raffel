@@ -28,6 +28,11 @@ export const HttpMetadataKey = createExtensionKey<Record<string, string>>('http-
 
 const logger = getLogger().child({ component: 'jsonrpc-adapter' })
 
+type ClosableHttpServer = Server & {
+  closeIdleConnections?: () => void
+  closeAllConnections?: () => void
+}
+
 // === JSON-RPC 2.0 Types ===
 
 /**
@@ -488,11 +493,14 @@ export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOpti
           return
         }
 
-        server.close(() => {
+        const activeServer = server as ClosableHttpServer
+        activeServer.closeIdleConnections?.()
+        activeServer.close(() => {
           logger.info('JSON-RPC server stopped')
           server = null
           resolve()
         })
+        activeServer.closeAllConnections?.()
       })
     },
 
