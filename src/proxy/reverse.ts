@@ -22,7 +22,7 @@ import type { ProxyFilter } from './utils/access-control.js'
 import type { ProxyStats } from './types.js'
 import type { ProxyGraphSnapshot } from './telemetry.js'
 import type { ProxyMiddleware } from './middleware.js'
-import { generateCertificate } from '../utils/certs.js'
+import { resolveTlsOptions } from '../utils/tls.js'
 
 type ReverseProxyServerInstance = HttpServer | HttpsServer
 
@@ -590,32 +590,6 @@ async function resolveReverseProxyTls(
 ): Promise<HttpsServerOptions | undefined> {
   if (rawTls === undefined) return undefined
 
-  const cert = rawTls.cert !== undefined
-    ? rawTls.cert
-    : rawTls.certFile
-      ? await readFile(rawTls.certFile, 'utf-8')
-      : undefined
-  const key = rawTls.key !== undefined
-    ? rawTls.key
-    : rawTls.keyFile
-      ? await readFile(rawTls.keyFile, 'utf-8')
-      : undefined
-
-  let resolvedCert = cert
-  let resolvedKey = key
-  if (!resolvedCert && !resolvedKey) {
-    const generated = await generateCertificate(hostHint || 'localhost')
-    resolvedCert = generated.cert
-    resolvedKey = generated.key
-  }
-
-  if (!resolvedCert || resolvedCert.trim().length === 0) {
-    throw new Error('server.tls.cert is required')
-  }
-  if (!resolvedKey || resolvedKey.trim().length === 0) {
-    throw new Error('server.tls.key is required')
-  }
-
   const caFromInline = rawTls.ca
   const caFromFiles = rawTls.caFile
     ? Array.isArray(rawTls.caFile)
@@ -644,9 +618,17 @@ async function resolveReverseProxyTls(
     }
   }
 
+  const resolved = await resolveTlsOptions({
+    host: hostHint || 'localhost',
+    cert: rawTls.cert,
+    key: rawTls.key,
+    certFile: rawTls.certFile,
+    keyFile: rawTls.keyFile,
+  })
+
   const tlsOptions: HttpsServerOptions = {
-    cert: resolvedCert.trim(),
-    key: resolvedKey.trim(),
+    cert: resolved.cert,
+    key: resolved.key,
     requestCert: rawTls.requestCert,
     rejectUnauthorized: rawTls.rejectUnauthorized,
     minVersion: rawTls.minVersion,
