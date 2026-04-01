@@ -26,6 +26,45 @@ const reverse = await createReverseProxy(config)
 await reverse.start()
 ```
 
+## Recursos desativados por padrão
+
+No código abaixo, o `createReverseProxy` sobe apenas roteamento e handlers de
+proxy. A telemetria é **opcional** e não consome memória se não for explicitada.
+
+```ts
+const reverse = await createReverseProxy(parseReverseProxyConfig({
+  server: { host: '127.0.0.1', port: 3000 },
+  routes: [
+    {
+      match: { host: 'api.internal.local', pathPrefix: '/v1' },
+      target: 'http://127.0.0.1:4100',
+    },
+  ],
+}))
+```
+
+Para ativar coleta, exponha `proxy.telemetry` no bloco `proxy`.
+
+```ts
+const reverse = await createReverseProxy(parseReverseProxyConfig({
+  server: { host: '127.0.0.1', port: 3000 },
+  routes: [
+    {
+      match: { host: 'api.internal.local', pathPrefix: '/v1' },
+      target: 'http://127.0.0.1:4100',
+    },
+  ],
+  proxy: {
+    telemetry: {
+      sourceHeader: 'x-service-name',
+      percentiles: ['p50', 'p90', 'p95'],
+      metricsEndpoint: '/metrics',
+      graphEndpoint: '/proxy/graph',
+    },
+  },
+}))
+```
+
 ## TLS com certificado automático
 
 ```ts

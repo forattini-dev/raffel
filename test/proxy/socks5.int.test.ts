@@ -350,6 +350,14 @@ async function closeUdpSocket(sock: UdpSocket | null): Promise<void> {
 }
 
 describe('SOCKS5 Proxy', () => {
+  it('starts without telemetry by default', async () => {
+    expect(proxy.metricsRegistry).toBeNull()
+
+    const snapshot = proxy.graphSnapshot()
+    expect(snapshot.nodes).toEqual([])
+    expect(snapshot.edges).toEqual([])
+  })
+
   it('tunnels to upstream via hostname (ATYP 0x03)', async () => {
     const sock = await socks5Connect(proxyPort, '127.0.0.1', upstream.port)
     const p = readAll(sock)

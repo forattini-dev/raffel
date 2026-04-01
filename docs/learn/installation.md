@@ -177,6 +177,43 @@ EXPOSE 3000
 CMD ["node", "dist/index.js"]
 ```
 
+## Build of single executable (SEA)
+
+To ship a standalone CLI binary with Node's SEA (Single Executable Applications), run:
+
+```bash
+pnpm run sea
+```
+
+This command does:
+
+1. `pnpm run build`
+2. generates SEA blob with `scripts/sea.config.json`
+3. injects the blob into a copied Node executable (same toolchain used by your current `node`)
+4. creates:
+   - `dist/sea/raffel` on Linux/macOS
+   - `dist/sea/raffel.exe` on Windows
+
+Prerequisite:
+
+```bash
+pnpm add -D @vercel/postject
+```
+
+Usage examples:
+
+```bash
+./dist/sea/raffel inspect src/server.ts
+# or on Windows
+dist\\sea\\raffel.exe inspect src/server.ts
+```
+
+Notes:
+
+- SEA generation needs Node 20+.
+- The binary contains the current CLI entrypoint (`dist/mcp/cli.js`).
+- The generated binary is not a full redistribution for every environment; run on a compatible OS/arch and test with your deployment target before shipping.
+
 ---
 
 ## Next Steps

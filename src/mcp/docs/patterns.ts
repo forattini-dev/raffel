@@ -1,8 +1,7 @@
 /**
  * Raffel MCP - API Patterns Documentation
  *
- * CRITICAL: These patterns teach AI how to correctly construct Raffel code.
- * Each pattern shows correct and incorrect examples to prevent invalid code generation.
+ * API patterns with correct and incorrect examples for valid Raffel construction.
  */
 
 import type { PatternDoc } from '../types.js'

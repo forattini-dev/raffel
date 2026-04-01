@@ -208,10 +208,6 @@ export type CategoryName =
   | 'docs' // Documentation tools
   | 'codegen' // Code generation tools
   | 'architecture' // Architecture and project planning
-  | 'adapters' // Adapter-related tools
-  | 'middleware' // Interceptor tools
-  | 'validation' // Validation tools
-  | 'observability' // Metrics, tracing, logging
   | 'full' // All tools
 
 export interface CategoryDefinition {

@@ -56,6 +56,42 @@ const GUIDE_TOPIC_ALIASES: Record<string, string> = {
   'proxy-docs': 'proxy',
   'proxy-guide': 'proxy',
   'traefik': 'proxy',
+  'proxy-modes': 'proxy',
+  'proxy-suite': 'proxy',
+  'proxy-mesh': 'proxy',
+  'proxy-service-mesh': 'proxy',
+  'service-mesh': 'proxy',
+  'proxy-flow-metrics': 'proxy',
+  'flow-metrics': 'proxy',
+  'mitm-capture': 'proxy',
+  'capture-replay': 'proxy',
+  'proxy-capture': 'proxy',
+  'proxy-replay': 'proxy',
+  'proxy-telemetry': 'proxy',
+  'proxy-graph': 'proxy',
+  'proxy-capabilities': 'proxy-capabilities',
+  'proxy-capability': 'proxy-capabilities',
+  'proxy-matrix': 'proxy-capabilities',
+  'matrix': 'proxy-capabilities',
+  'capability-matrix': 'proxy-capabilities',
+  'proxy-observability': 'proxy-observability',
+  'proxy-metrics': 'proxy-observability',
+  'proxy-metrics-graph': 'proxy-observability',
+  'graph-metrics': 'proxy-observability',
+  'feature-map': 'feature-map',
+  'feature-matrix': 'feature-map',
+  'feature-maps': 'feature-map',
+  'mcp-intelligence': 'mcp-intelligence',
+  'mcp-surface': 'mcp-intelligence',
+  'mcp-guide': 'mcp-intelligence',
+  'mitm': 'proxy',
+  'socks5': 'proxy',
+  'socks5h': 'proxy',
+  'socks5-proxy': 'proxy',
+  'explicit-proxy': 'proxy',
+  'transparent-proxy': 'proxy',
+  'http-proxy': 'proxy',
+  'https-proxy': 'proxy',
 }
 
 function normalizeGuideTopic(topic: string): string {
@@ -108,8 +144,35 @@ function refreshGuideResources(): void {
       topic: 'proxy',
       name: 'Reverse Proxy Guide',
       description:
-        'Run HTTPS/HTTP edge routing with host/path/method rules, from JSON/YAML or programmatic config, with optional auto TLS generation.',
+        'Run HTTP/HTTPS ingress + CONNECT/WebSocket flows and discover related explicit/SOCKS5/transparent/service mesh modes with shared observability.',
       content: PROXY_GUIDE,
+    },
+    {
+      topic: 'proxy-capabilities',
+      name: 'Proxy Capabilities Matrix',
+      description: 'Mode × protocol coverage, opt-in telemetry, and shared collectors across reverse, explicit, socks5, and transparent flows.',
+      content: PROXY_CAPABILITIES_GUIDE,
+    },
+    {
+      topic: 'proxy-observability',
+      name: 'Proxy Observability',
+      description:
+        'Edge labels, source→destination→protocol graphing, p50/p90/p95 guidance, error rates, and exported metric families.',
+      content: PROXY_OBSERVABILITY_GUIDE,
+    },
+    {
+      topic: 'feature-map',
+      name: 'Feature Map',
+      description:
+        'Raffel feature surface by area: protocols, proxy, observability, security, and production DX workflow.',
+      content: FEATURE_MAP_GUIDE,
+    },
+    {
+      topic: 'mcp-intelligence',
+      name: 'MCP Intelligence Layer',
+      description:
+        'Use Raffel MCP to discover capabilities across docs, protocols, interceptors, codegen, and proxy telemetry before generating implementation.',
+      content: MCP_INTELLIGENCE_GUIDE,
     },
     {
       topic: 'mock-server',
@@ -845,69 +908,120 @@ pnpm remove socket.io socket.io-client
 
 const PROXY_GUIDE = `# Reverse Proxy Guide
 
-Raffel ships a native reverse proxy mode in \`createReverseProxy\` for edge traffic.
-It supports both:
+Raffel ships a proxy toolkit, where the reverse proxy is the HTTP/HTTPS edge and all proxy engines can share policy, filtering, and telemetry conventions.
+
+Current modules:
+
+- \`createReverseProxy\` (edge ingress for HTTP/HTTPS, CONNECT, WebSocket)
+- \`createExplicitProxy\` (HTTP forward + CONNECT tunnel + upgrade forwarding)
+- \`createSocks5Proxy\` (SOCKS5 with \`CONNECT\`, \`BIND\`, and \`UDP ASSOCIATE\`)
+- \`createTransparentProxy\` (kernel-transparent TCP mode)
+- \`createProxySuite\` (explicit + socks5 with shared collector)
+- Service-mesh oriented observability via unified graph and shared collectors.
+
+## 1) Protocol matrix by mode
+
+| Capability | Reverse | Explicit | SOCKS5 | Transparent | Suite |
+|:----------|:------:|:------:|:------:|:----------:|:-----:|
+| HTTP/HTTPS ingress | ✅ | ✅ | ❌ | ❌ | ✅ |
+| CONNECT tunneling | ✅ | ✅ | ❌ | ❌ | ✅ |
+| WebSocket (\`upgrade\`) | ✅ | ✅ | ❌ | ❌ | ✅ |
+| SOCKS5h (hostname mode) | ❌ | ❌ | ✅ (socks5h) | ❌ | ✅ |
+| SOCKS5 UDP | ❌ | ❌ | ✅ (socks5-udp, socks5h-udp) | ❌ | ✅ |
+| TCP transparent | ❌ | ❌ | ❌ | ✅ | ❌ |
+
+Notes:
+- HTTP/HTTPS for reverse proxy is controlled by \`server.tls\` (see section 9).
+- Reverse routing only accepts upstream targets with \`http:\`/HTTPS schemes.
+- Transparent proxy is TCP-only.
+
+## 2) Reverse proxy (createReverseProxy)
+
+Use this for edge routing by host/path/method and Traefik-like local simulations.
+
+Supports both:
 
 - **File-driven config** (\`.json\` / \`.yaml\`) via \`loadReverseProxyConfig\`.
 - **Programmatic config** via \`parseReverseProxyConfig\`.
 
-Both modes produce the same runtime behavior and let you route by host, path, methods, and rewrites.
-
-## 1) What you get from \`createReverseProxy\`
-
-The reverse proxy is an HTTP/HTTPS listener that can handle:
-
-- normal HTTP forwarding
-- CONNECT tunneling
-- WebSocket / upgrade forwarding
-
-All flows share a single \`routes\` model, so you can keep one source of truth for ingress behavior.
-
-## 2) File config (\`loadReverseProxyConfig\`) and JSON/YAML formats
-
-Use a file when routing is part of environment/version control and the runtime should be declarative.
+Both modes produce the same runtime behavior and let you route by host/path/method and rewrites.
 
 \`\`\`ts
-import { createReverseProxy, loadReverseProxyConfig } from 'raffel'
+import { createReverseProxy, loadReverseProxyConfig, parseReverseProxyConfig } from 'raffel'
 
-const config = await loadReverseProxyConfig('./infra/reverse-proxy.yaml')
-const reverse = await createReverseProxy(config)
-await reverse.start()
-\`\`\`
-
-Supported format rules:
-
-- \`.json\` and \`.yaml\`/\`.yml\`
-- when extension is unknown, JSON is detected when file starts with \`{\` or \`[\`, otherwise YAML
-- \`server.host\` and \`server.port\` are mandatory
-- \`routes\` is mandatory and must contain at least one route
-
-## 3) Programmatic config (\`parseReverseProxyConfig\`)
-
-Use this for generated configs or early validation before bootstrap.
-
-\`\`\`ts
-import { createReverseProxy, parseReverseProxyConfig } from 'raffel'
-
-const raw = {
+const reverseFromFile = await loadReverseProxyConfig('./infra/reverse-proxy.yaml')
+const reverseFromCode = parseReverseProxyConfig({
   server: { host: '0.0.0.0', port: 3443 },
-  routes: [
-    {
-      match: { host: 'api.internal.local', pathPrefix: '/v1' },
-      target: 'http://127.0.0.1:4100',
-      stripPrefix: '/v1',
-    },
-  ],
-}
+  routes: [{ match: { host: 'api.internal.local', pathPrefix: '/v1' }, target: 'http://127.0.0.1:4100' }],
+})
 
-const config = parseReverseProxyConfig(raw)
-const reverse = await createReverseProxy(config)
-await reverse.start()
+await (await createReverseProxy(reverseFromFile)).start()
+await (await createReverseProxy(reverseFromCode)).start()
 \`\`\`
 
-\`parseReverseProxyConfig\` will validate and normalize, so \`createReverseProxy\` only starts a running listener.
+## 3) Explicit proxy (createExplicitProxy)
 
-## 4) Route matching by host, path, and method
+\`createExplicitProxy\` is useful when you need classic HTTP proxy client support:
+
+- absolute-form HTTP proxy requests
+- CONNECT tunneling
+- protocol upgrades (WebSocket)
+
+\`\`\`ts
+import { createExplicitProxy } from 'raffel'
+
+const explicit = createExplicitProxy({
+  host: '127.0.0.1',
+  port: 3128,
+  forward: {
+    maxBodySize: 4 * 1024 * 1024,
+  },
+  tunnel: {
+    mode: 'forward',
+  },
+  telemetry: { sourceHeader: 'x-service-name' },
+})
+
+await explicit.start()
+\`\`\`
+
+## 4) SOCKS5 proxy (createSocks5Proxy)
+
+Use this for SOCKS5 and SOCKS5h clients, including UDP-associate flows.
+
+\`\`\`ts
+import { createSocks5Proxy } from 'raffel'
+
+const socks5 = createSocks5Proxy({
+  host: '127.0.0.1',
+  port: 1080,
+  onConnect: (info) => {
+    console.log('SOCKS5 connected', info)
+  },
+})
+
+await socks5.start()
+\`\`\`
+
+## 5) Transparent proxy (createTransparentProxy)
+
+For Linux environments where you want original destination interception:
+
+\`\`\`ts
+import { createTransparentProxy } from 'raffel'
+
+const transparent = createTransparentProxy({
+  host: '0.0.0.0',
+  port: 15001,
+  mode: 'tproxy',
+})
+
+await transparent.start()
+\`\`\`
+
+## 6) Route matching by host, path, and method
+
+Reverse routing is selected in declaration order and stops at the first match.
 
 Routes are matched in order and stop at the first hit.
 
@@ -933,7 +1047,7 @@ Routes are matched in order and stop at the first hit.
 - explicit \`stripPrefix: false\` disables rewrite.
 - explicit string sets exact prefix to remove.
 
-## 5) Examples for common Traefik-like patterns
+## 7) Examples for common Traefik-like patterns
 
 ### Different subdomains, same path
 
@@ -966,7 +1080,7 @@ Routes are matched in order and stop at the first hit.
 ]
 \`\`\`
 
-## 6) No-match behavior
+## 8) No-match behavior
 
 Customize missing-route responses with \`noMatch\`.
 
@@ -981,7 +1095,53 @@ Customize missing-route responses with \`noMatch\`.
 
 \`{route}\` in body is replaced with the route reason (\`request\`, \`connect\`, etc.).
 
-## 7) HTTPS and automatic TLS
+## 9) MITM, capture and replay (Explicit CONNECT proxy)
+
+\`createExplicitProxy\` exposes a CONNECT tunnel (\`createConnectTunnel\`) with two modes:
+
+- \`forward\` (raw TLS forwarding)
+- \`mitm\` (local TLS termination + request intercept)
+
+In \`mitm\` mode you can use:
+
+- \`onRequest\`/\`onResponse\` hooks for inspection/mutation
+- \`validate\` for JSON payload validation
+- \`mitmCapture\` for persistence/replay workflows
+
+\`\`\`ts
+import { createExplicitProxy } from 'raffel'
+
+const explicit = createExplicitProxy({
+  port: 3128,
+  tunnel: {
+    mode: 'mitm',
+    mitmCapture: {
+      enabled: true,
+      mode: 'capture-only',
+      file: './capture/requests.ndjson',
+    },
+  },
+})
+
+await explicit.start()
+await explicit.tunnel.startCapture({
+  file: './capture/requests.ndjson',
+  mode: 'passthrough',
+})
+await explicit.tunnel.replayCapture({
+  file: './capture/requests.ndjson',
+  timeoutMs: 15_000,
+})
+const captureState = explicit.tunnel.getCaptureState()
+\`\`\`
+
+About local HTTPS and trust:
+
+- createExplicitProxy generates the proxy MITM CA (\`caCert\`) automatically in tunnel mode.
+- For development, clients can use \`rejectUnauthorized: false\` temporarily.
+- For production, use trusted certificates at the reverse-proxy ingress and explicit trust stores.
+
+## 10) HTTPS and automatic TLS (Reverse proxy)
 
 \`server.tls\` controls HTTPS:
 
@@ -1027,22 +1187,28 @@ server: {
 }
 \`\`\`
 
-## 8) Shared proxy options for all flows
+## 11) Shared proxy options and rollout
 
-\`proxy\` options are shared with the explicit proxy internals:
+\`proxy\` options unify policy and observability for \`createReverseProxy\` and \`createExplicitProxy\`:
 
-- \`auth\`
-- \`filter\`
-- \`forward\`
-- \`tunnel\`
-- \`upgrade\`
-- \`telemetry\`
+- \`auth\` (shared Basic auth model)
+- \`filter\` (host/TLD/method-based access rules)
+- \`forward\` (HTTP request forwarding tuning)
+- \`tunnel\` (CONNECT mode and CA handling)
+- \`upgrade\` (WebSocket handshake handling)
+- \`telemetry\` (metrics + graph + node labels)
 
-Use this to keep access rules and observability consistent between reverse and explicit flows.
+Example:
 
 \`\`\`json
 {
   "proxy": {
+    "auth": {
+      "credentials": {
+        "username": "admin",
+        "password": "secret"
+      }
+    },
     "filter": {
       "allowHosts": ["api.internal.local"],
       "denyTLDs": ["ru"]
@@ -1056,25 +1222,158 @@ Use this to keep access rules and observability consistent between reverse and e
 }
 \`\`\`
 
-## 9) Rollout checklist
+## 12) Rollout checklist
 
 - Start local with one route and explicit \`host\` and \`path\`.
 - Add TLS (\`server.tls\`) only after route match order is validated.
 - Keep \`noMatch\` explicit to avoid leaking upstream errors.
+- Start with CONNECT and WebSocket checks before adding TLS passthrough flows.
 - Move to method-level splits once path-only routing is stable.
-- Add observability endpoints last, after production trust and service ownership are in place.
+- Add observability endpoints last, after protocol-level ownership is defined.
 - Run canary comparing old/new edge behavior before full cutover.
+- Validate SOCKS5 and UDP flows in an isolated test harness when enabled.
 
-## 10) Next docs
+## 13) Service mesh and flow observability
+
+For service-mesh style visibility, pair explicit and SOCKS5 proxies with shared collectors and graph snapshots:
+
+- \`createTransparentProxy\` for kernel-level TCP interception (where supported)
+- \`createProxySuite\` for explicit+SOCKS5 unified telemetry
+- \`graphSnapshot()\` for topology and edge labels (\`source\`, \`destination\`, \`protocol\`)
+
+Protocol labels include \`http\`, \`https\`, \`connect\`, \`ws\`, \`wss\`, \`socks5\`, \`socks5h\`, \`socks5-udp\`, \`socks5h-udp\`, and \`tcp\`.
+
+## 14) Next docs
 
 - [Configuração por Arquivo](/proxy/config-file.md)
 - [Configuração Programática](/proxy/config-code.md)
 - [Roteamento](/proxy/routing.md)
 - [TLS/HTTPS](/proxy/tls.md)
 - [Arquitetura](/proxy/architecture.md)
+- [Modos de Proxy](/proxy/modes.md)
+- [Service Mesh](/proxy/service-mesh.md)
+- [Métricas e Grafo](/proxy/flow-metrics.md)
 - [Operação e Integração](/proxy/operations.md)
 - [Troubleshooting](/proxy/troubleshooting.md)
 - [Migração de Traefik](/migration/traefik-replacement.md)
+`
+
+const MCP_INTELLIGENCE_GUIDE = `# MCP Intelligence Layer
+
+MCP is the single place to discover what Raffel can do before choosing implementation details.
+
+When you ask Raffel MCP:
+
+- \`raffel_feature_catalog\` gives a complete feature map and points to the right paths.
+- \`raffel_proxy_capabilities\` returns the protocol matrix and telemetry surface.
+- \`raffel_get_guide\` resolves detailed documentation by topic.
+
+Recommended flow:
+
+1. Start with \`raffel_feature_catalog\` (\`scope=all\`) to map where your need sits.
+2. Open implementation-specific guides with \`raffel_get_guide\`.
+3. Use \`raffel_search\` for parameter-level details and examples.
+
+This keeps users productive because discovery and execution stay aligned with the same vocabulary.
+
+## What the MCP surface can answer
+
+- Protocols and adapters
+- Proxy modes: reverse, explicit, SOCKS5/SOCKS5h, transparent
+- Flow telemetry: edges, durations, rates, and error signals
+- Security and policy patterns (auth, session, filters, TLS)
+- Runtime DX: bootstraps, migration patterns, testing and project scaffolding
+`
+
+const FEATURE_MAP_GUIDE = `# Raffel Feature Map
+
+Raffel is one runtime with five practical surfaces:
+
+- **Protocol Surface**: HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, UDP.
+- **Proxy Surface**: edge ingress, forward proxy, SOCKS5/SOCKS5h, transparent TCP, and unified suite mode.
+- **Observability Surface**: metrics, graph snapshots, tracing, and request duration/error workflows.
+- **Security Surface**: authentication, sessions, TLS, access filters, and guard patterns.
+- **DX Surface**: codegen, patterns, interceptors, migration helpers, and MCP-guided onboarding.
+
+Use these entry topics:
+
+- \`proxy\` for transport and edge setup
+- \`proxy-capabilities\` for matrix and capabilities
+- \`proxy-observability\` for edge metrics and error rates
+- \`feature-map\` for periodic team reviews
+- \`mcp-intelligence\` for the MCP workflow itself
+`
+
+const PROXY_CAPABILITIES_GUIDE = `# Proxy Capability Matrix
+
+The proxy toolkit exposes four execution classes and a unified telemetry model:
+
+- reverse proxy
+- explicit proxy
+- SOCKS5/SOCKS5h proxy
+- transparent TCP proxy
+- suite (explicit + socks5 with shared collector)
+
+### Mode × Protocol Matrix
+
+| Capability | Reverse | Explicit | SOCKS5(SOCKS5h) | Transparent | Suite |
+|---|:---:|:---:|:---:|:---:|:---:|
+| HTTP/HTTPS ingress | ✅ | ✅ | ❌ | ❌ | ✅ |
+| CONNECT tunneling | ✅ | ✅ | ❌ | ❌ | ✅ |
+| WebSocket upgrade | ✅ | ✅ | ❌ | ❌ | ✅ |
+| SOCKS5 + UDP ASSOCIATE | ❌ | ❌ | ✅ | ❌ | ✅ |
+| TCP transparent capture | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Shared collector/graph | optional | optional | optional | optional | ✅ |
+
+### Metrics and graph defaults
+
+- Telemetry is opt-in by design.
+- \`proxy.telemetry\` enables collectors for metrics and graph snapshots.
+- Shared \`collector\` can consolidate reverse + explicit + socks5 + transparent state.
+
+Useful options:
+
+- \`sourceHeader\` (\`x-service-name\` or custom marker)
+- \`resolveNode\` and \`metricsEndpoint\`
+- \`graphEndpoint\` (typically \`/proxy/graph\`)
+- \`percentiles\`: \`['p50','p90','p95']\` or \`[0.5,0.9,0.95]\`
+- \`rateWindowSeconds\`
+`
+
+const PROXY_OBSERVABILITY_GUIDE = `# Proxy Observability
+
+All proxy telemetry follows the same **edge model**:
+
+- **source** → **destination** → **protocol**
+- protocol values currently include \`http\`, \`https\`, \`connect\`, \`ws\`, \`wss\`, \`socks5\`, \`socks5h\`, \`socks5-udp\`, \`socks5h-udp\`, \`tcp\`
+
+### Core edge metrics
+
+- \`raffel_proxy_edge_requests_total\`
+- \`raffel_proxy_edge_active_flows\`
+- \`raffel_proxy_edge_errors_total\`
+- \`raffel_proxy_edge_flow_duration_seconds\`
+- \`raffel_proxy_edge_request_duration_seconds\`
+- \`raffel_proxy_edge_flow_rate_per_second\`
+- \`raffel_proxy_edge_request_rate_per_second\`
+- \`raffel_proxy_edge_error_rate_per_second\`
+- \`raffel_proxy_edge_failure_ratio\`
+
+### Graph payload (snapshot)
+
+Graph snapshots expose traffic by edge labels:
+
+- request and byte counters by edge
+- request/flow durations with quantiles
+- active flow state
+- optional method/status labels where available
+
+### Recommended operational checks
+
+- Start with \`createProxySuite\` for explicit + SOCKS5 with one collector.
+- Keep \`telemetry.sourceHeader\` consistent so source identity is stable across services.
+- Use p50/p90/p95 on duration families for SLA/SLO conversations.
+- Pair with \`error_rate\` and \`failure_ratio\` for incident-oriented dashboards.
 `
 
 function getGuideContent(name: string): string | null {

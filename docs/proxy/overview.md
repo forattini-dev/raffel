@@ -4,17 +4,30 @@ Esta seção reúne a família de proxies da Raffel em um guia único:
 
 - roteamento HTTP/HTTPS de borda (`createReverseProxy`)
 - proxy explícito HTTP/CONNECT/WS (`createExplicitProxy`)
+- tunnel HTTPS com inspeção e intercept (`createConnectTunnel` em `mode: 'mitm'`)
+- captura/replay de requisições HTTPS (`capture-only`, `replayCapture`)
 - proxy SOCKS5 (TCP/UDP) (`createSocks5Proxy`)
 - proxy transparente (`createTransparentProxy`)
 - suíte unificada (`createProxySuite`)
 
 A ideia é permitir cenários de borda e malha de serviço com a mesma base de telemetria.
 
+Por padrão, **nenhum recurso de observabilidade pesado é ativado automaticamente**.
+`telemetry` só é criada quando `telemetry` é informado no modo explícito, SOCKS5,
+transparente ou via bloco `proxy` do `createReverseProxy`.
+
+Sem telemetria ativa, você evita:
+
+- criação de registradores de métricas Prometheus,
+- coleta de taxas/percentis por aresta,
+- geração de grafos de fluxo em memória.
+
 ## Leitura recomendada por intenção
 
 - **Entender a visão geral da pilha**: [Arquitetura](/proxy/architecture.md)
 - **Subir edge HTTP/HTTPS por config**: [Configuração por Arquivo](/proxy/config-file.md) e [Configuração Programática](/proxy/config-code.md)
 - **Escolher o tipo de proxy**: [Modos de Proxy](/proxy/modes.md)
+- **Entender MITM e replay**: [MITM, captura e reprodução](/proxy/mitm-capture.md)
 - **Mapear rotas e reescrita**: [Roteamento](/proxy/routing.md)
 - **HTTPS e TLS**: [TLS/HTTPS](/proxy/tls.md)
 - **Observar tráfego como grafo (origem, destino, protocolo, duração, erros, taxa)**:

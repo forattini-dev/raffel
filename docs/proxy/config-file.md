@@ -17,6 +17,16 @@ const reverse = await createReverseProxy(config)
 await reverse.start()
 ```
 
+## Telemetria é opt-in
+
+Se `proxy.telemetry` não for configurado no arquivo, o proxy sobe sem:
+
+- registradores Prometheus,
+- buffers de estado de grafo em memória,
+- endpoints internos de `/metrics` e `/proxy/graph`.
+
+Isso mantém o proxy mais leve para cenários em que só roteamento é necessário.
+
 ## Formato aceito
 
 - `.json` é tratado como JSON.
@@ -76,7 +86,9 @@ routes:
     },
     "telemetry": {
       "sourceHeader": "x-service-name",
-      "percentiles": [0.5, 0.9, 0.95]
+      "percentiles": [0.5, 0.9, 0.95],
+      "metricsEndpoint": "/metrics",
+      "graphEndpoint": "/proxy/graph"
     }
   }
 }

@@ -1,6 +1,7 @@
 # Modos de Proxy
 
-## 1) Reverse Proxy (`createReverseProxy`)
+<a id="reverse-proxy"></a>
+## Reverse Proxy (`createReverseProxy`)
 
 É o servidor de borda (edge): recebe HTTP/HTTPS e aplica roteamento por `host`, `path` e `methods`.
 
@@ -15,7 +16,8 @@ const reverse = await createReverseProxy({
 })
 ```
 
-## 2) Explicit Proxy (`createExplicitProxy`)
+<a id="explicit-proxy"></a>
+## Explicit Proxy (`createExplicitProxy`)
 
 É um proxy HTTP de camada aplicação que une três funcionalidades:
 
@@ -29,6 +31,13 @@ const reverse = await createReverseProxy({
 const explicit = createExplicitProxy({
   port: 3128,
   host: '127.0.0.1',
+  tunnel: {
+    mode: 'mitm',
+    mitmCapture: {
+      mode: 'capture-only',
+      file: './logs/requests.ndjson',
+    },
+  },
   telemetry: {
     metricsEndpoint: '/metrics',
     graphEndpoint: '/proxy/graph',
@@ -37,7 +46,51 @@ const explicit = createExplicitProxy({
 })
 ```
 
-## 3) SOCKS5 Proxy (`createSocks5Proxy`)
+### HTTPS local com MITM
+
+Quando `tunnel.mode: 'mitm'`, o `createExplicitProxy` pode inspecionar conexões TLS.
+
+`connect` é feito em túnel HTTPS com certificado gerado pelo próprio proxy (`caCert`) e
+terminado localmente para permitir inspeção de request/response, regras de hook e captura.
+
+Exemplo de captura local sem repassar:
+
+```ts
+const explicit = createExplicitProxy({
+  port: 3128,
+  tunnel: {
+    mode: 'mitm',
+    mitmCapture: {
+      enabled: true,
+      mode: 'capture-only', // não encaminha para upstream
+      file: './capture/requests.ndjson',
+    },
+  },
+})
+await explicit.start()
+```
+
+Para repassar (com validações/hooks) e ainda gravar:
+
+```ts
+explicit.tunnel.startCapture({
+  file: './capture/requests.ndjson',
+  mode: 'passthrough',
+})
+```
+
+Para reproduzir depois:
+
+```ts
+const summary = await explicit.tunnel.replayCapture({
+  file: './capture/requests.ndjson',
+  timeoutMs: 15_000,
+  rejectUnauthorized: false,
+})
+```
+
+<a id="socks5-proxy"></a>
+## SOCKS5 Proxy (`createSocks5Proxy`)
 
 Servidor SOCKS5 standalone com autenticação opcional, suporte a:
 
@@ -58,7 +111,8 @@ const socks5 = createSocks5Proxy({
 })
 ```
 
-## 4) Transparent Proxy (`createTransparentProxy`)
+<a id="transparent-proxy"></a>
+## Transparent Proxy (`createTransparentProxy`)
 
 Intercepta TCP no kernel para preservar destino original sem configuração no cliente.
 
@@ -78,14 +132,15 @@ const transparent = createTransparentProxy({
 })
 ```
 
-## 5) Proxy Suite (`createProxySuite`)
+<a id="proxy-suite"></a>
+## Proxy Suite (`createProxySuite`)
 
 Agrupa explicit + socks5 com coletor único de telemetria e snapshots.
 
 Use quando você precisa de:
 
-- `explicitPort` (HTTP/HTTPS/CONNECT/WS)
-- `socks5Port`
+- `explicit` (HTTP/HTTPS/CONNECT/WS)
+- `socks5`
 - métricas e grafo consolidados (`suite.graphSnapshot()`)
 
 ```ts

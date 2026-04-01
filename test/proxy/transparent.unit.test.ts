@@ -28,6 +28,20 @@ describe('Transparent Proxy', () => {
     expect(proxy.boundPort).toBeNull()
   })
 
+  it('starts without telemetry by default', async () => {
+    proxy = createTransparentProxy({
+      port: 0,
+      host: '127.0.0.1',
+    })
+    const port = await proxy.start()
+
+    expect(proxy.metricsRegistry).toBeNull()
+    const snapshot = proxy.graphSnapshot()
+    expect(snapshot.nodes).toEqual([])
+    expect(snapshot.edges).toEqual([])
+    expect(port).toBeGreaterThan(0)
+  })
+
   it('creates proxy in redirect mode', () => {
     proxy = createTransparentProxy({ port: 0, mode: 'redirect' })
     expect(proxy).toBeDefined()

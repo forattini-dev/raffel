@@ -30,7 +30,7 @@ export type {
 export { JsonRpcErrorCode } from './types.js'
 
 // Tools
-export { tools, toolCategories, getToolsByCategory } from './tools/index.js'
+export { tools, toolCategories, toolCategoryNames, isValidToolCategory, getToolsByCategory } from './tools/index.js'
 export { handlers } from './tools/index.js'
 
 // Resources

@@ -35,7 +35,7 @@ import type { ServiceScaffoldPreset } from '../dx/index.js'
 import { runMockCommand } from '../mock-server/cli.js'
 import { runMCPServer } from './server.js'
 import type { MCPTransportMode, CategoryName } from './types.js'
-import { toolCategories } from './tools/index.js'
+import { isValidToolCategory, toolCategories, toolCategoryNames } from './tools/index.js'
 import { MCP_VERSION } from './version.js'
 
 type DevxCommandName = 'inspect' | 'explain' | 'doctor' | 'contract-tests' | 'playground' | 'mock'
@@ -68,6 +68,43 @@ interface NewCliOptions {
   directory?: string
   force: boolean
   help: boolean
+}
+
+const MCP_CATEGORY_TOKEN_ESTIMATE: Record<string, string> = {
+  quickstart: '~1.5K',
+  minimal: '~2.5K',
+  docs: '~3K',
+  codegen: '~4K',
+  architecture: '~4.5K',
+  full: '~8K',
+}
+
+function normalizeCategoryList(rawValue: string): CategoryName[] {
+  const requested = rawValue
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+
+  const normalized: CategoryName[] = []
+  const unknown: string[] = []
+
+  for (const category of requested) {
+    if (!isValidToolCategory(category)) {
+      unknown.push(category)
+      continue
+    }
+    if (!normalized.includes(category)) {
+      normalized.push(category)
+    }
+  }
+
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown MCP category: ${unknown.join(', ')}. Available categories: ${toolCategoryNames.join(', ')}`,
+    )
+  }
+
+  return normalized
 }
 
 function isDevxCommand(value: string | undefined): value is DevxCommandName {
@@ -155,9 +192,10 @@ function parseMcpArgs(args: string[]): McpCliOptions {
       result.debug = true
     } else if (arg === '--category' || arg === '-c') {
       const value = args[++index]
-      if (value) {
-        result.category = value.split(',').map((category) => category.trim()) as CategoryName[]
+      if (!value || value.startsWith('-')) {
+        throw new Error('--category requires a comma-separated list, e.g. --category docs,codegen')
       }
+      result.category = normalizeCategoryList(value)
     } else if (arg === '--quickstart' || arg === '-q') {
       result.category = ['quickstart']
     } else if (arg === '--list-categories') {
@@ -342,18 +380,16 @@ Available Tool Categories:
 
 function printBanner(options: McpCliOptions): void {
   const categoryStr = options.category.join(', ')
-  const tokenEstimate =
-    options.category.includes('full')
-      ? '~8K'
-      : options.category.includes('quickstart')
-        ? '~1.5K'
-        : options.category.includes('codegen')
-          ? '~4K'
-          : options.category.includes('architecture')
-            ? '~4.5K'
-            : options.category.includes('docs')
-              ? '~3K'
-              : '~2.5K'
+  const tokenEstimate = options.category
+    .map((category) => MCP_CATEGORY_TOKEN_ESTIMATE[category])
+    .filter((estimate): estimate is string => Boolean(estimate))
+    .reduce((currentMax, estimate) => {
+      if (!currentMax) return estimate
+      const currentValue = Number.parseFloat(currentMax.slice(1))
+      const value = Number.parseFloat(estimate.slice(1))
+      return Number.isFinite(value) && value > currentValue ? estimate : currentMax
+    }, '')
+    || '~2.5K'
 
   console.error(`
 ╔═══════════════════════════════════════════════════════════════════╗
@@ -370,7 +406,7 @@ function printBanner(options: McpCliOptions): void {
 
   const enabledTools = new Set<string>()
   for (const category of options.category) {
-    const categoryTools = toolCategories[category as keyof typeof toolCategories] || []
+    const categoryTools = toolCategories[category]
     for (const tool of categoryTools) {
       enabledTools.add(tool)
     }

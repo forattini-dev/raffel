@@ -20,14 +20,14 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_search',
     description:
-      'Search across Raffel docs including interceptors, adapters, patterns, errors, and guides (USD, Proxy, etc.). Keywords are matched by term; quoted text is treated as an exact phrase.',
+      'Search Raffel docs, code patterns, interceptors, adapters, errors, and guides (USD, proxy toolkit, etc.).',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description:
-            'Search query (keyword mode by default, e.g., "USD", "proxy", "auth rate limit", "websocket"). Use quotes for exact phrases: `"Universal Service Documentation"`, `"reverse proxy"`.',
+            'Search query (keyword mode by default, e.g., "USD", "proxy", "reverse proxy", "socks5h", "udp associate", "websocket", "service mesh", "flow metrics", "tls"). Use quotes for exact phrases: `"Universal Service Documentation"`, `"reverse proxy"`.',
         },
         type: {
           type: 'string',
@@ -45,7 +45,8 @@ export const tools: MCPTool[] = [
   },
   {
     name: 'raffel_list_guides',
-    description: 'List all documentation guides available through the guide resource path (including proxy and migration topics).',
+    description:
+      'List all guide topics organized for fast discovery (quickstart, proxy, observability, security, migration, and more).',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -54,17 +55,59 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_get_guide',
     description:
-      'Get a full guide by topic slug (quickstart, auth, sessions, rest-api, migration, usd, proxy).',
+      'Open a full guide by topic slug (quickstart, auth, sessions, rest-api, migration, usd, proxy, observability, feature map, MCP).',
     inputSchema: {
       type: 'object',
       properties: {
         topic: {
           type: 'string',
           description:
-            'Guide topic slug (e.g., quickstart, auth, sessions, rest-api, migration, usd, proxy)',
+            'Guide topic slug (e.g., quickstart, auth, sessions, rest-api, migration, usd, proxy, proxy-capabilities, proxy-observability, feature-map, mcp-intelligence)',
         },
       },
       required: ['topic'],
+    },
+  },
+  {
+    name: 'raffel_feature_catalog',
+    description:
+      'Get a one-shot capability map (protocols, proxy, observability, security, DX) and route to the right guide/tool quickly.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'string',
+          description:
+            'Optional focus scope: protocols, proxy, observability, security, devx, all. Defaults to all.',
+          enum: ['all', 'protocols', 'proxy', 'observability', 'security', 'devx'],
+          default: 'all',
+        },
+        includePrompts: {
+          type: 'boolean',
+          description: 'Include prompt names for each feature area.',
+          default: true,
+        },
+      },
+    },
+  },
+  {
+    name: 'raffel_proxy_capabilities',
+    description:
+      'Get the proxy capability matrix (reverse, explicit, socks5, transparent, suite), transport-by-mode defaults, and telemetry shape.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeRawConfig: {
+          type: 'boolean',
+          description:
+            'Include representative config snippets for each mode (small examples, not implementation complete).',
+        },
+        includeMetrics: {
+          type: 'boolean',
+          description: 'Include exported metric families, edge labels, and p50/p90/p95 guidance.',
+          default: true,
+        },
+      },
     },
   },
   {
@@ -126,7 +169,7 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_api_patterns',
     description:
-      'CRITICAL: Get documentation on Raffel API patterns. These patterns show the correct way to construct Raffel code with correct and wrong examples. Essential for generating valid code.',
+      'Get documentation on Raffel API patterns, including correct and wrong examples for implementation.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -603,6 +646,8 @@ export const toolCategories = {
     'raffel_search',
     'raffel_list_guides',
     'raffel_get_guide',
+    'raffel_feature_catalog',
+    'raffel_proxy_capabilities',
     'raffel_list_interceptors',
     'raffel_get_interceptor',
     'raffel_list_adapters',
@@ -634,9 +679,18 @@ export const toolCategories = {
     'raffel_api_patterns',
   ],
   full: tools.map((t) => t.name),
+} as const
+
+export type MCPToolCategoryName = keyof typeof toolCategories
+export const toolCategoryNames = Object.keys(toolCategories) as MCPToolCategoryName[]
+const toolCategoryLookup = new Set<string>(toolCategoryNames)
+
+export function isValidToolCategory(category: string): category is MCPToolCategoryName {
+  return toolCategoryLookup.has(category)
 }
 
 export function getToolsByCategory(category: string): MCPTool[] {
-  const names = toolCategories[category as keyof typeof toolCategories] || toolCategories.full
+  if (!isValidToolCategory(category)) return []
+  const names = toolCategories[category] as readonly string[]
   return tools.filter((t) => names.includes(t.name))
 }

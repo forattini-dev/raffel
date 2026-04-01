@@ -414,6 +414,26 @@ interface SimpleResponse {
 }
 
 describe('Proxy Suite', () => {
+  it('does not allocate shared telemetry by default', async () => {
+    suite = createProxySuite({
+      explicit: {
+        port: 0,
+        host: '127.0.0.1',
+      },
+      socks5: {
+        port: 0,
+        host: '127.0.0.1',
+      },
+    })
+
+    await suite.start()
+    expect(suite.metricsRegistry).toBeNull()
+
+    const snapshot = suite.graphSnapshot()
+    expect(snapshot.nodes).toEqual([])
+    expect(snapshot.edges).toEqual([])
+  })
+
   it('exports a unified graph and metrics across HTTP and SOCKS5h traffic', async () => {
     upstream.get('/orders', () => ({ status: 200, body: 'orders-ok' }))
     upstream.get('/inventory', () => ({ status: 200, body: 'inventory-ok' }))
@@ -607,6 +627,7 @@ describe('Proxy Suite', () => {
       host: '127.0.0.1',
       defaultResponse: 'udp-echo',
     })
+    udpUpstream.setMessageHandler(({ data }) => Buffer.concat([Buffer.from('udp:'), data]))
 
     suite = createProxySuite({
       explicit: {
@@ -660,6 +681,9 @@ describe('Proxy Suite', () => {
       expect(parsed.host).toBe('127.0.0.1')
       expect(parsed.port).toBe(udpUpstream.port)
       expect(parsed.payload.toString()).toBe('udp:ping')
+
+      session.socket.destroy()
+      await new Promise((resolve) => setTimeout(resolve, 50))
 
       const graph = await fetchLocal('/proxy/graph', explicitPort)
       expect(graph.status).toBe(200)

@@ -25,6 +25,13 @@ export type {
   TunnelInfo,
   MitmRequest,
   MitmResponse,
+  MitmCaptureConfig,
+  MitmCaptureState,
+  StartMitmCaptureOptions,
+  ReplayMitmCaptureOptions,
+  ReplayMitmRequest,
+  ReplayMitmCaptureResult,
+  ReplayMitmCaptureEntryResult,
 } from './connect-tunnel.js'
 
 export { createSocks5Proxy } from './socks5.js'

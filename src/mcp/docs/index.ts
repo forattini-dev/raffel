@@ -15,7 +15,7 @@ export {
 // Adapters
 export { adapters, getAdapter, listAdapters } from './adapters.js'
 
-// Patterns (CRITICAL for code generation)
+// Patterns (used by API pattern helpers)
 export { patterns, getPattern, listPatterns, searchPatterns } from './patterns.js'
 
 // Errors
@@ -104,7 +104,35 @@ const docsGuideIndex = [
     type: 'guide' as const,
     name: 'Reverse Proxy',
     description:
-      'Raffel reverse proxy guide for HTTP/HTTPS routing by host/path/method, with JSON/YAML file configuration, programmatic config APIs, and automatic TLS certificate generation in local mode.',
+      'Raffel reverse-proxy and full proxy toolkit coverage: Reverse, Explicit, SOCKS5(SOCKS5h), Transparent, UDP associate, service mesh observability (graph snapshot), and shared auth/filter/telemetry behavior.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'Proxy Capability Matrix',
+    description:
+      'Mode-by-mode matrix for reverse, explicit, SOCKS5(SOCKS5h), transparent and suite usage, plus shared telemetry/collector defaults.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'Proxy Observability',
+    description:
+      'Source-destination-protocol edge model, Prometheus families, request/flow durations, and error/failure telemetry for service-mesh style views.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'Feature Map',
+    description:
+      'High-level feature surface map (protocols, proxy, observability, security, DX) with direct tool guidance for MCP-assisted discovery.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'MCP Intelligence',
+    description:
+      'How to discover Raffel capabilities through MCP before implementing: catalog, proxy matrix, guide routing, and implementation-first workflow.',
     category: 'documentation',
   },
   {

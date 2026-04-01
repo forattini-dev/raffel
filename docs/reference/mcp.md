@@ -1,19 +1,34 @@
 # MCP Server
 
-Raffel includes an MCP (Model Context Protocol) server for AI-powered development.
-It exposes **tools**, **resources**, and **prompts** that map directly to Raffel
-best practices and documentation.
+Raffel MCP is the AI-native control plane for the whole runtime: protocols, proxy modes, observability, security, and scaffolding.
+
+It exposes **tools**, **resources**, and **prompts** so an assistant can discover the right feature first and generate code after the design is clear.
 
 ---
 
 ## What is MCP?
 
-MCP is a protocol that lets AI assistants call tools and read structured resources.
-With Raffel MCP you get:
+MCP is a protocol where AI clients can call structured tools and read documented resources.
 
-- **Tools** - code generation, search, debugging
-- **Resources** - docs, patterns, adapters, interceptors, boilerplates
-- **Prompts** - guided flows for common tasks
+For Raffel, this means:
+
+- **Discovery first**: map a need (proxy mode, telemetry, auth, migration) before codegen.
+- **Canonical references**: responses always map to guides, patterns, and examples.
+- **Execution-ready output**: generated code follows real project APIs (`createServer`, interceptors, runtime config).
+
+---
+
+## One-Line Capability Surface
+
+`protocols` · `proxy` · `observability` · `security` · `dx`
+
+- `protocols`: HTTP/WebSocket/gRPC/JSON-RPC/GraphQL/TCP/UDP
+- `proxy`: reverse, explicit, SOCKS5/SOCKS5h, transparent, suite
+- `observability`: source→destination graph + edge metrics + p50/p90/p95 + error rates
+- `security`: auth/session, TLS, filters, policy checks
+- `dx`: migration, scaffolding, templates, and runtime config
+
+Use `raffel_feature_catalog` first, then jump to the right guide with `raffel_get_guide`.
 
 ---
 
@@ -25,156 +40,164 @@ With Raffel MCP you get:
 claude mcp add raffel npx raffel-mcp
 ```
 
-### Run Directly
+### Run directly
 
 ```bash
-# All tools (default)
+# Full toolset (default)
 npx raffel-mcp
 
-# Quick-start mode (recommended first step)
+# Guided first-run profile
 npx raffel-mcp --quickstart
 
-# Minimal set (getting started + errors)
+# Minimal + docs-first mode
 npx raffel-mcp --category minimal
-
-# Docs + codegen
+npx raffel-mcp --category docs
 npx raffel-mcp --category docs,codegen
-
-# Architecture planning only
-npx raffel-mcp --category architecture
-
-# HTTP transport
-npx raffel-mcp --transport http --port 3200
 ```
 
----
+- `--category full`: all tools (bigger context)
+- `--category quickstart`: guided first run (smallest, curated set)
+- `--category minimal`: small context for Q&A and quick lookups
+- `--category docs`: deep discovery and references
+- `--category codegen`: scaffolding and generator helpers
+- `--category architecture`: high-level project shape and ops decisions
 
-## Categories
-
-| Category | Description | Tokens |
-|:---------|:------------|:-------|
-| `quickstart` | Guided first-run setup + boilerplates | ~1.5K |
-| `minimal` | Essential tools only | ~2.5K |
-| `architecture` | Project structure + config guidance | ~4.5K |
-| `docs` | Documentation + patterns | ~3K |
-| `codegen` | Code generation helpers | ~4K |
-| `full` | All tools | ~8K |
-
-See full category contents:
+### Run by transport
 
 ```bash
+npx raffel-mcp --transport stdio
+npx raffel-mcp --transport http --port 3200
+npx raffel-mcp --transport sse --port 3200
 npx raffel-mcp --list-categories
 ```
 
+`npx raffel mcp` and `npx raffel-mcp` are equivalent binaries.
+
 ---
 
-## Tools
+## Tool Families
 
-### Documentation & Reference
+### 1) Discovery
 
-| Tool | Description |
-|:-----|:------------|
-| `raffel_getting_started` | Quickstart guide |
-| `raffel_search` | Search across Raffel docs (interceptors, adapters, patterns, errors, guides). Supports keyword search and quoted phrases, optional `type` filter and `limit`. |
-| `raffel_list_guides` | List available documentation guides (quickstart, auth, sessions, rest-api, migration, usd, proxy). |
-| `raffel_get_guide` | Read a full documentation guide by topic slug. |
-| `raffel_list_interceptors` | List interceptors by category |
-| `raffel_get_interceptor` | Interceptor docs + examples |
-| `raffel_list_adapters` | List protocol adapters |
-| `raffel_get_adapter` | Adapter docs + mappings |
-| `raffel_api_patterns` | **Critical** API usage patterns |
-| `raffel_explain_error` | Error code explanations |
+- `raffel_feature_catalog`: map by scope (`protocols`, `proxy`, `observability`, `security`, `devx`).
+- `raffel_get_guide` + `raffel_list_guides`: open the implementation guide by topic.
+- `raffel_search`: find exact option names, flags, and examples with phrase search support.
+- `raffel_proxy_capabilities`: get the matrix for reverse/explicit/SOCKS5/transparent/suite and telemetry defaults.
 
-### Code Generation
+### 2) Design & Planning
 
-| Tool | Description |
-|:-----|:------------|
-| `raffel_create_server` | Generate server boilerplate |
-| `raffel_create_procedure` | Generate RPC endpoints |
-| `raffel_create_stream` | Generate streaming handlers |
-| `raffel_create_event` | Generate event handlers |
-| `raffel_add_middleware` | Add interceptors |
-| `raffel_create_module` | Create router modules |
-| `raffel_project_blueprint` | Architecture blueprint + folder structure |
-| `raffel_api_endpoint_blueprint` | API endpoint scaffolding by resource |
-| `raffel_runtime_config` | Runtime/config recommendations per profile |
-| `raffel_boilerplate` | Multi-file project templates |
+- `raffel_project_blueprint`: architecture and folder strategy.
+- `raffel_api_endpoint_blueprint`: CRUD/search/bulk/stream endpoint scaffold.
+- `raffel_runtime_config`: opinionated runtime defaults per environment.
 
-### Architecture & Planning
+### 3) Execution
 
-| Tool | Description |
-|:-----|:------------|
-| `raffel_project_blueprint` | Project structure, module boundaries, and implementation roadmap |
-| `raffel_api_endpoint_blueprint` | Endpoint-level boilerplate for CRUD/search/bulk/stream workflows |
-| `raffel_runtime_config` | `.env`, middleware defaults, and operational guardrails |
+- `raffel_create_server`
+- `raffel_create_procedure`
+- `raffel_create_stream`
+- `raffel_create_event`
+- `raffel_create_module`
+- `raffel_add_middleware`
+- `raffel_boilerplate`
 
-### Meta
+### 4) Diagnostics & Safety
 
-| Tool | Description |
-|:-----|:------------|
-| `raffel_version` | Version + compatibility info |
+- `raffel_explain_error`: explain and fix error behavior.
+- `raffel_get_interceptor`, `raffel_get_adapter`, `raffel_list_*`: introspect behavior before wiring.
+- `raffel_version`: compatibility and environment checks.
+- Prompts for guided migrations / performance / security hardening.
 
-**Example:**
+### 5) Observability & Mesh
 
+- `raffel_get_guide topic=proxy-observability`: edge labels and duration/error taxonomies.
+- `raffel_search query="error_rate failure_ratio p95"`: find telemetry terms and flags before alerting.
+- `raffel_proxy_capabilities includeMetrics=true`: confirm metric families and protocol labels.
+
+---
+
+## Discovery Workflows (Practical)
+
+### A) Proxy design in 60 seconds
+
+```text
+Need: Local HTTPS edge + source→destination telemetry
+
+1) raffel_feature_catalog scope=proxy
+2) raffel_get_guide topic=proxy
+3) raffel_proxy_capabilities includeMetrics=true includeRawConfig=true
+4) raffel_get_guide topic=proxy-observability
 ```
-User: Add rate limiting to my Raffel API
 
-Assistant: [Uses raffel_search]
-Assistant: [Uses raffel_get_interceptor]
+### B) Service mesh visibility in 60 seconds
 
-User: I need local HTTPS reverse proxy with file-based routes
+```text
+Need: real-time flow metrics and rate/error reports
 
-Assistant: [Uses raffel_get_guide with topic "proxy"]
-
-### Search behavior note
-
-- Keyword mode (default): `USD`, `rate limit`, `websocket` and other terms are matched independently.
-- Phrase mode: use quotes for exact phrase search, e.g. `"Universal Service Documentation"`, `"rate limiting"`, `"reverse proxy"`.
-- Useful proxy lookups: `proxy`, `reverse proxy`, `"TLS auto"`, `traefik replacement`.
-- Optional `type` filter: `interceptor`, `adapter`, `pattern`, `error`, `guide`.
+1) raffel_get_guide topic=proxy-observability
+2) raffel_search query="source destination protocol percentiles"
+3) raffel_get_guide topic=proxy-capabilities
 ```
+
+```text
+Need: failure-rate and error-rate alerts only
+
+1) raffel_get_guide topic=proxy-observability
+2) raffel_search query="failure_ratio error_rate"
+3) raffel_proxy_capabilities includeMetrics=true includeRawConfig=true
+```
+
+### C) Protocol migration in 60 seconds
+
+```text
+Need: from Express/Fastify to Raffel quickly
+
+1) raffel_feature_catalog scope=devx
+2) raffel_get_guide topic=migration
+3) raffel_get_guide topic=proxy (if ingress migration is involved)
+4) raffel_create_server with needed features
+```
+
+Tip: when in doubt, use `scope=all` first and then narrow down.
 
 ---
 
 ## Prompts
 
-| Prompt | Description |
-|:-------|:------------|
-| `create_rest_api` | Build complete REST API |
-| `create_realtime_server` | WebSocket + channels |
-| `create_grpc_service` | gRPC service scaffolding |
-| `create_microservice` | Production-ready service |
-| `add_authentication` | Add JWT/API key auth |
-| `add_caching` | Add caching drivers |
-| `add_rate_limiting` | Add per-route limits |
-| `add_observability` | Metrics + tracing |
-| `migrate_from_express` | Convert from Express |
-| `migrate_from_fastify` | Convert from Fastify |
-| `migrate_from_trpc` | Convert from tRPC |
-| `debug_middleware` | Diagnose interceptor issues |
-| `optimize_performance` | Perf review + tuning |
+- `create_rest_api`
+- `create_realtime_server`
+- `create_grpc_service`
+- `create_microservice`
+- `add_authentication`
+- `add_caching`
+- `add_rate_limiting`
+- `add_observability`
+- `migrate_from_express`
+- `migrate_from_fastify`
+- `migrate_from_trpc`
+- `debug_middleware`
+- `optimize_performance`
 
-**Usage in Claude:**
-
-```
-User: /prompt create_rest_api
-```
+Use in Claude with `/prompt <name>` and let the toolchain follow up with MCP calls.
 
 ---
 
 ## Resources & Templates
 
-The MCP server exposes docs and boilerplates as resources:
+The MCP resource model mirrors the same guide/topic map:
 
-| Resource | Description |
-|:---------|:------------|
-| `raffel://guide/proxy` | Reverse proxy guide (HTTP/HTTPS + routing + TLS) |
-| `raffel://guide/quickstart` | Quickstart guide |
-| `raffel://interceptor/{name}` | Interceptor documentation |
-| `raffel://adapter/{name}` | Adapter documentation |
+| Resource | What it gives you |
+|:---------|:------------------|
+| `raffel://guide/proxy` | Full proxy family guide (reverse/explicit/SOCKS5h/udp/websocket/TLS) |
+| `raffel://guide/proxy-capabilities` | Feature matrix with protocol-by-mode coverage |
+| `raffel://guide/proxy-observability` | Source→destination graph and duration/error semantics |
+| `raffel://guide/mcp-intelligence` | MCP operating model and recommended call order |
+| `raffel://guide/feature-map` | Team-level capability map |
+| `raffel://guide/quickstart` | Fast onboarding reference |
+| `raffel://interceptor/{name}` | Middleware docs |
+| `raffel://adapter/{name}` | Adapter mappings |
 | `raffel://pattern/{name}` | API patterns |
 | `raffel://error/{code}` | Error explanations |
-| `raffel://boilerplate/{template}` | Project boilerplates |
+| `raffel://boilerplate/{template}` | Multi-file project templates |
 
 Resource templates:
 
@@ -217,7 +240,7 @@ npx raffel-mcp --transport sse --port 3200
 claude mcp add raffel npx raffel-mcp
 ```
 
-### With Custom Client
+### With a Custom MCP Client
 
 ```typescript
 import { Client } from '@modelcontextprotocol/sdk/client'
@@ -241,9 +264,7 @@ console.log(result)
 
 ---
 
-## Custom Server Options
-
-You can start your own MCP server instance programmatically:
+## Programmatic Start
 
 ```typescript
 import { createMCPServer } from 'raffel/mcp'
@@ -259,28 +280,31 @@ const server = createMCPServer({
 await server.start()
 ```
 
+`toolsFilter` accepts shell-style patterns and supports exclusions:
+
+```text
+['raffel_*', '!raffel_version']
+```
+
+`category` only accepts known categories (`quickstart`, `minimal`, `docs`, `codegen`, `architecture`, `full`), and unknown values fail fast.
+
 ---
 
 ## Troubleshooting
 
-### Tools Not Showing
-
-```bash
-npx raffel-mcp --list-categories
-npx raffel-mcp --category full
-```
-
-### Connection Issues
-
-```bash
-npx raffel-mcp --debug
-```
+- Categories and toolsets:
+  - `npx raffel-mcp --list-categories`
+  - `npx raffel-mcp --category docs`
+- Connection/debug:
+  - `npx raffel-mcp --debug`
 
 ---
 
 ## Next Steps
 
-- **[Quickstart](/learn/quickstart.md)** - Run your first server
-- **[MCP Tools](/reference/mcp.md#tools)** - Full tool list
-- **[Patterns](/core/interceptors/overview.md)** - Middleware + composition
-- **[OpenAPI](/tooling/openapi.md)** - Auto-generated docs
+- [Quickstart](/learn/quickstart.md)
+- [Tools families above](/reference/mcp.md#tool-families)
+- [Interceptors and composition](/core/interceptors/overview.md)
+- [Proxy modes](/proxy/modes.md)
+- [Flow metrics](/proxy/flow-metrics.md)
+- [OpenAPI & docs](/tooling/openapi.md)

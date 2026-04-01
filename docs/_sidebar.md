@@ -79,6 +79,28 @@
   - [SMTP Server](/guides/smtp-server.md)
   - [SMTP Relay](/guides/smtp-relay.md)
 
+- **Proxy Toolkit**
+  - [Visão Geral](/proxy/overview.md)
+  - [Arquitetura](/proxy/architecture.md)
+  - **Modos**
+    - [Reverse](/proxy/modes.md#reverse-proxy)
+    - [Explicit](/proxy/modes.md#explicit-proxy)
+    - [SOCKS5](/proxy/modes.md#socks5-proxy)
+    - [Transparente](/proxy/modes.md#transparent-proxy)
+    - [Suite Unificada](/proxy/modes.md#proxy-suite)
+  - **Configuração**
+    - [Arquivo (Reverse)](/proxy/config-file.md)
+    - [Código (Reverse)](/proxy/config-code.md)
+    - [Roteamento](/proxy/routing.md)
+    - [TLS / HTTPS](/proxy/tls.md)
+  - **Inspeção e Replay**
+    - [MITM + Capture/Replay](/proxy/mitm-capture.md)
+  - **Observabilidade**
+    - [Métricas e Grafo](/proxy/flow-metrics.md)
+    - [Service Mesh](/proxy/service-mesh.md)
+    - [Operação](/proxy/operations.md)
+    - [Troubleshooting](/proxy/troubleshooting.md)
+
 - **Migration**
   - [From Express](/migration/frameworks.md#from-express)
   - [From Fastify](/migration/frameworks.md#from-fastify)
@@ -90,7 +112,9 @@
   - [Core Model](/reference/core-model.md)
   - [Error Codes](/reference/error-codes.md)
   - [API Reference](/reference/api-reference.md)
-  - [MCP Server](/reference/mcp.md)
+  - **AI Intelligence**
+    - [MCP Intelligence](/reference/mcp.md)
+    - [MCP Feature Surface](/reference/mcp.md#one-line-capability-surface)
   - **USD Specification**
     - [Overview](/spec/README.md)
     - [USD 1.0.0](/spec/usd-1.0.0.md)

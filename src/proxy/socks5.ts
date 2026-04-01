@@ -95,6 +95,7 @@ interface FlowTracker {
   protocol: ProxyFlowProtocol
   handle: ProxyFlowHandle | null
   startedAt: number
+  method: string
   addBytesFromSource(delta: number): void
   addBytesToSource(delta: number): void
   finish(error?: string): void
@@ -311,6 +312,9 @@ function handleSocks5Connection(
     destinationAType: Socks5ConnectionInfo['atype'],
   ): FlowTracker {
     const protocol = flowProtocolFor(command, destinationAType)
+    const method = command === 'udpAssociate'
+      ? 'udp_associate'
+      : command
     const startedAt = performance.now()
     const handle = telemetry?.collector?.startFlow({
       source: resolveNodeName(telemetry, {
@@ -336,6 +340,7 @@ function handleSocks5Connection(
 
     return {
       protocol,
+      method,
       handle,
       startedAt,
       addBytesFromSource(delta: number): void {
@@ -350,6 +355,7 @@ function handleSocks5Connection(
         handle?.finish({
           status: error ? 'error' : 'success',
           error,
+          method,
           durationSeconds: Math.max(0, (performance.now() - startedAt) / 1000),
         })
       },

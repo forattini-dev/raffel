@@ -85,7 +85,7 @@ Exemplo de árvore de configuração:
 
 ## Estratégia para ambientes com Mesh/Service Layer
 
-Mesmo com service mesh ativo, o `ReverseProxy` funciona como edge HTTP/WS/CNN:
+Mesmo com service mesh ativo, o `ReverseProxy` funciona como edge HTTP/WS/TCP:
 
 - roteia para um gateway interno da malha,
 - ou para serviços finais que estão atrás de sidecars,

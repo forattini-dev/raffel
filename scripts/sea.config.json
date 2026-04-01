@@ -1,0 +1,7 @@
+{
+  "main": "scripts/sea-entry.cjs",
+  "output": "dist/sea/raffel.blob",
+  "assets": [],
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": true
+}

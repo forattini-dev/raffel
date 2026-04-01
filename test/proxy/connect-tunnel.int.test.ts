@@ -2,6 +2,10 @@
  * CONNECT Tunnel — integration tests
  */
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, dirname } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
@@ -577,4 +581,115 @@ describe('CONNECT Tunnel — filter', () => {
     expect(denied).not.toBeNull()
     expect(denied!.host).toBe('127.0.0.1')
   })
+})
+
+describe('CONNECT Tunnel (MITM capture/replay)', () => {
+  let upstreamServer: import('node:https').Server
+  let upstreamPort: number
+  let captureCounter = 0
+
+  beforeAll(async () => {
+    const result = await startHttpsUpstream((req, res) => {
+      captureCounter += 1
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ route: req.url }))
+    })
+    upstreamServer = result.server
+    upstreamPort = result.port
+  })
+
+  afterAll(async () => {
+    if (!upstreamServer) return
+    await new Promise<void>((resolve) => upstreamServer.close(() => resolve()))
+  })
+
+  async function createCaptureFile(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'raffel-mitm-capture-'))
+    return join(dir, `${randomUUID()}.ndjson`)
+  }
+
+  async function startMitmProxy(
+    tunnelOptions: Parameters<typeof createConnectTunnel>[0] = {},
+  ): Promise<{ tunnel: ReturnType<typeof createConnectTunnel>; port: number; close: () => Promise<void> }> {
+    const tunnel = createConnectTunnel({ mode: 'mitm', ...tunnelOptions })
+    const srv = createHttpServer()
+    tunnel.attachTo(srv)
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
+    const proxyPort = (srv.address() as { port: number }).port
+
+    return {
+      tunnel,
+      port: proxyPort,
+      close: async () => {
+        await new Promise<void>((resolve) => srv.close(() => resolve()))
+      },
+    }
+  }
+
+  it('capture-only stores request records and returns capture-only response', async () => {
+    const captureFile = await createCaptureFile()
+    const { tunnel, port, close } = await startMitmProxy({
+      mitmCapture: {
+        enabled: true,
+        mode: 'capture-only',
+        file: captureFile,
+      },
+    })
+
+    try {
+      const result = await connectAndRequest(port, '127.0.0.1', upstreamPort)
+      expect(result.status).toBe(202)
+      const payload = JSON.parse(result.body) as {
+        captured: boolean
+        mode: string
+        id: string
+      }
+      expect(payload.captured).toBe(true)
+      expect(payload.mode).toBe('capture-only')
+      expect(typeof payload.id).toBe('string')
+
+      const raw = await readFile(captureFile, 'utf-8')
+      const firstLine = raw.split(/\r?\n/).find((line) => line.trim().length > 0)
+      expect(firstLine).toBeDefined()
+      const record = JSON.parse(firstLine ?? '{}') as { id: string; host: string; method: string; port: number }
+      expect(record.host).toBe('127.0.0.1')
+      expect(record.port).toBe(upstreamPort)
+      expect(record.method).toBe('GET')
+      expect(record.id).toBe(payload.id)
+      expect(tunnel.getCaptureState().captured).toBe(1)
+    } finally {
+      await close()
+      await rm(dirname(captureFile), { recursive: true, force: true })
+    }
+  }, 15_000)
+
+  it('replays captured requests from file and updates replay summary', async () => {
+    const captureFile = await createCaptureFile()
+    const { tunnel, port, close } = await startMitmProxy({
+      mitmCapture: {
+        enabled: true,
+        mode: 'capture-only',
+        file: captureFile,
+      },
+    })
+
+    try {
+      captureCounter = 0
+
+      const first = await connectAndRequest(port, '127.0.0.1', upstreamPort)
+      expect(first.status).toBe(202)
+      const replay = await tunnel.replayCapture({ file: captureFile, timeoutMs: 5_000 })
+
+      expect(replay.total).toBe(1)
+      expect(replay.success).toBe(1)
+      expect(replay.failed).toBe(0)
+      expect(replay.entries).toHaveLength(1)
+      expect(replay.entries[0]?.status).toBe(200)
+      expect(tunnel.getCaptureState().replayed).toBe(1)
+      expect(captureCounter).toBe(1)
+    } finally {
+      await close()
+      await rm(dirname(captureFile), { recursive: true, force: true })
+    }
+  }, 15_000)
 })

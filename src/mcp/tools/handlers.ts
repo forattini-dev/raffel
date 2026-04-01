@@ -169,6 +169,103 @@ function formatError(e: RaffelErrorDoc): string {
   return md
 }
 
+type FeatureCatalogArea = {
+  id: string
+  title: string
+  description: string
+  topics: string[]
+  tools: string[]
+  docUrls: string[]
+  prompts: string[]
+  operationalNotes: string[]
+}
+
+const MCP_FEATURE_CATALOG: FeatureCatalogArea[] = [
+  {
+    id: 'protocols',
+    title: 'Protocol Layer',
+    description:
+      'HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP all share a single runtime/contract model.',
+    topics: ['quickstart', 'rest-api', 'proxy', 'usd', 'migration'],
+    tools: [
+      'raffel_getting_started',
+      'raffel_get_adapter',
+      'raffel_api_patterns',
+      'raffel_list_adapters',
+      'raffel_create_server',
+      'raffel_get_guide',
+    ],
+    docUrls: ['/protocols/http', '/protocols/websocket', '/protocols/tcp', '/protocols/udp'],
+    prompts: ['create_realtime_server', 'create_grpc_service'],
+    operationalNotes: [
+      'One procedure model can expose multiple protocols via adapters.',
+      'Use USD for single source-of-truth contracts across protocols.',
+    ],
+  },
+  {
+    id: 'proxy',
+    title: 'Proxy & Edge',
+    description:
+      'Edge/egress/infrastructure proxies with reverse HTTP/HTTPS, explicit proxy, SOCKS5/SOCKS5h, transparent TCP, and unified suite collection.',
+    topics: ['proxy', 'proxy-capabilities', 'proxy-observability', 'feature-map'],
+    tools: ['raffel_get_guide', 'raffel_search', 'raffel_feature_catalog'],
+    docUrls: ['/proxy/overview', '/proxy/modes', '/proxy/architecture', '/proxy/service-mesh'],
+    prompts: ['add_observability', 'debug_middleware'],
+    operationalNotes: [
+      'Telemetry is opt-in; without telemetry, proxy overhead stays low.',
+      'For service mesh-like visibility, unify collectors across proxy modes.',
+    ],
+  },
+  {
+    id: 'observability',
+    title: 'Observability & Mesh Telemetry',
+    description:
+      'Prometheus metrics, tracing, logs, flow snapshots, edge labels, latency percentiles, and failure rates.',
+    topics: ['proxy-observability', 'proxy-capabilities', 'proxy'],
+    tools: ['raffel_feature_catalog', 'raffel_proxy_capabilities', 'raffel_search'],
+    docUrls: ['/observability/metrics', '/observability/tracing', '/proxy/flow-metrics'],
+    prompts: ['add_observability'],
+    operationalNotes: [
+      'Flow-level metrics can be aggregated from createProxySuite or explicit collectors.',
+      'For dashboards, use protocol/source/destination edge labels in percentiles and error-rate queries.',
+    ],
+  },
+  {
+    id: 'security',
+    title: 'Security & Identity',
+    description:
+      'Authentication, sessioning, authorization, TLS, filters, and gateway hardening.',
+    topics: ['auth', 'proxy', 'migration'],
+    tools: ['raffel_get_guide', 'raffel_list_interceptors', 'raffel_get_interceptor'],
+    docUrls: ['/auth/overview', '/proxy/tls', '/proxy/overview'],
+    prompts: ['add_authentication', 'add_observability'],
+    operationalNotes: [
+      'Prefer short credential lifetimes on proxies and explicit allow-lists where possible.',
+      'Keep secrets in env/secret manager; never in source control.',
+    ],
+  },
+  {
+    id: 'devx',
+    title: 'DX & Production Scaffolding',
+    description:
+      'Scaffold, mock-first development, testability, contracts, docs, and MCP-assisted agent workflows.',
+    topics: ['quickstart', 'mock-server', 'usd'],
+    tools: [
+      'raffel_create_server',
+      'raffel_create_module',
+      'raffel_project_blueprint',
+      'raffel_create_event',
+      'raffel_runtime_config',
+    ],
+    docUrls: ['/tooling/mock-server', '/reference/mcp', '/observability', '/core/interceptors/overview'],
+    prompts: ['create_rest_api', 'create_microservice', 'migrate_from_express'],
+    operationalNotes: [
+      'Use MCP to keep one shared vocabulary between agent prompts and production implementation.',
+      'Prefer codegen tools for reproducible boilerplates; avoid hand-authored boilerplate drift.',
+    ],
+  },
+]
+
 const SEARCH_TYPES = ['interceptor', 'adapter', 'pattern', 'error', 'guide']
 const SEARCH_LIMIT_MAX = 30
 
@@ -196,6 +293,31 @@ function normalizeGuideTopic(topic: string): string {
     .replace(/^-|-$/g, '')
 }
 
+const GUIDE_GROUP_LABELS: Record<string, string> = {
+  quickstart: 'Foundation',
+  auth: 'Foundation',
+  sessions: 'Foundation',
+  'rest-api': 'Foundation',
+  migration: 'Foundation',
+  'mock-server': 'Foundation',
+  usd: 'Foundation',
+  proxy: 'Proxy & Mesh',
+  'proxy-capabilities': 'Proxy & Mesh',
+  'proxy-observability': 'Proxy & Mesh',
+  'feature-map': 'Operations',
+  'mcp-intelligence': 'Operations',
+}
+
+const GUIDE_GROUP_ORDER = ['Foundation', 'Proxy & Mesh', 'Operations', 'Advanced']
+
+function resolveGuideGroup(topic: string): string {
+  return GUIDE_GROUP_LABELS[topic] || (topic.startsWith('proxy') ? 'Proxy & Mesh' : 'Advanced')
+}
+
+function sortByName<T extends { name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.name.localeCompare(b.name))
+}
+
 // === Tool Handlers ===
 
 export const handlers: Record<string, MCPToolHandler> = {
@@ -220,53 +342,52 @@ export const handlers: Record<string, MCPToolHandler> = {
 
     if (limitedResults.length === 0) {
       const suggestions = [
-        `Try a broader query, e.g. ` +
-          [
-            'USD',
-            'search',
-            'interceptor',
-            'rate limit',
-            'websocket',
-            'validation',
-          ].map((k) => `"${k}"`).join(', '),
+        'Broaden the query (for example: `proxy`, `socks5h`, `flow metrics`, `error rates`).',
+        'Use quotes for exact phrase search: `"Universal Service Documentation"`, `"reverse proxy"`.',
       ]
       const guideCatalog = getGuideCatalog()
-      suggestions.push(`Try guide topics: ${guideCatalog.map((guide) => guide.topic).join(', ')}`)
+      const topTopics = guideCatalog.map((guide) => guide.topic).slice(0, 6).join(', ')
+      suggestions.push(`Try guides: ${topTopics}.`)
       if (typeFilter) {
         suggestions.push(`Try removing the type filter and searching for "${query}"`)
       }
-      suggestions.push('Try phrase mode with quotes, e.g. "Universal Service Documentation"')
 
       return text(
         [
           `No results found for "${query}".`,
           '',
           'Search usage tips:',
-          '- **Keyword mode (default):** type one or more words, e.g. `search`, `error rate limit`, `USD`.',
-          '- **Phrase mode:** wrap the exact phrase in quotes, e.g. `"Universal Service Documentation"`, `"validation error"`.',
-          '- **Tip:** if you still see no results, use one keyword at a time and then combine.',
+          '- **Keyword mode (default):** space-separated terms are AND-matched.',
+          '- **Phrase mode:** quote exact terms with spaces.',
           '- **Type filter:** interceptor | adapter | pattern | error | guide',
-          '- **Limit:** numeric max 30',
+          '- **Limit:** default all, max 30',
           '',
           ...suggestions.map((s) => `- ${s}`),
-          '',
-          "Examples: `rate limit`, `websocket`, `USD`, `\"search endpoint\"`, `procedure describe`.",
         ].join('\n'),
       )
     }
 
-    let md = `# Search Results for "${query}"\n\n`
-    md += `Found ${limitedResults.length} result(s):\n\n`
-    if (typeFilter) md += `Type filter: ${typeFilter}\n\n`
-    md += 'Search mode: spaced queries are treated as keyword terms by default (AND match). Use quotes for exact phrase matching.\n\n'
+    let md = '# Search Results\n\n'
+    md += `**Query:** ${query}\n`
+    md += `**Scope:** ${typeFilter || 'all types'}\n`
+    md += `**Found:** ${results.length}\n`
+    if (limit) md += `**Returned:** ${limitedResults.length}\n`
+    md += '\n'
 
-    for (const r of limitedResults) {
-      md += `## [${r.type.toUpperCase()}] ${r.name}\n`
-      if (r.category) md += `**Category:** ${r.category}\n`
-      md += `${r.description}\n\n`
+    for (const type of SEARCH_TYPES) {
+      const byType = limitedResults.filter((result) => result.type === type)
+      if (byType.length === 0) continue
+      md += `## ${toTitleCase(type)}\n`
+      for (const result of byType) {
+        md += `- **${result.name}**${result.category ? ` (${result.category})` : ''}\n`
+        md += `  ${result.description}\n`
+      }
+      md += '\n'
     }
 
-    md += `\n---\nUse: raffel_get_interceptor, raffel_get_adapter, raffel_api_patterns, raffel_get_guide, raffel_explain_error.\n`
+    md += '## Next calls\n'
+    md += '- Open details with: `raffel_get_interceptor`, `raffel_get_adapter`, `raffel_get_guide`, `raffel_explain_error`.\n'
+    md += '- Route decisions with `raffel_feature_catalog` before coding.\n'
 
     return text(md)
   },
@@ -274,11 +395,24 @@ export const handlers: Record<string, MCPToolHandler> = {
   raffel_list_guides: async () => {
     const guides = getGuideCatalog()
     let md = '# Raffel Documentation Guides\n\n'
+    const grouped: Record<string, typeof guides> = {}
     for (const guide of guides) {
-      md += `- **${guide.topic}**: ${guide.name} — ${guide.description}\n`
+      const group = resolveGuideGroup(guide.topic)
+      if (!grouped[group]) grouped[group] = []
+      grouped[group].push(guide)
     }
 
-    md += '\nUse `raffel_get_guide` with the topic slug for full content.'
+    for (const group of GUIDE_GROUP_ORDER) {
+      const items = sortByName(grouped[group] ?? [])
+      if (!items || items.length === 0) continue
+      md += `## ${group}\n`
+      for (const guide of items) {
+        md += `- \`${guide.topic}\`: ${guide.name} — ${guide.description}\n`
+      }
+      md += '\n'
+    }
+
+    md += 'Use `raffel_get_guide` with the topic slug for full content.\n'
     return text(md)
   },
 
@@ -286,12 +420,166 @@ export const handlers: Record<string, MCPToolHandler> = {
     const topic = normalizeGuideTopic(String(args.topic || ''))
     if (!topic) return error('Guide topic is required')
 
+    const guideCatalog = getGuideCatalog()
+    const guideEntry = guideCatalog.find((guide) => normalizeGuideTopic(guide.topic) === topic)
     const content = getGuideContentByTopic(topic)
     if (!content) {
-      return error(`Guide "${topic}" not found. Use raffel_list_guides for valid topics.`)
+      const validTopics = guideCatalog.map((guide) => guide.topic).join(', ')
+      return error(
+        `Guide "${topic}" not found. Use raffel_list_guides for valid topics. Available: ${validTopics}`,
+      )
     }
 
-    return text(content)
+    const title = guideEntry?.name || `Guide: ${topic}`
+    const description = guideEntry?.description ? `${guideEntry.description}\n\n` : ''
+    const body = content.replace(/^# .+\n+/, '')
+    let md = `# ${title}\n\n`
+    if (description) md += `${description}\n`
+    md += '## Guide body\n\n'
+    md += `${body.trim()}\n`
+    md += '\n## Next actions\n'
+    md += '- If you need implementation details, use `raffel_search` for target terms.\n'
+    md += `- If this is a proxy topic, call ` +
+      '`raffel_proxy_capabilities` and `raffel_search` for follow-up details.\n'
+
+    return text(md)
+  },
+
+  raffel_feature_catalog: async (args) => {
+    const scope = String(args.scope || 'all').toLowerCase()
+    const includePrompts = args.includePrompts !== false
+
+    const allScopes = scope === 'all'
+      ? MCP_FEATURE_CATALOG
+      : MCP_FEATURE_CATALOG.filter((item) => item.id === scope || item.title.toLowerCase().includes(scope))
+
+    if (allScopes.length === 0) {
+      const availableScopes = MCP_FEATURE_CATALOG.map((item) => item.id).join(', ')
+      return error(
+        `Unknown scope "${scope}". Available: all, ${availableScopes}. Use scope "all" for every feature area.`,
+      )
+    }
+
+    let md = '# Raffel Feature Catalog\n\n'
+    md += 'Agent-first map to get from question to implementation in 3 steps.\n\n'
+
+    for (const area of allScopes) {
+      md += `## ${area.title}\n\n`
+      md += `- **Focus:** ${area.description}\n`
+      md += `- **Guides:** ${area.topics.map((topic) => `\`${topic}\``).join(', ')}\n`
+      md += `- **First tools:** ${area.tools.slice(0, 3).join(', ')}\n`
+      if (includePrompts) {
+        md += `- **Relevant prompts:** ${area.prompts.join(', ')}\n`
+      }
+      md += '- **Operational note:** '
+      if (area.operationalNotes[0]) {
+        md += `${area.operationalNotes[0]}\n`
+      }
+      else {
+        md += 'Check the area guide and confirm assumptions before enabling defaults.\n'
+      }
+      md += '\n'
+    }
+
+    md += '## How agents should use this\n\n'
+    md += '- Start with `scope=all` for onboarding and architecture discovery.\n'
+    md += '- Use a narrow scope (`proxy`, `observability`, `security`, etc.) and then call `raffel_get_guide`.\n'
+    md += '- Pair with `raffel_search` for exact feature fragments and parameter names.\n'
+
+    return text(md)
+  },
+
+  raffel_proxy_capabilities: async (args) => {
+    const includeRawConfig = Boolean(args.includeRawConfig)
+    const includeMetrics = args.includeMetrics !== false
+
+    let md = '# Raffel Proxy Capability Matrix\n\n'
+    md += 'Telemetry is opt-in and mode behavior is explicit.\n\n'
+    md += '## Mode × Protocol Matrix\n\n'
+    md += '| Capability | Reverse | Explicit | SOCKS5(SOCKS5h) | Transparent | Suite |\n'
+    md += '|---|:---:|:---:|:---:|:---:|:---:|\n'
+    md += '| HTTP/HTTPS ingress | ✅ | ✅ | ❌ | ❌ | ✅ |\n'
+    md += '| CONNECT tunneling | ✅ | ✅ | ❌ | ❌ | ✅ |\n'
+    md += '| WebSocket upgrade | ✅ | ✅ | ❌ | ❌ | ✅ |\n'
+    md += '| SOCKS5 + UDP ASSOCIATE | ❌ | ❌ | ✅ | ❌ | ✅ |\n'
+    md += '| TCP transparent capture | ❌ | ❌ | ❌ | ✅ | ❌ |\n'
+    md += '| Shared collector/graph | optional | optional | optional | optional | ✅ |\n\n'
+
+    md += '## Edge model used for graph analytics\n\n'
+    md += 'Each edge is normalized as `source -> destination -> protocol`.\n\n'
+    md += '- `source`: service, client id, tenant id, or derived identity\n'
+    md += '- `destination`: upstream host/port or node name\n'
+    md += '- `protocol`: one of `http`, `https`, `connect`, `ws`, `wss`, `socks5`, `socks5h`, `socks5-udp`, `socks5h-udp`, `tcp`\n\n'
+
+    md += '## Telemetry defaults and guarantees\n\n'
+    md +=
+      'Nothing is emitted by default. Enable `graphEndpoint`/`metricsEndpoint` only where visibility is required.\n\n'
+    md +=
+      '- For realtime traffic rates and failures, enable `graphEndpoint` and/or `metricsEndpoint` where your process supports HTTP exposure.\n'
+    md += '- `percentiles` can use strings (`p50`, `p90`, `p95`) or fractions (`0.5`, `0.9`, `0.95`).\n'
+    md += '- Labels include source/destination/protocol by default.\n'
+
+    if (includeMetrics) {
+      md += '\n### Key exported metric families\n\n'
+      md += '- `raffel_proxy_edge_requests_total`\n'
+      md += '- `raffel_proxy_edge_active_flows`\n'
+      md += '- `raffel_proxy_edge_errors_total`\n'
+      md += '- `raffel_proxy_edge_bytes_from_source_total`\n'
+      md += '- `raffel_proxy_edge_bytes_to_source_total`\n'
+      md += '- `raffel_proxy_edge_request_duration_seconds` (+ `_bucket`, `_sum`, `_count`)\n'
+      md += '- `raffel_proxy_edge_flow_duration_seconds` (+ `_bucket`, `_sum`, `_count`)\n'
+      md += '- `raffel_proxy_edge_request_rate_per_second`\n'
+      md += '- `raffel_proxy_edge_flow_rate_per_second`\n'
+      md += '- `raffel_proxy_edge_error_rate_per_second`\n'
+      md += '- `raffel_proxy_edge_bytes_from_source_rate_per_second`\n'
+      md += '- `raffel_proxy_edge_bytes_to_source_rate_per_second`\n'
+      md += '- `raffel_proxy_edge_flow_duration_quantile_seconds`\n'
+      md += '- `raffel_proxy_edge_failure_ratio`\n'
+    }
+
+    md += '\n### Edge analytics examples by default field set\n\n'
+    md += '- `source`, `destination`, `protocol` labels on most counters and durations.\n'
+    md += '- Method and status labels are included for request counters/latencies in HTTP-like flows.\n'
+    md += '- `error` label is included for sampled error counters.\n\n'
+
+    md += '### Quick PromQL examples\n\n'
+    md += '```promql\n'
+    md += 'sum(rate(raffel_proxy_edge_requests_total[1m])) by (protocol, source, destination)\n'
+    md += '```\n\n'
+    md += '```promql\n'
+    md += 'histogram_quantile(0.95, sum(rate(raffel_proxy_edge_request_duration_seconds_bucket[5m])) by (le, protocol, source, destination))\n'
+    md += '```\n\n'
+
+    if (includeRawConfig) {
+      md += '## Representative snippets\n\n'
+      md += '### Reverse (HTTP/HTTPS) bootstrap\n\n'
+      md += '```ts\n'
+      md += "const reverse = await createReverseProxy({\n"
+      md += "  server: { host: '0.0.0.0', port: 8443, tls: {} },\n"
+      md += "  routes: [{ match: { host: 'api.internal.local', pathPrefix: '/' }, target: 'http://127.0.0.1:4100' }],\n"
+      md += '  proxy: {\n'
+      md += "    telemetry: { sourceHeader: 'x-service-name', percentiles: ['p50', 'p90', 'p95'] },\n"
+      md += '  },\n'
+      md += '})\n```\n\n'
+      md += '### Explicit + SOCKS5 suite\n\n'
+      md += '```ts\n'
+      md += "const suite = createProxySuite({\n"
+      md += "  explicit: { host: '0.0.0.0', port: 3128 },\n"
+      md += "  socks5: { host: '0.0.0.0', port: 1080 },\n"
+      md += "  telemetry: { sourceHeader: 'x-service-name', percentiles: [0.5, 0.9, 0.95] },\n"
+      md += '})\n```\n\n'
+      md += '### Transparent capture\n\n'
+      md += '```ts\n'
+      md += "const transparent = createTransparentProxy({\n"
+      md += "  host: '0.0.0.0',\n"
+      md += '  port: 15006,\n'
+      md += "  mode: 'tproxy',\n"
+      md += '  telemetry: { sourceHeader: "x-service-name" },\n'
+      md += '})\n```\n'
+    }
+
+    md += '\nUse `raffel_get_guide` with `proxy`, `proxy-observability`, or `proxy-capabilities` for deeper production tuning guides.\n'
+    return text(md)
   },
 
   raffel_list_interceptors: async (args) => {
@@ -303,15 +591,22 @@ export const handlers: Record<string, MCPToolHandler> = {
     md += '\n\n'
 
     const byCategory = new Map<string, typeof interceptors>()
+    const categoryOrder = ['auth', 'resilience', 'observability', 'validation', 'caching', 'composition']
     for (const i of interceptors) {
       const cat = i.category
       if (!byCategory.has(cat)) byCategory.set(cat, [])
       byCategory.get(cat)!.push(i)
     }
 
-    for (const [cat, items] of byCategory) {
+    const categories = [
+      ...categoryOrder.filter((cat) => byCategory.has(cat)),
+      ...[...byCategory.keys()].filter((cat) => !categoryOrder.includes(cat)).sort(),
+    ]
+
+    for (const cat of categories) {
+      const items = byCategory.get(cat)!
       md += `## ${cat.charAt(0).toUpperCase() + cat.slice(1)}\n\n`
-      for (const i of items) {
+      for (const i of sortByName(items)) {
         md += `- **${i.name}**: ${i.description.slice(0, 100)}...\n`
       }
       md += '\n'
@@ -383,7 +678,7 @@ export const handlers: Record<string, MCPToolHandler> = {
 
     // Return list
     let md = `# Raffel API Patterns\n\n`
-    md += `CRITICAL: These patterns show the correct way to construct Raffel code.\n\n`
+    md += `These patterns show the canonical way to construct Raffel code.\n\n`
 
     for (const p of patterns) {
       md += `## ${p.name}\n`

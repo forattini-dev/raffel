@@ -179,6 +179,7 @@
     "check:line-limits": "node scripts/check-file-lines.mjs",
     "check:boundaries": "node scripts/check-hexagonal-boundaries.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.ui.json --noEmit",
+    "sea": "pnpm run build && node scripts/build-sea.mjs",
     "bench": "pnpm run build:main && node bench/run.js",
     "bench:ci": "node bench/run.js --enforce"
   },

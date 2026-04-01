@@ -255,6 +255,26 @@ describe('Explicit Proxy', () => {
     expect(proxy.stats.authFailures).toBe(1)
   })
 
+  it('does not allocate proxy telemetry by default', async () => {
+    upstream.get('/health', () => ({ status: 200, body: 'ok' }))
+
+    proxy = createExplicitProxy({
+      port: 0,
+      host: '127.0.0.1',
+    })
+
+    const proxyPort = await proxy.start()
+    const response = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/health`, proxyPort)
+
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('ok')
+    expect(proxy.metricsRegistry).toBeNull()
+
+    const snapshot = proxy.graphSnapshot()
+    expect(snapshot.edges).toEqual([])
+    expect(snapshot.nodes).toEqual([])
+  })
+
   it('exposes the CONNECT tunnel CA when MITM is enabled', async () => {
     proxy = createExplicitProxy({
       port: 0,

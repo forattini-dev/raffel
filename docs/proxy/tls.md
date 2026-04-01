@@ -5,6 +5,7 @@
 - O listener do `createReverseProxy` pode subir em HTTP (`.tls` ausente) ou HTTPS (`.tls` presente).
 - O TLS da borda termina no listener do reverse proxy; o `target` dos `routes` continua podendo ser `http` ou `https` conforme necessário.
 - O proxy explícito interno (forward/CONNECT/upgrade) continua usando as opções que você passar em `proxy`.
+- Em `createExplicitProxy` com `tunnel.mode: 'mitm'`, há terminação TLS local no próprio proxy para inspeção.
 
 ## Configuração de listener
 
@@ -175,4 +176,31 @@ Exemplo de chamada:
 
 ```bash
 curl -k https://api.internal.test:3443/health
+```
+
+## MITM no proxy explícito
+
+Para inspeção local de HTTPS sem trocar DNS de ponta a ponta do ambiente inteiro:
+
+```ts
+import { createExplicitProxy } from 'raffel'
+
+const explicit = createExplicitProxy({
+  port: 3128,
+  tunnel: {
+    mode: 'mitm',
+  },
+})
+
+await explicit.start()
+console.log(explicit.caCert) // exporte para trusted roots locais, se necessário
+```
+
+Em CI/dev, combine com `mitmCapture` para registrar requisições:
+
+```ts
+explicit.tunnel.startCapture({
+  file: './tmp/requests.ndjson',
+  mode: 'capture-only', // apenas grava e retorna 202
+})
 ```

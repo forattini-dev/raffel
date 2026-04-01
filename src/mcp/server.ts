@@ -53,7 +53,13 @@ export class MCPServer {
 
     const enabledSet = new Set<string>()
     for (const cat of categories) {
-      for (const tool of getToolsByCategory(cat as CategoryName)) {
+      const toolNames = getToolsByCategory(cat)
+      if (toolNames.length === 0) {
+        this.log(`Unknown MCP category: ${cat}`)
+        continue
+      }
+
+      for (const tool of toolNames) {
         enabledSet.add(tool.name)
       }
     }
@@ -385,12 +391,12 @@ export class MCPServer {
 Available tools for documentation, code generation, and debugging:
 - raffel_getting_started: Quick start guide
 - raffel_search: Search documentation
-- raffel_api_patterns: CRITICAL - Learn correct code patterns
+- raffel_api_patterns: Learn canonical API patterns
 - raffel_create_*: Generate server, procedures, streams, events
 - raffel_add_middleware: Add interceptors
 - raffel_explain_error: Debug error codes
 
-Use raffel_api_patterns before generating code to ensure correct structure.`,
+Use raffel_feature_catalog and raffel_api_patterns before generating implementation code to keep your output on track.`,
     }
   }
 
@@ -485,6 +491,14 @@ Use raffel_api_patterns before generating code to ensure correct structure.`,
       if (argument.name === 'topic' && ref.name === 'raffel_get_guide') {
         const guides = getGuideCatalog().map((guide) => guide.topic)
         values.push(...guides.filter((name) => name.includes(argument.value.toLowerCase())))
+      }
+
+      if (argument.name === 'scope' && ref.name === 'raffel_feature_catalog') {
+        values.push(
+          ...['all', 'protocols', 'proxy', 'observability', 'security', 'devx'].filter((scope) =>
+            scope.includes(argument.value.toLowerCase()),
+          ),
+        )
       }
 
       if (argument.name === 'name' && ref.name === 'raffel_get_interceptor') {

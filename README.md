@@ -15,6 +15,53 @@
 
 ---
 
+## What Raffel Gives You (in One Runtime)
+
+Raffel is one runtime that starts as an API framework and scales into an edge + observability layer.
+
+## MCP as Universal Discovery Layer
+
+Before implementation, use MCP to choose the right path:
+
+- `raffel_feature_catalog`: map feature surface by protocol/proxy/observability/security.
+- `raffel_proxy_capabilities`: compare reverse, explicit, SOCKS5, and transparent behavior in one view.
+- `raffel_get_guide`: jump directly to the exact guide topic for implementation.
+- `raffel_search`: find parameter and configuration details instantly.
+
+That makes onboarding, architecture decisions, and production hardening discoverable from one place.
+
+### Snapshot of capabilities
+
+| Layer | Capabilities |
+|---|---|
+| **API & protocols** | HTTP/Fetch, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, UDP, and single-port protocol sniffing |
+| **Proxy and network modes** | Reverse proxy (HTTP/HTTPS), explicit HTTP forward + CONNECT (with MITM), SOCKS5/SOCKS5h (CONNECT/BIND/UDP ASSOCIATE), transparent TCP interception |
+| **Service-mesh analytics** | Edge graph by **`source → destination → protocol`**, latency percentiles (`p50/p90/p95`), throughput, bytes, errors, and failure-rate |
+| **Reliability governance** | rate limit, circuit breaker, retry/backoff, timeout, cache, validation, auth/session, connection filters, health checks |
+| **Productivity surface** | MCP tooling, discovery/file routing, inspection tools (`inspect`, `doctor`, `playground`), contract-first mocks |
+
+### In one line: what you can ship with this stack
+
+- **A full API platform** with one handler model across REST, realtime, streams, and procedures.
+- **A production edge layer** with HTTP/HTTPS, explicit proxy, SOCKS5h, and transparent interception.
+- **A service-mesh telemetry plane** for origin → destination reporting and protocol-level graphing.
+- **An operations platform** with resilience, tracing, and automated debugging workflows.
+
+### What stays off by default
+
+To keep servers light, telemetry is **opt-in** on proxy modes.
+
+- Reverse/explicit/SOCKS5/transparent run without heavy metric collectors unless `telemetry` is configured.
+- The same applies to graph snapshots, Prometheus endpoints, and extra edge-state buffers.
+- You pay for observability only where you enable it.
+
+### Start fast from the documentation map
+
+1. **Protocols:** [HTTP](https://forattini-dev.github.io/raffel/#/protocols/http), [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket), [gRPC](https://forattini-dev.github.io/raffel/#/protocols/grpc), [UDP](https://forattini-dev.github.io/raffel/#/protocols/udp)
+2. **Proxy family:** [Proxy overview](https://forattini-dev.github.io/raffel/#/proxy), [Modes](https://forattini-dev.github.io/raffel/#/proxy/modes), [Routing](https://forattini-dev.github.io/raffel/#/proxy/routing), [Service mesh with proxies](https://forattini-dev.github.io/raffel/#/proxy/service-mesh)
+3. **Traffic intelligence:** [Flow metrics](https://forattini-dev.github.io/raffel/#/proxy/flow-metrics), [Observability](https://forattini-dev.github.io/raffel/#/observability), [Tracing](https://forattini-dev.github.io/raffel/#/observability/tracing)
+4. **Hardening and governance:** [Interceptors](https://forattini-dev.github.io/raffel/#/interceptors), [TLS](https://forattini-dev.github.io/raffel/#/proxy/tls), [Troubleshooting](https://forattini-dev.github.io/raffel/#/proxy/troubleshooting)
+
 ## Start with HTTP
 
 ```typescript
@@ -775,7 +822,7 @@ HTTP parity. Migrate by mapping routes, middleware, validation, and lifecycle
 concepts into Raffel's runtime model, then reuse the same contracts across other
 transports.
 
-See the [migration guide](./docs/guides/migration.md) for concept mapping from
+See the [migration guide](./docs/migration/frameworks.md) for concept mapping from
 Express, Fastify, Fetch-first routers, `ws`, and Socket.IO.
 
 ---
@@ -793,7 +840,7 @@ Express, Fastify, Fetch-first routers, `ws`, and Socket.IO.
 | [Metrics & Tracing](https://forattini-dev.github.io/raffel/#/observability) | Prometheus, OpenTelemetry |
 | [Core Model](https://forattini-dev.github.io/raffel/#/core-model) | Envelope, Context, Router, architecture |
 | [File-based Routing](https://forattini-dev.github.io/raffel/#/file-system-discovery) | Zero-config discovery |
-| [Migration Guide](./docs/guides/migration.md) | Concept mapping from existing HTTP and realtime stacks |
+| [Migration Guide](./docs/migration/frameworks.md) | Concept mapping from existing HTTP and realtime stacks |
 
 ---
 
