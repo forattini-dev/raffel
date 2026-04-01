@@ -443,6 +443,51 @@ const mitm = createConnectTunnel({
 })
 ```
 
+### Unified Proxy Middleware
+
+```typescript
+import { createProxySuite } from 'raffel'
+
+const suite = createProxySuite({
+  explicit: {
+    port: 8080,
+    middleware: [
+      async (ctx, next) => {
+        if (ctx.kind === 'http-request' || ctx.kind === 'mitm-request') {
+          ctx.request.headers['x-raffel-policy'] = 'edge-a'
+        }
+
+        if (ctx.kind === 'connect' && ctx.target.host.endsWith('.blocked.internal')) {
+          ctx.blocked = { statusCode: 403, reason: 'blocked by policy' }
+          return
+        }
+
+        if (ctx.kind === 'upgrade-request' && ctx.target.host === 'ws.internal.local') {
+          ctx.target.port = 4102
+        }
+
+        await next()
+      },
+    ],
+    tunnel: { mode: 'mitm' },
+  },
+  socks5: {
+    port: 1080,
+    middleware: [
+      async (ctx, next) => {
+        if (ctx.kind === 'socks5-connect' && ctx.target.host === 'db.internal') {
+          ctx.target.host = 'db-replica.internal'
+        }
+        await next()
+      },
+    ],
+  },
+})
+```
+
+One middleware model now spans reverse, explicit, MITM, SOCKS5/SOCKS5h, and transparent flows.
+Use it to inspect, block, rewrite destinations, shape headers, and attach policy logic only where configured.
+
 ### Explicit Proxy Server
 
 ```typescript

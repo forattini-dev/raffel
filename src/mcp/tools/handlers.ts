@@ -206,13 +206,14 @@ const MCP_FEATURE_CATALOG: FeatureCatalogArea[] = [
     id: 'proxy',
     title: 'Proxy & Edge',
     description:
-      'Edge/egress/infrastructure proxies with reverse HTTP/HTTPS, explicit proxy, SOCKS5/SOCKS5h, transparent TCP, and unified suite collection.',
+      'Edge/egress/infrastructure proxies with reverse HTTP/HTTPS, explicit proxy, SOCKS5/SOCKS5h, transparent TCP, unified suite collection, and programmable middleware.',
     topics: ['proxy', 'proxy-capabilities', 'proxy-observability', 'feature-map'],
     tools: ['raffel_get_guide', 'raffel_search', 'raffel_feature_catalog'],
     docUrls: ['/proxy/overview', '/proxy/modes', '/proxy/architecture', '/proxy/service-mesh'],
     prompts: ['add_observability', 'debug_middleware'],
     operationalNotes: [
       'Telemetry is opt-in; without telemetry, proxy overhead stays low.',
+      'Middleware is also opt-in; enable it only where policy or mutation is required.',
       'For service mesh-like visibility, unify collectors across proxy modes.',
     ],
   },
@@ -504,6 +505,13 @@ export const handlers: Record<string, MCPToolHandler> = {
     md += '| SOCKS5 + UDP ASSOCIATE | ❌ | ❌ | ✅ | ❌ | ✅ |\n'
     md += '| TCP transparent capture | ❌ | ❌ | ❌ | ✅ | ❌ |\n'
     md += '| Shared collector/graph | optional | optional | optional | optional | ✅ |\n\n'
+
+    md += '## Middleware surface\n\n'
+    md += '- Reverse and Explicit: `http-request`, `http-response`, `connect`, `upgrade-request`, `mitm-request`, `mitm-response`\n'
+    md += '- SOCKS5: `socks5-connect`, `socks5-bind`, `socks5-udp-associate`\n'
+    md += '- Transparent: `transparent`\n'
+    md += '- Suite: combines explicit + socks5 middleware coverage in one deployment\n\n'
+    md += 'Middleware is opt-in and intended for policy engines, traffic blocking, destination rewrites, and HTTP/MITM request-response shaping.\n\n'
 
     md += '## Edge model used for graph analytics\n\n'
     md += 'Each edge is normalized as `source -> destination -> protocol`.\n\n'

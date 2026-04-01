@@ -21,6 +21,7 @@ import type { ProxyAuth } from './types.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import type { ProxyStats } from './types.js'
 import type { ProxyGraphSnapshot } from './telemetry.js'
+import type { ProxyMiddleware } from './middleware.js'
 import { generateCertificate } from '../utils/certs.js'
 
 type ReverseProxyServerInstance = HttpServer | HttpsServer
@@ -124,6 +125,8 @@ export interface ReverseProxyProxyOptions {
   auth?: ProxyAuth
   /** Shared access-control filter. */
   filter?: ProxyFilter
+  /** Shared middleware across forward/connect/upgrade flows. */
+  middleware?: ProxyMiddleware[]
   /** HTTP forwarding-specific options. */
   forward?: Omit<HttpForwardProxyOptions, 'auth' | 'filter'>
   /** CONNECT tunnel-specific options. */

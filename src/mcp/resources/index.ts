@@ -908,7 +908,7 @@ pnpm remove socket.io socket.io-client
 
 const PROXY_GUIDE = `# Reverse Proxy Guide
 
-Raffel ships a proxy toolkit, where the reverse proxy is the HTTP/HTTPS edge and all proxy engines can share policy, filtering, and telemetry conventions.
+Raffel ships a proxy toolkit, where the reverse proxy is the HTTP/HTTPS edge and all proxy engines can share policy, filtering, telemetry, and middleware conventions.
 
 Current modules:
 
@@ -918,6 +918,7 @@ Current modules:
 - \`createTransparentProxy\` (kernel-transparent TCP mode)
 - \`createProxySuite\` (explicit + socks5 with shared collector)
 - Service-mesh oriented observability via unified graph and shared collectors.
+- Unified proxy middleware for policy engines, request shaping, and destination rewrites.
 
 ## 1) Protocol matrix by mode
 
@@ -1187,12 +1188,65 @@ server: {
 }
 \`\`\`
 
-## 11) Shared proxy options and rollout
+## 11) Unified proxy middleware
+
+All proxy runtimes can opt into a shared middleware surface:
+
+- \`http-request\` / \`http-response\`
+- \`mitm-request\` / \`mitm-response\`
+- \`upgrade-request\`
+- \`connect\`
+- \`socks5-connect\`, \`socks5-bind\`, \`socks5-udp-associate\`
+- \`transparent\`
+
+The same middleware chain can:
+
+- inspect source, destination, headers, and protocol phase
+- block traffic with a standard \`ctx.blocked\` payload
+- rewrite \`ctx.target.host\` / \`ctx.target.port\`
+- mutate HTTP/MITM request and response objects
+
+\`\`\`ts
+import { createExplicitProxy } from 'raffel'
+
+const explicit = createExplicitProxy({
+  port: 3128,
+  middleware: [
+    async (ctx, next) => {
+      if (ctx.kind === 'http-request') {
+        ctx.request.headers['x-edge'] = 'mesh-a'
+      }
+
+      if (ctx.kind === 'connect' && ctx.target.host.endsWith('.blocked.internal')) {
+        ctx.blocked = { statusCode: 403, reason: 'blocked by policy' }
+        return
+      }
+
+      if (ctx.kind === 'mitm-response' && ctx.response) {
+        ctx.response.headers['x-inspected-by'] = 'raffel'
+      }
+
+      await next()
+    },
+  ],
+  tunnel: { mode: 'mitm' },
+})
+\`\`\`
+
+Operational note:
+
+- Middleware is opt-in, just like telemetry.
+- Without a configured middleware array, proxy runtimes keep the simpler fast-path behavior.
+- Reverse/explicit/MITM support full request-response shaping.
+- SOCKS5 and transparent proxy middleware work at connection level (policy + target rewrite).
+
+## 12) Shared proxy options and rollout
 
 \`proxy\` options unify policy and observability for \`createReverseProxy\` and \`createExplicitProxy\`:
 
 - \`auth\` (shared Basic auth model)
 - \`filter\` (host/TLD/method-based access rules)
+- \`middleware\` (policy, block, rewrite, request/response shaping)
 - \`forward\` (HTTP request forwarding tuning)
 - \`tunnel\` (CONNECT mode and CA handling)
 - \`upgrade\` (WebSocket handshake handling)
@@ -1222,7 +1276,7 @@ Example:
 }
 \`\`\`
 
-## 12) Rollout checklist
+## 13) Rollout checklist
 
 - Start local with one route and explicit \`host\` and \`path\`.
 - Add TLS (\`server.tls\`) only after route match order is validated.
@@ -1233,7 +1287,7 @@ Example:
 - Run canary comparing old/new edge behavior before full cutover.
 - Validate SOCKS5 and UDP flows in an isolated test harness when enabled.
 
-## 13) Service mesh and flow observability
+## 14) Service mesh and flow observability
 
 For service-mesh style visibility, pair explicit and SOCKS5 proxies with shared collectors and graph snapshots:
 
@@ -1243,7 +1297,7 @@ For service-mesh style visibility, pair explicit and SOCKS5 proxies with shared 
 
 Protocol labels include \`http\`, \`https\`, \`connect\`, \`ws\`, \`wss\`, \`socks5\`, \`socks5h\`, \`socks5-udp\`, \`socks5h-udp\`, and \`tcp\`.
 
-## 14) Next docs
+## 15) Next docs
 
 - [Configuração por Arquivo](/proxy/config-file.md)
 - [Configuração Programática](/proxy/config-code.md)
@@ -1306,7 +1360,7 @@ Use these entry topics:
 
 const PROXY_CAPABILITIES_GUIDE = `# Proxy Capability Matrix
 
-The proxy toolkit exposes four execution classes and a unified telemetry model:
+The proxy toolkit exposes four execution classes, a unified telemetry model, and one shared middleware surface:
 
 - reverse proxy
 - explicit proxy
@@ -1338,6 +1392,21 @@ Useful options:
 - \`graphEndpoint\` (typically \`/proxy/graph\`)
 - \`percentiles\`: \`['p50','p90','p95']\` or \`[0.5,0.9,0.95]\`
 - \`rateWindowSeconds\`
+
+### Middleware coverage by mode
+
+- Reverse: \`http-request\`, \`http-response\`, \`connect\`, \`upgrade-request\`, \`mitm-request\`, \`mitm-response\`
+- Explicit: \`http-request\`, \`http-response\`, \`connect\`, \`upgrade-request\`, \`mitm-request\`, \`mitm-response\`
+- SOCKS5/SOCKS5h: \`socks5-connect\`, \`socks5-bind\`, \`socks5-udp-associate\`
+- Transparent: \`transparent\`
+- Suite: inherits explicit + socks5 middleware coverage
+
+Behavior model:
+
+- Middleware is opt-in.
+- \`ctx.blocked\` cancels a flow with a protocol-appropriate response.
+- \`ctx.target\` can be rewritten before the upstream dial.
+- HTTP and MITM phases can mutate request/response headers, bodies, paths, and status.
 `
 
 const PROXY_OBSERVABILITY_GUIDE = `# Proxy Observability

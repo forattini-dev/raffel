@@ -26,6 +26,11 @@ import { verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
+import {
+  runProxyMiddleware,
+  type ProxyMiddleware,
+  type ProxyMiddlewareContext,
+} from './middleware.js'
 
 export type Socks5Command = 'connect' | 'bind' | 'udpAssociate'
 
@@ -47,6 +52,8 @@ export interface Socks5Options {
   maxConnections?: number
   /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
   filter?: ProxyFilter
+  /** Unified proxy middleware for CONNECT/BIND/UDP ASSOCIATE flows. */
+  middleware?: ProxyMiddleware[]
   onConnect?: (info: Socks5ConnectionInfo) => void
   onDisconnect?: (info: Socks5ConnectionInfo & { reason: string }) => void
   telemetry?: Socks5TelemetryOptions
@@ -298,7 +305,16 @@ function handleSocks5Connection(
   options: Socks5Options,
   mutable: ReturnType<typeof createProxyStats>['mutable'],
 ): void {
-  const { auth, connectTimeout = 10_000, filter, onConnect, onDisconnect, telemetry, host: proxyHost } = options
+  const {
+    auth,
+    connectTimeout = 10_000,
+    filter,
+    middleware,
+    onConnect,
+    onDisconnect,
+    telemetry,
+    host: proxyHost,
+  } = options
 
   let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0)
   let step: Socks5Step = 'auth_selection'
@@ -358,6 +374,44 @@ function handleSocks5Connection(
           method,
           durationSeconds: Math.max(0, (performance.now() - startedAt) / 1000),
         })
+      },
+    }
+  }
+
+  async function runCommandMiddleware(
+    kind: 'socks5-connect' | 'socks5-bind' | 'socks5-udp-associate',
+    target: { host: string; port: number; atype: Socks5ConnectionInfo['atype'] },
+  ): Promise<{ blocked: boolean; target: { host: string; port: number } }> {
+    if (!middleware || middleware.length === 0) {
+      return { blocked: false, target: { host: target.host, port: target.port } }
+    }
+
+    const middlewareContext: ProxyMiddlewareContext = {
+      kind,
+      proxy: 'socks5' as const,
+      clientAddress: socket.remoteAddress ?? 'unknown',
+      authUsername: authenticatedUsername,
+      target: {
+        host: target.host,
+        port: target.port,
+        protocol: kind,
+      },
+      metadata: {
+        atype: target.atype,
+      },
+    }
+    await runProxyMiddleware(middleware, middlewareContext)
+    if (middlewareContext.blocked) {
+      socket.write(socks5Reply(middlewareContext.blocked.socks5ReplyCode ?? REP_RULESET_DENIED))
+      socket.destroy()
+      return { blocked: true, target: { host: target.host, port: target.port } }
+    }
+
+    return {
+      blocked: false,
+      target: {
+        host: middlewareContext.target.host,
+        port: middlewareContext.target.port,
       },
     }
   }
@@ -494,122 +548,143 @@ function handleSocks5Connection(
   }
 
   function handleConnectCommand(
-    host: string,
-    port: number,
+    initialHost: string,
+    initialPort: number,
     atype: Socks5ConnectionInfo['atype'],
     remaining: Buffer,
   ): void {
-    const tracker = createFlowTracker('connect', host, port, atype)
+    let host = initialHost
+    let port = initialPort
 
-    if (filter) {
-      suspended = true
-      checkProxyFilter(filter, host, port)
-        .then(({ allowed, reason }) => {
-          suspended = false
-          if (!allowed) {
-            filter.onDenied?.({ host, port, reason: reason! })
-            tracker.finish('ruleset_denied')
-            socket.write(socks5Reply(REP_RULESET_DENIED))
+    const prepareConnection = async () => {
+      const middlewareResult = await runCommandMiddleware('socks5-connect', { host, port, atype })
+      if (middlewareResult.blocked) return false
+      host = middlewareResult.target.host
+      port = middlewareResult.target.port
+      return true
+    }
+
+    suspended = true
+    void prepareConnection().then((allowed) => {
+      suspended = false
+      if (!allowed) return
+      const tracker = createFlowTracker('connect', host, port, atype)
+
+      if (filter) {
+        suspended = true
+        checkProxyFilter(filter, host, port)
+          .then(({ allowed, reason }) => {
+            suspended = false
+            if (!allowed) {
+              filter.onDenied?.({ host, port, reason: reason! })
+              tracker.finish('ruleset_denied')
+              socket.write(socks5Reply(REP_RULESET_DENIED))
+              socket.destroy()
+              return
+            }
+            doConnect()
+          })
+          .catch(() => {
+            suspended = false
+            tracker.finish('filter_error')
             socket.destroy()
-            return
+          })
+        return
+      }
+
+      doConnect()
+
+      function doConnect() {
+        mutable.connectionsTotal++
+        mutable.connectionsActive++
+        const info: Socks5ConnectionInfo = {
+          host,
+          port,
+          clientAddress: socket.remoteAddress ?? 'unknown',
+          atype,
+          command: 'connect',
+        }
+        onConnect?.(info)
+        let closed = false
+
+        function close(reason: string, error?: string): void {
+          if (closed) return
+          closed = true
+          mutable.connectionsActive--
+          onDisconnect?.({ ...info, reason })
+          tracker.finish(error)
+        }
+
+        const upstream = netConnect({ host, port })
+        upstream.setTimeout(connectTimeout)
+
+        upstream.on('connect', () => {
+          upstream.setTimeout(0)
+          socket.write(socks5Reply(REP_SUCCESS, normalizeReplyHost(proxyHost, socket.remoteAddress), 0))
+
+          if (remaining.length > 0) {
+            mutable.bytesFromClient += remaining.length
+            tracker.addBytesFromSource(remaining.length)
+            upstream.write(remaining)
           }
-          doConnect()
+
+          pipeBidirectional(socket, upstream, {
+            onDataFromA: (bytes) => {
+              mutable.bytesFromClient += bytes
+              tracker.addBytesFromSource(bytes)
+            },
+            onDataToA: (bytes) => {
+              mutable.bytesToClient += bytes
+              tracker.addBytesToSource(bytes)
+            },
+            onEnd: () => {
+              close('closed')
+            },
+            onError: (err) => {
+              mutable.connectionsErrored++
+              close(err.message, err.message)
+            },
+          })
         })
-        .catch(() => {
-          suspended = false
-          tracker.finish('filter_error')
-          socket.destroy()
+
+        upstream.on('timeout', () => {
+          upstream.destroy(new Error('connect timeout'))
         })
-      return
-    }
 
-    doConnect()
+        upstream.on('error', (err: NodeJS.ErrnoException) => {
+          mutable.connectionsErrored++
+          const rep = mapUpstreamError(err)
+          if (!socket.destroyed) {
+            socket.write(socks5Reply(rep))
+            socket.destroy()
+          }
+          close(err.message, err.code ?? err.message)
+        })
 
-    function doConnect() {
-      mutable.connectionsTotal++
-      mutable.connectionsActive++
-      const info: Socks5ConnectionInfo = {
-        host,
-        port,
-        clientAddress: socket.remoteAddress ?? 'unknown',
-        atype,
-        command: 'connect',
-      }
-      onConnect?.(info)
-      let closed = false
-
-      function close(reason: string, error?: string): void {
-        if (closed) return
-        closed = true
-        mutable.connectionsActive--
-        onDisconnect?.({ ...info, reason })
-        tracker.finish(error)
-      }
-
-      const upstream = netConnect({ host, port })
-      upstream.setTimeout(connectTimeout)
-
-      upstream.on('connect', () => {
-        upstream.setTimeout(0)
-        socket.write(socks5Reply(REP_SUCCESS, normalizeReplyHost(proxyHost, socket.remoteAddress), 0))
-
-        if (remaining.length > 0) {
-          mutable.bytesFromClient += remaining.length
-          tracker.addBytesFromSource(remaining.length)
-          upstream.write(remaining)
-        }
-
-        pipeBidirectional(socket, upstream, {
-          onDataFromA: (bytes) => {
-            mutable.bytesFromClient += bytes
-            tracker.addBytesFromSource(bytes)
-          },
-          onDataToA: (bytes) => {
-            mutable.bytesToClient += bytes
-            tracker.addBytesToSource(bytes)
-          },
-          onEnd: () => {
+        socket.on('close', () => {
+          if (!closed) {
+            upstream.destroy()
             close('closed')
-          },
-          onError: (err) => {
-            mutable.connectionsErrored++
-            close(err.message, err.message)
-          },
+          }
         })
-      })
 
-      upstream.on('timeout', () => {
-        upstream.destroy(new Error('connect timeout'))
-      })
-
-      upstream.on('error', (err: NodeJS.ErrnoException) => {
-        mutable.connectionsErrored++
-        const rep = mapUpstreamError(err)
-        if (!socket.destroyed) {
-          socket.write(socks5Reply(rep))
-          socket.destroy()
-        }
-        close(err.message, err.code ?? err.message)
-      })
-
-      socket.on('close', () => {
-        if (!closed) {
+        socket.on('error', () => {
           upstream.destroy()
-          close('closed')
-        }
-      })
-
-      socket.on('error', () => {
-        upstream.destroy()
-      })
-    }
+        })
+      }
+    }).catch(() => {
+      suspended = false
+      socket.destroy()
+    })
   }
 
   function handleBindCommand(
-    requestedHost: string,
-    requestedPort: number,
+    initialRequestedHost: string,
+    initialRequestedPort: number,
     requestedAType: Socks5ConnectionInfo['atype'],
   ): void {
+    let requestedHost = initialRequestedHost
+    let requestedPort = initialRequestedPort
     const info: Socks5ConnectionInfo = {
       host: requestedHost,
       port: requestedPort,
@@ -618,31 +693,44 @@ function handleSocks5Connection(
       command: 'bind',
     }
 
-    const shouldFilterRequestedTarget = !isWildcardHost(requestedHost) && requestedPort > 0
+    suspended = true
+    void runCommandMiddleware('socks5-bind', {
+      host: requestedHost,
+      port: requestedPort,
+      atype: requestedAType,
+    }).then((middlewareResult) => {
+      suspended = false
+      if (middlewareResult.blocked) return
+      requestedHost = middlewareResult.target.host
+      requestedPort = middlewareResult.target.port
+      info.host = requestedHost
+      info.port = requestedPort
 
-    if (filter && shouldFilterRequestedTarget) {
-      suspended = true
-      checkProxyFilter(filter, requestedHost, requestedPort)
-        .then(({ allowed, reason }) => {
-          suspended = false
-          if (!allowed) {
-            filter.onDenied?.({ host: requestedHost, port: requestedPort, reason: reason! })
-            socket.write(socks5Reply(REP_RULESET_DENIED))
+      const shouldFilterRequestedTarget = !isWildcardHost(requestedHost) && requestedPort > 0
+
+      if (filter && shouldFilterRequestedTarget) {
+        suspended = true
+        checkProxyFilter(filter, requestedHost, requestedPort)
+          .then(({ allowed, reason }) => {
+            suspended = false
+            if (!allowed) {
+              filter.onDenied?.({ host: requestedHost, port: requestedPort, reason: reason! })
+              socket.write(socks5Reply(REP_RULESET_DENIED))
+              socket.destroy()
+              return
+            }
+            doBind()
+          })
+          .catch(() => {
+            suspended = false
             socket.destroy()
-            return
-          }
-          doBind()
-        })
-        .catch(() => {
-          suspended = false
-          socket.destroy()
-        })
-      return
-    }
+          })
+        return
+      }
 
-    doBind()
+      doBind()
 
-    function doBind() {
+      function doBind() {
       mutable.connectionsTotal++
       mutable.connectionsActive++
       onConnect?.(info)
@@ -758,76 +846,92 @@ function handleSocks5Connection(
 
       socket.on('close', () => close('closed'))
       socket.on('error', () => close('socket_error', 'socket_error'))
-    }
+      }
+    }).catch(() => {
+      suspended = false
+      socket.destroy()
+    })
   }
 
   function handleUdpAssociateCommand(
-    requestedHost: string,
-    requestedPort: number,
+    initialRequestedHost: string,
+    initialRequestedPort: number,
     requestedAType: Socks5ConnectionInfo['atype'],
   ): void {
-    mutable.connectionsTotal++
-    mutable.connectionsActive++
-
-    const info: Socks5ConnectionInfo = {
+    let requestedHost = initialRequestedHost
+    let requestedPort = initialRequestedPort
+    suspended = true
+    void runCommandMiddleware('socks5-udp-associate', {
       host: requestedHost,
       port: requestedPort,
-      clientAddress: socket.remoteAddress ?? 'unknown',
       atype: requestedAType,
-      command: 'udpAssociate',
-    }
-    onConnect?.(info)
+    }).then((middlewareResult) => {
+      suspended = false
+      if (middlewareResult.blocked) return
+      requestedHost = middlewareResult.target.host
+      requestedPort = middlewareResult.target.port
+      mutable.connectionsTotal++
+      mutable.connectionsActive++
 
-    const udpType = isIP(proxyHost ?? '') === 6 || isIP(socket.remoteAddress ?? '') === 6 ? 'udp6' : 'udp4'
-    const relay = createSocket(udpType)
-    const activeFlows = new Map<string, UdpFlowState>()
-    const remoteKeyToFlowKey = new Map<string, string>()
-    let closed = false
-    let clientUdpPeer: { address: string; port: number } | null = requestedPort > 0
-      ? { address: isWildcardHost(requestedHost) ? (socket.remoteAddress ?? '127.0.0.1') : requestedHost, port: requestedPort }
-      : null
-
-    function finishAndDeleteFlow(flowKey: string, error?: string): void {
-      const state = activeFlows.get(flowKey)
-      if (!state) return
-      state.tracker.finish(error)
-      for (const remoteKey of state.remoteKeys) {
-        remoteKeyToFlowKey.delete(remoteKey)
+      const info: Socks5ConnectionInfo = {
+        host: requestedHost,
+        port: requestedPort,
+        clientAddress: socket.remoteAddress ?? 'unknown',
+        atype: requestedAType,
+        command: 'udpAssociate',
       }
-      activeFlows.delete(flowKey)
-    }
+      onConnect?.(info)
 
-    function getOrCreateUdpFlow(
-      destinationHost: string,
-      destinationPort: number,
-      destinationAType: Socks5ConnectionInfo['atype'],
-    ): UdpFlowState {
-      const protocol = flowProtocolFor('udpAssociate', destinationAType)
-      const flowKey = `${destinationHost}\u0000${destinationPort}\u0000${protocol}`
-      const existing = activeFlows.get(flowKey)
-      if (existing) return existing
+      const udpType = isIP(proxyHost ?? '') === 6 || isIP(socket.remoteAddress ?? '') === 6 ? 'udp6' : 'udp4'
+      const relay = createSocket(udpType)
+      const activeFlows = new Map<string, UdpFlowState>()
+      const remoteKeyToFlowKey = new Map<string, string>()
+      let closed = false
+      let clientUdpPeer: { address: string; port: number } | null = requestedPort > 0
+        ? { address: isWildcardHost(requestedHost) ? (socket.remoteAddress ?? '127.0.0.1') : requestedHost, port: requestedPort }
+        : null
 
-      const created: UdpFlowState = {
-        tracker: createFlowTracker('udpAssociate', destinationHost, destinationPort, destinationAType),
-        remoteKeys: new Set(),
+      function finishAndDeleteFlow(flowKey: string, error?: string): void {
+        const state = activeFlows.get(flowKey)
+        if (!state) return
+        state.tracker.finish(error)
+        for (const remoteKey of state.remoteKeys) {
+          remoteKeyToFlowKey.delete(remoteKey)
+        }
+        activeFlows.delete(flowKey)
       }
-      activeFlows.set(flowKey, created)
-      return created
-    }
 
-    function close(reason: string, error?: string): void {
-      if (closed) return
-      closed = true
-      mutable.connectionsActive--
-      onDisconnect?.({ ...info, reason })
-      for (const flowKey of Array.from(activeFlows.keys())) {
-        finishAndDeleteFlow(flowKey, error)
+      function getOrCreateUdpFlow(
+        destinationHost: string,
+        destinationPort: number,
+        destinationAType: Socks5ConnectionInfo['atype'],
+      ): UdpFlowState {
+        const protocol = flowProtocolFor('udpAssociate', destinationAType)
+        const flowKey = `${destinationHost}\u0000${destinationPort}\u0000${protocol}`
+        const existing = activeFlows.get(flowKey)
+        if (existing) return existing
+
+        const created: UdpFlowState = {
+          tracker: createFlowTracker('udpAssociate', destinationHost, destinationPort, destinationAType),
+          remoteKeys: new Set(),
+        }
+        activeFlows.set(flowKey, created)
+        return created
       }
-      relay.close()
-      if (!socket.destroyed) socket.destroy()
-    }
 
-    relay.on('message', (msg: Buffer, rinfo: RemoteInfo) => {
+      function close(reason: string, error?: string): void {
+        if (closed) return
+        closed = true
+        mutable.connectionsActive--
+        onDisconnect?.({ ...info, reason })
+        for (const flowKey of Array.from(activeFlows.keys())) {
+          finishAndDeleteFlow(flowKey, error)
+        }
+        relay.close()
+        if (!socket.destroyed) socket.destroy()
+      }
+
+      relay.on('message', (msg: Buffer, rinfo: RemoteInfo) => {
       const fromControlClient = rinfo.address === (socket.remoteAddress ?? '')
         && (clientUdpPeer == null || rinfo.port === clientUdpPeer.port || clientUdpPeer.port === 0)
 
@@ -892,24 +996,28 @@ function handleSocks5Connection(
       flowState.tracker.addBytesToSource(msg.length)
       const response = buildSocks5UdpPacket(rinfo.address, rinfo.port, msg)
       relay.send(response, clientUdpPeer.port, clientUdpPeer.address)
-    })
+      })
 
-    relay.on('error', (error) => {
-      mutable.connectionsErrored++
-      close('udp_error', error.message)
-    })
+      relay.on('error', (error) => {
+        mutable.connectionsErrored++
+        close('udp_error', error.message)
+      })
 
-    relay.bind(0, proxyHost ?? '0.0.0.0', () => {
-      const address = relay.address() as { address: string; port: number }
-      socket.write(socks5Reply(
-        REP_SUCCESS,
-        normalizeReplyHost(address.address, socket.remoteAddress),
-        address.port,
-      ))
-    })
+      relay.bind(0, proxyHost ?? '0.0.0.0', () => {
+        const address = relay.address() as { address: string; port: number }
+        socket.write(socks5Reply(
+          REP_SUCCESS,
+          normalizeReplyHost(address.address, socket.remoteAddress),
+          address.port,
+        ))
+      })
 
-    socket.on('close', () => close('closed'))
-    socket.on('error', () => close('socket_error', 'socket_error'))
+      socket.on('close', () => close('closed'))
+      socket.on('error', () => close('socket_error', 'socket_error'))
+    }).catch(() => {
+      suspended = false
+      socket.destroy()
+    })
   }
 }
 

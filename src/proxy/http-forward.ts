@@ -22,6 +22,11 @@ import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/
 import { stripHopByHopHeaders } from './utils/hop-headers.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
+import {
+  runProxyMiddleware,
+  type ProxyMiddleware,
+  type ProxyMiddlewareContext,
+} from './middleware.js'
 import type { ValidatorAdapter } from '../validation/types.js'
 
 export interface ProxyValidateOptions {
@@ -67,6 +72,8 @@ export interface HttpForwardProxyOptions {
   onResponse?: (
     res: ForwardProxyResponse,
   ) => ForwardProxyResponse | Promise<ForwardProxyResponse>
+  /** Unified proxy middleware for request/response phases. */
+  middleware?: ProxyMiddleware[]
 }
 
 export interface HttpForwardProxy {
@@ -233,6 +240,7 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
     validate,
     onRequest,
     onResponse,
+    middleware,
   } = options
 
   const { mutable, snapshot } = createProxyStats()
@@ -258,23 +266,6 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
       return
     }
 
-    const earlyTargetUrl = new URL(url)
-    const earlyPort = earlyTargetUrl.port
-      ? parseInt(earlyTargetUrl.port, 10)
-      : earlyTargetUrl.protocol === 'https:'
-        ? 443
-        : 80
-
-    if (filter) {
-      const { allowed, reason } = await checkProxyFilter(filter, earlyTargetUrl.hostname, earlyPort)
-      if (!allowed) {
-        filter.onDenied?.({ host: earlyTargetUrl.hostname, port: earlyPort, reason: reason! })
-        res.writeHead(403, { 'Content-Type': 'text/plain' })
-        res.end('Forbidden')
-        return
-      }
-    }
-
     const declaredLength = parseContentLength(req.headers['content-length'])
     if (declaredLength != null && declaredLength > maxBodySize) {
       res.writeHead(413, { 'Content-Type': 'text/plain' })
@@ -285,8 +276,8 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
     mutable.connectionsTotal++
     mutable.connectionsActive++
 
-    const requiresBufferedRequest = !!(onRequest || validate?.request)
-    const requiresBufferedResponse = !!(onResponse || validate?.response)
+    const requiresBufferedRequest = !!(onRequest || validate?.request || middleware?.length)
+    const requiresBufferedResponse = !!(onResponse || validate?.response || middleware?.length)
 
     try {
       let preparedRequest: PreparedUpstreamRequest
@@ -302,9 +293,78 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
           body,
         }
 
+        if (middleware && middleware.length > 0) {
+          const middlewareTargetUrl = new URL(proxyReq.url)
+          const middlewareTargetPort = middlewareTargetUrl.port
+            ? parseInt(middlewareTargetUrl.port, 10)
+            : middlewareTargetUrl.protocol === 'https:'
+              ? 443
+              : 80
+          const middlewareContext: ProxyMiddlewareContext = {
+            kind: 'http-request' as const,
+            proxy: 'http-forward' as const,
+            clientAddress: req.socket.remoteAddress ?? 'unknown',
+            authUsername: creds?.username ?? null,
+            target: {
+              host: middlewareTargetUrl.hostname,
+              port: middlewareTargetPort,
+              protocol: middlewareTargetUrl.protocol,
+              path: `${middlewareTargetUrl.pathname}${middlewareTargetUrl.search ?? ''}`,
+            },
+            request: {
+              method: proxyReq.method,
+              url: proxyReq.url,
+              path: `${middlewareTargetUrl.pathname}${middlewareTargetUrl.search ?? ''}`,
+              headers: proxyReq.headers,
+              body: proxyReq.body,
+            },
+            metadata: {
+              transport: 'http',
+            },
+          }
+          await runProxyMiddleware(middleware, middlewareContext)
+
+          if (middlewareContext.blocked) {
+            const body = middlewareContext.blocked.body ?? 'Forbidden'
+            const payload = Buffer.isBuffer(body) ? body : Buffer.from(body)
+            res.writeHead(middlewareContext.blocked.statusCode ?? 403, {
+              'Content-Type': 'text/plain',
+              'Content-Length': String(payload.length),
+              ...(middlewareContext.blocked.headers ?? {}),
+            })
+            res.end(payload)
+            return
+          }
+
+          const requestCtx = middlewareContext.request!
+          proxyReq = {
+            method: requestCtx.method,
+            url: requestCtx.url ?? proxyReq.url,
+            headers: requestCtx.headers,
+            body: requestCtx.body ?? proxyReq.body,
+          }
+        }
+
         if (onRequest) {
           proxyReq = await onRequest(proxyReq)
           if (proxyReq === null) {
+            res.writeHead(403, { 'Content-Type': 'text/plain' })
+            res.end('Forbidden')
+            return
+          }
+        }
+
+        const filteredTargetUrl = new URL(proxyReq.url)
+        const filteredTargetPort = filteredTargetUrl.port
+          ? parseInt(filteredTargetUrl.port, 10)
+          : filteredTargetUrl.protocol === 'https:'
+            ? 443
+            : 80
+
+        if (filter) {
+          const { allowed, reason } = await checkProxyFilter(filter, filteredTargetUrl.hostname, filteredTargetPort)
+          if (!allowed) {
+            filter.onDenied?.({ host: filteredTargetUrl.hostname, port: filteredTargetPort, reason: reason! })
             res.writeHead(403, { 'Content-Type': 'text/plain' })
             res.end('Forbidden')
             return
@@ -332,6 +392,23 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
           url,
           headers: stripHopByHopHeaders(flattenHeaders(req.headers), stripHeaders),
           body: null,
+        }
+
+        const filteredTargetUrl = new URL(preparedRequest.url)
+        const filteredTargetPort = filteredTargetUrl.port
+          ? parseInt(filteredTargetUrl.port, 10)
+          : filteredTargetUrl.protocol === 'https:'
+            ? 443
+            : 80
+
+        if (filter) {
+          const { allowed, reason } = await checkProxyFilter(filter, filteredTargetUrl.hostname, filteredTargetPort)
+          if (!allowed) {
+            filter.onDenied?.({ host: filteredTargetUrl.hostname, port: filteredTargetPort, reason: reason! })
+            res.writeHead(403, { 'Content-Type': 'text/plain' })
+            res.end('Forbidden')
+            return
+          }
         }
       }
 
@@ -400,6 +477,58 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
         let finalRes = upstreamResponse
         if (onResponse) {
           finalRes = await onResponse(upstreamResponse)
+        }
+
+        if (middleware && middleware.length > 0) {
+          const middlewareTargetUrl = new URL(preparedRequest.url)
+          const middlewareContext: ProxyMiddlewareContext = {
+            kind: 'http-response' as const,
+            proxy: 'http-forward' as const,
+            clientAddress: req.socket.remoteAddress ?? 'unknown',
+            authUsername: creds?.username ?? null,
+            target: {
+              host: middlewareTargetUrl.hostname,
+              port: upstreamTarget.port,
+              protocol: upstreamTarget.protocol,
+              path: upstreamTarget.path,
+            },
+            request: {
+              method: preparedRequest.method,
+              url: preparedRequest.url,
+              path: upstreamTarget.path,
+              headers: preparedRequest.headers,
+              body: preparedRequest.body ?? undefined,
+            },
+            response: {
+              statusCode: finalRes.statusCode,
+              statusMessage: finalRes.statusMessage,
+              headers: finalRes.headers,
+              body: finalRes.body,
+            },
+            metadata: {
+              transport: 'http',
+            },
+          }
+          await runProxyMiddleware(middleware, middlewareContext)
+
+          if (middlewareContext.blocked) {
+            const body = middlewareContext.blocked.body ?? 'Forbidden'
+            const payload = Buffer.isBuffer(body) ? body : Buffer.from(body)
+            res.writeHead(middlewareContext.blocked.statusCode ?? 403, {
+              'Content-Type': 'text/plain',
+              'Content-Length': String(payload.length),
+              ...(middlewareContext.blocked.headers ?? {}),
+            })
+            res.end(payload)
+            return
+          }
+
+          finalRes = {
+            statusCode: middlewareContext.response?.statusCode ?? finalRes.statusCode,
+            statusMessage: middlewareContext.response?.statusMessage ?? finalRes.statusMessage,
+            headers: middlewareContext.response?.headers ?? finalRes.headers,
+            body: middlewareContext.response?.body ?? finalRes.body,
+          }
         }
 
         mutable.bytesToClient += finalRes.body.length

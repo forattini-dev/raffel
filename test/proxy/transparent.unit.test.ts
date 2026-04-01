@@ -225,6 +225,53 @@ describe('Transparent Proxy', () => {
       await new Promise<void>((resolve) => upstream.close(() => resolve()))
     }
   })
+
+  it('middleware can rewrite transparent destination before dialing upstream', async () => {
+    const upstreamA = createServer((socket) => {
+      socket.end('A')
+    })
+    const upstreamB = createServer((socket) => {
+      socket.end('B')
+    })
+
+    await new Promise<void>((resolve) => upstreamA.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>((resolve) => upstreamB.listen(0, '127.0.0.1', resolve))
+
+    const upstreamAAddress = upstreamA.address() as { port: number }
+    const upstreamBAddress = upstreamB.address() as { port: number }
+
+    try {
+      proxy = createTransparentProxy({
+        port: 0,
+        host: '127.0.0.1',
+        mode: 'redirect',
+        resolveOriginalDestination: () => ({ host: '127.0.0.1', port: upstreamAAddress.port }),
+        middleware: [
+          async (ctx, next) => {
+            if (ctx.kind === 'transparent') {
+              ctx.target.host = '127.0.0.1'
+              ctx.target.port = upstreamBAddress.port
+            }
+            await next()
+          },
+        ],
+      })
+      await proxy.start()
+
+      const response = await new Promise<string>((resolve, reject) => {
+        const sock = netConnect(proxy!.boundPort!, '127.0.0.1')
+        const chunks: Buffer[] = []
+        sock.once('error', reject)
+        sock.on('data', (chunk: Buffer) => chunks.push(chunk))
+        sock.on('close', () => resolve(Buffer.concat(chunks).toString()))
+      })
+
+      expect(response).toBe('B')
+    } finally {
+      await new Promise<void>((resolve) => upstreamA.close(() => resolve()))
+      await new Promise<void>((resolve) => upstreamB.close(() => resolve()))
+    }
+  })
 })
 
 describe('Transparent Proxy utils', () => {

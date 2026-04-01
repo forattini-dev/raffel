@@ -80,6 +80,16 @@ export type {
 } from './telemetry-options.js'
 
 export type { ProxyAuth, ProxyCredentials, ProxyStats, ProxyServer } from './types.js'
+export { runProxyMiddleware } from './middleware.js'
+export type {
+  ProxyMiddleware,
+  ProxyMiddlewareKind,
+  ProxyMiddlewareContext,
+  ProxyMiddlewareBlock,
+  ProxyMiddlewareTarget,
+  ProxyMiddlewareRequest,
+  ProxyMiddlewareResponse,
+} from './middleware.js'
 
 export type { ProxyFilter } from './utils/access-control.js'
 

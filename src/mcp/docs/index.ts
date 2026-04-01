@@ -104,14 +104,14 @@ const docsGuideIndex = [
     type: 'guide' as const,
     name: 'Reverse Proxy',
     description:
-      'Raffel reverse-proxy and full proxy toolkit coverage: Reverse, Explicit, SOCKS5(SOCKS5h), Transparent, UDP associate, service mesh observability (graph snapshot), and shared auth/filter/telemetry behavior.',
+      'Raffel reverse-proxy and full proxy toolkit coverage: Reverse, Explicit, SOCKS5(SOCKS5h), Transparent, UDP associate, service mesh observability (graph snapshot), and shared auth/filter/telemetry/middleware behavior.',
     category: 'documentation',
   },
   {
     type: 'guide' as const,
     name: 'Proxy Capability Matrix',
     description:
-      'Mode-by-mode matrix for reverse, explicit, SOCKS5(SOCKS5h), transparent and suite usage, plus shared telemetry/collector defaults.',
+      'Mode-by-mode matrix for reverse, explicit, SOCKS5(SOCKS5h), transparent and suite usage, plus shared telemetry, middleware, and collector defaults.',
     category: 'documentation',
   },
   {

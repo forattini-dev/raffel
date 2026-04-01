@@ -289,10 +289,12 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
   let upstreamServer: import('node:https').Server
   let upstreamPort: number
   let requestLog: Array<import('node:http').IncomingHttpHeaders> = []
+  let requestPaths: string[] = []
 
   beforeAll(async () => {
     const result = await startHttpsUpstream((req, res) => {
       requestLog.push({ ...req.headers })
+      requestPaths.push(req.url ?? '/')
       res.writeHead(200, { 'content-type': 'text/plain', 'x-upstream': 'yes' })
       res.end('upstream-ok')
     })
@@ -307,6 +309,7 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
 
   beforeEach(() => {
     requestLog = []
+    requestPaths = []
   })
 
   async function interceptRequest(opts: ConnectTunnelOptions, retries = 2): Promise<{ status: number; body: string }> {
@@ -357,6 +360,22 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
       onResponse: (res) => ({ ...res, statusCode: 201, statusMessage: 'Created' }),
     })
     expect(result.status).toBe(201)
+  }, 15_000)
+
+  it('middleware can rewrite MITM request path', async () => {
+    const result = await interceptRequest({
+      middleware: [
+        async (ctx, next) => {
+          if (ctx.kind === 'mitm-request' && ctx.request.path === '/') {
+            ctx.request.path = '/rewritten'
+            ctx.target.path = '/rewritten'
+          }
+          await next()
+        },
+      ],
+    })
+    expect(result.status).toBe(200)
+    expect(requestPaths[0]).toBe('/rewritten')
   }, 15_000)
 
   it('passes through transparently when no hooks are set', async () => {
@@ -558,6 +577,28 @@ describe('CONNECT Tunnel — filter', () => {
 
     const statusLine = await sendConnectRaw(proxyPort, '127.0.0.1', 9999)
     expect(statusLine).toContain('403')
+  })
+
+  it('middleware can block CONNECT before upstream dialing', async () => {
+    const tunnel = createConnectTunnel({
+      mode: 'forward',
+      middleware: [
+        async (ctx, next) => {
+          if (ctx.kind === 'connect') {
+            ctx.blocked = { statusCode: 451, reason: 'Unavailable For Legal Reasons' }
+            return
+          }
+          await next()
+        },
+      ],
+    })
+    proxyServer = createHttpServer()
+    tunnel.attachTo(proxyServer)
+    await new Promise<void>((r) => proxyServer.listen(0, '127.0.0.1', r))
+    proxyPort = (proxyServer.address() as { port: number }).port
+
+    const statusLine = await sendConnectRaw(proxyPort, '127.0.0.1', 9999)
+    expect(statusLine).toContain('451')
   })
 
   it('filter.onDenied callback is invoked on CONNECT block', async () => {

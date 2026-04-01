@@ -30,6 +30,11 @@ import { createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
+import {
+  runProxyMiddleware,
+  type ProxyMiddleware,
+  type ProxyMiddlewareContext,
+} from './middleware.js'
 
 export type TransparentProxyMode = 'tproxy' | 'redirect'
 
@@ -67,6 +72,7 @@ export interface TransparentProxyOptions {
   ) => TransparentOriginalDestination | null | undefined
   onConnection?: (info: TransparentConnectionInfo) => void
   onDisconnect?: (info: TransparentConnectionInfo & { reason: string }) => void
+  middleware?: ProxyMiddleware[]
   telemetry?: TransparentTelemetryOptions
 }
 
@@ -103,6 +109,7 @@ export function createTransparentProxy(options: TransparentProxyOptions): Transp
     resolveOriginalDestination,
     onConnection,
     onDisconnect,
+    middleware,
     telemetry: telemetryOptions,
   } = options
   const { mutable, snapshot } = createProxyStats()
@@ -129,31 +136,62 @@ export function createTransparentProxy(options: TransparentProxyOptions): Transp
   }
 
   function handleConnection(clientSocket: Socket): void {
-    const originalDest = getOriginalDest(clientSocket)
+    let originalDest = getOriginalDest(clientSocket)
     const clientAddress = `${clientSocket.remoteAddress ?? 'unknown'}:${clientSocket.remotePort ?? 0}`
-    const info: TransparentConnectionInfo = {
+    let info: TransparentConnectionInfo = {
       clientSocket,
       clientAddress,
       originalDest,
     }
 
-    if (filter) {
-      checkProxyFilter(filter, originalDest.host, originalDest.port)
-        .then(({ allowed, reason }) => {
-          if (!allowed) {
-            filter.onDenied?.({ host: originalDest.host, port: originalDest.port, reason: reason! })
-            clientSocket.destroy()
-            return
-          }
-          doConnect()
-        })
-        .catch(() => {
+    const runConnection = async () => {
+      if (middleware && middleware.length > 0) {
+        const middlewareContext: ProxyMiddlewareContext = {
+          kind: 'transparent' as const,
+          proxy: 'transparent' as const,
+          clientAddress,
+          target: {
+            host: originalDest.host,
+            port: originalDest.port,
+            protocol: 'tcp',
+          },
+          metadata: {
+            mode,
+          },
+        }
+        await runProxyMiddleware(middleware, middlewareContext)
+        if (middlewareContext.blocked) {
           clientSocket.destroy()
-        })
-      return
+          return
+        }
+        originalDest = {
+          host: middlewareContext.target.host,
+          port: middlewareContext.target.port,
+        }
+        info = {
+          clientSocket,
+          clientAddress,
+          originalDest,
+        }
+      }
+
+      if (filter) {
+        const { allowed, reason } = await checkProxyFilter(filter, originalDest.host, originalDest.port)
+        if (!allowed) {
+          filter.onDenied?.({ host: originalDest.host, port: originalDest.port, reason: reason! })
+          clientSocket.destroy()
+          return
+        }
+      }
+
+      doConnect()
     }
 
-    doConnect()
+    void runConnection().catch(() => {
+      if (!clientSocket.destroyed) {
+        clientSocket.destroy()
+      }
+    })
 
     function doConnect(): void {
       mutable.connectionsTotal++

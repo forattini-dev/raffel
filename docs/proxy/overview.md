@@ -9,6 +9,7 @@ Esta seção reúne a família de proxies da Raffel em um guia único:
 - proxy SOCKS5 (TCP/UDP) (`createSocks5Proxy`)
 - proxy transparente (`createTransparentProxy`)
 - suíte unificada (`createProxySuite`)
+- middleware unificado para policy, bloqueio e rewrite de request/destino
 
 A ideia é permitir cenários de borda e malha de serviço com a mesma base de telemetria.
 
@@ -21,6 +22,9 @@ Sem telemetria ativa, você evita:
 - criação de registradores de métricas Prometheus,
 - coleta de taxas/percentis por aresta,
 - geração de grafos de fluxo em memória.
+
+Da mesma forma, **middleware de proxy é opt-in**.
+Sem informar `middleware`, os proxies não criam pipeline programático extra para inspeção, bloqueio ou mutação.
 
 ## Leitura recomendada por intenção
 
@@ -79,3 +83,30 @@ await suite.start()
 ```
 
 O `suite` já mantém um coletor compartilhado, então as arestas de origem→destino podem ser montadas como grafo único.
+
+## Exemplo de policy engine unificado
+
+```ts
+import { createExplicitProxy } from 'raffel'
+
+const explicit = createExplicitProxy({
+  port: 3128,
+  middleware: [
+    async (ctx, next) => {
+      if (ctx.kind === 'http-request' && ctx.target.host === 'legacy.internal') {
+        ctx.target.host = 'legacy-v2.internal'
+      }
+
+      if (ctx.kind === 'connect' && ctx.target.port === 25) {
+        ctx.blocked = { statusCode: 403, reason: 'SMTP denied at proxy edge' }
+        return
+      }
+
+      await next()
+    },
+  ],
+})
+```
+
+Esse mesmo modelo vale para `http-request`, `http-response`, `mitm-request`, `mitm-response`,
+`upgrade-request`, `connect`, `socks5-connect`, `socks5-bind`, `socks5-udp-associate` e `transparent`.

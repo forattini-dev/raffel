@@ -65,6 +65,46 @@ const reverse = await createReverseProxy(parseReverseProxyConfig({
 }))
 ```
 
+## Middleware programático compartilhado
+
+O bloco `proxy.middleware` ativa uma pipeline programática comum para reverse, explicit,
+CONNECT/MITM, SOCKS5 e transparent. Se não for informado, nada é executado.
+
+```ts
+const reverse = await createReverseProxy(parseReverseProxyConfig({
+  server: { host: '127.0.0.1', port: 3000 },
+  routes: [
+    {
+      match: { host: 'api.internal.local', pathPrefix: '/v1' },
+      target: 'http://127.0.0.1:4100',
+    },
+  ],
+  proxy: {
+    middleware: [
+      async (ctx, next) => {
+        if (ctx.kind === 'http-request') {
+          ctx.request.headers['x-edge'] = 'reverse-a'
+        }
+
+        if (ctx.target.host === 'legacy.internal.local') {
+          ctx.target.host = 'legacy-v2.internal.local'
+        }
+
+        await next()
+      },
+    ],
+  },
+}))
+```
+
+Contextos principais:
+
+- `http-request`, `http-response`
+- `connect`, `upgrade-request`
+- `mitm-request`, `mitm-response`
+- `socks5-connect`, `socks5-bind`, `socks5-udp-associate`
+- `transparent`
+
 ## TLS com certificado automático
 
 ```ts

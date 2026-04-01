@@ -32,6 +32,11 @@ import type { ProxyAuth, ProxyServer, ProxyStats } from './types.js'
 import { createProxyStats, parseBasicProxyAuth, verifyProxyAuth } from './utils/auth.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
+import {
+  runProxyMiddleware,
+  type ProxyMiddleware,
+  type ProxyMiddlewareContext,
+} from './middleware.js'
 import { pipeBidirectional } from './utils/pipe.js'
 
 export interface UpgradeProxyRequest {
@@ -60,6 +65,8 @@ export interface ExplicitProxyUpgradeOptions {
   onRequest?: (
     req: UpgradeProxyRequest,
   ) => UpgradeProxyRequest | null | Promise<UpgradeProxyRequest | null>
+  /** Unified proxy middleware for upgrade request phase. */
+  middleware?: ProxyMiddleware[]
   onConnect?: (info: UpgradeConnectionInfo) => void
   onDisconnect?: (info: UpgradeConnectionInfo & { reason: string }) => void
 }
@@ -86,6 +93,8 @@ export interface ExplicitProxyOptions {
   tunnel?: Omit<ConnectTunnelOptions, 'auth' | 'filter'>
   /** HTTP upgrade proxy options */
   upgrade?: ExplicitProxyUpgradeOptions
+  /** Shared middleware applied to forward/connect/upgrade flows. */
+  middleware?: ProxyMiddleware[]
   /** Edge telemetry and graph export */
   telemetry?: ExplicitProxyTelemetryOptions
 }
@@ -233,6 +242,7 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
     forward: forwardOptions = {},
     tunnel: tunnelOptions = {},
     upgrade: upgradeOptions = {},
+    middleware: sharedMiddleware = [],
     telemetry: telemetryOptions,
   } = options
 
@@ -244,8 +254,18 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
     ? (telemetryOptions.graphEndpoint === undefined ? '/proxy/graph' : telemetryOptions.graphEndpoint)
     : false
 
-  const httpProxy = createHttpForwardProxy({ auth, filter, ...forwardOptions })
-  const tunnel = createConnectTunnel({ auth, filter, ...tunnelOptions })
+  const httpProxy = createHttpForwardProxy({
+    auth,
+    filter,
+    ...forwardOptions,
+    middleware: [...sharedMiddleware, ...(forwardOptions.middleware ?? [])],
+  })
+  const tunnel = createConnectTunnel({
+    auth,
+    filter,
+    ...tunnelOptions,
+    middleware: [...sharedMiddleware, ...(tunnelOptions.middleware ?? [])],
+  })
   const upgradeStats = createProxyStats()
 
   let server: HttpServer | null = null
@@ -387,6 +407,56 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
       url: req.url ?? '/',
       headers: flattenHeaders(req.headers),
       head,
+    }
+
+    const upgradeMiddleware = [...sharedMiddleware, ...(upgradeOptions.middleware ?? [])]
+    if (upgradeMiddleware.length > 0) {
+      let targetUrlForMiddleware: URL
+      try {
+        targetUrlForMiddleware = parseUpgradeTarget(upgradeReq.url, upgradeReq.headers)
+      } catch {
+        writeHttpError(clientSocket, 400, 'Bad Request: invalid upgrade target')
+        return
+      }
+
+      const middlewareContext: ProxyMiddlewareContext = {
+        kind: 'upgrade-request' as const,
+        proxy: 'explicit' as const,
+        clientAddress: clientSocket.remoteAddress ?? 'unknown',
+        authUsername: creds?.username ?? null,
+        target: {
+          host: targetUrlForMiddleware.hostname,
+          port: targetUrlForMiddleware.port ? Number.parseInt(targetUrlForMiddleware.port, 10) : defaultPortFor(targetUrlForMiddleware.protocol),
+          protocol: targetUrlForMiddleware.protocol,
+          path: `${targetUrlForMiddleware.pathname || '/'}${targetUrlForMiddleware.search ?? ''}`,
+        },
+        request: {
+          method: upgradeReq.method,
+          url: upgradeReq.url,
+          path: `${targetUrlForMiddleware.pathname || '/'}${targetUrlForMiddleware.search ?? ''}`,
+          headers: upgradeReq.headers,
+          head: upgradeReq.head,
+        },
+      }
+      await runProxyMiddleware(upgradeMiddleware, middlewareContext)
+      if (middlewareContext.blocked) {
+        const body = middlewareContext.blocked.body ?? 'Forbidden'
+        writeHttpError(
+          clientSocket,
+          middlewareContext.blocked.statusCode ?? 403,
+          Buffer.isBuffer(body) ? body.toString() : body,
+          middlewareContext.blocked.headers ?? {},
+        )
+        return
+      }
+
+      const requestCtx = middlewareContext.request!
+      upgradeReq = {
+        method: requestCtx.method,
+        url: requestCtx.url ?? upgradeReq.url,
+        headers: requestCtx.headers,
+        head: requestCtx.head ?? upgradeReq.head,
+      }
     }
 
     if (upgradeOptions.onRequest) {

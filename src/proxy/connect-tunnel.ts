@@ -24,6 +24,11 @@ import { stripHopByHopHeaders } from './utils/hop-headers.js'
 import { generateCertificate, getDefaultCA } from '../utils/certs.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
+import {
+  runProxyMiddleware,
+  type ProxyMiddleware,
+  type ProxyMiddlewareContext,
+} from './middleware.js'
 import type { ValidatorAdapter } from '../validation/types.js'
 
 export interface ProxyValidateOptions {
@@ -166,6 +171,8 @@ export interface ConnectTunnelOptions {
   onResponse?: (res: MitmResponse) => MitmResponse | Promise<MitmResponse>
   /** Max body size to buffer per request in intercept mode. Default: 10MB */
   maxPayloadSize?: number
+  /** Unified proxy middleware for connect and MITM phases. */
+  middleware?: ProxyMiddleware[]
 
   /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
   filter?: ProxyFilter
@@ -254,6 +261,7 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
     onRequest,
     onResponse,
     maxPayloadSize = 10 * 1024 * 1024,
+    middleware,
     mitmCapture,
     onUpstreamCert,
     upstream: upstreamOpts,
@@ -556,8 +564,8 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
   ): Promise<void> {
     const hostPort = req.url ?? ':443'
     const colonIdx = hostPort.lastIndexOf(':')
-    const host = hostPort.slice(0, colonIdx)
-    const port = parseInt(hostPort.slice(colonIdx + 1) || '443', 10)
+    let host = hostPort.slice(0, colonIdx)
+    let port = parseInt(hostPort.slice(colonIdx + 1) || '443', 10)
     const clientAddress = clientSocket.remoteAddress ?? 'unknown'
 
     // Auth check
@@ -570,6 +578,41 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
       )
       clientSocket.destroy()
       return
+    }
+
+    if (middleware && middleware.length > 0) {
+      const connectContext: ProxyMiddlewareContext = {
+        kind: 'connect' as const,
+        proxy: 'connect-tunnel' as const,
+        clientAddress,
+        authUsername: creds?.username ?? null,
+        target: {
+          host,
+          port,
+          protocol: 'connect',
+        },
+        metadata: {
+          mode,
+        },
+      }
+      await runProxyMiddleware(middleware, connectContext)
+      if (connectContext.blocked) {
+        const body = connectContext.blocked.body ?? ''
+        const payload = Buffer.isBuffer(body) ? body : Buffer.from(body)
+        clientSocket.write(
+          `HTTP/1.1 ${connectContext.blocked.statusCode ?? 403} ${connectContext.blocked.reason ?? 'Forbidden'}\r\n`
+            + `Content-Length: ${payload.length}\r\n`
+            + Object.entries(connectContext.blocked.headers ?? {})
+              .map(([key, value]) => `${key}: ${value}\r\n`)
+              .join('')
+            + '\r\n',
+        )
+        if (payload.length > 0) clientSocket.write(payload)
+        clientSocket.destroy()
+        return
+      }
+      host = connectContext.target.host
+      port = connectContext.target.port
     }
 
     // Filter check
@@ -696,6 +739,7 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
       || Boolean(onRequest)
       || Boolean(onResponse)
       || Boolean(validate)
+      || Boolean(middleware?.length)
 
     // Build upstream TLS base options
     const upstreamTlsBase: UpstreamTlsBase = {
@@ -824,6 +868,51 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
         }
         mutable.bytesFromClient += mitmReq.body.length
 
+        if (middleware && middleware.length > 0) {
+          const middlewareContext: ProxyMiddlewareContext = {
+            kind: 'mitm-request' as const,
+            proxy: 'connect-tunnel' as const,
+            clientAddress: tlsClient.remoteAddress ?? 'unknown',
+            target: {
+              host,
+              port,
+              protocol: 'https',
+              path: mitmReq.path,
+            },
+            request: {
+              method: mitmReq.method,
+              path: mitmReq.path,
+              headers: mitmReq.headers,
+              body: mitmReq.body,
+            },
+            metadata: {
+              mode,
+            },
+          }
+          await runProxyMiddleware(middleware, middlewareContext)
+          if (middlewareContext.blocked) {
+            const body = middlewareContext.blocked.body ?? 'Forbidden'
+            const payload = Buffer.isBuffer(body) ? body : Buffer.from(body)
+            res.writeHead(middlewareContext.blocked.statusCode ?? 403, {
+              'Content-Type': 'text/plain',
+              'Content-Length': String(payload.length),
+              ...(middlewareContext.blocked.headers ?? {}),
+            })
+            res.end(payload)
+            return
+          }
+
+          const requestCtx = middlewareContext.request!
+          mitmReq = {
+            method: requestCtx.method,
+            host: middlewareContext.target.host,
+            port: middlewareContext.target.port,
+            path: requestCtx.path ?? mitmReq.path,
+            headers: requestCtx.headers,
+            body: requestCtx.body ?? mitmReq.body,
+          }
+        }
+
         if (onRequest) {
           mitmReq = await Promise.resolve(onRequest(mitmReq)).catch(() => null)
           if (mitmReq === null) {
@@ -939,6 +1028,54 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
         let finalRes = mitmRes
         if (onResponse) {
           finalRes = await Promise.resolve(onResponse(mitmRes)).catch(() => mitmRes)
+        }
+
+        if (middleware && middleware.length > 0) {
+          const middlewareContext: ProxyMiddlewareContext = {
+            kind: 'mitm-response' as const,
+            proxy: 'connect-tunnel' as const,
+            clientAddress: tlsClient.remoteAddress ?? 'unknown',
+            target: {
+              host: mitmReq.host,
+              port: mitmReq.port,
+              protocol: 'https',
+              path: mitmReq.path,
+            },
+            request: {
+              method: mitmReq.method,
+              path: mitmReq.path,
+              headers: mitmReq.headers,
+              body: mitmReq.body,
+            },
+            response: {
+              statusCode: finalRes.statusCode,
+              statusMessage: finalRes.statusMessage,
+              headers: finalRes.headers,
+              body: finalRes.body,
+            },
+            metadata: {
+              mode,
+            },
+          }
+          await runProxyMiddleware(middleware, middlewareContext)
+          if (middlewareContext.blocked) {
+            const body = middlewareContext.blocked.body ?? 'Forbidden'
+            const payload = Buffer.isBuffer(body) ? body : Buffer.from(body)
+            res.writeHead(middlewareContext.blocked.statusCode ?? 403, {
+              'Content-Type': 'text/plain',
+              'Content-Length': String(payload.length),
+              ...(middlewareContext.blocked.headers ?? {}),
+            })
+            res.end(payload)
+            return
+          }
+
+          finalRes = {
+            statusCode: middlewareContext.response?.statusCode ?? finalRes.statusCode,
+            statusMessage: middlewareContext.response?.statusMessage ?? finalRes.statusMessage,
+            headers: middlewareContext.response?.headers ?? finalRes.headers,
+            body: middlewareContext.response?.body ?? finalRes.body,
+          }
         }
 
         mutable.bytesToClient += finalRes.body.length

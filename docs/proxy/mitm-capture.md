@@ -19,6 +19,13 @@ paths separados, regras por host/path), use:
 
 ## API (MITM no explicit)
 
+No modo `mitm`, você pode combinar:
+
+- `onRequest` / `onResponse` para hooks pontuais
+- `middleware` com fases `mitm-request` e `mitm-response`
+- `mitmCapture` para persistência e replay
+- `validate` para validação do payload antes do upstream
+
 ```ts
 import {
   createExplicitProxy,
@@ -27,6 +34,14 @@ import {
 
 const explicit = createExplicitProxy({
   port: 3128,
+  middleware: [
+    async (ctx, next) => {
+      if (ctx.kind === 'mitm-request') {
+        ctx.request.headers['x-mitm'] = 'true'
+      }
+      await next()
+    },
+  ],
   tunnel: {
     mode: 'mitm',
     mitmCapture: {
@@ -39,6 +54,10 @@ const explicit = createExplicitProxy({
 
 await explicit.start()
 ```
+
+Use `middleware` quando quiser uma pipeline compartilhada entre reverse, explicit, MITM,
+SOCKS5 e transparent. Use `onRequest` / `onResponse` quando quiser apenas um hook dedicado
+ao fluxo HTTPS interceptado.
 
 Ou iniciando a captura em runtime:
 

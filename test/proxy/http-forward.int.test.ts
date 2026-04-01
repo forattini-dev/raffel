@@ -219,6 +219,34 @@ describe('HTTP Forward Proxy', () => {
     expect(response.status).toBe(403)
   })
 
+  it('applies unified proxy middleware to rewrite request and response', async () => {
+    upstream.get('/rewritten', () => ({ status: 200, body: 'origin-body' }))
+
+    await startProxy({
+      middleware: [
+        async (ctx, next) => {
+          if (ctx.kind === 'http-request') {
+            const url = new URL(ctx.request.url!)
+            url.pathname = '/rewritten'
+            ctx.request.url = url.toString()
+            ctx.target.path = url.pathname
+          }
+
+          await next()
+
+          if (ctx.kind === 'http-response' && ctx.response?.body) {
+            ctx.response.body = Buffer.from(`wrapped:${ctx.response.body.toString()}`)
+            ctx.response.headers['content-type'] = 'text/plain'
+          }
+        },
+      ],
+    })
+
+    const response = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/original`, proxyPort)
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('wrapped:origin-body')
+  })
+
   it('onRequest hook can modify the request', async () => {
     upstream.get('/modified', () => ({ status: 200, body: 'modified' }))
     upstream.get('/original', () => ({ status: 200, body: 'original' }))

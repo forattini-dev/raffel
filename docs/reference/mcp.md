@@ -25,7 +25,7 @@ For Raffel, this means:
 - `protocols`: HTTP/WebSocket/gRPC/JSON-RPC/GraphQL/TCP/UDP
 - `proxy`: reverse, explicit, SOCKS5/SOCKS5h, transparent, suite
 - `observability`: source→destination graph + edge metrics + p50/p90/p95 + error rates
-- `security`: auth/session, TLS, filters, policy checks
+- `security`: auth/session, TLS, filters, policy checks, programmable proxy middleware
 - `dx`: migration, scaffolding, templates, and runtime config
 
 Use `raffel_feature_catalog` first, then jump to the right guide with `raffel_get_guide`.
@@ -82,7 +82,7 @@ npx raffel-mcp --list-categories
 - `raffel_feature_catalog`: map by scope (`protocols`, `proxy`, `observability`, `security`, `devx`).
 - `raffel_get_guide` + `raffel_list_guides`: open the implementation guide by topic.
 - `raffel_search`: find exact option names, flags, and examples with phrase search support.
-- `raffel_proxy_capabilities`: get the matrix for reverse/explicit/SOCKS5/transparent/suite and telemetry defaults.
+- `raffel_proxy_capabilities`: get the matrix for reverse/explicit/SOCKS5/transparent/suite, telemetry defaults, and middleware coverage.
 
 ### 2) Design & Planning
 
@@ -146,7 +146,18 @@ Need: failure-rate and error-rate alerts only
 3) raffel_proxy_capabilities includeMetrics=true includeRawConfig=true
 ```
 
-### C) Protocol migration in 60 seconds
+### C) Policy engine / request rewrite in 60 seconds
+
+```text
+Need: block, mutate, or reroute traffic inside reverse/explicit/MITM/SOCKS5 flows
+
+1) raffel_feature_catalog scope=proxy
+2) raffel_proxy_capabilities includeRawConfig=true
+3) raffel_search query="proxy middleware mitm-request socks5-connect target rewrite"
+4) raffel_get_guide topic=proxy
+```
+
+### D) Protocol migration in 60 seconds
 
 ```text
 Need: from Express/Fastify to Raffel quickly

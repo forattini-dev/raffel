@@ -371,6 +371,37 @@ describe('SOCKS5 Proxy', () => {
     await expect(socks5Connect(proxyPort, '127.0.0.1', 1)).rejects.toThrow('0x5')
   })
 
+  it('middleware can rewrite SOCKS5 CONNECT destination', async () => {
+    const alternate = await createMockHttpServer({ host: '127.0.0.1' })
+    alternate.get('/hello', () => ({ status: 200, body: 'middleware-routed' }))
+
+    try {
+      await proxy.stop()
+      proxy = createSocks5Proxy({
+        port: 0,
+        host: '127.0.0.1',
+        middleware: [
+          async (ctx, next) => {
+            if (ctx.kind === 'socks5-connect') {
+              ctx.target.host = '127.0.0.1'
+              ctx.target.port = alternate.port
+            }
+            await next()
+          },
+        ],
+      })
+      proxyPort = await proxy.start()
+
+      const sock = await socks5Connect(proxyPort, '127.0.0.1', upstream.port)
+      const p = readAll(sock)
+      sock.write('GET /hello HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n')
+      const response = await p
+      expect(response).toContain('middleware-routed')
+    } finally {
+      await alternate.stop()
+    }
+  })
+
   it('supports UDP ASSOCIATE and exports telemetry for SOCKS5h UDP edges', async () => {
     let udpEcho: UdpSocket | null = null
     let udpClient: UdpSocket | null = null

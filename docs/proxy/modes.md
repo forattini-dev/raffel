@@ -26,6 +26,8 @@ const reverse = await createReverseProxy({
 - `upgrade`: WebSocket/upgrade handlers
 
 É o componente base usado por outras estratégias para garantir telemetria e hooks homogêneos.
+Também é a base do middleware unificado para `http-request`, `http-response`, `connect`,
+`upgrade-request`, `mitm-request` e `mitm-response`.
 
 ```ts
 const explicit = createExplicitProxy({
@@ -111,6 +113,10 @@ const socks5 = createSocks5Proxy({
 })
 ```
 
+O SOCKS5 também participa do middleware unificado nos eventos `socks5-connect`,
+`socks5-bind` e `socks5-udp-associate`. Nesses contextos você pode bloquear conexão,
+anexar metadata e reescrever `ctx.target.host` / `ctx.target.port` antes do dial.
+
 <a id="transparent-proxy"></a>
 ## Transparent Proxy (`createTransparentProxy`)
 
@@ -131,6 +137,9 @@ const transparent = createTransparentProxy({
   },
 })
 ```
+
+O modo transparente também aceita `middleware` para policy no nível de conexão e rewrite
+do destino original antes do encaminhamento.
 
 <a id="proxy-suite"></a>
 ## Proxy Suite (`createProxySuite`)
@@ -155,3 +164,47 @@ const suite = createProxySuite({
 ```
 
 Ao usar `createProxySuite`, você evita dois exporters diferentes e melhora o grafo de origem/destino no mesmo namespace operacional.
+
+## Middleware unificado entre modos
+
+Todos os proxies compartilham uma superfície programável comum:
+
+- `ctx.kind`: fase do fluxo
+- `ctx.proxy`: origem do runtime (`reverse`, `explicit`, `socks5`, `transparent`, etc.)
+- `ctx.target`: host/porta/protocolo de destino
+- `ctx.request` / `ctx.response`: quando o fluxo é HTTP ou MITM
+- `ctx.blocked`: forma padrão de barrar fluxo
+
+Exemplo:
+
+```ts
+const reverse = await createReverseProxy({
+  server: { host: '127.0.0.1', port: 3000 },
+  routes: [{ match: { host: 'api.internal.local', pathPrefix: '/' }, target: 'http://127.0.0.1:4100' }],
+  proxy: {
+    middleware: [
+      async (ctx, next) => {
+        if (ctx.kind === 'http-request') {
+          ctx.request.headers['x-mesh-node'] = 'edge-a'
+        }
+
+        if (ctx.kind === 'mitm-response' && ctx.response) {
+          ctx.response.headers['x-inspected-by'] = 'raffel'
+        }
+
+        if (ctx.target.host.endsWith('.shadow.internal')) {
+          ctx.blocked = { statusCode: 403, reason: 'shadow traffic disabled' }
+          return
+        }
+
+        await next()
+      },
+    ],
+  },
+})
+```
+
+Limites atuais:
+
+- `reverse`, `explicit` e `MITM` permitem mutação completa de request/response.
+- `socks5` e `transparent` trabalham no nível de conexão, com bloqueio, metadata e rewrite de destino.
