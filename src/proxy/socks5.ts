@@ -1095,8 +1095,12 @@ export function createSocks5Proxy(options: Socks5Options): Socks5Proxy {
     },
 
     graphSnapshot(): ProxyGraphSnapshot {
+      const now = new Date().toISOString()
       return telemetry?.snapshot() ?? {
-        generatedAt: new Date().toISOString(),
+        seq: 0,
+        generatedAt: now,
+        windowStart: new Date(Date.now() - 60_000).toISOString(),
+        windowEnd: now,
         percentiles: [],
         rateWindowSeconds: 60,
         nodes: [],
