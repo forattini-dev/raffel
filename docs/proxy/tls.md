@@ -157,6 +157,45 @@ Se você precisa validar cliente por certificado no listener:
 - configure `ca`/`caFile` com a CA que emitiu os client certs
 - ajuste `rejectUnauthorized` conforme a política do time.
 
+## Pinning de certificado
+
+- `server.tls` não tem campo `pin` no schema atual do `createReverseProxy`.
+- para MITM com certificado de confiança falsa, faça pinning no emissor do webhook ou em um gateway anterior ao Raffel.
+- para cenários corporativos de mTLS, combine `ca`/`caFile` com `requestCert: true` e `rejectUnauthorized: true`.
+- mantendo mTLS, token e HMAC fica com defesa em camadas para integridade e autoria da mensagem.
+
+Exemplo de validação de fingerprint no cliente Node.js:
+
+```ts
+import * as https from 'node:https'
+
+const req = https.request(
+  {
+    hostname: 'edge.exemplo.com',
+    port: 3443,
+    method: 'POST',
+    path: '/webhook',
+    headers: {
+      'x-webhook-token': 'supersecret',
+    },
+    checkServerIdentity: (_hostname, cert) => {
+      const expected = 'AA:BB:CC:DD:...'
+      const fingerprint = cert.fingerprint256
+      if (fingerprint !== expected) {
+        throw new Error('invalid cert fingerprint')
+      }
+      return undefined
+    },
+  },
+  (res) => {
+    res.resume()
+  },
+)
+
+req.on('error', console.error)
+req.end('{"event":"ping"}')
+```
+
 ## Limitações atuais
 
 - Não há hot-reload de certificados por evento.

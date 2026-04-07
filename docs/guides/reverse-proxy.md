@@ -23,6 +23,7 @@ Links diretos:
 - [Roteamento e Rewrite de Path](/proxy/routing.md)
 - [MITM e Replay](/proxy/mitm-capture.md)
 - [TLS/HTTPS no Reverse Edge](/proxy/tls.md)
+- [Webhook público com reverse proxy](/guides/webhook-edge.md)
 - [Service Mesh e Transparência](/proxy/service-mesh.md)
 - [Métricas/Fluxo](/proxy/flow-metrics.md)
 - [Operação e Integração](/proxy/operations.md)

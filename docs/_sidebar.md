@@ -78,6 +78,7 @@
   - [Multi-Protocol Service](/guides/multi-protocol-service.md)
   - [SMTP Server](/guides/smtp-server.md)
   - [SMTP Relay](/guides/smtp-relay.md)
+  - [Webhook Edge com TLS + Webhook Security](/guides/webhook-edge.md)
 
 - **Proxy Toolkit**
   - [Visão Geral](/proxy/overview.md)

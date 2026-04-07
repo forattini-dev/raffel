@@ -34,6 +34,7 @@ Sem informar `middleware`, os proxies não criam pipeline programático extra pa
 - **Entender MITM e replay**: [MITM, captura e reprodução](/proxy/mitm-capture.md)
 - **Mapear rotas e reescrita**: [Roteamento](/proxy/routing.md)
 - **HTTPS e TLS**: [TLS/HTTPS](/proxy/tls.md)
+- **Webhook público (exemplo pronto)**: [Webhook Edge](/guides/webhook-edge.md)
 - **Observar tráfego como grafo (origem, destino, protocolo, duração, erros, taxa)**:
   - [Métricas e Grafo de Tráfego](/proxy/flow-metrics.md)
   - [Service Mesh com Proxy Transparente](/proxy/service-mesh.md)
