@@ -46,7 +46,7 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_list_guides',
     description:
-      'List all guide topics organized for fast discovery (quickstart, proxy, observability, security, migration, and more).',
+      'List all guide topics organized for fast discovery (quickstart, MCP, docs serving, proxy, observability, security, migration, and more).',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -55,14 +55,14 @@ export const tools: MCPTool[] = [
   {
     name: 'raffel_get_guide',
     description:
-      'Open a full guide by topic slug (quickstart, auth, sessions, rest-api, migration, usd, proxy, observability, feature map, MCP).',
+      'Open a full guide by topic slug (quickstart, mcp-server, docs-mcp, auth, sessions, rest-api, migration, usd, proxy, webhook-edge, observability, feature map, MCP).',
     inputSchema: {
       type: 'object',
       properties: {
         topic: {
           type: 'string',
           description:
-            'Guide topic slug (e.g., quickstart, auth, sessions, rest-api, migration, usd, proxy, proxy-capabilities, proxy-observability, feature-map, mcp-intelligence)',
+            'Guide topic slug (e.g., quickstart, mcp-server, docs-mcp, auth, sessions, rest-api, migration, usd, proxy, webhook-edge, proxy-capabilities, proxy-observability, feature-map, mcp-intelligence)',
         },
       },
       required: ['topic'],

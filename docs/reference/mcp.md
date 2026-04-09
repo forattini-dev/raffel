@@ -75,6 +75,15 @@ npx raffel-mcp --list-categories
 
 `npx raffel mcp` and `npx raffel-mcp` are equivalent binaries.
 
+### Docs mode for any Markdown repo
+
+```bash
+raffel mcp --docs ./docs
+raffel mcp --docs https://github.com/org/repo --path docs/ --branch main
+```
+
+This starts a documentation-focused MCP server instead of the built-in Raffel knowledge server. It indexes Markdown files and exposes search, file reads, section reads, code example extraction, and summary prompts. See [Docs MCP Server](/guides/docs-mcp.md).
+
 ---
 
 ## Tool Families
@@ -203,8 +212,11 @@ The MCP resource model mirrors the same guide/topic map:
 | `raffel://guide/proxy` | Full proxy family guide (reverse/explicit/SOCKS5h/udp/websocket/TLS) |
 | `raffel://guide/proxy-capabilities` | Feature matrix with protocol-by-mode coverage |
 | `raffel://guide/proxy-observability` | Source→destination graph and duration/error semantics |
+| `raffel://guide/mcp-server` | Build your own MCP servers with standalone and integrated modes |
+| `raffel://guide/docs-mcp` | Expose Markdown docs or a git repo as a docs-first MCP server |
 | `raffel://guide/mcp-intelligence` | MCP operating model and recommended call order |
 | `raffel://guide/feature-map` | Team-level capability map |
+| `raffel://guide/webhook-edge` | Public webhook edge with TLS, token/HMAC checks, and anti-replay guidance |
 | `raffel://guide/quickstart` | Fast onboarding reference |
 | `raffel://interceptor/{name}` | Middleware docs |
 | `raffel://adapter/{name}` | Adapter mappings |
@@ -301,6 +313,22 @@ await server.start()
 
 `category` only accepts known categories (`quickstart`, `minimal`, `docs`, `codegen`, `architecture`, `full`), and unknown values fail fast.
 
+### Programmatic docs server
+
+```typescript
+import { createDocsMcpServer } from 'raffel'
+
+const server = createDocsMcpServer({
+  dir: './docs',
+  name: 'project-docs',
+  watchInterval: 30_000,
+})
+
+await server.startHttp({ port: 3200, path: '/mcp' })
+```
+
+This variant indexes a docs tree or a git repo and exposes `search`, `read_section`, `code_examples`, `docs://file/{path}`, plus `explain` and `summarize` prompts.
+
 ---
 
 ## Troubleshooting
@@ -319,6 +347,7 @@ This page documents Raffel's **built-in** AI assistant. If you want to build you
 
 - [MCP Protocol Reference](/protocols/mcp.md) — the `createMcpServer()` API and `mcp: true` integrated mode
 - [Building MCP Servers (Guide)](/guides/mcp-server.md) — step-by-step examples with code
+- [Docs MCP Server](/guides/docs-mcp.md) — turn any Markdown docs tree into a searchable MCP server
 
 ---
 

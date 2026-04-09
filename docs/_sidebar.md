@@ -76,6 +76,7 @@
 - **Guides**
   - [REST API](/guides/rest-api.md)
   - [Building MCP Servers](/guides/mcp-server.md)
+  - [Docs MCP Server](/guides/docs-mcp.md)
   - [Authentication](/guides/auth.md)
   - [Multi-Protocol Service](/guides/multi-protocol-service.md)
   - [SMTP Server](/guides/smtp-server.md)

@@ -81,9 +81,19 @@ const GUIDE_TOPIC_ALIASES: Record<string, string> = {
   'feature-map': 'feature-map',
   'feature-matrix': 'feature-map',
   'feature-maps': 'feature-map',
+  'mcp-server': 'mcp-server',
+  'build-mcp': 'mcp-server',
+  'mcp-library': 'mcp-server',
+  'docs-mcp': 'docs-mcp',
+  'docs-server': 'docs-mcp',
+  'documentation-mcp': 'docs-mcp',
+  'markdown-mcp': 'docs-mcp',
   'mcp-intelligence': 'mcp-intelligence',
   'mcp-surface': 'mcp-intelligence',
   'mcp-guide': 'mcp-intelligence',
+  'webhook-edge': 'webhook-edge',
+  'webhook': 'webhook-edge',
+  'webhook-proxy': 'webhook-edge',
   'mitm': 'proxy',
   'socks5': 'proxy',
   'socks5h': 'proxy',
@@ -161,6 +171,20 @@ function refreshGuideResources(): void {
       content: PROXY_OBSERVABILITY_GUIDE,
     },
     {
+      topic: 'mcp-server',
+      name: 'Building MCP Servers',
+      description:
+        'Standalone createMcpServer(), integrated mcp: true mode, auth, transports, and protocol features for custom MCP servers.',
+      content: MCP_SERVER_GUIDE,
+    },
+    {
+      topic: 'docs-mcp',
+      name: 'Documentation MCP Server',
+      description:
+        'Turn a Markdown docs tree or git repo into an MCP server with search, section reads, code extraction, and docs:// resources.',
+      content: DOCS_MCP_GUIDE,
+    },
+    {
       topic: 'feature-map',
       name: 'Feature Map',
       description:
@@ -173,6 +197,13 @@ function refreshGuideResources(): void {
       description:
         'Use Raffel MCP to discover capabilities across docs, protocols, interceptors, codegen, and proxy telemetry before generating implementation.',
       content: MCP_INTELLIGENCE_GUIDE,
+    },
+    {
+      topic: 'webhook-edge',
+      name: 'Webhook Edge Guide',
+      description:
+        'Public webhook edge with createReverseProxy, TLS termination, optional token/HMAC verification, and anti-replay nonce checks.',
+      content: WEBHOOK_EDGE_GUIDE,
     },
     {
       topic: 'mock-server',
@@ -1303,6 +1334,7 @@ Protocol labels include \`http\`, \`https\`, \`connect\`, \`ws\`, \`wss\`, \`soc
 - [Configuração Programática](/proxy/config-code.md)
 - [Roteamento](/proxy/routing.md)
 - [TLS/HTTPS](/proxy/tls.md)
+- [Webhook Edge](/guides/webhook-edge.md)
 - [Arquitetura](/proxy/architecture.md)
 - [Modos de Proxy](/proxy/modes.md)
 - [Service Mesh](/proxy/service-mesh.md)
@@ -1310,6 +1342,130 @@ Protocol labels include \`http\`, \`https\`, \`connect\`, \`ws\`, \`wss\`, \`soc
 - [Operação e Integração](/proxy/operations.md)
 - [Troubleshooting](/proxy/troubleshooting.md)
 - [Migração de Traefik](/migration/traefik-replacement.md)
+`
+
+const MCP_SERVER_GUIDE = `# Building MCP Servers
+
+Raffel ships two different MCP surfaces:
+
+- the built-in Raffel AI assistant (\`raffel mcp\`)
+- the MCP library for your own tools, resources, and prompts
+
+Use the library when you want project-specific MCP behavior.
+
+## Standalone
+
+\`\`\`typescript
+import { createMcpServer, mcpText } from 'raffel'
+
+const server = createMcpServer({ name: 'my-tools', version: '1.0.0' })
+
+server.tool({
+  name: 'ping',
+  description: 'Basic connectivity test',
+  handler: async () => mcpText('pong'),
+})
+
+await server.startStdio()
+\`\`\`
+
+## Integrated mode
+
+\`\`\`typescript
+import { createServer } from 'raffel'
+
+const server = createServer({
+  port: 3000,
+  mcp: {
+    path: '/mcp',
+    name: 'my-api',
+    filter: (meta) => !meta.tags?.includes('internal'),
+  },
+})
+\`\`\`
+
+All eligible procedures become MCP tools automatically.
+
+## Important options
+
+- \`path\`, \`name\`, \`version\`, \`instructions\`
+- \`filter\` and \`toolName\`
+- extra \`tools\`, \`resources\`, \`resourceTemplates\`, and \`prompts\`
+- \`auth\` for the HTTP MCP endpoint
+
+## Transport support
+
+- \`startStdio()\`
+- \`startHttp({ port, path })\`
+- \`startSse({ port })\`
+
+Supported protocol features include tools, resources, prompts, completion, progress, logging notifications, listChanged notifications, resource subscriptions, and sampling where the transport/client supports it.
+
+## Related guide
+
+Use \`docs-mcp\` when you want to expose Markdown documentation instead of building custom tools by hand.
+`
+
+const DOCS_MCP_GUIDE = `# Documentation MCP Server
+
+Use \`createDocsMcpServer()\` or \`raffel mcp --docs\` to expose Markdown docs over MCP.
+
+## CLI
+
+\`\`\`bash
+raffel mcp --docs ./docs
+raffel mcp --docs ./docs --transport http --port 3200
+raffel mcp --docs https://github.com/org/repo --path docs/ --branch main
+\`\`\`
+
+## Programmatic API
+
+\`\`\`typescript
+import { createDocsMcpServer } from 'raffel'
+
+const server = createDocsMcpServer({
+  dir: './docs',
+  watchInterval: 30_000,
+  name: 'project-docs',
+})
+
+await server.startHttp({ port: 3200, path: '/mcp' })
+\`\`\`
+
+Git repository mode:
+
+\`\`\`typescript
+const repoDocs = createDocsMcpServer({
+  repo: 'https://github.com/org/repo',
+  branch: 'main',
+  path: 'docs/',
+  name: 'repo-docs',
+})
+\`\`\`
+
+## Built-in tools
+
+- \`search\`
+- \`list_files\`
+- \`read_file\`
+- \`read_section\`
+- \`list_headings\`
+- \`code_examples\`
+- \`file_outline\`
+- \`stats\`
+
+## Resources and prompts
+
+- resources: \`docs://files\`, \`docs://file/{path}\`
+- prompts: \`explain\`, \`summarize\`
+
+## Operational notes
+
+- indexes \`.md\` and \`.mdx\` by default
+- skips \`node_modules\`, \`.git\`, and \`dist\` by default
+- \`watchInterval\` auto-reindexes when set
+- \`server.reindex()\` forces an immediate refresh
+- HTTP/SSE transports can use \`auth\`; stdio cannot
 `
 
 const MCP_INTELLIGENCE_GUIDE = `# MCP Intelligence Layer
@@ -1337,6 +1493,7 @@ This keeps users productive because discovery and execution stay aligned with th
 - Flow telemetry: edges, durations, rates, and error signals
 - Security and policy patterns (auth, session, filters, TLS)
 - Runtime DX: bootstraps, migration patterns, testing and project scaffolding
+- Documentation serving: built-in Raffel MCP, Markdown docs MCP mode, and guide routing
 `
 
 const FEATURE_MAP_GUIDE = `# Raffel Feature Map
@@ -1351,11 +1508,52 @@ Raffel is one runtime with five practical surfaces:
 
 Use these entry topics:
 
+- \`mcp-server\` for custom MCP servers over your own runtime
+- \`docs-mcp\` for Markdown docs exposed as MCP
 - \`proxy\` for transport and edge setup
 - \`proxy-capabilities\` for matrix and capabilities
 - \`proxy-observability\` for edge metrics and error rates
 - \`feature-map\` for periodic team reviews
 - \`mcp-intelligence\` for the MCP workflow itself
+`
+
+const WEBHOOK_EDGE_GUIDE = `# Webhook Edge Guide
+
+Use Raffel's reverse proxy to expose a public webhook endpoint with TLS termination and layered verification before forwarding to a local service.
+
+Reference example: \`examples/11-webhook-proxy.ts\`
+
+## What the example covers
+
+- local Raffel service for \`/health\` and \`/webhook\`
+- public reverse proxy edge with configurable host, port, path, and methods
+- TLS termination on the edge
+- optional shared-token verification
+- optional HMAC signature verification
+- optional anti-replay nonce checks
+
+## Flow
+
+\`\`\`text
+Internet -> Raffel reverse proxy edge -> local Raffel service
+\`\`\`
+
+## Key environment groups
+
+- local service: \`WEBHOOK_INTERNAL_*\`
+- public edge: \`WEBHOOK_PUBLIC_*\`, \`WEBHOOK_ROUTE_*\`
+- TLS: \`WEBHOOK_TLS_*\`
+- message security: \`WEBHOOK_TOKEN_*\`, \`WEBHOOK_SIGNATURE_*\`, \`WEBHOOK_NONCE_*\`
+
+## Production baseline
+
+1. Use file-backed real certificates instead of auto-generated certs.
+2. Validate message authenticity with token and/or HMAC.
+3. Add nonce replay protection.
+4. Enable client certificate validation when the sender supports mTLS.
+5. Keep request logging minimal and privacy-aware.
+
+Use the static guide at \`/guides/webhook-edge.md\` for the full env-var matrix and curl examples.
 `
 
 const PROXY_CAPABILITIES_GUIDE = `# Proxy Capability Matrix

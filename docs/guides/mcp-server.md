@@ -336,6 +336,62 @@ For older MCP clients. Use Streamable HTTP for new implementations.
 
 ---
 
+## Documentation server from Markdown
+
+If your main goal is to expose an existing docs tree instead of building custom tools by hand, use `createDocsMcpServer()`.
+
+```typescript
+import { createDocsMcpServer } from 'raffel'
+
+const server = createDocsMcpServer({
+  name: 'internal-docs',
+  version: '1.0.0',
+  dir: './docs',
+  watchInterval: 30_000,
+})
+
+await server.startHttp({ port: 8080, path: '/mcp' })
+```
+
+Built-in tools include:
+
+- `search`
+- `list_files`
+- `read_file`
+- `read_section`
+- `list_headings`
+- `code_examples`
+- `file_outline`
+- `stats`
+
+It also exposes `docs://file/{path}` resources and `explain` / `summarize` prompts.
+
+Git repo mode is built in:
+
+```typescript
+const repoDocs = createDocsMcpServer({
+  repo: 'https://github.com/org/repo',
+  branch: 'main',
+  path: 'docs/',
+  name: 'repo-docs',
+})
+
+await repoDocs.startStdio()
+```
+
+The returned server also supports `await server.reindex()` if you need an immediate refresh after doc updates.
+
+For CLI usage, Raffel ships the same feature as:
+
+```bash
+raffel mcp --docs ./docs
+raffel mcp --docs https://github.com/org/repo --path docs/
+```
+
+See [Docs MCP Server](/guides/docs-mcp.md) for the dedicated guide.
+
+---
+
 ## Response helpers
 
 ```typescript

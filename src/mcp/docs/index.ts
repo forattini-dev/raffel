@@ -130,9 +130,30 @@ const docsGuideIndex = [
   },
   {
     type: 'guide' as const,
+    name: 'Building MCP Servers',
+    description:
+      'Build your own MCP servers with createMcpServer(), integrated mcp: true mode, auth-aware HTTP endpoints, and full tools/resources/prompts support.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'Documentation MCP Server',
+    description:
+      'Expose any Markdown docs tree or git repo over MCP with createDocsMcpServer() or raffel mcp --docs, including search, section reads, and code extraction.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
     name: 'MCP Intelligence',
     description:
       'How to discover Raffel capabilities through MCP before implementing: catalog, proxy matrix, guide routing, and implementation-first workflow.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
+    name: 'Webhook Edge',
+    description:
+      'Public webhook edge with createReverseProxy, TLS termination, optional token/HMAC verification, anti-replay nonce checks, and configurable routing.',
     category: 'documentation',
   },
   {

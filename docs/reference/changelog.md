@@ -1,7 +1,42 @@
 # Changelog
 
-Raffel is pre-1.0 and evolves quickly. For official release history, see GitHub
-Releases. This page highlights notable updates in the docs.
+Raffel evolves quickly. For official release history, see GitHub Releases. This
+page highlights notable updates in the docs.
+
+---
+
+## 1.0.27
+
+### MCP Protocol Server
+
+Raffel now ships a full MCP protocol layer for both standalone and integrated usage:
+
+- `createMcpServer()` for standalone MCP servers
+- `mcp: true` or `mcp: { ... }` on `createServer()` for integrated mode
+- Streamable HTTP, SSE, and stdio transports
+- auth support on HTTP MCP endpoints
+- protocol coverage for tools, resources, prompts, completion, notifications, sampling, and subscriptions
+
+### Docs MCP Mode
+
+The CLI can now turn any Markdown docs tree or git repository into a docs-first MCP server:
+
+- `raffel mcp --docs ./docs`
+- `raffel mcp --docs https://github.com/org/repo --path docs/`
+
+This release also exposed `createDocsMcpServer()` for programmatic usage.
+
+### Proxy and Edge Guides
+
+Documentation now includes:
+
+- full MCP server guides and references
+- a public webhook edge guide with TLS, HMAC signature, nonce anti-replay, and configurable reverse-proxy routing
+- expanded reverse-proxy and TLS examples
+
+### Quality Cleanup
+
+The public docs were refreshed to match the cleanup/refactor pass from the same week, including current MCP exports and the active CLI surface.
 
 ---
 
@@ -71,5 +106,5 @@ for a cleaner source tree separation.
 ## Unreleased
 
 - Expanded docsify home page and quickstart
-- MCP docs aligned with tools, prompts, and resources
+- MCP docs aligned with tools, prompts, resources, docs mode, and guide discovery
 - Added reference pages for auth, interceptors, HTTP module, and REST Auto-CRUD

@@ -186,7 +186,7 @@ const MCP_FEATURE_CATALOG: FeatureCatalogArea[] = [
     title: 'Protocol Layer',
     description:
       'HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP all share a single runtime/contract model.',
-    topics: ['quickstart', 'rest-api', 'proxy', 'usd', 'migration'],
+    topics: ['quickstart', 'rest-api', 'mcp-server', 'docs-mcp', 'proxy', 'usd', 'migration'],
     tools: [
       'raffel_getting_started',
       'raffel_get_adapter',
@@ -207,7 +207,7 @@ const MCP_FEATURE_CATALOG: FeatureCatalogArea[] = [
     title: 'Proxy & Edge',
     description:
       'Edge/egress/infrastructure proxies with reverse HTTP/HTTPS, explicit proxy, SOCKS5/SOCKS5h, transparent TCP, unified suite collection, and programmable middleware.',
-    topics: ['proxy', 'proxy-capabilities', 'proxy-observability', 'feature-map'],
+    topics: ['proxy', 'webhook-edge', 'proxy-capabilities', 'proxy-observability', 'feature-map'],
     tools: ['raffel_get_guide', 'raffel_search', 'raffel_feature_catalog'],
     docUrls: ['/proxy/overview', '/proxy/modes', '/proxy/architecture', '/proxy/service-mesh'],
     prompts: ['add_observability', 'debug_middleware'],
@@ -250,7 +250,7 @@ const MCP_FEATURE_CATALOG: FeatureCatalogArea[] = [
     title: 'DX & Production Scaffolding',
     description:
       'Scaffold, mock-first development, testability, contracts, docs, and MCP-assisted agent workflows.',
-    topics: ['quickstart', 'mock-server', 'usd'],
+    topics: ['quickstart', 'mcp-server', 'docs-mcp', 'mock-server', 'usd'],
     tools: [
       'raffel_create_server',
       'raffel_create_module',
@@ -302,7 +302,10 @@ const GUIDE_GROUP_LABELS: Record<string, string> = {
   migration: 'Foundation',
   'mock-server': 'Foundation',
   usd: 'Foundation',
+  'mcp-server': 'Operations',
+  'docs-mcp': 'Operations',
   proxy: 'Proxy & Mesh',
+  'webhook-edge': 'Proxy & Mesh',
   'proxy-capabilities': 'Proxy & Mesh',
   'proxy-observability': 'Proxy & Mesh',
   'feature-map': 'Operations',

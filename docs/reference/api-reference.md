@@ -168,6 +168,7 @@ See [Shared-Port Protocol Fusion](/protocols/single-port.md).
 
 ```typescript
 import { runMCPServer, createMCPServer } from 'raffel/mcp'
+import { createMcpServer, createDocsMcpServer } from 'raffel'
 ```
 
 See [MCP Server](/reference/mcp.md).

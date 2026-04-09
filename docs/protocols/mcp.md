@@ -63,7 +63,9 @@ const server = createServer({
 | `toolName` | `(name) => string` | dots → underscores | Transform procedure names |
 | `tools` | `McpToolRegistration[]` | — | Extra manually-defined tools |
 | `resources` | `McpResourceRegistration[]` | — | Extra resources |
+| `resourceTemplates` | `McpResourceTemplateRegistration[]` | — | Extra resource templates |
 | `prompts` | `McpPromptRegistration[]` | — | Extra prompts |
+| `auth` | `McpAuthProvider` | — | Auth provider for the HTTP MCP endpoint |
 
 ### Auto-derived annotations
 
@@ -203,9 +205,38 @@ server.use(async (request, next) => {
 
 ---
 
+## Documentation MCP server
+
+If you want to expose an existing Markdown docs tree over MCP, Raffel also ships `createDocsMcpServer()`.
+
+```typescript
+import { createDocsMcpServer } from 'raffel'
+
+const server = createDocsMcpServer({
+  dir: './docs',
+  watchInterval: 30_000,
+})
+
+await server.startHttp({ port: 3200, path: '/mcp' })
+```
+
+It provides docs-first tools such as `search`, `read_file`, `read_section`, `code_examples`, and `file_outline`, plus `docs://file/{path}` resources and summary/explanation prompts.
+
+For quick CLI usage, you can also run:
+
+```bash
+raffel mcp --docs ./docs
+raffel mcp --docs https://github.com/org/repo --path docs/
+```
+
+See [Docs MCP Server](/guides/docs-mcp.md) for the full workflow.
+
+---
+
 ## See also
 
 - [Building MCP Servers (Guide)](/guides/mcp-server.md) — step-by-step examples
+- [Docs MCP Server](/guides/docs-mcp.md) — Markdown docs indexed as an MCP server
 - [Raffel AI Assistant (built-in MCP)](/reference/mcp.md) — the pre-built MCP for Raffel documentation and code generation
 - [Procedures](/core/procedures.md) — how procedures work
 - [Interceptors](/core/interceptors/overview.md) — middleware reference
