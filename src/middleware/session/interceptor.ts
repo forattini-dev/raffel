@@ -8,6 +8,7 @@
  * Session IDs are read from / written to cookies by default.
  */
 
+import crypto, { timingSafeEqual } from 'node:crypto'
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
 import type { SessionStore, SessionData, SessionConfig, Session } from './types.js'
 import { createMemorySessionDriver } from './drivers/memory.js'
@@ -17,13 +18,7 @@ import { createMemorySessionDriver } from './drivers/memory.js'
 // ============================================================================
 
 function generateSessionId(): string {
-  // Use crypto.randomUUID() if available (Node 15+), fall back to randomBytes
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID().replace(/-/g, '')
-  }
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const nodeCrypto = require('crypto') as typeof import('crypto')
-  return nodeCrypto.randomBytes(16).toString('hex')
+  return crypto.randomBytes(16).toString('hex')
 }
 
 // ============================================================================
@@ -68,8 +63,6 @@ function buildDeleteCookieHeader(name: string, path = '/'): string {
 // ============================================================================
 
 function signId(id: string, secret: string): string {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const crypto = require('crypto') as typeof import('crypto')
   const sig = crypto.createHmac('sha256', secret).update(id).digest('base64url')
   return `${id}.${sig}`
 }
@@ -81,13 +74,16 @@ function unsignId(signed: string, secret: string): string | null {
   const id = signed.slice(0, lastDot)
   const expected = signId(id, secret)
 
-  // Constant-time comparison
-  if (signed.length !== expected.length) return null
-  let ok = true
-  for (let i = 0; i < signed.length; i++) {
-    if (signed.charCodeAt(i) !== expected.charCodeAt(i)) ok = false
-  }
-  return ok ? id : null
+  // Constant-time comparison using crypto.timingSafeEqual
+  const signedBuf = Buffer.from(signed, 'utf8')
+  const expectedBuf = Buffer.from(expected, 'utf8')
+  const maxLen = Math.max(signedBuf.length, expectedBuf.length)
+  const a = Buffer.alloc(maxLen)
+  const b = Buffer.alloc(maxLen)
+  signedBuf.copy(a)
+  expectedBuf.copy(b)
+  const match = signedBuf.length === expectedBuf.length && timingSafeEqual(a, b)
+  return match ? id : null
 }
 
 // ============================================================================
@@ -196,7 +192,8 @@ function resolveStore(config: SessionConfig): SessionStore {
  */
 export function createSessionInterceptor(config: SessionConfig): Interceptor {
   const store = resolveStore(config)
-  const ttl = config.ttl ?? 3600
+  const effectiveTtlMs = config.ttlMs ?? (config.ttl ? config.ttl * 1000 : 3600_000)
+  const ttl = Math.ceil(effectiveTtlMs / 1000)
   const rolling = config.rolling ?? false
   const cookieName = config.cookie?.name ?? 'sid'
   const cookieOptions = config.cookie ?? {}

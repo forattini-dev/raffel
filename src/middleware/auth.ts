@@ -7,6 +7,7 @@
  * - Custom strategies
  */
 
+import crypto from 'node:crypto'
 import { RaffelError } from '../core/index.js'
 import type { Interceptor, Envelope, Context, AuthContext } from '../types/index.js'
 import { createAuthContext } from '../types/index.js'
@@ -281,9 +282,6 @@ function verifySignedCookie(signedValue: string, secret: string): string | null 
  * Compute HMAC-SHA256 signature (base64url encoded)
  */
 function computeHmacSignature(value: string, secret: string): string {
-  // Use Node.js crypto
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const crypto = require('crypto') as typeof import('crypto')
   return crypto.createHmac('sha256', secret).update(value).digest('base64url')
 }
 
@@ -356,8 +354,7 @@ export function createEnhancedBearerStrategy(options: EnhancedBearerTokenOptions
         // Query params might be in metadata or in a parsed query object
         const metadata = envelope.metadata as Record<string, unknown> | undefined
         const queryObj = metadata?.['query'] as Record<string, unknown> | undefined
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ctxQuery = (ctx as any).query as Record<string, unknown> | undefined
+        const ctxQuery = ctx.input?.query as Record<string, unknown> | undefined
 
         const queryToken = metadata?.[queryParam] || queryObj?.[queryParam] || ctxQuery?.[queryParam]
 
@@ -433,8 +430,7 @@ export function createEnhancedApiKeyStrategy(options: EnhancedApiKeyOptions): Au
       if (!apiKey && extractFrom.includes('query')) {
         const metadata = envelope.metadata as Record<string, unknown> | undefined
         const queryObj = metadata?.['query'] as Record<string, unknown> | undefined
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ctxQuery = (ctx as any).query as Record<string, unknown> | undefined
+        const ctxQuery = ctx.input?.query as Record<string, unknown> | undefined
 
         const queryKey = metadata?.[queryParam] || queryObj?.[queryParam] || ctxQuery?.[queryParam]
 

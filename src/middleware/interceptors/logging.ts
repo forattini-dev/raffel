@@ -12,6 +12,8 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { isRaffelLikeError } from '../../core/error.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { LoggingConfig, LogFilterContext } from '../types.js'
 import { createLogger } from '../../utils/logger.js'
 
@@ -110,20 +112,6 @@ function colorize(value: string | number, type: 'procedure' | 'duration' | 'stat
   }
 }
 
-/**
- * Match a procedure name against glob patterns
- */
-function matchProcedure(patterns: string[], procedure: string): boolean {
-  return patterns.some((pattern) => {
-    const regex = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-      .replace(/\*/g, '[^.]*')
-      .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-    return new RegExp(`^${regex}$`).test(procedure)
-  })
-}
 
 /**
  * Create a logging interceptor
@@ -191,7 +179,7 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
       timers.delete(envelope)
 
       // Check exclusions
-      if (excludeProcedures.length > 0 && matchProcedure(excludeProcedures, procedure)) {
+      if (excludeProcedures.length > 0 && excludeProcedures.some(p => matchProcedurePattern(p, procedure))) {
         return
       }
 
@@ -249,7 +237,7 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
         logData.error = {
           name: error.name,
           message: error.message,
-          code: (error as any).code,
+          ...(isRaffelLikeError(error) && { code: error.code }),
         }
       }
 
@@ -316,7 +304,7 @@ export function createProductionLoggingInterceptor(config: {
           logData.error = {
             name: error.name,
             message: error.message,
-            code: (error as any).code,
+            ...(isRaffelLikeError(error) && { code: error.code }),
           }
           logger.error(logData)
         } else {

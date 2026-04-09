@@ -12,6 +12,8 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { isRaffelLikeError } from '../../core/error.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { FallbackConfig } from '../types.js'
 
 /**
@@ -130,13 +132,7 @@ export function createProcedureFallback<TDefault = unknown>(config: {
 
     // Check for pattern match
     for (const [pattern, procedureConfig] of Object.entries(procedures)) {
-      const regex = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-        .replace(/\*/g, '[^.]*')
-        .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-      if (new RegExp(`^${regex}$`).test(procedure)) {
+      if (matchProcedurePattern(pattern, procedure)) {
         let fallback = fallbacks.get(pattern)
         if (!fallback) {
           fallback = createFallbackInterceptor(procedureConfig)
@@ -185,8 +181,7 @@ export function createCircuitAwareFallback<TOutput = unknown>(config: {
     response,
     handler,
     when: (error) => {
-      const code = (error as any).code
-      return code && errorCodes.includes(code)
+      return isRaffelLikeError(error) && errorCodes.includes(error.code)
     },
   })
 }

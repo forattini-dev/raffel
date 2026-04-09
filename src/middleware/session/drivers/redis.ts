@@ -14,12 +14,13 @@
  */
 
 import type { SessionStore, SessionData } from '../types.js'
+import type { BaseRedisClient } from '../../../types/redis.js'
 
 /**
  * Minimal Redis-like client interface.
  * Any Redis client that satisfies this interface can be used.
  */
-export interface RedisLikeClient {
+export interface RedisLikeClient extends BaseRedisClient {
   get(key: string): Promise<string | null>
   set(key: string, value: string, options?: { EX?: number; ex?: number }): Promise<unknown>
   del(key: string | string[]): Promise<unknown>

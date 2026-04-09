@@ -236,43 +236,6 @@ export type {
   UdpServerInstance,
 } from './fs-routes/index.js'
 
-// === Cross-Protocol Context Sharing ===
-export {
-  createSharedContextFactory,
-  createAuthContextFactory,
-  mergeContextFactories,
-  // Extension symbols for storing data in ctx.extensions
-  SESSION_SYMBOL,
-  HTTP_REQUEST_SYMBOL,
-  // Helpers to retrieve from extensions
-  getSessionFromContext,
-  getHttpRequestFromContext,
-} from './shared-context.js'
-
-export type {
-  SharedContextFactoryOptions,
-  ProtocolContextFactory,
-} from './shared-context.js'
-
-// === Unified Error Handling ===
-export {
-  // Error normalization
-  normalizeError,
-  isOperationalError,
-  // Error interceptor
-  createErrorInterceptor,
-  // Error response helpers
-  createErrorEnvelope,
-  toRaffelError,
-  // Protocol-specific formatters
-  formatHttpError,
-  formatJsonRpcError,
-  formatWebSocketError,
-  formatStreamError,
-  // Global error handler helper
-  createGlobalErrorHandler,
-} from './errors.js'
-
 // === Single-port transport utilities ===
 export {
   detectSinglePortProtocolFromChunk,
@@ -281,10 +244,6 @@ export {
   getSinglePortConcurrencyState,
   SinglePortRegistry,
 } from './single-port/index.js'
-
-export type {
-  ErrorInterceptorOptions,
-} from './errors.js'
 
 export type {
   NormalizedError,

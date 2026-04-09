@@ -35,7 +35,6 @@ const logger = createLogger('smtp-adapter')
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const CRLF = '\r\n'
-const DOT_LINE = '.\r\n'
 const MAX_LINE_LENGTH = 998 // RFC 5321 §4.5.3.1.6
 const DEFAULT_MAX_MESSAGE_SIZE = 50 * 1024 * 1024 // 50 MB
 const DEFAULT_MAX_RECIPIENTS = 100
@@ -225,6 +224,8 @@ interface SmtpSession {
   lineBuffer: string
   /** Active abort controller */
   abortController: AbortController
+  /** Quit grace-period timer */
+  quitTimer?: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -594,17 +595,6 @@ export function createSmtpConnectionHandler(
     const body = headerEnd >= 0 ? rawMessage.slice(headerEnd + 4) : ''
 
     const requestId = sid()
-    const smtpCapability: SmtpContextCapability = {
-      kind: 'smtp',
-      remoteAddress: session.socket.remoteAddress,
-      remotePort: session.socket.remotePort,
-      sender: session.sender?.address,
-      recipients: session.recipients.map((r) => r.address),
-      authenticated: session.authenticated,
-      authenticatedUser: session.authenticatedUser,
-      tlsActive: session.tlsActive,
-      ehloHostname: session.ehloHostname,
-    }
 
     const ctx = await createAbortableContextAsync(
       requestId,
@@ -1104,7 +1094,7 @@ export function createSmtpConnectionHandler(
     session.state = 'closing'
     reply(session, 221, `2.0.0 ${hostname} closing connection`)
 
-    setTimeout(() => {
+    session.quitTimer = setTimeout(() => {
       if (!session.socket.destroyed) {
         session.socket.destroy()
       }
@@ -1226,6 +1216,7 @@ export function createSmtpConnectionHandler(
   function handleClose(session: SmtpSession): void {
     logger.info({ sessionId: session.id }, 'SMTP client disconnected')
     if (session.timeout) clearTimeout(session.timeout)
+    if (session.quitTimer) clearTimeout(session.quitTimer)
     session.abortController.abort('Client disconnected')
     sessions.delete(session.id)
   }

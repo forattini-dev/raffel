@@ -35,6 +35,7 @@ import {
   type ProxyMiddleware,
   type ProxyMiddlewareContext,
 } from './middleware.js'
+import { gracefulShutdown } from '../utils/graceful-shutdown.js'
 
 export type TransparentProxyMode = 'tproxy' | 'redirect'
 
@@ -312,22 +313,10 @@ export function createTransparentProxy(options: TransparentProxyOptions): Transp
     },
 
     async stop(drainTimeoutMs = 5000): Promise<void> {
-      return new Promise((resolve) => {
-        if (!server || !running) {
-          resolve()
-          return
-        }
-        running = false
-        boundPort = null
-        const timer = setTimeout(() => {
-          ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
-          resolve()
-        }, drainTimeoutMs)
-        server.close(() => {
-          clearTimeout(timer)
-          resolve()
-        })
-      })
+      if (!server || !running) return
+      running = false
+      boundPort = null
+      await gracefulShutdown(server, drainTimeoutMs)
     },
 
     get stats(): ProxyStats {

@@ -183,9 +183,13 @@ describe('runtime inspection CLI', () => {
     expect(result.status).toBe(0)
     expect(normalizeCliOutput(result.stdout)).toMatchInlineSnapshot(`
       "Raffel Doctor
-      Summary: 0 errors, 1 warnings, 3 infos (4 total)
+      Summary: 0 errors, 3 warnings, 3 infos (6 total)
 
       Diagnostics
+      - [warning] CONFIG_WARNING server:config-warning:0
+          Front-door routing is enabled without http.trustedProxies. Forwarded client IP headers will be ignored until trusted proxies are configured.
+      - [warning] CONFIG_WARNING server:config-warning:1
+          Front-door routing is enabled with wildcard CORS. Prefer explicit origins before public exposure.
       - [warning] HTTP_FAMILY_BLOCKED_BY_SHARED_PORT server:shared-port-http-family
           sharedPort.protocols excludes http, so HTTP, WebSocket, JSON-RPC, and GraphQL traffic will be rejected at the transport entrypoint
           remediation: Add \`http\` to \`sharedPort.protocols\`, or move HTTP-family transports to another listener before relying on inspect/playground workflows.

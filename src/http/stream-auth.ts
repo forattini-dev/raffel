@@ -1,6 +1,8 @@
 /**
  * Stream Authentication
  *
+ * @deprecated Use `raffel/http/auth` instead. This module will be removed in the next major version.
+ *
  * Provides authentication helpers for SSE/EventSource streams.
  *
  * EventSource API limitations:

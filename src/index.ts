@@ -31,6 +31,7 @@ export {
   createRegistry,
   createRouter,
   RaffelError,
+  isRaffelLikeError,
   createEventDeliveryEngine,
   createInMemoryEventDeliveryStore,
 } from './core/index.js'
@@ -801,6 +802,7 @@ export {
   createSessionInterceptor,
   createMemorySessionDriver,
   createRedisSessionDriver,
+  createS3dbSessionDriver,
 } from './middleware/session/index.js'
 export type {
   Session,
@@ -812,6 +814,8 @@ export type {
   MemorySessionDriverOptions,
   RedisLikeClient as SessionRedisLikeClient,
   RedisSessionDriverOptions,
+  S3dbResource as SessionS3dbResource,
+  S3dbSessionDriverOptions,
 } from './middleware/session/index.js'
 
 // === Proxy ===

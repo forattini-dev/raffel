@@ -15,6 +15,7 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { CacheConfig, CacheStore } from '../types.js'
 import type { CacheDriver, CacheDriverType, MemoryDriverOptions } from '../../cache/types.js'
 import { createLogger } from '../../utils/logger.js'
@@ -204,20 +205,6 @@ function defaultKeyGenerator(envelope: Envelope): string {
   return `cache:${envelope.procedure}:${hashPayload(envelope.payload)}`
 }
 
-/**
- * Match a procedure name against glob patterns
- */
-function matchProcedure(patterns: string[], procedure: string): boolean {
-  return patterns.some((pattern) => {
-    const regex = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-      .replace(/\*/g, '[^.]*')
-      .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-    return new RegExp(`^${regex}$`).test(procedure)
-  })
-}
 
 /**
  * Clone a result to prevent mutation of cached data
@@ -387,14 +374,14 @@ export function createCacheInterceptor(config: ExtendedCacheConfig = {}): Interc
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     // Check procedure patterns
     if (procedures && procedures.length > 0) {
-      if (!matchProcedure(procedures, envelope.procedure)) {
+      if (!procedures.some(p => matchProcedurePattern(p, envelope.procedure))) {
         return next()
       }
     }
 
     // Check exclusions
     if (excludeProcedures.length > 0) {
-      if (matchProcedure(excludeProcedures, envelope.procedure)) {
+      if (excludeProcedures.some(p => matchProcedurePattern(p, envelope.procedure))) {
         return next()
       }
     }

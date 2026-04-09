@@ -377,13 +377,21 @@ function createInMemoryRateLimitStore(
 ): InternalRateLimitStore {
   const store = new InMemoryRateLimitStore(maxUniqueKeys, slidingWindow)
 
+  // Periodic cleanup of expired entries
+  const cleanupTimer = setInterval(() => {
+    store.cleanup(cleanupInterval)
+  }, cleanupInterval)
+  cleanupTimer.unref()
+
   return {
     increment: (key, windowMs) => toRateLimitPromise(store.increment(key, windowMs)),
     get: (key, windowMs) => toRateLimitPromise(store.get(key, windowMs)),
     reset: (key) => toRateLimitPromise(store.reset(key)),
     clear: () => toRateLimitPromise(store.clear()),
     cleanup: (windowMs) => toRateLimitPromise(store.cleanup(windowMs)),
-    stop: async () => Promise.resolve(),
+    stop: async () => {
+      clearInterval(cleanupTimer)
+    },
     getKeyCount: () => store.size,
   }
 }

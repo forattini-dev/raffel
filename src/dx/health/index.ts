@@ -39,12 +39,13 @@ async function runProbe(
 ): Promise<ProbeResult> {
   const start = Date.now()
 
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
     const result = await Promise.race([
       Promise.resolve(probe()),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Probe '${name}' timed out after ${timeout}ms`)), timeout)
-      ),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`Probe '${name}' timed out after ${timeout}ms`)), timeout)
+      }),
     ])
 
     // Add latency if not provided
@@ -59,6 +60,8 @@ async function runProbe(
       error: err instanceof Error ? err.message : String(err),
       latency: Date.now() - start,
     }
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
   }
 }
 

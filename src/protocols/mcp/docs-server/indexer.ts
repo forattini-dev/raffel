@@ -5,7 +5,7 @@
  * Zero dependencies — uses regex-based parsing with code-fence awareness.
  */
 
-import { readdir, readFile, stat } from 'fs/promises'
+import { readdir, readFile } from 'fs/promises'
 import { join, relative, extname, basename } from 'path'
 
 // ─── Types ──────────────────────────────────────────────────────

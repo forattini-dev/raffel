@@ -9,9 +9,10 @@
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Router } from '../core/router.js'
-import { RaffelError } from '../core/router.js'
-import { createContext, createExtensionKey, withExtension } from '../types/context.js'
-import { getLogger } from '../utils/logger.js'
+import { RaffelError } from '../core/error.js'
+import { createExtensionKey, withExtension } from '../types/context.js'
+import { createAbortableContext } from '../utils/context-utils.js'
+import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import {
   jsonCodec,
@@ -20,18 +21,14 @@ import {
   selectCodecForContentType,
   type Codec,
 } from '../utils/content-codecs.js'
+import type { ClosableHttpServer } from '../types/server.js'
 
 /**
  * Extension key for HTTP request metadata (headers, etc.)
  */
 export const HttpMetadataKey = createExtensionKey<Record<string, string>>('http-metadata')
 
-const logger = getLogger().child({ component: 'jsonrpc-adapter' })
-
-type ClosableHttpServer = Server & {
-  closeIdleConnections?: () => void
-  closeAllConnections?: () => void
-}
+const logger = createLogger('jsonrpc-adapter')
 
 // === JSON-RPC 2.0 Types ===
 
@@ -180,7 +177,7 @@ function createJsonRpcHandler(
   /**
    * Process a single JSON-RPC request
    */
-  async function processRequest(request: JsonRpcRequest, metadata: Record<string, string>): Promise<JsonRpcResponse | null> {
+  async function processRequest(request: JsonRpcRequest, metadata: Record<string, string>, signal?: AbortSignal): Promise<JsonRpcResponse | null> {
     const id = request.id ?? null
 
     // Validate request structure
@@ -205,10 +202,12 @@ function createJsonRpcHandler(
         payload = request.params
       }
 
-      // Create context with metadata as extension
+      // Create context with AbortController for cancellation support
       const requestId = metadata['x-request-id'] ?? `jsonrpc-${Date.now()}`
-      let ctx = createContext(requestId, {
+      const abortController = new AbortController()
+      let ctx = createAbortableContext(requestId, {
         protocol: 'jsonrpc',
+        signal,
         input: {
           body: payload,
           metadata,
@@ -219,7 +218,7 @@ function createJsonRpcHandler(
           requestId: id,
           notification: isNotification,
         },
-      })
+      }, abortController)
       const adapterDeadline = timeout > 0 ? Date.now() + timeout : undefined
       const propagatedDeadline = metadata['x-deadline']
         ? Number.parseInt(metadata['x-deadline'], 10)
@@ -411,6 +410,20 @@ function createJsonRpcHandler(
     // Extract metadata from headers
     const metadata = extractMetadataFromHeaders(req.headers)
 
+    // Create a request-level AbortController; abort when the client disconnects
+    const requestAbortController = new AbortController()
+    const abortRequest = (reason: string) => {
+      if (!requestAbortController.signal.aborted) {
+        requestAbortController.abort(reason)
+      }
+    }
+    req.on('close', () => abortRequest('Client disconnected'))
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        abortRequest('Response closed early')
+      }
+    })
+
     // Handle batch requests
     if (Array.isArray(parsed)) {
       if (parsed.length === 0) {
@@ -421,7 +434,7 @@ function createJsonRpcHandler(
       logger.debug({ batchSize: parsed.length }, 'Processing batch request')
 
       const responses = await Promise.all(
-        parsed.map((req) => processRequest(req as JsonRpcRequest, metadata))
+        parsed.map((req) => processRequest(req as JsonRpcRequest, metadata, requestAbortController.signal))
       )
 
       // Filter out null responses (notifications)
@@ -441,7 +454,7 @@ function createJsonRpcHandler(
     // Single request
     logger.debug({ method: (parsed as JsonRpcRequest).method }, 'Processing request')
 
-    const response = await processRequest(parsed as JsonRpcRequest, metadata)
+    const response = await processRequest(parsed as JsonRpcRequest, metadata, requestAbortController.signal)
 
     // Notification - no response
     if (response === null) {

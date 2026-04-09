@@ -307,7 +307,7 @@ describe('Authentication Middleware', () => {
       const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-bearer' })
       const strategy = createEnhancedBearerStrategy({ verify, extractFrom: ['query'] })
       const envelope = createTestEnvelope('test')
-      ;(envelope.context as any).query = { token: 'ctx-query-token' }
+      ;(envelope.context.input as any).query = { token: 'ctx-query-token' }
 
       const result = await strategy.authenticate(envelope, envelope.context)
 
@@ -370,7 +370,7 @@ describe('Authentication Middleware', () => {
       const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'svc' })
       const strategy = createEnhancedApiKeyStrategy({ verify, extractFrom: ['query'] })
       const envelope = createTestEnvelope('test')
-      ;(envelope.context as any).query = { apiKey: 'ctx-api-key' }
+      ;(envelope.context.input as any).query = { apiKey: 'ctx-api-key' }
 
       const result = await strategy.authenticate(envelope, envelope.context)
 

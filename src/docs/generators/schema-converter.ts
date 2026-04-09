@@ -85,17 +85,6 @@ export function isZodSchema(schema: unknown): boolean {
 }
 
 /**
- * Check if schema is Zod 4 (has native toJSONSchema method)
- */
-function isZod4Schema(schema: unknown): schema is { toJSONSchema: () => Record<string, unknown> } {
-  return (
-    schema !== null &&
-    typeof schema === 'object' &&
-    typeof (schema as Record<string, unknown>).toJSONSchema === 'function'
-  )
-}
-
-/**
  * Check if a value is already a JSON Schema
  */
 export function isJsonSchema(schema: unknown): schema is USDSchema {
@@ -140,58 +129,6 @@ export function convertSchema(
   })
 
   return cleanJsonSchema(descriptor.jsonSchema as USDSchema)
-}
-
-/**
- * Normalize non-standard Zod output format to standard JSON Schema
- */
-function normalizeNonStandardSchema(schema: Record<string, unknown>): USDSchema {
-  const def = schema.def as Record<string, unknown>
-
-  // Handle object with shape
-  if (def.type === 'object' && def.shape) {
-    const shape = def.shape as Record<string, unknown>
-    const properties: Record<string, USDSchema> = {}
-
-    for (const [key, val] of Object.entries(shape)) {
-      properties[key] = convertSchema(val)
-    }
-
-    return { type: 'object', properties }
-  }
-
-  // Handle default values
-  if (def.type === 'default' && def.innerType) {
-    const inner = convertSchema(def.innerType)
-    if (def.defaultValue !== undefined) {
-      return { ...inner, default: def.defaultValue as USDSchema['default'] }
-    }
-    return inner
-  }
-
-  // Handle primitive types
-  if (def.type === 'string') {
-    const result: USDSchema = { type: 'string' }
-    if (schema.format) result.format = String(schema.format)
-    if (schema.minLength) result.minLength = Number(schema.minLength)
-    if (schema.maxLength) result.maxLength = Number(schema.maxLength)
-    return result
-  }
-
-  if (def.type === 'number') {
-    return { type: 'number' }
-  }
-
-  if (def.type === 'integer') {
-    return { type: 'integer' }
-  }
-
-  if (def.type === 'boolean') {
-    return { type: 'boolean' }
-  }
-
-  // Fallback
-  return { type: 'object' }
 }
 
 /**

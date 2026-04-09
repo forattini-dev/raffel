@@ -585,15 +585,6 @@ export function failbanMiddleware<E extends Record<string, unknown> = Record<str
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Default IP extraction function
- */
-function defaultGetIp(c: HttpContextInterface): string {
-  return c.runtime?.http?.clientIp
-    ?? resolveRequestClientIp(c.req.raw).ip
-    ?? 'unknown'
-}
-
-/**
  * Get client IP helper
  */
 export function getClientIp(

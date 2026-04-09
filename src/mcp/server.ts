@@ -5,7 +5,7 @@
  * Now powered by the Raffel MCP protocol engine (src/protocols/mcp/).
  */
 
-import type { JsonRpcRequest, JsonRpcResponse, MCPServerOptions, CategoryName } from './types.js'
+import type { JsonRpcRequest, JsonRpcResponse, MCPServerOptions } from './types.js'
 import { tools, getToolsByCategory, handlers } from './tools/index.js'
 import { getStaticResources, getResourceTemplates, readResource, getGuideCatalog } from './resources/index.js'
 import { prompts, getPromptResult } from './prompts/index.js'

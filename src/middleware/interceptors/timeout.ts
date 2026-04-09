@@ -13,7 +13,8 @@
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
 import type { TimeoutConfig } from '../types.js'
-import { RaffelError } from '../../core/router.js'
+import { RaffelError } from '../../core/error.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 
 /**
  * Timeout phase for diagnostic purposes
@@ -31,14 +32,6 @@ export type TimeoutPhase =
   | 'downstream'
   | 'serialization'
   | 'unknown'
-
-/**
- * Extended context with phase tracking
- */
-interface PhasedContext extends Context {
-  timeoutPhase?: TimeoutPhase
-  phaseStartTime?: number
-}
 
 /**
  * WeakMap for tracking timeout phases per request
@@ -96,19 +89,6 @@ export function getPhaseInfo(ctx: Context): {
 }
 
 /**
- * Match a procedure name against a glob pattern
- */
-function matchPattern(pattern: string, procedure: string): boolean {
-  const regex = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-    .replace(/\*/g, '[^.]*')
-    .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-  return new RegExp(`^${regex}$`).test(procedure)
-}
-
-/**
  * Find timeout for a procedure
  */
 function findTimeout(
@@ -125,7 +105,7 @@ function findTimeout(
   // Check patterns
   if (patterns) {
     for (const [pattern, timeout] of Object.entries(patterns)) {
-      if (matchPattern(pattern, procedure)) {
+      if (matchProcedurePattern(pattern, procedure)) {
         return timeout
       }
     }
@@ -135,16 +115,19 @@ function findTimeout(
 }
 
 /**
- * Create a promise that rejects after a timeout
+ * Create a promise that rejects after a timeout, with a cleanup function
+ * to clear the timer on the happy path (handler completes before timeout).
  */
 function createTimeoutPromise(
   ms: number,
   procedure: string,
   signal?: AbortSignal,
   ctx?: Context
-): Promise<never> {
-  return new Promise((_, reject) => {
-    const timer = setTimeout(() => {
+): { promise: Promise<never>; cleanup: () => void } {
+  let timer: ReturnType<typeof setTimeout>
+
+  const promise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
       // Include phase information if available
       const phaseInfo = ctx ? getPhaseInfo(ctx) : { phase: 'unknown', phaseDuration: 0 }
 
@@ -168,6 +151,12 @@ function createTimeoutPromise(
       })
     }
   })
+
+  const cleanup = () => {
+    clearTimeout(timer)
+  }
+
+  return { promise, cleanup }
 }
 
 /**
@@ -233,16 +222,18 @@ export function createTimeoutInterceptor(config: TimeoutConfig = {}): Intercepto
     }
 
     // Update context with deadline
-    ;(ctx as any).deadline = effectiveDeadline
+    ctx.deadline = effectiveDeadline
 
     // Initialize phase tracking
     setTimeoutPhase(ctx, 'handler')
 
     // Race between the handler and timeout
-    return Promise.race([
-      next(),
-      createTimeoutPromise(effectiveTimeout, procedure, ctx.signal, ctx),
-    ])
+    const { promise: timeoutPromise, cleanup } = createTimeoutPromise(effectiveTimeout, procedure, ctx.signal, ctx)
+    try {
+      return await Promise.race([next(), timeoutPromise])
+    } finally {
+      cleanup()
+    }
   }
 }
 
@@ -286,15 +277,17 @@ export function createCascadingTimeoutInterceptor(config: {
     const newDeadline = now + timeoutMs
 
     // Update context
-    ;(ctx as any).deadline = newDeadline
+    ctx.deadline = newDeadline
 
     // Initialize phase tracking
     setTimeoutPhase(ctx, 'handler')
 
-    return Promise.race([
-      next(),
-      createTimeoutPromise(timeoutMs, envelope.procedure, ctx.signal, ctx),
-    ])
+    const { promise: timeoutPromise, cleanup } = createTimeoutPromise(timeoutMs, envelope.procedure, ctx.signal, ctx)
+    try {
+      return await Promise.race([next(), timeoutPromise])
+    } finally {
+      cleanup()
+    }
   }
 }
 
@@ -340,7 +333,7 @@ export function createDeadlinePropagationInterceptor(config: {
     }
 
     // Update context
-    ;(ctx as any).deadline = deadline
+    ctx.deadline = deadline
 
     // Propagate deadline in metadata for downstream calls
     envelope.metadata[metadataKey] = deadline.toString()
@@ -348,9 +341,11 @@ export function createDeadlinePropagationInterceptor(config: {
     // Initialize phase tracking
     setTimeoutPhase(ctx, 'handler')
 
-    return Promise.race([
-      next(),
-      createTimeoutPromise(remaining, envelope.procedure, ctx.signal, ctx),
-    ])
+    const { promise: timeoutPromise, cleanup } = createTimeoutPromise(remaining, envelope.procedure, ctx.signal, ctx)
+    try {
+      return await Promise.race([next(), timeoutPromise])
+    } finally {
+      cleanup()
+    }
   }
 }

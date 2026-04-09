@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage, Server } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context, ContextSeed, Interceptor } from '../types/index.js'
+import type { Envelope, ContextSeed, Interceptor } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
 import { compose } from '../middleware/compose.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
@@ -19,6 +19,8 @@ import {
   mergeMetadata,
   sanitizeMetadataRecord,
 } from '../utils/header-metadata.js'
+import { serializeEnvelope } from '../utils/envelope-serialization.js'
+import { isAsyncIterable } from '../utils/type-guards.js'
 import {
   createChannelManager,
   isChannelMessage,
@@ -45,6 +47,10 @@ import {
   checkWebSocketConnectionFilter,
   type WebSocketConnectionFilter,
 } from './utils/connection-filter.js'
+import {
+  handleCancelMessage as sharedHandleCancelMessage,
+  cleanupClientConnections,
+} from './utils/cancel-handler.js'
 
 const logger = createLogger('ws-adapter')
 const AUTH_SEED_SYMBOL = Symbol('raffel.ws.authSeed')
@@ -749,7 +755,7 @@ export function createWebSocketAdapter(
       }
 
       // Check if result is a stream (async iterable)
-      if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+      if (isAsyncIterable(result)) {
         // Stream response
         const streamId = envelope.id
         const streamAbortController = client.activeRequests.get(streamId)
@@ -789,13 +795,7 @@ export function createWebSocketAdapter(
     if (client.ws.readyState !== WebSocket.OPEN) return
     if (!checkBackpressure(client)) return
 
-    const message = JSON.stringify({
-      id: envelope.id,
-      procedure: envelope.procedure,
-      type: envelope.type,
-      payload: envelope.payload,
-      metadata: envelope.metadata,
-    })
+    const message = serializeEnvelope(envelope)
 
     client.ws.send(message)
   }
@@ -824,27 +824,9 @@ export function createWebSocketAdapter(
   }
 
   function handleCancelMessage(client: ClientConnection, parsed: Record<string, unknown>): boolean {
-    if (parsed.type !== 'cancel') return false
-    const requestId = parsed.id !== undefined ? String(parsed.id) : undefined
-    if (!requestId) return true
-
-    const streamController = client.activeStreams.get(requestId)
-    if (streamController) {
-      streamController.abort('Client cancelled')
-      client.activeStreams.delete(requestId)
-      sendError(client, 'CANCELLED', 'Stream cancelled', requestId, 'stream:error')
-      return true
-    }
-
-    const requestController = client.activeRequests.get(requestId)
-    if (requestController) {
-      requestController.abort('Client cancelled')
-      client.activeRequests.delete(requestId)
-      sendError(client, 'CANCELLED', 'Request cancelled', requestId)
-      return true
-    }
-
-    return true
+    return sharedHandleCancelMessage(client, parsed, (c, code, message, requestId, envelopeType) => {
+      sendError(c as ClientConnection, code, message, requestId, envelopeType as 'error' | 'stream:error')
+    })
   }
 
   /**
@@ -1119,15 +1101,8 @@ export function createWebSocketAdapter(
         })
       }
 
-      // Cancel active streams
-      for (const controller of client.activeStreams.values()) {
-        controller.abort('Client disconnected')
-      }
-      client.activeStreams.clear()
-      for (const controller of client.activeRequests.values()) {
-        controller.abort('Client disconnected')
-      }
-      client.activeRequests.clear()
+      // Cancel active streams and requests
+      cleanupClientConnections(client)
 
       clients.delete(clientId)
     })

@@ -5,6 +5,8 @@
  * Inspired by Recker's cache architecture.
  */
 
+import type { BaseRedisClient } from '../types/redis.js'
+
 /**
  * Cache entry stored by drivers
  */
@@ -307,7 +309,7 @@ export interface RedisDriverOptions {
 /**
  * Duck-typed Redis client interface
  */
-export interface RedisLikeClient {
+export interface RedisLikeClient extends BaseRedisClient {
   get(key: string): Promise<string | null>
   set(key: string, value: string, mode?: string, duration?: number): Promise<unknown>
   setex?(key: string, seconds: number, value: string): Promise<unknown>

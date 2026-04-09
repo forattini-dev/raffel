@@ -8,7 +8,6 @@ import type {
   USDWebSocket,
   USDChannel,
   USDChannelType,
-  USDChannelOperation,
   USDChannelParameter,
   USDMessage,
   USDSchema,

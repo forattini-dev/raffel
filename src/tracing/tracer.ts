@@ -4,6 +4,7 @@
  * Central tracing coordinator with span creation, sampling, and export.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type {
   Tracer,
   TracingConfig,
@@ -38,7 +39,9 @@ export function createTracer(config: TracingConfig = {}): Tracer {
   // Pending spans for batch export
   const pendingSpans: SpanData[] = []
   let batchTimer: ReturnType<typeof setTimeout> | null = null
-  let activeSpan: Span | undefined
+
+  // Async-context-safe active span storage
+  const asyncSpanStorage = new AsyncLocalStorage<Span>()
 
   /**
    * Schedule batch export
@@ -50,6 +53,7 @@ export function createTracer(config: TracingConfig = {}): Tracer {
       batchTimer = null
       await flushInternal()
     }, batchTimeout)
+    batchTimer.unref()
   }
 
   /**
@@ -139,11 +143,17 @@ export function createTracer(config: TracingConfig = {}): Tracer {
     },
 
     getActiveSpan() {
-      return activeSpan
+      return asyncSpanStorage.getStore()
     },
 
     setActiveSpan(span) {
-      activeSpan = span
+      if (span) {
+        asyncSpanStorage.enterWith(span)
+      } else {
+        // Exiting the active span context — enterWith(undefined) is not
+        // supported, so we disable the store by entering a new empty context.
+        asyncSpanStorage.disable()
+      }
     },
 
     extractContext(headers: TraceHeaders): SpanContext | undefined {

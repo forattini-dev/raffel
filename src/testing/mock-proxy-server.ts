@@ -17,6 +17,7 @@ import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket } from 'node:net'
 import { TLSSocket, connect as tlsConnect, createSecureContext } from 'node:tls'
 import { getDefaultCA, generateCertificate } from './proxy-certs.js'
+import { gracefulShutdown } from '../utils/graceful-shutdown.js'
 
 export type ProxyMode = 'forward' | 'intercept'
 
@@ -140,15 +141,9 @@ export class MockProxyServer extends EventEmitter {
 
   async stop(): Promise<void> {
     if (!this._running || !this._server) return
-    await new Promise<void>((resolve) => {
-      const server = this._server!
-      server.close(() => {
-        this._running = false
-        this._server = null
-        resolve()
-      })
-      ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
-    })
+    await gracefulShutdown(this._server, 5000)
+    this._running = false
+    this._server = null
   }
 
   // ---------------------------------------------------------------------------

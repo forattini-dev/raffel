@@ -16,6 +16,7 @@ import type { JsonRpcAdapter } from '../adapters/jsonrpc.js'
 import type { GraphQLAdapter, GraphQLMiddleware } from '../graphql/index.js'
 import { getRouterModuleDefinition } from './router-module.js'
 import { createSchemaRegistry } from '../validation/index.js'
+import { isAsyncIterable } from '../utils/type-guards.js'
 import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
 import { createEnvelopeInterceptor, createStandardEnvelopeInterceptor } from '../middleware/interceptors/envelope.js'
@@ -129,13 +130,6 @@ function policyMetadataFromRouteMeta(
 }
 
 /**
- * Check if a value is an async iterable
- */
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return value !== null && typeof value === 'object' && Symbol.asyncIterator in value
-}
-
-/**
  * Create a unified Raffel server
  */
 export function createServer(options: ServerOptions): RaffelServer {
@@ -220,7 +214,6 @@ export function createServer(options: ServerOptions): RaffelServer {
   const effectivePort = serverPlanner.effectivePort
   const updateSinglePortConfig = serverPlanner.updateSinglePortConfig
   const getSinglePortAliasMode = serverPlanner.getSinglePortAliasMode
-  const getSinglePortSource = serverPlanner.getSinglePortSource
   const shouldUseFrontDoor = serverPlanner.shouldUseFrontDoor
   const strategyFor = serverPlanner.strategyFor
   const getSinglePortConfig = () => serverPlanner.singlePortConfig

@@ -11,8 +11,6 @@
  * - Automatic TTL handling
  */
 
-import zlib from 'node:zlib'
-
 import type {
   CacheDriver,
   CacheEntry,
@@ -21,6 +19,8 @@ import type {
   RedisDriverOptions,
   RedisLikeClient,
 } from '../types.js'
+import { compressToBase64, decompressFromBase64 } from '../../utils/compression.js'
+import { computeHitRate } from '../utils.js'
 
 /**
  * Entry stored in Redis
@@ -110,9 +110,7 @@ export class RedisDriver implements CacheDriver {
       // Decompress if needed
       let value = redisEntry.value
       if (redisEntry.compressed && typeof value === 'string') {
-        const buffer = Buffer.from(value, 'base64')
-        const decompressed = zlib.gunzipSync(buffer)
-        value = JSON.parse(decompressed.toString('utf8'))
+        value = JSON.parse(decompressFromBase64(value))
       }
 
       this._stats.hits++
@@ -145,9 +143,7 @@ export class RedisDriver implements CacheDriver {
     if (this.compressionEnabled) {
       const serialized = JSON.stringify(value)
       if (serialized.length >= this.compressionThreshold) {
-        const buffer = Buffer.from(serialized, 'utf8')
-        const compressedBuffer = zlib.gzipSync(buffer)
-        finalValue = compressedBuffer.toString('base64')
+        finalValue = compressToBase64(serialized)
         compressed = true
       }
     }
@@ -255,12 +251,9 @@ export class RedisDriver implements CacheDriver {
    * Get cache statistics
    */
   stats(): CacheStats {
-    const total = this._stats.hits + this._stats.misses
-    const hitRate = total > 0 ? this._stats.hits / total : 0
-
     return {
       ...this._stats,
-      hitRate,
+      hitRate: computeHitRate(this._stats.hits, this._stats.misses),
       totalItems: 0, // Would require SCAN to count
     }
   }

@@ -13,6 +13,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { HttpContext, type HttpContextInterface } from './context.js'
 import type { BodyInit } from './web-types.js'
 import { attachRequestSocketInfo } from '../utils/client-ip.js'
+import { createLogger } from '../utils/logger.js'
+
+const logger = createLogger('http-app')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -556,12 +559,12 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
         try {
           return await this.errorHandler(error, ctx)
         } catch (handlerError) {
-          console.error('Error in error handler:', handlerError)
+          logger.error({ err: handlerError }, 'Error in error handler')
           return new Response('Internal Server Error', { status: 500 })
         }
       }
 
-      console.error('Unhandled error:', error)
+      logger.error({ err: error }, 'Unhandled error')
       return new Response('Internal Server Error', { status: 500 })
     }
   }

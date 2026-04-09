@@ -12,7 +12,8 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
-import { RaffelError } from '../../core/router.js'
+import { RaffelError } from '../../core/error.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 
 /**
  * Size limit configuration
@@ -66,19 +67,6 @@ export interface SizeLimitConfig {
  */
 const DEFAULT_MAX_REQUEST_SIZE = 1024 * 1024 // 1MB
 const DEFAULT_MAX_RESPONSE_SIZE = 10 * 1024 * 1024 // 10MB
-
-/**
- * Match a procedure name against glob patterns
- */
-function matchPattern(pattern: string, procedure: string): boolean {
-  const regex = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-    .replace(/\*/g, '[^.]*')
-    .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-  return new RegExp(`^${regex}$`).test(procedure)
-}
 
 /**
  * Estimate size of a value in bytes
@@ -141,7 +129,7 @@ function findLimits(
   // Check patterns
   if (patterns) {
     for (const [pattern, limits] of Object.entries(patterns)) {
-      if (matchPattern(pattern, procedure)) {
+      if (matchProcedurePattern(pattern, procedure)) {
         return {
           maxRequestSize: limits.maxRequestSize ?? maxRequestSize,
           maxResponseSize: limits.maxResponseSize ?? maxResponseSize,

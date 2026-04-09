@@ -30,7 +30,6 @@ import {
   cleanupResolvedProviders as cleanupResolvedProvidersInternal,
   createRuntimeTaskRegistry,
   runActiveShutdownPlan,
-  type ActiveShutdownPlan,
 } from './lifecycle-utils.js'
 import {
   createServerLifecycleExecution,

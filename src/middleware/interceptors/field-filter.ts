@@ -28,6 +28,7 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { isAsyncIterable } from '../../utils/type-guards.js'
 
 /**
  * Field filter configuration
@@ -85,7 +86,7 @@ export function createFieldFilterInterceptor(config: FieldFilterConfig = {}): In
 
     // Skip async iterables (stream results) — they are consumed by the router's
     // wrapStreamInEnvelopes. Each chunk will go through its own interceptor chain.
-    if (result !== null && result !== undefined && typeof result === 'object' && Symbol.asyncIterator in result) {
+    if (isAsyncIterable(result)) {
       return result
     }
 

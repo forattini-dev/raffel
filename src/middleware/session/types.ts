@@ -88,8 +88,12 @@ export interface SessionConfig {
   /**
    * Session TTL in seconds (default: 3600 — 1 hour).
    * Applies to both store expiry and cookie maxAge (unless overridden in `cookie.maxAge`).
+   * @deprecated Use ttlMs instead
    */
   ttl?: number
+
+  /** Session TTL in milliseconds. Takes precedence over ttl. */
+  ttlMs?: number
 
   /**
    * Whether to use a sliding-window TTL: each access resets the TTL.

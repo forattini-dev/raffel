@@ -59,8 +59,8 @@
       "import": "./dist/inspect/index.js"
     },
     "./docs/ui": {
-      "types": "./dist/ui/index.d.ts",
-      "import": "./dist/ui/index.js"
+      "types": "./dist/ui/docs/ui/index.d.ts",
+      "import": "./dist/docs/ui/index.js"
     },
     "./middleware/http": {
       "types": "./dist/middleware/http/index.d.ts",

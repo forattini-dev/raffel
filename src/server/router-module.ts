@@ -21,7 +21,6 @@ import type { HandlerSchema } from '../validation/index.js'
 import { createProcedureBuilder } from './handler-builders.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import type {
-  ProcedureBuilder,
   StreamBuilder,
   EventBuilder,
   RouterModule,

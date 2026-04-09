@@ -19,7 +19,6 @@ import type {
   RoomInfo,
   GroupInfo,
   ChannelRateLimits,
-  ChannelType,
 } from './types.js'
 import { getChannelType } from './types.js'
 import type { ChannelHistoryPort } from './history.js'
@@ -52,6 +51,26 @@ function createRateLimiter(limits: ChannelRateLimits) {
     return true
   }
 
+  function checkSubscribe(socketId: string): boolean {
+    if (!limits.maxSubscribesPerSecond) return true
+    return checkLimit(`${socketId}:sub`, limits.maxSubscribesPerSecond)
+  }
+
+  function checkPublish(socketId: string): boolean {
+    if (!limits.maxPublishesPerSecond) return true
+    return checkLimit(`${socketId}:pub`, limits.maxPublishesPerSecond)
+  }
+
+  function checkMessage(socketId: string): boolean {
+    if (!limits.maxMessagesPerSecond) return true
+    return checkLimit(`${socketId}:msg`, limits.maxMessagesPerSecond)
+  }
+
+  function isChannelLimitReached(socketId: string, currentCount: number): boolean {
+    if (!limits.maxChannelsPerClient) return false
+    return currentCount >= limits.maxChannelsPerClient
+  }
+
   function removeSocket(socketId: string): void {
     for (const key of buckets.keys()) {
       if (key.startsWith(socketId + ':')) {
@@ -60,7 +79,15 @@ function createRateLimiter(limits: ChannelRateLimits) {
     }
   }
 
-  return { checkLimit, removeSocket }
+  return {
+    limits,
+    checkLimit,
+    checkSubscribe,
+    checkPublish,
+    checkMessage,
+    isChannelLimitReached,
+    removeSocket,
+  }
 }
 
 /**
@@ -165,7 +192,6 @@ export function createChannelManager(
 
   /** Rate limiter instance */
   const rateLimiter = options.rateLimits ? createRateLimiter(options.rateLimits) : null
-  const rateLimits = options.rateLimits
 
   /** Typing state: channel → socketId → timeout timer */
   const typingState = new Map<string, Map<string, ReturnType<typeof setTimeout>>>()
@@ -398,31 +424,29 @@ export function createChannelManager(
       since?: { seq: number; epoch: string }
     ): Promise<SubscribeResult> {
       // Rate limit: max subscribes per second
-      if (rateLimiter && rateLimits?.maxSubscribesPerSecond) {
-        if (!rateLimiter.checkLimit(`${socketId}:sub`, rateLimits.maxSubscribesPerSecond)) {
-          rateLimits.onRateLimited?.(socketId, 'subscribe', rateLimits.maxSubscribesPerSecond)
-          return {
-            success: false,
-            error: {
-              code: 'RATE_LIMITED',
-              status: 429,
-              message: 'Too many subscribe operations',
-            },
-          }
+      if (rateLimiter && !rateLimiter.checkSubscribe(socketId)) {
+        rateLimiter.limits.onRateLimited?.(socketId, 'subscribe', rateLimiter.limits.maxSubscribesPerSecond!)
+        return {
+          success: false,
+          error: {
+            code: 'RATE_LIMITED',
+            status: 429,
+            message: 'Too many subscribe operations',
+          },
         }
       }
 
       // Rate limit: max channels per client
-      if (rateLimits?.maxChannelsPerClient) {
+      if (rateLimiter) {
         const currentCount = socketChannels.get(socketId)?.size ?? 0
-        if (currentCount >= rateLimits.maxChannelsPerClient) {
-          rateLimits.onRateLimited?.(socketId, 'max_channels', rateLimits.maxChannelsPerClient)
+        if (rateLimiter.isChannelLimitReached(socketId, currentCount)) {
+          rateLimiter.limits.onRateLimited?.(socketId, 'max_channels', rateLimiter.limits.maxChannelsPerClient!)
           return {
             success: false,
             error: {
               code: 'RATE_LIMITED',
               status: 429,
-              message: `Max channels per client (${rateLimits.maxChannelsPerClient}) exceeded`,
+              message: `Max channels per client (${rateLimiter.limits.maxChannelsPerClient}) exceeded`,
             },
           }
         }

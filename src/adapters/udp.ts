@@ -16,11 +16,12 @@
 import { createSocket, type Socket as UdpSocket, type RemoteInfo } from 'node:dgram'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, EnvelopeType, Context, ContextSeed } from '../types/index.js'
+import type { Envelope, EnvelopeType, ContextSeed } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
 import { createContext } from '../types/context.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
+import { serializeEnvelope } from '../utils/envelope-serialization.js'
 import { checkConnectionFilter, type ConnectionFilter } from './utils/connection-filter.js'
 
 const logger = createLogger('udp-adapter')
@@ -137,13 +138,7 @@ export function createUdpAdapter(
         return
       }
 
-      const message = JSON.stringify({
-        id: envelope.id,
-        procedure: envelope.procedure,
-        type: envelope.type,
-        payload: envelope.payload,
-        metadata: envelope.metadata,
-      })
+      const message = serializeEnvelope(envelope)
 
       const data = Buffer.from(message, 'utf-8')
 
@@ -358,11 +353,11 @@ export function createUdpAdapter(
     async stop(): Promise<void> {
       return new Promise((resolve) => {
         // Clear pending requests
-        for (const [id, pending] of pendingRequests) {
+        for (const [, pending] of pendingRequests) {
           clearTimeout(pending.timeout)
           pending.reject(new Error('Socket closing'))
-          pendingRequests.delete(id)
         }
+        pendingRequests.clear()
 
         // Leave multicast group
         if (multicast && socket) {
@@ -569,7 +564,7 @@ export function createUdpClient(options: {
     disconnect(): void {
       if (socket) {
         // Clear pending requests
-        for (const [id, pending] of pendingRequests) {
+        for (const [, pending] of pendingRequests) {
           clearTimeout(pending.timeout)
           pending.reject(new Error('Disconnected'))
         }

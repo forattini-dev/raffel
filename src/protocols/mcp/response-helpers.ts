@@ -4,7 +4,7 @@
  * Ergonomic builders for McpToolResult. Zero dependencies.
  */
 
-import type { McpToolResult, McpContent, McpTextContent, McpImageContent, McpResourceContent } from './types.js'
+import type { McpToolResult, McpContent, McpImageContent, McpResourceContent } from './types.js'
 
 /**
  * Plain text response.

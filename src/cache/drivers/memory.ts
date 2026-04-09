@@ -12,7 +12,6 @@
  * - Comprehensive statistics
  */
 
-import zlib from 'node:zlib'
 import fs from 'node:fs'
 import os from 'node:os'
 import v8 from 'node:v8'
@@ -28,6 +27,13 @@ import type {
   EvictionInfo,
   PressureInfo,
 } from '../types.js'
+import {
+  compressData,
+  decompressFromBase64,
+  isCompressedData,
+  type CompressedData,
+} from '../../utils/compression.js'
+import { computeHitRate } from '../utils.js'
 
 /** Default: Use up to 50% of effective memory */
 const DEFAULT_TOTAL_PERCENT = 0.5
@@ -48,15 +54,6 @@ interface CacheMetadata {
   originalSize: number
   compressedSize: number
   tags?: string[]
-}
-
-/**
- * Compressed data wrapper
- */
-interface CompressedData {
-  __compressed: true
-  __data: string
-  __originalSize: number
 }
 
 /**
@@ -489,12 +486,9 @@ export class MemoryDriver implements CacheDriver {
    * Get cache statistics
    */
   stats(): CacheStats {
-    const total = this._stats.hits + this._stats.misses
-    const hitRate = total > 0 ? this._stats.hits / total : 0
-
     return {
       ...this._stats,
-      hitRate,
+      hitRate: computeHitRate(this._stats.hits, this._stats.misses),
       totalItems: this.storage.size,
       memoryUsageBytes: this.currentMemoryBytes,
       maxMemoryBytes: this.maxMemoryBytes,
@@ -606,23 +600,15 @@ export class MemoryDriver implements CacheDriver {
   }
 
   private isCompressed(data: string | CompressedData): data is CompressedData {
-    return typeof data === 'object' && data !== null && '__compressed' in data
+    return isCompressedData(data)
   }
 
   private compress(data: string): CompressedData {
-    const buffer = Buffer.from(data, 'utf8')
-    const compressed = zlib.gzipSync(buffer)
-    return {
-      __compressed: true,
-      __data: compressed.toString('base64'),
-      __originalSize: buffer.length,
-    }
+    return compressData(data) as CompressedData
   }
 
   private decompress(data: CompressedData): string {
-    const buffer = Buffer.from(data.__data, 'base64')
-    const decompressed = zlib.gunzipSync(buffer)
-    return decompressed.toString('utf8')
+    return decompressFromBase64(data.__data)
   }
 
   /**
@@ -656,7 +642,7 @@ export class MemoryDriver implements CacheDriver {
     const freedBytes = meta?.compressedSize ?? 0
 
     this.deleteInternal(candidate)
-    this._stats.evictions++
+    this.recordStat('evictions')
 
     if (reason === 'memory' || reason === 'heap') {
       this.evictedDueToMemory++

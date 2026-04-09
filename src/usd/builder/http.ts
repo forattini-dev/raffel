@@ -9,7 +9,6 @@ import type {
   USDPathItem,
   USDOperation,
   USDParameter,
-  USDRequestBody,
   USDResponse,
   USDSchema,
   USDSecurityRequirement,

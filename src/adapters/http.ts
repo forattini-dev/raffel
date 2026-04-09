@@ -18,6 +18,7 @@ import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import { mergeMetadata } from '../utils/header-metadata.js'
+import { isAsyncIterable } from '../utils/type-guards.js'
 import {
   jsonCodec,
   resolveCodecs,
@@ -26,13 +27,10 @@ import {
   type Codec,
 } from '../utils/content-codecs.js'
 import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
+import type { ClosableHttpServer } from '../types/server.js'
+import { getStatusForCode } from '../errors/codes.js'
 
 const logger = createLogger('http-adapter')
-
-type ClosableHttpServer = Server & {
-  closeIdleConnections?: () => void
-  closeAllConnections?: () => void
-}
 
 type RateLimitHeaderInfo = {
   limit?: number
@@ -285,57 +283,10 @@ function applyRateLimitHeaders(
 }
 
 /**
- * Map Raffel error codes to HTTP status codes
+ * Map Raffel error codes to HTTP status codes.
+ * Delegates to the central error code registry.
  */
-function mapErrorCodeToStatus(code: string): number {
-  switch (code) {
-    case 'NOT_FOUND':
-      return 404
-    case 'NOT_ACCEPTABLE':
-      return 406
-    case 'INVALID_ARGUMENT':
-    case 'INVALID_TYPE':
-    case 'INVALID_ENVELOPE':
-    case 'PARSE_ERROR':
-    case 'VALIDATION_ERROR':
-      return 400
-    case 'UNPROCESSABLE_ENTITY':
-      return 422
-    case 'UNAUTHENTICATED':
-      return 401
-    case 'PERMISSION_DENIED':
-      return 403
-    case 'ALREADY_EXISTS':
-      return 409
-    case 'FAILED_PRECONDITION':
-      return 412
-    case 'PAYLOAD_TOO_LARGE':
-    case 'MESSAGE_TOO_LARGE':
-      return 413
-    case 'UNSUPPORTED_MEDIA_TYPE':
-      return 415
-    case 'RATE_LIMITED':
-    case 'RESOURCE_EXHAUSTED':
-      return 429
-    case 'DEADLINE_EXCEEDED':
-      return 408
-    case 'BAD_GATEWAY':
-      return 502
-    case 'UNIMPLEMENTED':
-      return 501
-    case 'UNAVAILABLE':
-      return 503
-    case 'GATEWAY_TIMEOUT':
-      return 504
-    case 'CANCELLED':
-      return 499
-    case 'DATA_LOSS':
-    case 'OUTPUT_VALIDATION_ERROR':
-    case 'INTERNAL_ERROR':
-    default:
-      return 500
-  }
-}
+const mapErrorCodeToStatus = getStatusForCode
 
 /**
  * Set CORS headers
@@ -706,7 +657,7 @@ export function createHttpAdapter(
     }
 
     // Check if stream
-    if (!result || typeof result !== 'object' || !(Symbol.asyncIterator in result)) {
+    if (!isAsyncIterable(result)) {
       sendError(res, 500, 'INTERNAL_ERROR', 'Handler did not return a stream')
       return
     }

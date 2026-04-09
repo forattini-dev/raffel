@@ -32,11 +32,6 @@ interface ZodError {
   }>
 }
 
-interface ZodModule {
-  ZodType?: new (...args: unknown[]) => ZodType
-  z?: { ZodType?: new (...args: unknown[]) => ZodType }
-}
-
 /**
  * Check if a value is a Zod schema
  */

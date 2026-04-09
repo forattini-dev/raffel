@@ -5,8 +5,6 @@
  * Stores recent messages per channel in a circular buffer.
  */
 
-import { sid } from '../utils/id/index.js'
-
 // ─── Port Interface ──────────────────────────────────────────────────────────
 
 /**

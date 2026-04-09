@@ -7,7 +7,6 @@
 import type {
   USDDocument,
   USDDocumentOptions,
-  USDInfo,
   USDServer,
   USDSchema,
   USDSecurityScheme,
@@ -18,11 +17,11 @@ import type {
   USDContentTypes,
 } from '../spec/types.js'
 import { USD_VERSION, OPENAPI_VERSION } from '../spec/defaults.js'
-import { createHttpBuilder, HttpBuilder, PathBuilder, OperationBuilder } from './http.js'
-import { createWebSocketBuilder, WebSocketBuilder, ChannelBuilder } from './websocket.js'
-import { createStreamsBuilder, StreamsBuilder, StreamEndpointBuilder } from './streams.js'
-import { createJsonRpcBuilder, JsonRpcBuilder, JsonRpcMethodBuilder } from './jsonrpc.js'
-import { createGrpcBuilder, GrpcBuilder, GrpcServiceBuilder } from './grpc.js'
+import { createHttpBuilder, HttpBuilder, PathBuilder } from './http.js'
+import { createWebSocketBuilder, WebSocketBuilder } from './websocket.js'
+import { createStreamsBuilder, StreamsBuilder } from './streams.js'
+import { createJsonRpcBuilder, JsonRpcBuilder } from './jsonrpc.js'
+import { createGrpcBuilder, GrpcBuilder } from './grpc.js'
 import { createTcpBuilder, TcpBuilder } from './tcp.js'
 import { createUdpBuilder, UdpBuilder } from './udp.js'
 import { serialize } from '../parser/index.js'

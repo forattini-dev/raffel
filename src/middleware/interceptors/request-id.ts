@@ -58,14 +58,12 @@ export function createRequestIdInterceptor(config: RequestIdConfig = {}): Interc
     }
 
     // Update context with the request ID
-    // Note: Context is immutable, but we can update the requestId since
-    // it's the same request flow
-    ;(ctx as any).requestId = requestId
+    ctx.requestId = requestId
 
     // Update tracing context
     if (ctx.tracing) {
-      ;(ctx.tracing as any).traceId = ctx.tracing.traceId || requestId
-      ;(ctx.tracing as any).spanId = requestId
+      ctx.tracing.traceId = ctx.tracing.traceId || requestId
+      ctx.tracing.spanId = requestId
     }
 
     // Store in envelope metadata for propagation
@@ -130,12 +128,12 @@ export function createCorrelatedRequestIdInterceptor(config: {
     const correlationId = envelope.metadata[correlationKey] || requestId
 
     // Update context
-    ;(ctx as any).requestId = requestId
+    ctx.requestId = requestId
 
     // Update tracing with correlation ID as trace ID
     if (ctx.tracing) {
-      ;(ctx.tracing as any).traceId = correlationId
-      ;(ctx.tracing as any).spanId = requestId
+      ctx.tracing.traceId = correlationId
+      ctx.tracing.spanId = requestId
     }
 
     // Store in metadata for propagation

@@ -11,6 +11,8 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { isRaffelLikeError } from '../../core/error.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { RetryConfig, BackoffStrategy, RetryEventContext } from '../types.js'
 
 /**
@@ -138,8 +140,7 @@ function isRetryable(
   }
 
   // Check error code
-  const code = (error as any).code
-  if (code && retryableCodes.includes(code)) {
+  if (isRaffelLikeError(error) && retryableCodes.includes(error.code)) {
     return true
   }
 
@@ -329,22 +330,11 @@ export function createSelectiveRetryInterceptor(options: {
   const { procedures, config = {} } = options
   const retryInterceptor = createRetryInterceptor(config)
 
-  // Convert patterns to regex
-  const patterns = procedures.map((pattern) => {
-    const regex = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-      .replace(/\*/g, '[^.]*')
-      .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-    return new RegExp(`^${regex}$`)
-  })
-
   return async (envelope, ctx, next) => {
     const procedure = envelope.procedure
 
     // Check if this procedure should be retried
-    const shouldRetry = patterns.some((pattern) => pattern.test(procedure))
+    const shouldRetry = procedures.some((pattern) => matchProcedurePattern(pattern, procedure))
 
     if (shouldRetry) {
       return retryInterceptor(envelope, ctx, next)

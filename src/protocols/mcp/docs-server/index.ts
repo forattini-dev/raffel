@@ -25,7 +25,7 @@ import { join, resolve } from 'path'
 import type { McpServer } from '../standalone.js'
 import { createMcpServer } from '../standalone.js'
 import { mcpText, mcpJson, mcpTable, mcpError } from '../response-helpers.js'
-import { indexDocs, searchIndex, getHeadings, getCodeExamples, type DocsIndex, type DocsIndexerOptions, type SearchOptions } from './indexer.js'
+import { indexDocs, searchIndex, getHeadings, getCodeExamples, type DocsIndex, type DocsIndexerOptions } from './indexer.js'
 import type { McpServerOptions } from '../types.js'
 
 export interface DocsMcpServerOptions extends Omit<McpServerOptions, 'name' | 'version'> {
@@ -153,9 +153,6 @@ export function createDocsMcpServer(options: DocsMcpServerOptions): McpServer & 
     index = await indexDocs(indexerOpts)
     indexPromise = null
   }
-
-  const totalFiles = () => index?.files.length ?? 0
-  const totalSections = () => index?.sections.length ?? 0
 
   const server = createMcpServer({
     name: serverName,

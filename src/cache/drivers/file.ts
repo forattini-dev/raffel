@@ -12,8 +12,6 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import zlib from 'node:zlib'
-import crypto from 'node:crypto'
 
 import type {
   CacheDriver,
@@ -22,11 +20,15 @@ import type {
   CacheStats,
   FileDriverOptions,
 } from '../types.js'
+import { compressToBase64, decompressFromBase64 } from '../../utils/compression.js'
+import { computeHitRate } from '../utils.js'
+import { ensureDirectory, hashedFilePath } from '../../utils/fs-helpers.js'
 
 /**
  * Metadata stored in the file
  */
 interface FileEntry {
+  key: string
   value: unknown
   expiresAt: number
   createdAt: number
@@ -104,9 +106,7 @@ export class FileDriver implements CacheDriver {
       // Decompress if needed
       let value = fileEntry.value
       if (fileEntry.compressed && typeof value === 'string') {
-        const buffer = Buffer.from(value, 'base64')
-        const decompressed = zlib.gunzipSync(buffer)
-        value = JSON.parse(decompressed.toString('utf8'))
+        value = JSON.parse(decompressFromBase64(value))
       }
 
       this._stats.hits++
@@ -141,14 +141,13 @@ export class FileDriver implements CacheDriver {
     if (this.compressionEnabled) {
       const serialized = JSON.stringify(value)
       if (serialized.length >= 1024) {
-        const buffer = Buffer.from(serialized, 'utf8')
-        const compressedBuffer = zlib.gzipSync(buffer)
-        finalValue = compressedBuffer.toString('base64')
+        finalValue = compressToBase64(serialized)
         compressed = true
       }
     }
 
     const fileEntry: FileEntry = {
+      key,
       value: finalValue,
       expiresAt: now + ttlMs,
       createdAt: now,
@@ -182,13 +181,18 @@ export class FileDriver implements CacheDriver {
       for (const file of files) {
         if (!file.endsWith('.cache')) continue
 
+        const filePath = path.join(this.directory, file)
+
         if (prefix) {
-          // Read file to check if key matches prefix
-          // For prefix clearing, we'd need to store the original key
-          // For now, just clear all .cache files
+          try {
+            const content = fs.readFileSync(filePath, 'utf8')
+            const entry = JSON.parse(content) as FileEntry
+            if (!entry.key?.startsWith(prefix)) continue
+          } catch {
+            continue // skip corrupt files
+          }
         }
 
-        const filePath = path.join(this.directory, file)
         this.deleteFile(filePath)
       }
     } catch {
@@ -223,13 +227,20 @@ export class FileDriver implements CacheDriver {
    * Get all keys
    */
   async keys(pattern?: string): Promise<string[]> {
-    // Note: File driver doesn't store original keys, so we return hashed filenames
-    // For full key support, we'd need to store key→hash mapping
     try {
       const files = fs.readdirSync(this.directory)
-      const allKeys = files
-        .filter((f) => f.endsWith('.cache'))
-        .map((f) => f.replace('.cache', ''))
+      const allKeys: string[] = []
+
+      for (const f of files.filter((f) => f.endsWith('.cache'))) {
+        try {
+          const content = fs.readFileSync(path.join(this.directory, f), 'utf8')
+          const entry = JSON.parse(content) as FileEntry
+          if (entry.key) allKeys.push(entry.key)
+          else allKeys.push(f.replace('.cache', '')) // fallback for legacy entries
+        } catch {
+          /* skip corrupt */
+        }
+      }
 
       if (!pattern) return allKeys
 
@@ -253,14 +264,10 @@ export class FileDriver implements CacheDriver {
    * Get cache statistics
    */
   stats(): CacheStats {
-    const total = this._stats.hits + this._stats.misses
-    const hitRate = total > 0 ? this._stats.hits / total : 0
-    const totalItems = this.countFiles()
-
     return {
       ...this._stats,
-      hitRate,
-      totalItems,
+      hitRate: computeHitRate(this._stats.hits, this._stats.misses),
+      totalItems: this.countFiles(),
     }
   }
 
@@ -279,15 +286,11 @@ export class FileDriver implements CacheDriver {
   // ─────────────────────────────────────────────────────────────────
 
   private ensureDirectory(): void {
-    if (!fs.existsSync(this.directory)) {
-      fs.mkdirSync(this.directory, { recursive: true })
-    }
+    ensureDirectory(this.directory)
   }
 
   private getFilePath(key: string): string {
-    // Hash the key for safe filesystem names
-    const hash = crypto.createHash('sha256').update(key).digest('hex').slice(0, 32)
-    return path.join(this.directory, `${hash}.cache`)
+    return hashedFilePath(this.directory, key, '.cache', 32)
   }
 
   private deleteFile(filePath: string): void {

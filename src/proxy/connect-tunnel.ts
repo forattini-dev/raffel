@@ -237,17 +237,6 @@ function flattenHeaders(
   )
 }
 
-interface PersistedMitmCaptureRecord {
-  id: string
-  capturedAt: string
-  host: string
-  port: number
-  method: string
-  path: string
-  headers: Record<string, string>
-  bodyBase64: string
-}
-
 export function createConnectTunnel(options: ConnectTunnelOptions = {}): ConnectTunnel {
   const {
     mode = 'forward',

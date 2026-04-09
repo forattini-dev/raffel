@@ -5,6 +5,7 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../types/index.js'
+import { procedurePatternToRegex } from '../utils/pattern-match.js'
 
 /**
  * Compose multiple interceptors into one (left-to-right execution order)
@@ -107,7 +108,7 @@ export function forPattern(
   pattern: string,
   interceptor: Interceptor
 ): Interceptor {
-  const regex = patternToRegex(pattern)
+  const regex = procedurePatternToRegex(pattern)
   return when((envelope) => regex.test(envelope.procedure), interceptor)
 }
 
@@ -168,15 +169,3 @@ export function branch(
  */
 export const passthrough: Interceptor = (_envelope, _ctx, next) => next()
 
-/**
- * Convert a glob pattern to regex
- */
-function patternToRegex(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special chars
-    .replace(/\*\*/g, '{{DOUBLE_STAR}}')    // Temp placeholder for **
-    .replace(/\*/g, '[^.]*')                // * = any chars except dot
-    .replace(/{{DOUBLE_STAR}}/g, '.*')      // ** = any chars including dot
-
-  return new RegExp(`^${escaped}$`)
-}

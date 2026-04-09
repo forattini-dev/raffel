@@ -13,12 +13,18 @@
 import { createServer, createConnection, type Server, type Socket } from 'node:net'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import type { Envelope, ContextSeed } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { sanitizeMetadataRecord } from '../utils/header-metadata.js'
+import { serializeEnvelope } from '../utils/envelope-serialization.js'
+import { isAsyncIterable } from '../utils/type-guards.js'
 import { checkConnectionFilter, type ConnectionFilter } from './utils/connection-filter.js'
+import {
+  handleCancelMessage as sharedHandleCancelMessage,
+  cleanupClientConnections,
+} from './utils/cancel-handler.js'
 
 const logger = createLogger('tcp-adapter')
 
@@ -112,13 +118,7 @@ export function createTcpConnectionHandler(
   function sendEnvelope(client: ClientConnection, envelope: Envelope): void {
     if (client.socket.destroyed) return
 
-    const message = JSON.stringify({
-      id: envelope.id,
-      procedure: envelope.procedure,
-      type: envelope.type,
-      payload: envelope.payload,
-      metadata: envelope.metadata,
-    })
+    const message = serializeEnvelope(envelope)
 
     const data = Buffer.from(message, 'utf-8')
     const frame = frameMessage(data)
@@ -224,7 +224,7 @@ export function createTcpConnectionHandler(
       }
 
       // Check if result is a stream (async iterable)
-      if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+      if (isAsyncIterable(result)) {
         // Stream response
         const streamId = envelope.id
         const streamAbortController = client.activeRequests.get(streamId)
@@ -258,27 +258,9 @@ export function createTcpConnectionHandler(
   }
 
   function handleCancelMessage(client: ClientConnection, parsed: Record<string, unknown>): boolean {
-    if (parsed.type !== 'cancel') return false
-    const requestId = parsed.id !== undefined ? String(parsed.id) : undefined
-    if (!requestId) return true
-
-    const streamController = client.activeStreams.get(requestId)
-    if (streamController) {
-      streamController.abort('Client cancelled')
-      client.activeStreams.delete(requestId)
-      sendError(client, 'CANCELLED', 'Stream cancelled', requestId, 'stream:error')
-      return true
-    }
-
-    const requestController = client.activeRequests.get(requestId)
-    if (requestController) {
-      requestController.abort('Client cancelled')
-      client.activeRequests.delete(requestId)
-      sendError(client, 'CANCELLED', 'Request cancelled', requestId)
-      return true
-    }
-
-    return true
+    return sharedHandleCancelMessage(client, parsed, (c, code, message, requestId, envelopeType) => {
+      sendError(c as ClientConnection, code, message, requestId, envelopeType as 'error' | 'stream:error')
+    })
   }
 
   /**
@@ -379,15 +361,7 @@ export function createTcpConnectionHandler(
     socket.on('close', (hadError) => {
       logger.info({ clientId, hadError }, 'Client disconnected')
 
-      // Cancel active streams
-      for (const controller of client.activeStreams.values()) {
-        controller.abort('Client disconnected')
-      }
-      client.activeStreams.clear()
-      for (const controller of client.activeRequests.values()) {
-        controller.abort('Client disconnected')
-      }
-      client.activeRequests.clear()
+      cleanupClientConnections(client)
 
       clients.delete(clientId)
     })
@@ -535,6 +509,7 @@ export function createTcpClient(options: { host: string; port: number }) {
   const pendingRequests = new Map<string, {
     resolve: (value: unknown) => void
     reject: (error: Error) => void
+    timer: ReturnType<typeof setTimeout>
   }>()
 
   function flushPendingChunks(): void {
@@ -587,6 +562,7 @@ export function createTcpClient(options: { host: string; port: number }) {
               const pending = pendingRequests.get(requestId)
 
               if (pending) {
+                clearTimeout(pending.timer)
                 if (envelope.type === 'error') {
                   pending.reject(new Error(envelope.payload.message))
                 } else {
@@ -617,7 +593,14 @@ export function createTcpClient(options: { host: string; port: number }) {
       }
 
       return new Promise((resolve, reject) => {
-        pendingRequests.set(id, { resolve, reject })
+        const timer = setTimeout(() => {
+          if (pendingRequests.has(id)) {
+            pendingRequests.delete(id)
+            reject(new Error('Request timeout'))
+          }
+        }, 30000)
+
+        pendingRequests.set(id, { resolve, reject, timer })
 
         const data = Buffer.from(JSON.stringify(envelope), 'utf-8')
         const frame = Buffer.allocUnsafe(LENGTH_HEADER_SIZE + data.length)
@@ -625,14 +608,6 @@ export function createTcpClient(options: { host: string; port: number }) {
         data.copy(frame, LENGTH_HEADER_SIZE)
 
         socket!.write(frame)
-
-        // Timeout after 30 seconds
-        setTimeout(() => {
-          if (pendingRequests.has(id)) {
-            pendingRequests.delete(id)
-            reject(new Error('Request timeout'))
-          }
-        }, 30000)
       })
     },
 
@@ -640,6 +615,9 @@ export function createTcpClient(options: { host: string; port: number }) {
       if (socket) {
         socket.destroy()
         socket = null
+      }
+      for (const pending of pendingRequests.values()) {
+        clearTimeout(pending.timer)
       }
       pendingRequests.clear()
     },

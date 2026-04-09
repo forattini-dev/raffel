@@ -12,7 +12,7 @@
  *   await proxy.start()
  */
 import { lookup } from 'node:dns/promises'
-import { createSocket, type RemoteInfo, type Socket as DgramSocket } from 'node:dgram'
+import { createSocket, type RemoteInfo } from 'node:dgram'
 import { createServer, connect as netConnect, isIP, type Socket, type Server as NetServer } from 'node:net'
 import type { MetricRegistry } from '../metrics/types.js'
 import {
@@ -31,6 +31,7 @@ import {
   type ProxyMiddleware,
   type ProxyMiddlewareContext,
 } from './middleware.js'
+import { gracefulShutdown } from '../utils/graceful-shutdown.js'
 
 export type Socks5Command = 'connect' | 'bind' | 'udpAssociate'
 
@@ -1060,22 +1061,10 @@ export function createSocks5Proxy(options: Socks5Options): Socks5Proxy {
     },
 
     async stop(drainTimeoutMs = 5000): Promise<void> {
-      return new Promise((resolve) => {
-        if (!server || !running) {
-          resolve()
-          return
-        }
-        running = false
-        boundPort = null
-        const timer = setTimeout(() => {
-          ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
-          resolve()
-        }, drainTimeoutMs)
-        server.close(() => {
-          clearTimeout(timer)
-          resolve()
-        })
-      })
+      if (!server || !running) return
+      running = false
+      boundPort = null
+      await gracefulShutdown(server, drainTimeoutMs)
     },
 
     get stats(): ProxyStats {

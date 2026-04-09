@@ -142,12 +142,6 @@ interface WaitEntry {
 /** Convert a path pattern with * / ** into a RegExp. */
 function pathPatternToRegex(path: string): RegExp | undefined {
   if (!path.includes('*')) return undefined
-  const escaped = path
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (except * which we handle)
-    .replace(/\\\*\\\*/g, '.+')            // ** → match anything (including /)
-    .replace(/\\\*/g, '[^/]+')             // *  → match single segment
-  // The above escaping converts * to \* first, then we replace \* patterns
-  // Actually we need to be careful - let's redo this properly:
   return new RegExp(
     '^' +
       path

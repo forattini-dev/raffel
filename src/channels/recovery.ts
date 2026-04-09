@@ -57,7 +57,6 @@ export function createMemoryRecoveryStore(
   options: MemoryRecoveryStoreOptions = {}
 ): ConnectionRecoveryPort & { dispose(): void; size: number } {
   const {
-    ttl = 120_000,
     gcInterval = 30_000,
   } = options
 

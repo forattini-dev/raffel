@@ -347,12 +347,13 @@ async function runChecks(
     Object.entries(checks).map(async ([name, checkFn]) => {
       const startTime = Date.now()
 
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
       try {
         const result = await Promise.race([
           Promise.resolve(checkFn()),
-          new Promise<CheckResult>((_, reject) =>
-            setTimeout(() => reject(new Error('Check timeout')), timeout)
-          ),
+          new Promise<CheckResult>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Check timeout')), timeout)
+          }),
         ])
 
         results[name] = {
@@ -365,6 +366,8 @@ async function runChecks(
           latency: Date.now() - startTime,
           message: err instanceof Error ? err.message : 'Check failed',
         }
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
       }
     })
   )

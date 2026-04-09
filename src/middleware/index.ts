@@ -175,28 +175,6 @@ export {
 export type { CompressionResult } from './http/compression.js'
 
 // ============================================================================
-// Presets
-// ============================================================================
-
-export {
-  // Stack creators
-  createProductionStack,
-  createDevelopmentStack,
-  createResilientStack,
-  createMinimalStack,
-  createCustomStack,
-  getEnvironmentStack,
-
-  // Preset configurations
-  rateLimitPresets,
-  timeoutPresets,
-  circuitBreakerPresets,
-  retryPresets,
-  cachePresets,
-  securityPresets,
-} from './presets.js'
-
-// ============================================================================
 // Legacy Exports (backwards compatible)
 // ============================================================================
 

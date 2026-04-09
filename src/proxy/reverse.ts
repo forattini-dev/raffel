@@ -23,6 +23,7 @@ import type { ProxyStats } from './types.js'
 import type { ProxyGraphSnapshot } from './telemetry.js'
 import type { ProxyMiddleware } from './middleware.js'
 import { resolveTlsOptions } from '../utils/tls.js'
+import { gracefulShutdown } from '../utils/graceful-shutdown.js'
 
 type ReverseProxyServerInstance = HttpServer | HttpsServer
 
@@ -74,19 +75,6 @@ export interface ReverseProxyNoMatchConfig {
   status?: number
   /** Plain text body returned when no route matches. */
   body?: string
-}
-
-interface RawReverseProxyConfig {
-  server?: {
-    host?: unknown
-    port?: unknown
-    tls?: unknown
-  }
-  port?: unknown
-  host?: unknown
-  routes?: unknown
-  noMatch?: unknown
-  proxy?: unknown
 }
 
 export interface ReverseProxyServerTlsConfig {
@@ -824,24 +812,10 @@ async function start(): Promise<number> {
   }
 
   async function stop(drainTimeoutMs = 5000): Promise<void> {
-    return new Promise((resolve) => {
-      if (!server || !running) {
-        resolve()
-        return
-      }
-
-      running = false
-      boundPort = null
-      const timer = setTimeout(() => {
-        ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
-        resolve()
-      }, drainTimeoutMs)
-
-      server.close(() => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+    if (!server || !running) return
+    running = false
+    boundPort = null
+    await gracefulShutdown(server, drainTimeoutMs)
   }
 
   return {

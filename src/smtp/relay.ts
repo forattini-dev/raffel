@@ -465,12 +465,13 @@ export function createSmtpRelay(config: SmtpRelayConfig = {}): SmtpRelay {
         processTimer = null
       }
 
-      // Wait for active sends to complete
+      // Wait for active sends to complete (with 30s deadline)
       if (activeCount > 0) {
         logger.info({ active: activeCount }, 'Waiting for active sends to complete')
         await new Promise<void>((resolve) => {
+          const deadline = Date.now() + 30_000
           const check = setInterval(() => {
-            if (activeCount === 0) {
+            if (activeCount === 0 || Date.now() >= deadline) {
               clearInterval(check)
               resolve()
             }
@@ -488,10 +489,11 @@ export function createSmtpRelay(config: SmtpRelayConfig = {}): SmtpRelay {
       }
       processQueue()
 
-      // Wait for all to complete
+      // Wait for all to complete (with 30s deadline)
       await new Promise<void>((resolve) => {
+        const deadline = Date.now() + 30_000
         const check = setInterval(() => {
-          if (queue.length === 0 || activeCount === 0) {
+          if (queue.length === 0 || activeCount === 0 || Date.now() >= deadline) {
             clearInterval(check)
             resolve()
           }

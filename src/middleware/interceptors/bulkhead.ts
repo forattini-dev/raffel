@@ -12,8 +12,9 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { BulkheadConfig } from '../types.js'
-import { RaffelError } from '../../core/router.js'
+import { RaffelError } from '../../core/error.js'
 
 /**
  * Queued request waiting for a slot
@@ -22,6 +23,7 @@ interface QueuedRequest {
   resolve: () => void
   reject: (error: Error) => void
   enqueuedAt: number
+  timeoutId?: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -67,7 +69,10 @@ interface BulkheadState {
  *   .handler(...)
  * ```
  */
-export function createBulkheadInterceptor(config: BulkheadConfig): Interceptor {
+export function createBulkheadInterceptor(
+  config: BulkheadConfig,
+  _sharedStates?: Map<string, BulkheadState>
+): Interceptor {
   const {
     concurrency,
     maxQueueSize = 0,
@@ -82,7 +87,7 @@ export function createBulkheadInterceptor(config: BulkheadConfig): Interceptor {
   }
 
   // State per procedure
-  const states = new Map<string, BulkheadState>()
+  const states = _sharedStates ?? new Map<string, BulkheadState>()
 
   /**
    * Get or create bulkhead state for a procedure
@@ -123,6 +128,7 @@ export function createBulkheadInterceptor(config: BulkheadConfig): Interceptor {
     if (state.queue.length > 0 && state.active < concurrency) {
       const next = state.queue.shift()!
       state.active++
+      if (next.timeoutId !== undefined) clearTimeout(next.timeoutId)
       onDequeued?.()
       next.resolve()
     }
@@ -147,7 +153,7 @@ export function createBulkheadInterceptor(config: BulkheadConfig): Interceptor {
 
       // Set up timeout if configured
       if (queueTimeout > 0) {
-        setTimeout(() => {
+        request.timeoutId = setTimeout(() => {
           const index = state.queue.indexOf(request)
           if (index !== -1) {
             state.queue.splice(index, 1)
@@ -257,13 +263,7 @@ export function createProcedureBulkhead(config: {
 
     // Check for pattern match
     for (const [pattern, procedureConfig] of Object.entries(procedures)) {
-      const regex = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-        .replace(/\*/g, '[^.]*')
-        .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-      if (new RegExp(`^${regex}$`).test(procedure)) {
+      if (matchProcedurePattern(pattern, procedure)) {
         let bulkhead = bulkheads.get(pattern)
         if (!bulkhead) {
           bulkhead = createBulkheadInterceptor({
@@ -317,32 +317,23 @@ export interface BulkheadManager {
  * ```
  */
 export function createBulkheadManager(config: BulkheadConfig): BulkheadManager {
-  const stats = new Map<string, { active: number; queued: number }>()
+  const states = new Map<string, BulkheadState>()
 
-  const interceptor = createBulkheadInterceptor({
-    ...config,
-    onQueued: () => {
-      // Stats are managed internally by the interceptor
-      config.onQueued?.()
-    },
-    onDequeued: () => {
-      config.onDequeued?.()
-    },
-    onReject: (procedure) => {
-      config.onReject?.(procedure)
-    },
-  })
-
-  // Note: For accurate stats, we'd need to expose internal state
-  // This is a simplified version - consider enhancing if needed
+  const interceptor = createBulkheadInterceptor(config, states)
 
   return {
     getStats() {
-      return new Map(stats)
+      const result = new Map<string, { active: number; queued: number }>()
+      for (const [procedure, state] of states) {
+        result.set(procedure, { active: state.active, queued: state.queue.length })
+      }
+      return result
     },
 
     getStatsFor(procedure: string) {
-      return stats.get(procedure)
+      const state = states.get(procedure)
+      if (!state) return undefined
+      return { active: state.active, queued: state.queue.length }
     },
 
     interceptor,

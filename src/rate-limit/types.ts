@@ -4,6 +4,8 @@
  * Driver abstraction for pluggable rate limiting backends.
  */
 
+import type { BaseRedisClient } from '../types/redis.js'
+
 export interface RateLimitRecord {
   count: number
   resetAt: number
@@ -38,7 +40,7 @@ export interface RedisRateLimitDriverOptions {
   prefix?: string
 }
 
-export interface RedisLikeClient {
+export interface RedisLikeClient extends BaseRedisClient {
   get(key: string): Promise<string | number | null>
   incr(key: string): Promise<number>
   decr?(key: string): Promise<number>

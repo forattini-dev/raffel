@@ -25,10 +25,19 @@ export function createSseTransport(options: SseTransportOptions): McpTransport {
   let handler: McpMessageHandler | null = null
   const clients = new Set<ServerResponse>()
 
-  function readBody(req: IncomingMessage): Promise<string> {
+  function readBody(req: IncomingMessage, maxBodySize = 1_048_576): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = []
-      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      let totalSize = 0
+      req.on('data', (chunk: Buffer) => {
+        totalSize += chunk.length
+        if (totalSize > maxBodySize) {
+          req.destroy()
+          reject(new Error('Request body too large'))
+          return
+        }
+        chunks.push(chunk)
+      })
       req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
       req.on('error', reject)
     })

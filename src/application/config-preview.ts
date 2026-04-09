@@ -1,38 +1,14 @@
-import type { SharedPortPreviewConfig } from '../server/types.js'
+import type {
+  SharedPortPreviewConfig,
+  FrontDoorTransport,
+  SinglePortProtocolKind,
+  ProtocolFusionMode,
+  ProtocolAliasMode,
+} from '../server/types.js'
 
-export type FrontDoorTransport =
-  | 'http'
-  | 'websocket'
-  | 'jsonrpc'
-  | 'tcp'
-  | 'udp'
-  | 'grpc'
-  | 'graphql'
-  | 'rpc'
-  | 'jrpc'
-  | (string & {})
-
-export type SinglePortProtocolKind =
-  | 'http'
-  | 'websocket'
-  | 'jsonrpc'
-  | 'tcp'
-  | 'udp'
-  | 'grpc'
-  | 'graphql'
-  | 'tls'
-  | 'http2'
-  | 'unknown'
-  | (string & {})
-
-export type ProtocolFusionMode =
-  | 'disabled'
-  | 'front-door'
-  | 'shared-port'
-  | 'front-door+shared-port'
+export type { FrontDoorTransport, SinglePortProtocolKind, ProtocolFusionMode, ProtocolAliasMode }
 
 export type FrontDoorStrategy = 'shared' | 'native' | 'offload'
-export type ProtocolAliasMode = 'standard' | 'extended'
 export type ProtocolPreviewSource = 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown'
 
 export interface ProtocolPreviewConfig {

@@ -23,7 +23,7 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
-import { RaffelError } from '../../core/router.js'
+import { RaffelError } from '../../core/error.js'
 
 /**
  * Guard check function

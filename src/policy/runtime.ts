@@ -2,7 +2,7 @@
  * Runtime helpers for contract-bound policy metadata.
  */
 
-import { RaffelError } from '../core/router.js'
+import { RaffelError } from '../core/error.js'
 import { createRateLimitInterceptor } from '../middleware/interceptors/rate-limit.js'
 import { createTimeoutInterceptor } from '../middleware/interceptors/timeout.js'
 import type { Context, Envelope, Interceptor } from '../types/index.js'
@@ -94,13 +94,14 @@ export function createPolicyInterceptors(
 
   if (normalized.rateLimit) {
     interceptors.push(
-      createRateLimitInterceptor({
-        windowMs: normalized.rateLimit.windowMs,
-        maxRequests: normalized.rateLimit.maxRequests,
-        ...(createRateLimitKeyGenerator(normalized.rateLimit) && {
-          keyGenerator: createRateLimitKeyGenerator(normalized.rateLimit),
-        }),
-      })
+      (() => {
+        const keyGenerator = createRateLimitKeyGenerator(normalized.rateLimit)
+        return createRateLimitInterceptor({
+          windowMs: normalized.rateLimit.windowMs,
+          maxRequests: normalized.rateLimit.maxRequests,
+          ...(keyGenerator && { keyGenerator }),
+        })
+      })()
     )
   }
 

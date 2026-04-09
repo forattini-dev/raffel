@@ -6,8 +6,9 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../../types/index.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { CircuitBreakerConfig, CircuitState } from '../types.js'
-import { RaffelError } from '../../core/router.js'
+import { RaffelError, isRaffelLikeError } from '../../core/error.js'
 
 /**
  * Default error codes that count as failures
@@ -60,7 +61,10 @@ interface CircuitBreaker {
  * server.use(circuitBreaker)
  * ```
  */
-export function createCircuitBreakerInterceptor(config: CircuitBreakerConfig = {}): Interceptor {
+export function createCircuitBreakerInterceptor(
+  config: CircuitBreakerConfig = {},
+  _sharedCircuits?: Map<string, CircuitBreaker>
+): Interceptor {
   const {
     failureThreshold = 5,
     successThreshold = 3,
@@ -71,7 +75,7 @@ export function createCircuitBreakerInterceptor(config: CircuitBreakerConfig = {
   } = config
 
   // Circuit breakers per procedure
-  const circuits = new Map<string, CircuitBreaker>()
+  const circuits = _sharedCircuits ?? new Map<string, CircuitBreaker>()
 
   /**
    * Get or create a circuit breaker for a procedure
@@ -187,8 +191,7 @@ export function createCircuitBreakerInterceptor(config: CircuitBreakerConfig = {
    * Check if an error counts as a failure
    */
   const isFailure = (error: Error): boolean => {
-    const code = (error as any).code
-    return code && failureCodes.includes(code)
+    return isRaffelLikeError(error) && failureCodes.includes(error.code)
   }
 
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
@@ -267,13 +270,7 @@ export function createProcedureCircuitBreaker(config: {
 
     // Check for pattern match
     for (const [pattern, procedureConfig] of Object.entries(procedures)) {
-      const regex = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-        .replace(/\*/g, '[^.]*')
-        .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-      if (new RegExp(`^${regex}$`).test(procedure)) {
+      if (matchProcedurePattern(pattern, procedure)) {
         let breaker = breakers.get(pattern)
         if (!breaker) {
           breaker = createCircuitBreakerInterceptor({
@@ -311,15 +308,9 @@ export interface CircuitBreakerManager {
 export function createCircuitBreakerManager(
   config: CircuitBreakerConfig = {}
 ): CircuitBreakerManager {
-  const circuits = new Map<string, { state: CircuitState }>()
+  const circuits = new Map<string, CircuitBreaker>()
 
-  const interceptor = createCircuitBreakerInterceptor({
-    ...config,
-    onStateChange: (state, procedure) => {
-      circuits.set(procedure, { state })
-      config.onStateChange?.(state, procedure)
-    },
-  })
+  const interceptor = createCircuitBreakerInterceptor(config, circuits)
 
   return {
     getStates(): Map<string, CircuitState> {
@@ -331,13 +322,35 @@ export function createCircuitBreakerManager(
     },
 
     forceState(procedure: string, state: CircuitState): void {
-      circuits.set(procedure, { state })
+      let circuit = circuits.get(procedure)
+      if (!circuit) {
+        circuit = {
+          state,
+          failures: 0,
+          successes: 0,
+          lastFailureTime: 0,
+          lastStateChange: Date.now(),
+        }
+        circuits.set(procedure, circuit)
+      } else {
+        circuit.state = state
+        circuit.lastStateChange = Date.now()
+        if (state === 'closed') {
+          circuit.failures = 0
+          circuit.successes = 0
+        } else if (state === 'half-open') {
+          circuit.successes = 0
+        }
+      }
       config.onStateChange?.(state, procedure)
     },
 
     resetAll(): void {
-      for (const [procedure] of circuits) {
-        circuits.set(procedure, { state: 'closed' })
+      for (const [procedure, circuit] of circuits) {
+        circuit.state = 'closed'
+        circuit.failures = 0
+        circuit.successes = 0
+        circuit.lastStateChange = Date.now()
         config.onStateChange?.('closed', procedure)
       }
     },

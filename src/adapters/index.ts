@@ -1,14 +1,5 @@
 /**
  * Adapters — Protocol & Infrastructure Adapters
- *
- * This barrel re-exports from both inbound/ (protocol adapters) and the
- * legacy flat paths for backward compatibility.
- *
- * Canonical import paths:
- * - Inbound (protocol):  'raffel/adapters/inbound'
- * - Outbound (drivers):  'raffel/adapters/outbound'
- *
- * @deprecated Import from 'adapters/inbound' or 'adapters/outbound' for hexagonal clarity.
  */
 
 // === Inbound Adapters (protocol → Envelope) ===
@@ -50,3 +41,7 @@ export type { SmtpAdapter, SmtpAdapterOptions, SmtpContextCapability, SmtpTlsOpt
 // Connection Filter (TCP, UDP, WebSocket)
 export { checkConnectionFilter, checkWebSocketConnectionFilter } from './utils/connection-filter.js'
 export type { ConnectionFilter, WebSocketConnectionFilter } from './utils/connection-filter.js'
+
+// Cancel Handler (shared TCP/WebSocket)
+export { handleCancelMessage, cleanupClientConnections } from './utils/cancel-handler.js'
+export type { CancellableClient, SendErrorFn } from './utils/cancel-handler.js'

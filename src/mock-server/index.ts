@@ -20,9 +20,9 @@ import type { RouterModule } from '../server/types.js'
 import type { HttpMiddleware } from '../adapters/http.js'
 import type { USDDocument } from '../usd/spec/types.js'
 import { inlineRefs } from '../usd/utils/refs.js'
-import { extractRoutes, resolveResponse } from './route-extractor.js'
-import { generateFromSchema, resetFakeDataCounter } from './fake-data.js'
-import type { MockServerOptions, MockModuleOptions, MockRoute, MockResponse } from './types.js'
+import { extractRoutes } from './route-extractor.js'
+import { generateFromSchema } from './fake-data.js'
+import type { MockServerOptions, MockModuleOptions, MockRoute } from './types.js'
 
 // Re-exports
 export type { MockServerOptions, MockModuleOptions, MockRoute, MockResponse, ResolvedParam } from './types.js'
@@ -496,10 +496,19 @@ function hasBody(method: string): boolean {
   return method === 'POST' || method === 'PUT' || method === 'PATCH'
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+async function readBody(req: IncomingMessage, maxBodySize = 1_048_576): Promise<Record<string, unknown> | null> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    let totalSize = 0
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length
+      if (totalSize > maxBodySize) {
+        req.destroy()
+        reject(new Error('Request body too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8')
       if (!raw.trim()) { resolve(null); return }

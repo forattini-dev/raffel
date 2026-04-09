@@ -1222,31 +1222,6 @@ export interface RpcMethodOptions<TInput = unknown, TOutput = unknown> {
 }
 
 /**
- * gRPC protocol namespace for service definitions.
- *
- * @example
- * ```typescript
- * server.grpc
- *   .service('UserService')
- *   .unary('GetUser', { input: GetUserSchema }, async (input, ctx) => {
- *     return db.users.findById(input.id)
- *   })
- *   .serverStream('ListUsers', async function*(input, ctx) {
- *     for await (const user of db.users.stream()) {
- *       yield user
- *     }
- *   })
- * ```
- */
-export interface GrpcNamespace {
-  /** Define a gRPC service (namespace for methods) */
-  service(serviceName: string): GrpcServiceBuilder
-  /** Add middleware to all gRPC handlers */
-  use(interceptor: Interceptor): GrpcNamespace
-}
-
-
-/**
  * TCP protocol namespace for raw socket handlers.
  *
  * @example

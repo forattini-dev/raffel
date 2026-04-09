@@ -233,15 +233,12 @@ export function createProtocolHandler(options: McpProtocolHandlerOptions): McpPr
   const abortControllers = new Map<string | number, AbortController>()
   const resourceSubscriptions = new Set<string>() // URIs subscribed by client
   const taskStore = new Map<string, McpTask & { _result?: unknown; _abortController?: AbortController }>()
-  let taskCounter = 0
-
   let initialized = false
   let negotiatedVersion = SUPPORTED_PROTOCOL_VERSIONS[0]
   let logLevel: McpLogLevelName = 'debug' // current server log level (set by client)
   let clientCapabilities: Record<string, unknown> = {}
 
-  const DEFAULT_TIMEOUT = options.requestTimeout ?? 60_000
-  const MAX_TOTAL_TIMEOUT = options.maxTotalTimeout ?? 600_000
+  // requestTimeout and maxTotalTimeout reserved for future use
 
   // ─── Call Context Factory ────────────────────────────────────
 
@@ -327,45 +324,6 @@ export function createProtocolHandler(options: McpProtocolHandlerOptions): McpPr
       items: page,
       nextCursor: hasMore ? String(startIndex + pageSize) : undefined,
     }
-  }
-
-  // ─── Timeout Handling ──────────────────────────────────────
-
-  function withTimeout<T>(promise: Promise<T>, requestId?: string | number | null): Promise<T> {
-    if (DEFAULT_TIMEOUT <= 0) return promise
-
-    return new Promise<T>((resolve, reject) => {
-      let elapsed = 0
-      const interval = 1000
-      let settled = false
-
-      const timer = setInterval(() => {
-        elapsed += interval
-        if (elapsed >= MAX_TOTAL_TIMEOUT) {
-          clearInterval(timer)
-          if (!settled) {
-            settled = true
-            if (requestId != null) abortControllers.get(requestId)?.abort()
-            reject(new McpError(JsonRpcErrorCode.RequestTimeout, 'Request exceeded maximum total timeout'))
-          }
-        }
-      }, interval)
-
-      // Basic timeout (reset by progress — see createCallContext)
-      const basicTimer = setTimeout(() => {
-        if (!settled) {
-          settled = true
-          clearInterval(timer)
-          if (requestId != null) abortControllers.get(requestId)?.abort()
-          reject(new McpError(JsonRpcErrorCode.RequestTimeout, 'Request timed out'))
-        }
-      }, DEFAULT_TIMEOUT)
-
-      promise.then(
-        (result) => { settled = true; clearTimeout(basicTimer); clearInterval(timer); resolve(result) },
-        (error) => { settled = true; clearTimeout(basicTimer); clearInterval(timer); reject(error) }
-      )
-    })
   }
 
   // ─── Method Dispatch ─────────────────────────────────────────
@@ -667,22 +625,6 @@ export function createProtocolHandler(options: McpProtocolHandlerOptions): McpPr
   // ─── Notification Handling ───────────────────────────────────
 
   // ─── Tasks ──────────────────────────────────────────────────
-
-  function createTask(): McpTask & { _result?: unknown; _abortController?: AbortController } {
-    const taskId = `task_${++taskCounter}_${Date.now()}`
-    const now = new Date().toISOString()
-    const task: McpTask & { _result?: unknown; _abortController?: AbortController } = {
-      taskId,
-      status: 'working',
-      ttl: null,
-      createdAt: now,
-      lastUpdatedAt: now,
-      pollInterval: 1000,
-      _abortController: new AbortController(),
-    }
-    taskStore.set(taskId, task)
-    return task
-  }
 
   function updateTaskStatus(taskId: string, status: McpTaskStatus, statusMessage?: string): void {
     const task = taskStore.get(taskId)

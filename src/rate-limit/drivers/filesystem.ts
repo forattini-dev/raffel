@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import crypto from 'node:crypto'
+import { ensureDirectory, hashedFilePath } from '../../utils/fs-helpers.js'
 import type {
   RateLimitDriver,
   RateLimitRecord,
@@ -88,14 +88,11 @@ export class FilesystemRateLimitDriver implements RateLimitDriver {
   }
 
   private ensureDirectory(): void {
-    if (!fs.existsSync(this.directory)) {
-      fs.mkdirSync(this.directory, { recursive: true })
-    }
+    ensureDirectory(this.directory)
   }
 
   private getFilePath(key: string): string {
-    const hash = crypto.createHash('sha256').update(key).digest('hex')
-    return path.join(this.directory, `${hash}.json`)
+    return hashedFilePath(this.directory, key, '.json')
   }
 
   private async readRecord(filePath: string): Promise<RateLimitRecord | null> {

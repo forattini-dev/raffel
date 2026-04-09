@@ -36,6 +36,7 @@ import {
   extractMetadataFromRecord,
   mergeMetadata,
 } from '../utils/header-metadata.js'
+import { isAsyncIterable } from '../utils/type-guards.js'
 import {
   jsonCodec,
   resolveCodecs,
@@ -43,14 +44,10 @@ import {
   selectCodecForContentType,
   type Codec,
 } from '../utils/content-codecs.js'
+import type { ClosableHttpServer } from '../types/server.js'
 
 const logger = createLogger('graphql-adapter')
 const CONNECTION_INIT_KEY = Symbol.for('raffel.connection_init')
-
-type ClosableHttpServer = Server & {
-  closeIdleConnections?: () => void
-  closeAllConnections?: () => void
-}
 
 class GraphQLAdapterError extends Error {
   code: string
@@ -319,7 +316,7 @@ async function* executeStream(
   const result = await router.handle(envelope)
 
   // If result is async iterable (stream)
-  if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+  if (isAsyncIterable(result)) {
     for await (const item of result as AsyncIterable<Envelope>) {
       if (item.type === 'stream:data') {
         yield item.payload
@@ -837,19 +834,31 @@ function handleSubscriptionConnection(
             try {
               for await (const value of result as AsyncIterable<ExecutionResult>) {
                 if (ws.readyState !== WebSocket.OPEN) break
+                try {
+                  ws.send(JSON.stringify({
+                    id,
+                    type: 'next',
+                    payload: value,
+                  }))
+                } catch {
+                  break // Socket closing/closed, stop streaming
+                }
+              }
+              try {
+                ws.send(JSON.stringify({ id, type: 'complete' }))
+              } catch {
+                // Socket already closed, ignore
+              }
+            } catch (err) {
+              try {
                 ws.send(JSON.stringify({
                   id,
-                  type: 'next',
-                  payload: value,
+                  type: 'error',
+                  payload: [{ message: (err as Error).message }],
                 }))
+              } catch {
+                // Socket already closed, ignore
               }
-              ws.send(JSON.stringify({ id, type: 'complete' }))
-            } catch (err) {
-              ws.send(JSON.stringify({
-                id,
-                type: 'error',
-                payload: [{ message: (err as Error).message }],
-              }))
             } finally {
               subscriptions.delete(id)
             }

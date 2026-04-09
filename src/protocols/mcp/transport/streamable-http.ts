@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'crypto'
 import type { IncomingMessage, ServerResponse } from 'http'
-import type { JsonRpcRequest, JsonRpcResponse, JsonRpcNotification, McpAuthProvider, McpAuthInfo } from '../types.js'
+import type { JsonRpcRequest, JsonRpcResponse, McpAuthProvider, McpAuthInfo } from '../types.js'
 import { JsonRpcErrorCode } from '../types.js'
 import type { McpTransport, McpMessageHandler, JsonRpcMessage } from './types.js'
 

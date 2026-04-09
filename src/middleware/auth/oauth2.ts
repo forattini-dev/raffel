@@ -41,6 +41,7 @@
  * ```
  */
 
+import crypto from 'node:crypto'
 import type { AuthStrategy, AuthResult } from '../auth.js'
 import type { Envelope, Context } from '../../types/index.js'
 
@@ -748,7 +749,6 @@ export function createClientCredentialsStrategy(
 
   const defaultScope = config.scope ?? config.exchangeScope ?? []
   const tokenCache = new Map<string, CachedClientCredentialsToken>()
-  const crypto = require('crypto') as typeof import('crypto')
 
   function normalizeScope(scope?: string[]): string[] {
     if (!scope || scope.length === 0) return []
@@ -1266,7 +1266,6 @@ export function createFacebookOAuth2Strategy(config: {
  * Generate a random state parameter for CSRF protection
  */
 export function generateState(length = 32): string {
-  const crypto = require('crypto') as typeof import('crypto')
   return crypto.randomBytes(length).toString('base64url')
 }
 
@@ -1274,7 +1273,6 @@ export function generateState(length = 32): string {
  * Generate a nonce for OIDC
  */
 export function generateNonce(length = 32): string {
-  const crypto = require('crypto') as typeof import('crypto')
   return crypto.randomBytes(length).toString('base64url')
 }
 

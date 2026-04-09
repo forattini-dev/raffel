@@ -32,7 +32,7 @@
  */
 
 import { createRouterModule } from '../server/router-module.js'
-import { RaffelError } from '../core/router.js'
+import { RaffelError } from '../core/error.js'
 import { createFieldFilterInterceptor } from '../middleware/interceptors/field-filter.js'
 import { createFilteredWatchStream } from './watch-helpers.js'
 import type { RouterModule } from '../server/types.js'

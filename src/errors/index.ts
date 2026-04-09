@@ -19,4 +19,4 @@ export {
 } from './codes.js'
 
 // Re-export RaffelError for convenience
-export { RaffelError } from '../core/router.js'
+export { RaffelError } from '../core/error.js'

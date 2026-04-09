@@ -39,6 +39,7 @@ import {
   type ProxyMiddlewareContext,
 } from './middleware.js'
 import { pipeBidirectional } from './utils/pipe.js'
+import { gracefulShutdown } from '../utils/graceful-shutdown.js'
 
 export interface UpgradeProxyRequest {
   method: string
@@ -773,25 +774,10 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
     },
 
     async stop(drainTimeoutMs = 5000): Promise<void> {
-      return new Promise((resolve) => {
-        if (!server || !running) {
-          resolve()
-          return
-        }
-
-        running = false
-        boundPort = null
-
-        const timer = setTimeout(() => {
-          ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
-          resolve()
-        }, drainTimeoutMs)
-
-        server.close(() => {
-          clearTimeout(timer)
-          resolve()
-        })
-      })
+      if (!server || !running) return
+      running = false
+      boundPort = null
+      await gracefulShutdown(server, drainTimeoutMs)
     },
 
     get stats(): ProxyStats {

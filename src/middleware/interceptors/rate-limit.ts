@@ -15,7 +15,8 @@ import type { Interceptor, Envelope, Context } from '../../types/index.js'
 import type { RateLimitConfig, RateLimitInfo, RateLimitRule } from '../types.js'
 import type { RateLimitDriver, RateLimitDriverConfig } from '../../rate-limit/types.js'
 import { createDriver, createDriverFromConfig } from '../../rate-limit/factory.js'
-import { RaffelError } from '../../core/router.js'
+import { RaffelError } from '../../core/error.js'
+import { matchProcedurePattern } from '../../utils/pattern-match.js'
 
 /**
  * Token bucket record for burst-capable rate limiting
@@ -141,19 +142,6 @@ export function calculateRateLimitDelay(info: ParsedRateLimitInfo): number {
 }
 
 /**
- * Match a procedure name against a glob pattern
- */
-function matchPattern(pattern: string, procedure: string): boolean {
-  const regex = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '{{DOUBLE_STAR}}')
-    .replace(/\*/g, '[^.]*')
-    .replace(/{{DOUBLE_STAR}}/g, '.*')
-
-  return new RegExp(`^${regex}$`).test(procedure)
-}
-
-/**
  * Find the best matching rule for a procedure
  */
 function findMatchingRule(rules: RateLimitRule[], procedure: string): RateLimitRule | null {
@@ -161,7 +149,7 @@ function findMatchingRule(rules: RateLimitRule[], procedure: string): RateLimitR
   const sorted = [...rules].sort((a, b) => b.pattern.length - a.pattern.length)
 
   for (const rule of sorted) {
-    if (matchPattern(rule.pattern, procedure)) {
+    if (matchProcedurePattern(rule.pattern, procedure)) {
       return rule
     }
   }

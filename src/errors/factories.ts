@@ -5,7 +5,7 @@
  * Each factory creates a RaffelError with both string code and numeric status.
  */
 
-import { RaffelError } from '../core/router.js'
+import { RaffelError } from '../core/error.js'
 
 /**
  * Pre-built error factories for consistent error handling

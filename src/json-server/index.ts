@@ -16,7 +16,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from '../server/builder.js'
 import { createRouterModule } from '../server/router-module.js'
-import { RaffelError } from '../core/router.js'
+import { RaffelError } from '../core/error.js'
 import type { Context } from '../types/index.js'
 import type { RouterModule } from '../server/types.js'
 import type { HttpMiddleware } from '../adapters/http.js'
@@ -372,10 +372,19 @@ function sendNotFound(res: ServerResponse): void {
   sendJson(res, 404, { code: 'NOT_FOUND', message: 'Not found' })
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(req: IncomingMessage, maxBodySize = 1_048_576): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    let totalSize = 0
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length
+      if (totalSize > maxBodySize) {
+        req.destroy()
+        reject(new Error('Request body too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>)

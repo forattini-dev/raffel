@@ -17,6 +17,7 @@ import { createLogger } from '../utils/logger.js'
 const logger = createLogger('grpc-adapter')
 
 import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
+import { isAsyncIterable } from '../utils/type-guards.js'
 
 export interface GrpcTlsOptions extends TlsOptions {
   requireClientCert?: boolean
@@ -333,7 +334,7 @@ export function createGrpcAdapter(
 
     try {
       const result = await router.handle(envelope)
-      if (!result || typeof result !== 'object' || !(Symbol.asyncIterator in result)) {
+      if (!isAsyncIterable(result)) {
         call.emit('error', toServiceError('INTERNAL_ERROR', 'Handler did not return a stream'))
         return
       }
@@ -449,7 +450,7 @@ export function createGrpcAdapter(
 
     try {
       const result = await router.handle(envelope)
-      if (!result || typeof result !== 'object' || !(Symbol.asyncIterator in result)) {
+      if (!isAsyncIterable(result)) {
         call.emit('error', toServiceError('INTERNAL_ERROR', 'Handler did not return a stream'))
         return
       }
