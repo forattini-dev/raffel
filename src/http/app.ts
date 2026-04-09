@@ -12,6 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { HttpContext, type HttpContextInterface } from './context.js'
 import type { BodyInit } from './web-types.js'
+import { attachRequestSocketInfo } from '../utils/client-ip.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -600,6 +601,11 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
         return acc
       }, {} as Record<string, string>),
       body,
+    })
+
+    attachRequestSocketInfo(request, {
+      remoteAddress: req.socket?.remoteAddress,
+      remotePort: req.socket?.remotePort,
     })
 
     // Get response

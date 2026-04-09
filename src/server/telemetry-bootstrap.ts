@@ -35,8 +35,18 @@ export interface TelemetryRegistryLike {
 export interface TelemetryStartupContext {
   registry: TelemetryRegistryLike
   startupStopTasks: StopTask[]
+  registerStopTask?: (task: StopTask) => void
   globalInterceptors: Interceptor[]
   logger: TelemetryLogger
+}
+
+function addStopTask(context: TelemetryStartupContext, task: StopTask): void {
+  if (context.registerStopTask) {
+    context.registerStopTask(task)
+    return
+  }
+
+  context.startupStopTasks.push(task)
 }
 
 export function createTelemetryState(): TelemetryState {
@@ -89,7 +99,7 @@ export async function initializeTelemetry(
   state: TelemetryState,
   context: TelemetryStartupContext
 ): Promise<void> {
-  const { registry, startupStopTasks, globalInterceptors, logger } = context
+  const { registry, globalInterceptors, logger } = context
 
   // Initialize metrics if enabled
   if (state.metricsConfig?.enabled && state.metricsRegistry) {
@@ -101,7 +111,7 @@ export async function initializeTelemetry(
 
     if (state.metricsConfig.collectProcessMetrics) {
       state.processMetricsCleanup = startProcessMetricsCollection(state.metricsRegistry)
-      startupStopTasks.push({
+      addStopTask(context, {
         name: 'metrics-process-collector',
         stop: async () => {
           if (!state.processMetricsCleanup) return
@@ -129,7 +139,7 @@ export async function initializeTelemetry(
     )
 
     globalInterceptors.unshift(createTracingInterceptor(state.tracerInstance))
-    startupStopTasks.push({
+    addStopTask(context, {
       name: 'tracing',
       stop: async () => {
         if (!state.tracerInstance) return

@@ -37,6 +37,7 @@ import type {
   FilesystemRateLimitDriverOptions,
 } from '../rate-limit/types.js'
 import { createDriver, createDriverFromConfig } from '../rate-limit/factory.js'
+import { resolveRequestClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -102,9 +103,16 @@ export interface RateLimiterOptions {
 
   /**
    * Custom key generator
-   * @default IP address from x-forwarded-for or x-real-ip
+   * @default client IP resolved from socket or trusted proxies
    */
   keyGenerator?: KeyGenerator
+
+  /**
+   * Trusted proxy hops that are allowed to supply forwarding headers.
+   * When omitted or false, x-forwarded-for and x-real-ip are ignored.
+   * @default false
+   */
+  trustedProxies?: TrustedProxyConfig
 
   /**
    * Path/method specific rules (checked in order, first match wins)
@@ -578,17 +586,13 @@ class InMemoryRateLimitStore {
 /**
  * Default IP extraction function
  */
-function defaultKeyGenerator(c: HttpContextInterface): string {
-  const forwardedFor = c.req.header('x-forwarded-for') as string | undefined
-  if (forwardedFor) {
-    const firstIp = forwardedFor.split(',')[0].trim()
-    if (firstIp) return firstIp
-  }
-
-  const realIp = c.req.header('x-real-ip') as string | undefined
-  if (realIp) return realIp
-
-  return 'unknown'
+function defaultKeyGenerator(
+  c: HttpContextInterface,
+  trustedProxies: TrustedProxyConfig = false
+): string {
+  return c.runtime?.http?.clientIp
+    ?? resolveRequestClientIp(c.req.raw, trustedProxies).ip
+    ?? 'unknown'
 }
 
 /**
@@ -668,13 +672,14 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
   const {
     windowMs = 60000,
     max = 100,
-    keyGenerator = defaultKeyGenerator,
+    keyGenerator,
     rules = [],
     maxUniqueKeys = 10000,
     events,
     skip,
     slidingWindow = true,
     cleanupInterval = 60000,
+    trustedProxies = false,
   } = options
 
   const store = options.store
@@ -685,6 +690,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
 
   let totalRequests = 0
   let limitedRequests = 0
+  const effectiveKeyGenerator = keyGenerator ?? ((c: HttpContextInterface) => defaultKeyGenerator(c, trustedProxies))
 
   async function getKeyAndLimits(c: HttpContextInterface): Promise<{
     key: string
@@ -703,7 +709,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
     const effectiveWindowMs = rule?.windowMs ?? windowMs
 
     // Generate key
-    const keyGen = rule?.keyGenerator ?? keyGenerator
+    const keyGen = rule?.keyGenerator ?? effectiveKeyGenerator
     const key = await keyGen(c)
 
     return { key, effectiveMax, effectiveWindowMs, rule }

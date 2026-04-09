@@ -57,14 +57,20 @@ import type { SchemaRegistry } from '../validation/index.js'
 import type { EnvelopeConfig } from '../middleware/types.js'
 import type { SessionConfig } from '../middleware/session/types.js'
 import type { RuntimeInspectionGraph } from '../inspect/index.js'
+import type { TrustedProxyConfig } from '../utils/client-ip.js'
 
 // === Providers (Dependency Injection) ===
+
+/**
+ * Resolved provider instances (after initialization).
+ */
+export type ResolvedProviders = Record<string, unknown>
 
 /**
  * Provider factory function.
  * Called once at server startup to create the singleton instance.
  */
-export type ProviderFactory<T> = () => T | Promise<T>
+export type ProviderFactory<T> = (services: Readonly<ResolvedProviders>) => T | Promise<T>
 
 /**
  * Provider definition with optional lifecycle hooks.
@@ -80,11 +86,6 @@ export interface ProviderDefinition<T = unknown> {
  * Map of provider names to their definitions or factory functions.
  */
 export type ProvidersConfig = Record<string, ProviderFactory<unknown> | ProviderDefinition<unknown>>
-
-/**
- * Resolved provider instances (after initialization).
- */
-export type ResolvedProviders = Record<string, unknown>
 
 // === Error Handling ===
 
@@ -292,6 +293,17 @@ export interface ServerPresetOptions {
 
 export type ServerPreset = 'api' | 'realtime' | 'rpc' | 'dev' | 'full'
 
+export interface SharedPortPreviewConfig {
+  enabled: boolean
+  protocolFusion: boolean
+  protocolAliasMode: ProtocolAliasMode
+  sniffMaxBytes: number
+  sniffTimeoutMs: number
+  maxConcurrentDetections: number
+  sniffers?: string[]
+  protocols?: SinglePortProtocolKind[]
+}
+
 export interface ServerConfigPreview {
   entrypoint: {
     host: string
@@ -310,26 +322,8 @@ export interface ServerConfigPreview {
     protocols: FrontDoorTransport[] | null
     protocolAliasMode: ProtocolAliasMode
   }
-  sharedPort: {
-    enabled: boolean
-    protocolFusion: boolean
-    protocolAliasMode: ProtocolAliasMode
-    sniffMaxBytes: number
-    sniffTimeoutMs: number
-    maxConcurrentDetections: number
-    sniffers?: string[]
-    protocols?: SinglePortProtocolKind[]
-  }
-  singlePort: {
-    enabled: boolean
-    protocolFusion: boolean
-    protocolAliasMode: ProtocolAliasMode
-    sniffMaxBytes: number
-    sniffTimeoutMs: number
-    maxConcurrentDetections: number
-    sniffers?: string[]
-    protocols?: SinglePortProtocolKind[]
-  }
+  sharedPort: SharedPortPreviewConfig
+  singlePort: SharedPortPreviewConfig
   protocols: {
     http: {
       enabled: true
@@ -483,6 +477,24 @@ export interface ServerOptions {
    * gRPC configuration (requires a separate port).
    */
   grpc?: GrpcOptions
+
+  /**
+   * MCP (Model Context Protocol) configuration.
+   *
+   * - `true` enables with defaults (all procedures become MCP tools on /mcp)
+   * - Object for custom configuration (filter, toolName, path, etc.)
+   *
+   * @example
+   * ```typescript
+   * const server = createServer({ port: 3000, mcp: true })
+   * // or
+   * const server = createServer({
+   *   port: 3000,
+   *   mcp: { path: '/mcp', filter: (meta) => meta.tags?.includes('public') },
+   * })
+   * ```
+   */
+  mcp?: import('../protocols/mcp/types.js').McpAdapterOptions | boolean
 
   /**
    * Custom protocol adapters registered at startup.
@@ -681,6 +693,13 @@ export interface HttpOptions {
 
   /** Context factory for creating request context */
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
+
+  /**
+   * Trusted proxy IPs/CIDRs used to resolve client IP from forwarding headers.
+   * When false, x-forwarded-for and x-real-ip are ignored for client IP resolution.
+   * @default false
+   */
+  trustedProxies?: TrustedProxyConfig
 
   /**
    * TLS configuration for HTTPS.
@@ -1695,6 +1714,8 @@ export interface MountOptions {
   interceptors?: Interceptor[]
 }
 
+export type DirectProcedureOptions = Omit<AddProcedureInput, 'name' | 'handler'>
+
 // === Server Builder ===
 
 /**
@@ -2031,7 +2052,8 @@ export interface RaffelServer {
    *
    * // In handlers:
    * server.procedure('users.get').handler(async (input, ctx) => {
-   *   return ctx.db.user.findUnique({ where: { id: input.id } })
+   *   const services = ctx.services as { db: PrismaClient }
+   *   return services.db.user.findUnique({ where: { id: input.id } })
    * })
    * ```
    */
@@ -2204,7 +2226,7 @@ export interface RaffelServer {
   procedure(
     name: string,
     handler: ProcedureHandler,
-    options?: { description?: string; interceptors?: Interceptor[] }
+    options?: DirectProcedureOptions
   ): void
 
   // === HTTP Routes ===

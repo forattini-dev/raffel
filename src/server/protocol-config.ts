@@ -31,7 +31,6 @@ export interface ProtocolBuildOptions {
   graphql?: boolean | GraphQLOptions
   grpc?: GrpcOptions
   frontDoor?: FrontDoorConfig
-  singlePort?: SinglePortConfig
   protocolAliasMode?: ProtocolAliasMode
 }
 
@@ -86,6 +85,20 @@ export function resolveSinglePortConfig(
     maxConcurrentDetections: options?.maxConcurrentDetections ?? DEFAULT_SINGLE_PORT_MAX_CONCURRENT_DETECTIONS,
     sniffers: options?.sniffers,
     protocols,
+  }
+}
+
+export function mergeSinglePortConfigInputs(
+  sharedPort?: SinglePortConfig,
+  singlePort?: SinglePortConfig
+): SinglePortConfig | undefined {
+  if (!sharedPort) {
+    return singlePort
+  }
+
+  return {
+    ...(singlePort ?? {}),
+    ...sharedPort,
   }
 }
 

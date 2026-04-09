@@ -8,10 +8,10 @@ import type { z } from 'zod'
 import type { PortBinding } from './port-binding.js'
 import { createRegistry } from '../core/registry.js'
 import { createRouter } from '../core/router.js'
-import type { createHttpAdapter } from '../adapters/http.js'
-import type { createWebSocketAdapter } from '../adapters/websocket.js'
-import type { createTcpAdapter, createTcpConnectionHandler } from '../adapters/tcp.js'
-import type { createGrpcAdapter } from '../adapters/grpc.js'
+import type { HttpAdapter } from '../adapters/http.js'
+import type { WebSocketAdapter } from '../adapters/websocket.js'
+import type { TcpAdapter, TcpConnectionHandler } from '../adapters/tcp.js'
+import type { GrpcAdapter } from '../adapters/grpc.js'
 import type { JsonRpcAdapter } from '../adapters/jsonrpc.js'
 import type { GraphQLAdapter, GraphQLMiddleware } from '../graphql/index.js'
 import { getRouterModuleDefinition } from './router-module.js'
@@ -26,8 +26,6 @@ import type {
   JsonRpcOptions,
   TcpOptions,
   GrpcOptions,
-  FrontDoorTransport,
-  FrontDoorStrategy,
   ServerAddresses,
   SinglePortConfig,
   ServerPreset,
@@ -76,13 +74,9 @@ import { createResourceBuilder } from './resource-builder.js'
 import { registerDiscoveredHandlers, resolveHooksForProcedure } from './discovery-utils.js'
 import { createRegistrationService } from '../application/registration.js'
 import { createRuntimePreviewService } from '../application/runtime-preview.js'
-import { buildProtocolConfig, resolveSinglePortConfig } from './protocol-config.js'
 import { normalizeInterceptors as normalizeInterceptorsShared } from './interceptor-utils.js'
-import { createFrontDoorBootstrap, normalizeFrontDoorProtocol } from './front-door.js'
-import {
-  createProtocolFusionDiagnosticsStore,
-  resolveProtocolFusionMode,
-} from './protocol-fusion-diagnostics.js'
+import { createFrontDoorBootstrap } from './front-door.js'
+import { createProtocolFusionDiagnosticsStore } from './protocol-fusion-diagnostics.js'
 import { createDiscoveryBootstrap } from './discovery-bootstrap.js'
 import { createServerLifecycle } from './builder/lifecycle.js'
 import {
@@ -91,11 +85,6 @@ import {
   createTelemetryState,
   type TelemetryState,
 } from './telemetry-bootstrap.js'
-import {
-  isSinglePortTcpRouteEnabled as detectSinglePortTcpRouteEnabled,
-  isSinglePortGrpcRouteEnabled as detectSinglePortGrpcRouteEnabled,
-  isSinglePortUdpRouteEnabled as detectSinglePortUdpRouteEnabled,
-} from './builder/single-port-utils.js'
 import type { ContractPolicies } from '../types/index.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import {
@@ -103,6 +92,9 @@ import {
   type RuntimeInspectionSource,
 } from '../inspect/index.js'
 import { adaptPinoLogger } from '../adapters/outbound/logger/pino.js'
+import { createServerPlanner } from './planner.js'
+import { createServerRuntimePlanBuilder } from './runtime-plan.js'
+import type { ServerLifecycleState } from './builder/state.js'
 
 const logger = createLogger('server')
 const loggerPort = adaptPinoLogger(logger)
@@ -169,6 +161,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     providers: initialProviders,
     protocolExtensions: initialProtocolExtensions,
     protocolAliasMode: serverProtocolAliasMode = 'standard',
+    mcp: mcpOptions,
   } = options
 
   // Core components
@@ -205,81 +198,42 @@ export function createServer(options: ServerOptions): RaffelServer {
     },
   })
 
-  // Protocol configuration (from options)
-  const frontDoorEnabled = frontDoor?.enabled === true
-  const frontDoorHost = frontDoor?.host ?? host
-  const frontDoorPort = frontDoor?.port ?? port
-  let singlePortConfigInput: SinglePortConfig | undefined = sharedPort
-    ? { ...(singlePort ?? {}), ...sharedPort }
-    : singlePort
-  let singlePortConfig = resolveSinglePortConfig(singlePortConfigInput)
-  const frontDoorAliasMode = frontDoor?.protocolAliasMode ?? serverProtocolAliasMode
-  const effectiveHost = frontDoorEnabled ? frontDoorHost : host
-  const effectivePort = frontDoorEnabled ? frontDoorPort : port
-  const frontDoorProtocols = frontDoor?.protocols && frontDoor.protocols.length > 0
-    ? Array.from(new Set(frontDoor.protocols.map((protocol) => normalizeFrontDoorProtocol(protocol, frontDoorAliasMode)).filter(Boolean))) as FrontDoorTransport[]
-    : null
-
-  const getSinglePortAliasMode = (): 'standard' | 'extended' => {
-    return singlePortConfigInput?.protocolAliasMode ?? serverProtocolAliasMode
-  }
-
-  const getSinglePortSource = (): 'singlePort' | 'offload' | 'native' | 'custom' | 'unknown' => {
-    return singlePortConfig.enabled ? 'singlePort' : 'native'
-  }
+  const serverPlanner = createServerPlanner({
+    port,
+    host,
+    cors,
+    httpOptions,
+    frontDoor,
+    sharedPort,
+    singlePort,
+    websocket,
+    jsonrpc,
+    tcp,
+    grpc,
+    graphql,
+    serverProtocolAliasMode,
+  })
+  const protocols = serverPlanner.protocols
+  const frontDoorEnabled = serverPlanner.frontDoorEnabled
+  const frontDoorProtocols = serverPlanner.frontDoorProtocols
+  const effectiveHost = serverPlanner.effectiveHost
+  const effectivePort = serverPlanner.effectivePort
+  const updateSinglePortConfig = serverPlanner.updateSinglePortConfig
+  const getSinglePortAliasMode = serverPlanner.getSinglePortAliasMode
+  const getSinglePortSource = serverPlanner.getSinglePortSource
+  const shouldUseFrontDoor = serverPlanner.shouldUseFrontDoor
+  const strategyFor = serverPlanner.strategyFor
+  const getSinglePortConfig = () => serverPlanner.singlePortConfig
 
   const protocolFusionDiagnostics = createProtocolFusionDiagnosticsStore({
-    getMode: () => resolveProtocolFusionMode(frontDoorEnabled, singlePortConfig.enabled),
-    getEntrypoint: () => (singlePortConfig.enabled ? 'tcp' : 'http'),
+    getMode: () => serverPlanner.resolveProtocolFusionMode(),
+    getEntrypoint: () => (getSinglePortConfig().enabled ? 'tcp' : 'http'),
     getTarget: () => ({
       host: effectiveHost,
       port: effectivePort,
     }),
     getFrontDoorProtocols: () => frontDoorProtocols,
-    getSharedPortProtocols: () => singlePortConfig.protocols,
-  })
-
-  const updateSinglePortConfig = (next: boolean | SinglePortConfig | undefined): void => {
-    if (next === undefined) return
-
-    if (typeof next === 'boolean') {
-      singlePortConfigInput = {
-        ...(singlePortConfigInput ?? {}),
-        enabled: next,
-        protocolFusion: next ? (singlePortConfigInput?.protocolFusion ?? true) : false,
-      }
-    } else {
-      singlePortConfigInput = { ...(singlePortConfigInput ?? {}), ...next }
-    }
-
-    singlePortConfig = resolveSinglePortConfig(singlePortConfigInput)
-  }
-
-  const shouldUseFrontDoor = (name: 'websocket' | 'jsonrpc' | 'tcp' | 'grpc' | 'graphql'): boolean => {
-    if (!frontDoorEnabled) return false
-    if (!frontDoorProtocols) {
-      return ['websocket', 'jsonrpc', 'graphql'].includes(name)
-    }
-    return frontDoorProtocols.includes(name)
-  }
-
-  const strategyFor = (
-    name: 'websocket' | 'jsonrpc' | 'tcp' | 'grpc' | 'graphql',
-    fallback: FrontDoorStrategy
-  ): FrontDoorStrategy => {
-    const strategy = frontDoor?.strategy?.[name]
-    return strategy ?? fallback
-  }
-
-  const protocols = buildProtocolConfig({
-    websocket,
-    jsonrpc,
-    tcp,
-    graphql,
-    grpc,
-    frontDoor,
-    singlePort,
-    protocolAliasMode: frontDoorAliasMode,
+    getSharedPortProtocols: () => getSinglePortConfig().protocols,
   })
 
   const frontDoorBootstrap = createFrontDoorBootstrap({
@@ -319,29 +273,6 @@ export function createServer(options: ServerOptions): RaffelServer {
     })
   }
 
-  const serverConfigPreviewContext = {
-    effectiveHost,
-    effectivePort,
-    frontDoorEnabled,
-    frontDoorHost,
-    frontDoorPort,
-    frontDoorProtocols,
-    protocolAliasMode: frontDoorAliasMode,
-    getSinglePortConfig: () => ({
-      enabled: singlePortConfig.enabled,
-      protocolFusion: singlePortConfig.protocolFusion,
-      sniffTimeoutMs: singlePortConfig.sniffTimeoutMs,
-      sniffMaxBytes: singlePortConfig.sniffMaxBytes,
-      maxConcurrentDetections: singlePortConfig.maxConcurrentDetections,
-      sniffers: singlePortConfig.sniffers,
-      protocols: singlePortConfig.protocols,
-      alpn: singlePortConfig.alpn,
-    }),
-    getSinglePortAliasMode,
-    getSinglePortSource,
-    protocols,
-  }
-
   // Namespace-level interceptors (for shared middleware per protocol)
   // These are persistent across getter calls, enabling shared middleware chains
   const httpInterceptors: Interceptor[] = []
@@ -350,6 +281,7 @@ export function createServer(options: ServerOptions): RaffelServer {
   const rpcInterceptors: Interceptor[] = []
   const tcpInterceptors: Interceptor[] = []
   const udpInterceptors: Interceptor[] = []
+  const grpcInterceptors: Interceptor[] = []
   let wsSubscribeHandler: import('./types.js').WebSocketSubscribeHandler | null = null
   let wsMessageHandler: import('./types.js').WebSocketMessageHandler | null = null
   let wsUnsubscribeHandler: import('./types.js').WebSocketUnsubscribeHandler | null = null
@@ -361,18 +293,19 @@ export function createServer(options: ServerOptions): RaffelServer {
   const hooksResolver = (name: string) => resolveHooksForProcedure(name, globalHooks)
 
   // Runtime state shared with lifecycle module
-  const serverState = {
+  const serverState: ServerLifecycleState = {
     running: { value: false },
     addresses: { value: null as ServerAddresses | null },
+    activeShutdownPlan: { value: null },
     providerMiddlewareInstalled: { value: false },
     portBinding: { value: null as PortBinding | null },
-    singlePortTcpConnectionHandler: { value: null as ReturnType<typeof createTcpConnectionHandler> | null },
-    singlePortGrpcConnectionHandler: { value: null as import('./builder/lifecycle.js').ServerLifecycleContext['state']['singlePortGrpcConnectionHandler']['value'] },
-    httpServer: { value: null as ReturnType<typeof createHttpAdapter> | null },
-    wsAdapter: { value: null as ReturnType<typeof createWebSocketAdapter> | null },
+    singlePortTcpConnectionHandler: { value: null as TcpConnectionHandler | null },
+    singlePortGrpcConnectionHandler: { value: null },
+    httpServer: { value: null as HttpAdapter | null },
+    wsAdapter: { value: null as WebSocketAdapter | null },
     jsonRpcAdapter: { value: null as JsonRpcAdapter | null },
-    tcpAdapter: { value: null as ReturnType<typeof createTcpAdapter> | null },
-    grpcAdapter: { value: null as ReturnType<typeof createGrpcAdapter> | null },
+    tcpAdapter: { value: null as TcpAdapter | null },
+    grpcAdapter: { value: null as GrpcAdapter | null },
     graphqlAdapter: { value: null as GraphQLAdapter | null },
     graphqlMiddleware: { value: null as GraphQLMiddleware | null },
     graphqlSubscriptionServer: { value: null as ReturnType<GraphQLMiddleware['createSubscriptionServer']> | null },
@@ -436,6 +369,68 @@ export function createServer(options: ServerOptions): RaffelServer {
     return { kind, location: '<programmatic>' }
   }
 
+  function registerProcedureOperation(
+    input: {
+      name: string
+      handler: ProcedureHandler
+      inputSchema?: z.ZodType
+      outputSchema?: z.ZodType
+      summary?: string
+      description?: string
+      tags?: string[]
+      graphql?: AddProcedureInput['graphql']
+      httpPath?: AddProcedureInput['httpPath']
+      httpMethod?: AddProcedureInput['httpMethod']
+      jsonrpc?: AddProcedureInput['jsonrpc']
+      grpc?: AddProcedureInput['grpc']
+      policies?: ContractPolicies
+      interceptors?: Interceptor[]
+      registration?: RuntimeInspectionOperationRegistration
+    }
+  ): void {
+    const {
+      name,
+      handler,
+      inputSchema,
+      outputSchema,
+      summary,
+      description,
+      tags,
+      graphql,
+      httpPath,
+      httpMethod,
+      jsonrpc,
+      grpc,
+      policies,
+      interceptors = [],
+      registration = { source: programmaticSource() },
+    } = input
+
+    let normalizedInterceptors = normalizeInterceptors([...globalInterceptors, ...interceptors])
+
+    if (inputSchema || outputSchema) {
+      const schema: HandlerSchema = {}
+      if (inputSchema) schema.input = inputSchema
+      if (outputSchema) schema.output = outputSchema
+      schemaRegistry.register(name, schema)
+      normalizedInterceptors = normalizeInterceptors(normalizedInterceptors, schema)
+    }
+
+    registry.procedure(name, handler, {
+      summary,
+      description,
+      tags,
+      graphql,
+      httpPath,
+      httpMethod,
+      jsonrpc,
+      grpc,
+      policies,
+      interceptors: normalizedInterceptors.length > 0 ? normalizedInterceptors : undefined,
+    })
+    recordOperationRegistration(name, registration)
+  }
+
   // Registration service (extracted to application/registration.ts)
   const registrationService = createRegistrationService({
     registry,
@@ -485,6 +480,28 @@ export function createServer(options: ServerOptions): RaffelServer {
     )
   }
 
+  const previewContext = serverPlanner.createPreviewContext({
+    getProviderCount: () => providerDefinitions.size,
+  })
+  const runtimePlanBuilder = createServerRuntimePlanBuilder({
+    host,
+    basePath,
+    protocols,
+    previewContext,
+    cors,
+    httpOptions,
+    getUsdDocsConfig: () => usdDocsConfig,
+    getMcpOptions: () => mcpOptions,
+    hasRestResources: () => restResourceRegistry.length > 0,
+    getProtocolExtensionConfigs: () => protocolExtensionConfigs,
+    getTcpHandlers: () => tcpHandlers,
+    getUdpHandlers: () => udpHandlers,
+    isSinglePortTcpRouteEnabled: () => serverPlanner.isSinglePortTcpRouteEnabled(),
+    isSinglePortGrpcRouteEnabled: () => serverPlanner.isSinglePortGrpcRouteEnabled(),
+    isSinglePortUdpRouteEnabled: (handler) => serverPlanner.isSinglePortUdpRouteEnabled(handler),
+  })
+  const getRuntimePlan = runtimePlanBuilder.build
+
   const runtimePreviewService = createRuntimePreviewService({
     registry,
     schemaRegistry,
@@ -493,8 +510,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     tcpHandlers,
     udpHandlers,
     operationRegistrations,
-    protocols,
-    serverConfigPreviewContext,
+    getRuntimePlan,
     logger: loggerPort,
   })
 
@@ -504,44 +520,14 @@ export function createServer(options: ServerOptions): RaffelServer {
     warn: logger.warn.bind(logger),
   })
 
-  const isSinglePortTcpRouteEnabled = (): boolean => detectSinglePortTcpRouteEnabled(
-    singlePortConfig.enabled,
-    protocols.tcp?.enabled ?? false,
-    protocols.tcp?.options.port,
-    protocols.tcp?.options.host,
-    effectiveHost,
-    effectivePort
-  )
-
-  const isSinglePortGrpcRouteEnabled = (): boolean => detectSinglePortGrpcRouteEnabled(
-    singlePortConfig.enabled,
-    protocols.grpc?.enabled ?? false,
-    protocols.grpc?.options.port,
-    protocols.grpc?.options.host,
-    effectiveHost,
-    effectivePort
-  )
-
-  const isSinglePortUdpRouteEnabled = (handler: LoadedUdpHandler): boolean => detectSinglePortUdpRouteEnabled(
-    singlePortConfig.enabled,
-    handler.config.port,
-    handler.config.host,
-    effectiveHost,
-    effectivePort
-  )
-
   const serverLifecycle = createServerLifecycle({
     logger,
     state: serverState,
     discoveryBootstrap,
     telemetryState,
-    protocolExtensionConfigs,
     protocolAdapters,
     providerDefinitions,
     resolvedProviders,
-    frontDoorEnabled,
-    frontDoorProtocols,
-    protocols,
     registry,
     schemaRegistry,
     router,
@@ -552,24 +538,18 @@ export function createServer(options: ServerOptions): RaffelServer {
     udpHandlers,
     tcpServers,
     udpServers,
-    singlePortConfig,
-    isSinglePortTcpRouteEnabled,
-    isSinglePortGrpcRouteEnabled,
-    isSinglePortUdpRouteEnabled,
-    getSinglePortSource,
+    wsInterceptors,
+    getRuntimePlan,
     getSinglePortAliasMode,
     recordProtocolFusionDecision: (decision) => protocolFusionDiagnostics.record(decision),
     createFrontDoorDecisionMiddleware,
     applyDiscoveryResult,
     logSinglePortConfig: runtimePreviewService.logSinglePortConfiguration,
-    host,
-    effectiveHost,
-    effectivePort,
     basePath,
-    cors,
     httpOptions,
-    wsMessageHandler,
-    usdDocsConfig,
+    getWsSubscribeHandler: () => wsSubscribeHandler,
+    getWsMessageHandler: () => wsMessageHandler,
+    getWsUnsubscribeHandler: () => wsUnsubscribeHandler,
   })
 
   /**
@@ -596,30 +576,19 @@ export function createServer(options: ServerOptions): RaffelServer {
     // Generate procedure name from method and path (e.g., "get:/users/:id")
     const name = `${method.toLowerCase()}:${path}`
 
-    // Build interceptors: global → namespace → route-specific
-    const interceptors = normalizeInterceptors([...globalInterceptors, ...httpInterceptors, ...(options.use ?? [])])
-
-    // Register schema if provided
-    if (options.input || options.output) {
-      const schema: HandlerSchema = {}
-      if (options.input) schema.input = options.input
-      if (options.output) schema.output = options.output
-      schemaRegistry.register(name, schema)
-      const normalizedWithSchema = normalizeInterceptors([...interceptors], schema)
-      interceptors.length = 0
-      interceptors.push(...normalizedWithSchema)
-    }
-
-    // Register as a procedure with HTTP metadata
-    registry.procedure(name, handler as ProcedureHandler, {
+    registerProcedureOperation({
+      name,
+      handler: handler as ProcedureHandler,
+      inputSchema: options.input,
+      outputSchema: options.output,
       summary: options.summary,
       description: options.description,
       tags: options.tags,
       httpPath: path,
       httpMethod: method,
-      interceptors: interceptors.length > 0 ? interceptors : undefined,
+      interceptors: [...httpInterceptors, ...(options.use ?? [])],
+      registration: { source: programmaticSource('http-namespace') },
     })
-    recordOperationRegistration(name, { source: programmaticSource('http-namespace') })
 
     logger.debug({ name, path, method }, 'Added HTTP route')
 
@@ -1001,16 +970,14 @@ export function createServer(options: ServerOptions): RaffelServer {
 
     // === Handler Registration ===
 
-    procedure(nameOrHandler: string, handler?: ProcedureHandler, opts?: any) {
+    procedure(nameOrHandler: string, handler?: ProcedureHandler, opts?: import('./types.js').DirectProcedureOptions) {
       // Direct registration (backwards compatible)
       if (typeof handler === 'function') {
-        // Include global interceptors for direct registration
-        const interceptors = [...globalInterceptors, ...(opts?.interceptors ?? [])]
-        registry.procedure(nameOrHandler, handler, {
+        server.addProcedure({
+          name: nameOrHandler,
+          handler,
           ...opts,
-          interceptors: interceptors.length > 0 ? interceptors : undefined,
         })
-        recordOperationRegistration(nameOrHandler, { source: programmaticSource() })
         return
       }
 
@@ -1110,26 +1077,18 @@ export function createServer(options: ServerOptions): RaffelServer {
           }
         }
 
-        // Build interceptors
-        let interceptors = normalizeInterceptors([...globalInterceptors, ...(def.use ?? [])])
-
-        // Register schema
-        if (def.input || def.output) {
-          const schema: HandlerSchema = {}
-          if (def.input) schema.input = def.input
-          if (def.output) schema.output = def.output
-          schemaRegistry.register(name, schema)
-          interceptors = normalizeInterceptors(interceptors, schema)
-        }
-
-        registry.procedure(name, def.handler as ProcedureHandler, {
+        registerProcedureOperation({
+          name,
+          handler: def.handler as ProcedureHandler,
+          inputSchema: def.input,
+          outputSchema: def.output,
           summary: def.summary,
           description: def.description,
           tags: def.tags,
           httpPath,
           httpMethod,
           policies: def.policies,
-          interceptors: interceptors.length > 0 ? interceptors : undefined,
+          interceptors: def.use ?? [],
         })
 
         logger.debug({ name, httpPath, httpMethod }, 'Added procedure from map')
@@ -1142,7 +1101,6 @@ export function createServer(options: ServerOptions): RaffelServer {
       for (const [name, def] of Object.entries(map)) {
         const basePath = def.basePath ?? `/${name}`
         const tags = def.tags ?? [name]
-        const baseInterceptors = [...globalInterceptors, ...(def.use ?? [])]
 
         // Helper to register an operation
         const registerOp = (
@@ -1153,26 +1111,16 @@ export function createServer(options: ServerOptions): RaffelServer {
           inputSchema?: z.ZodType
         ) => {
           const procedureName = `${name}.${opName}`
-          let interceptors = [...baseInterceptors]
-
-          if (inputSchema || def.schema) {
-            const schema: HandlerSchema = {}
-            if (inputSchema) schema.input = inputSchema
-            if (def.schema) schema.output = def.schema
-            schemaRegistry.register(procedureName, schema)
-            if (inputSchema) {
-              interceptors = normalizeInterceptors(interceptors, { input: inputSchema })
-            }
-          } else {
-            interceptors = normalizeInterceptors(interceptors)
-          }
-
-          registry.procedure(procedureName, handler as ProcedureHandler, {
+          registerProcedureOperation({
+            name: procedureName,
+            handler: handler as ProcedureHandler,
+            inputSchema,
+            outputSchema: def.schema,
             tags,
             httpPath: path,
             httpMethod: method,
             summary: `${opName.charAt(0).toUpperCase() + opName.slice(1)} ${name}`,
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
+            interceptors: def.use ?? [],
           })
         }
 
@@ -1348,18 +1296,11 @@ export function createServer(options: ServerOptions): RaffelServer {
       const routeInterceptors = 'middlewares' in input ? createRouteInterceptors(input as LoadedRoute) : []
       const inputInterceptors = 'interceptors' in input ? (input as AddProcedureInput).interceptors ?? [] : []
 
-      let interceptors = normalizeInterceptors([...globalInterceptors, ...routeInterceptors, ...inputInterceptors])
-
-      // Register schema if defined
-      if (inputSchema || outputSchema) {
-        const schema: HandlerSchema = {}
-        if (inputSchema) schema.input = inputSchema
-        if (outputSchema) schema.output = outputSchema
-        schemaRegistry.register(name, schema)
-        interceptors = normalizeInterceptors(interceptors, schema)
-      }
-
-      registry.procedure(name, handler, {
+      registerProcedureOperation({
+        name,
+        handler,
+        inputSchema,
+        outputSchema,
         summary,
         description,
         tags,
@@ -1369,12 +1310,12 @@ export function createServer(options: ServerOptions): RaffelServer {
         jsonrpc,
         grpc,
         policies,
-        interceptors: interceptors.length > 0 ? interceptors : undefined,
-      })
-      recordOperationRegistration(name, {
-        source: 'filePath' in input
-          ? { kind: 'discovery', location: input.filePath }
-          : programmaticSource(),
+        interceptors: [...routeInterceptors, ...inputInterceptors],
+        registration: {
+          source: 'filePath' in input
+            ? { kind: 'discovery', location: input.filePath }
+            : programmaticSource(),
+        },
       })
 
       logger.debug({ name }, 'Added procedure')
@@ -1564,22 +1505,12 @@ export function createServer(options: ServerOptions): RaffelServer {
           // Determine auth requirement based on type
           const authRequirement = options?.type === 'public' ? 'none' : 'required'
 
-          // Wrap handlers to match ChannelExports signature
-          const wrappedOnJoin = wsSubscribeHandler
-            ? (member: { userId: string; socketId: string }, ctx: import('../types/index.js').Context) => wsSubscribeHandler!(channelName, ctx)
-            : undefined
-          const wrappedOnLeave = wsUnsubscribeHandler
-            ? (member: { userId: string; socketId: string }, ctx: import('../types/index.js').Context) => wsUnsubscribeHandler!(channelName, ctx)
-            : undefined
-
           // Register channel with the channel registry using correct LoadedChannel structure
           const channelDef: LoadedChannel = {
             name: channelName,
             filePath: '<programmatic>',
             config: {
               auth: authRequirement,
-              onJoin: wrappedOnJoin as any,
-              onLeave: wrappedOnLeave as any,
             },
             // Include documentation metadata
             type: options?.type ?? 'public',
@@ -1905,9 +1836,6 @@ export function createServer(options: ServerOptions): RaffelServer {
     },
 
     get grpcNs(): import('./types.js').GrpcNamespace {
-      // Interceptors for gRPC namespace
-      const grpcInterceptors: Interceptor[] = []
-
       const grpcNamespace: import('./types.js').GrpcNamespace = {
         service(serviceName: string, serviceOptions?: import('./types.js').GrpcServiceOptions): import('./types.js').GrpcServiceBuilder {
           const packageName = serviceOptions?.packageName ?? ''

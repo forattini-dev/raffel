@@ -65,6 +65,7 @@ function createRateLimitKeyGenerator(
     case 'client':
       return (envelope, ctx) =>
         envelope.metadata['x-client-id']
+        || envelope.metadata['x-client-ip']
         || envelope.metadata['x-forwarded-for']
         || getPrincipalId(ctx.auth?.principal)
         || `req:${ctx.requestId}`

@@ -10,10 +10,13 @@ import type {
   Interceptor,
   ProcedureHandler,
   EventHandler,
+  StreamHandler,
   RaffelStream,
   Context,
   CallFunction,
   ContractPolicies,
+  RegisteredHandler,
+  DeliveryGuarantee,
 } from '../types/index.js'
 import { createAuthContext, stripTransportCapabilities } from '../types/context.js'
 import { createResponseEnvelope, createErrorEnvelope, type ErrorPayload } from '../types/envelope.js'
@@ -119,28 +122,39 @@ export interface Router {
 }
 
 /**
- * Build full interceptor chain with envelope and context
+ * Pre-compile an interceptor executor for a stable interceptor list.
+ *
+ * The returned function still receives the dynamic envelope/context/final handler
+ * for each request, but avoids rebuilding the interceptor array and walking it
+ * right-to-left on every dispatch.
  */
-function buildChain(
+type CompiledInterceptorExecutor = (
   envelope: Envelope,
   ctx: Context,
-  interceptors: Interceptor[],
   finalHandler: () => Promise<unknown>
-): () => Promise<unknown> {
+) => Promise<unknown>
+
+function compileInterceptorExecutor(
+  interceptors: readonly Interceptor[]
+): CompiledInterceptorExecutor {
   if (interceptors.length === 0) {
-    return finalHandler
+    return async (_envelope, _ctx, finalHandler) => finalHandler()
   }
 
-  // Build chain from right to left
-  let chain = finalHandler
+  const stages: CompiledInterceptorExecutor[] = new Array(interceptors.length)
 
   for (let i = interceptors.length - 1; i >= 0; i--) {
     const interceptor = interceptors[i]
-    const next = chain
-    chain = () => interceptor(envelope, ctx, next)
+    const nextStage = stages[i + 1]
+    stages[i] = async (envelope, ctx, finalHandler) =>
+      interceptor(
+        envelope,
+        ctx,
+        () => (nextStage ? nextStage(envelope, ctx, finalHandler) : finalHandler())
+      )
   }
 
-  return chain
+  return stages[0]!
 }
 
 /**
@@ -271,16 +285,173 @@ function createHandlerContext(
   )
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> | RaffelStream<unknown> {
+  return !!value && typeof value === 'object' && Symbol.asyncIterator in value
+}
+
+interface CachedProcedurePlan {
+  version: number
+  execute: CompiledInterceptorExecutor
+  handler: ProcedureHandler
+}
+
+type CachedStreamPlan =
+  | {
+    version: number
+    streamDirection: 'server'
+    execute: CompiledInterceptorExecutor
+    handler: (
+      input: unknown,
+      ctx: Context
+    ) => AsyncIterable<unknown> | RaffelStream<unknown>
+  }
+  | {
+    version: number
+    streamDirection: 'client'
+    execute: CompiledInterceptorExecutor
+    handler: (
+      input: AsyncIterable<unknown> | RaffelStream<unknown>,
+      ctx: Context
+    ) => Promise<unknown>
+  }
+  | {
+    version: number
+    streamDirection: 'bidi'
+    execute: CompiledInterceptorExecutor
+    handler: (
+      input: AsyncIterable<unknown> | RaffelStream<unknown>,
+      ctx: Context
+    ) => AsyncIterable<unknown> | RaffelStream<unknown>
+  }
+
+interface CachedEventPlan {
+  version: number
+  delivery: DeliveryGuarantee
+  retryPolicy?: RegisteredHandler<EventHandler>['meta']['retryPolicy']
+  deduplicationWindow?: number
+  execute: (
+    envelope: Envelope,
+    ctx: Context,
+    payload: unknown,
+    ack: () => void
+  ) => Promise<void>
+}
+
 /**
  * Create a new Router
  */
 export function createRouter(registry: Registry, options: RouterOptions = {}): Router {
-  const globalInterceptors: Interceptor[] = options.interceptors ?? []
+  const globalInterceptors: Interceptor[] = options.interceptors ? [...options.interceptors] : []
+  let globalInterceptorsVersion = 0
   const deliveryEngine = createEventDeliveryEngine(options.eventDelivery)
+  const procedurePlanCache = new WeakMap<RegisteredHandler<ProcedureHandler>, CachedProcedurePlan>()
+  const streamPlanCache = new WeakMap<RegisteredHandler<StreamHandler>, CachedStreamPlan>()
+  const eventPlanCache = new WeakMap<RegisteredHandler<EventHandler>, CachedEventPlan>()
+
+  const getProcedurePlan = (
+    registered: RegisteredHandler<ProcedureHandler>
+  ): CachedProcedurePlan => {
+    const cached = procedurePlanCache.get(registered)
+    if (cached && cached.version === globalInterceptorsVersion) {
+      return cached
+    }
+
+    const plan: CachedProcedurePlan = {
+      version: globalInterceptorsVersion,
+      execute: compileInterceptorExecutor([
+        ...globalInterceptors,
+        ...(registered.interceptors ?? []),
+      ]),
+      handler: registered.handler,
+    }
+    procedurePlanCache.set(registered, plan)
+    return plan
+  }
+
+  const getStreamPlan = (
+    registered: RegisteredHandler<StreamHandler>
+  ): CachedStreamPlan => {
+    const cached = streamPlanCache.get(registered)
+    if (cached && cached.version === globalInterceptorsVersion) {
+      return cached
+    }
+
+    const execute = compileInterceptorExecutor([
+      ...globalInterceptors,
+      ...(registered.interceptors ?? []),
+    ])
+    const streamDirection = registered.meta.streamDirection ?? 'server'
+
+    let plan: CachedStreamPlan
+    switch (streamDirection) {
+      case 'client':
+        plan = {
+          version: globalInterceptorsVersion,
+          streamDirection,
+          execute,
+          handler: registered.handler as (
+            input: AsyncIterable<unknown> | RaffelStream<unknown>,
+            ctx: Context
+          ) => Promise<unknown>,
+        }
+        break
+      case 'bidi':
+        plan = {
+          version: globalInterceptorsVersion,
+          streamDirection,
+          execute,
+          handler: registered.handler as (
+            input: AsyncIterable<unknown> | RaffelStream<unknown>,
+            ctx: Context
+          ) => AsyncIterable<unknown> | RaffelStream<unknown>,
+        }
+        break
+      default:
+        plan = {
+          version: globalInterceptorsVersion,
+          streamDirection: 'server',
+          execute,
+          handler: registered.handler as (
+            input: unknown,
+            ctx: Context
+          ) => AsyncIterable<unknown> | RaffelStream<unknown>,
+        }
+        break
+    }
+
+    streamPlanCache.set(registered, plan)
+    return plan
+  }
+
+  const getEventPlan = (registered: RegisteredHandler<EventHandler>): CachedEventPlan => {
+    const cached = eventPlanCache.get(registered)
+    if (cached && cached.version === globalInterceptorsVersion) {
+      return cached
+    }
+
+    const handler = registered.handler
+    const execute = compileInterceptorExecutor([
+      ...globalInterceptors,
+      ...(registered.interceptors ?? []),
+    ])
+    const plan: CachedEventPlan = {
+      version: globalInterceptorsVersion,
+      delivery: registered.meta.delivery ?? 'best-effort',
+      retryPolicy: registered.meta.retryPolicy,
+      deduplicationWindow: registered.meta.deduplicationWindow,
+      execute: async (envelope, ctx, payload, ack) => {
+        await execute(envelope, ctx, async () => handler(payload, ctx, ack))
+      },
+    }
+
+    eventPlanCache.set(registered, plan)
+    return plan
+  }
 
   return {
     use(interceptor: Interceptor): void {
       globalInterceptors.push(interceptor)
+      globalInterceptorsVersion += 1
     },
 
     stop(): void {
@@ -315,23 +486,12 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             }
 
             const ctxWithCall = createHandlerContext(context, envelope, router, registered.meta)
-
-            // Build interceptor chain
-            const interceptors = [
-              ...globalInterceptors,
-              ...(registered.interceptors ?? []),
-            ]
-
-            const handler = registered.handler as ProcedureHandler
-            const chain = buildChain(
+            const plan = getProcedurePlan(registered)
+            const result = await plan.execute(
               envelope,
               ctxWithCall,
-              interceptors,
-              async () => handler(payload, ctxWithCall)
+              async () => plan.handler(payload, ctxWithCall)
             )
-
-            // Execute chain
-            const result = await chain()
             return createResponseEnvelope(envelope, result)
           }
 
@@ -343,35 +503,14 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             }
 
             const ctxWithCall = createHandlerContext(context, envelope, router, registered.meta)
+            const plan = getStreamPlan(registered)
 
-            // Build interceptor chain for stream initiation
-            const interceptors = [
-              ...globalInterceptors,
-              ...(registered.interceptors ?? []),
-            ]
-
-            const streamDirection = registered.meta.streamDirection ?? 'server'
-
-            const isAsyncIterable = (value: unknown): value is AsyncIterable<unknown> | RaffelStream<unknown> =>
-              !!value && typeof value === 'object' && Symbol.asyncIterator in value
-
-            if (streamDirection === 'server') {
-              const handler = registered.handler as (
-                input: unknown,
-                ctx: Context
-              ) => AsyncIterable<unknown> | RaffelStream<unknown>
-
-              const chain = buildChain(
+            if (plan.streamDirection === 'server') {
+              const result = (await plan.execute(
                 envelope,
                 ctxWithCall,
-                interceptors,
-                async () => handler(payload, ctxWithCall)
-              )
-
-              // Execute chain - returns stream or async iterable
-              const result = (await chain()) as AsyncIterable<unknown> | RaffelStream<unknown>
-
-              // Wrap in envelope stream
+                async () => plan.handler(payload, ctxWithCall)
+              )) as AsyncIterable<unknown> | RaffelStream<unknown>
               return wrapStreamInEnvelopes(envelope, result)
             }
 
@@ -383,36 +522,20 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
               )
             }
 
-            if (streamDirection === 'client') {
-              const handler = registered.handler as (
-                input: AsyncIterable<unknown> | RaffelStream<unknown>,
-                ctx: Context
-              ) => Promise<unknown>
-
-              const chain = buildChain(
+            if (plan.streamDirection === 'client') {
+              const result = await plan.execute(
                 envelope,
                 ctxWithCall,
-                interceptors,
-                async () => handler(payload, ctxWithCall)
+                async () => plan.handler(payload, ctxWithCall)
               )
-
-              const result = await chain()
               return createResponseEnvelope(envelope, result)
             }
 
-            const handler = registered.handler as (
-              input: AsyncIterable<unknown> | RaffelStream<unknown>,
-              ctx: Context
-            ) => AsyncIterable<unknown> | RaffelStream<unknown>
-
-            const chain = buildChain(
+            const result = (await plan.execute(
               envelope,
               ctxWithCall,
-              interceptors,
-              async () => handler(payload, ctxWithCall)
-            )
-
-            const result = (await chain()) as AsyncIterable<unknown> | RaffelStream<unknown>
+              async () => plan.handler(payload, ctxWithCall)
+            )) as AsyncIterable<unknown> | RaffelStream<unknown>
             return wrapStreamInEnvelopes(envelope, result)
           }
 
@@ -425,35 +548,20 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             }
 
             const ctxWithCall = createHandlerContext(context, envelope, router, registered.meta)
-
-            // Build interceptor chain
-            const interceptors = [
-              ...globalInterceptors,
-              ...(registered.interceptors ?? []),
-            ]
-
-            const handler = registered.handler as EventHandler
-
-            const delivery = registered.meta.delivery ?? 'best-effort'
+            const plan = getEventPlan(registered)
             const execute = async (ack: () => void) => {
-              const chain = buildChain(
-                envelope,
-                ctxWithCall,
-                interceptors,
-                async () => handler(payload, ctxWithCall, ack)
-              )
-              await chain()
+              await plan.execute(envelope, ctxWithCall, payload, ack)
             }
 
             const deliveryPromise = deliveryEngine.deliver({
               eventId: envelope.id,
-              delivery,
-              retryPolicy: registered.meta.retryPolicy,
-              deduplicationWindow: registered.meta.deduplicationWindow,
+              delivery: plan.delivery,
+              retryPolicy: plan.retryPolicy,
+              deduplicationWindow: plan.deduplicationWindow,
               execute,
             })
 
-            if (delivery === 'best-effort') {
+            if (plan.delivery === 'best-effort') {
               deliveryPromise.catch((err) => {
                 logger.error({ err, procedure }, 'Event handler error')
               })

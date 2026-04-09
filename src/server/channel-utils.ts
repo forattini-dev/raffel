@@ -19,6 +19,17 @@ type ChannelMessageHandler = (
   ctx: Context
 ) => void | Promise<void>
 
+type ChannelSubscribeHandler = (
+  channel: string,
+  ctx: Context
+) => void | Promise<void>
+
+interface ChannelRuntimeHandlers {
+  getSubscribeHandler?: () => ChannelSubscribeHandler | null | undefined
+  getMessageHandler?: () => ChannelMessageHandler | null | undefined
+  getUnsubscribeHandler?: () => ChannelSubscribeHandler | null | undefined
+}
+
 /**
  * Escape special regex characters in a string
  */
@@ -96,9 +107,15 @@ export function findChannelDefinition(
 export function buildChannelOptions(
   channelRegistry: Map<string, LoadedChannel>,
   baseOptions?: ChannelOptions,
-  messageHandler?: ChannelMessageHandler
+  runtimeHandlers?: ChannelRuntimeHandlers
 ): ChannelOptions | undefined {
-  if (!baseOptions && channelRegistry.size === 0 && !messageHandler) {
+  const hasRuntimeHandlers = Boolean(
+    runtimeHandlers?.getSubscribeHandler?.()
+    || runtimeHandlers?.getMessageHandler?.()
+    || runtimeHandlers?.getUnsubscribeHandler?.()
+  )
+
+  if (!baseOptions && channelRegistry.size === 0 && !hasRuntimeHandlers) {
     return undefined
   }
 
@@ -162,6 +179,7 @@ export function buildChannelOptions(
       if (!allowed) return false
     }
 
+    const messageHandler = runtimeHandlers?.getMessageHandler?.()
     if (messageHandler) {
       try {
         await messageHandler(channel, event, data, ctx)
@@ -173,5 +191,48 @@ export function buildChannelOptions(
     return true
   }
 
-  return { authorize, presenceData, onPublish }
+  const hooks = (
+    baseOptions?.hooks
+    || channelRegistry.size > 0
+    || hasRuntimeHandlers
+  ) ? {
+    onSubscribe: async (socketId: string, channel: string, ctx?: Context) => {
+      const subscribeHandler = runtimeHandlers?.getSubscribeHandler?.()
+      if (subscribeHandler && ctx) {
+        await subscribeHandler(channel, ctx)
+      }
+      await baseOptions?.hooks?.onSubscribe?.(socketId, channel, ctx)
+    },
+    onUnsubscribe: async (socketId: string, channel: string, ctx?: Context) => {
+      const unsubscribeHandler = runtimeHandlers?.getUnsubscribeHandler?.()
+      if (unsubscribeHandler && ctx) {
+        await unsubscribeHandler(channel, ctx)
+      }
+      await baseOptions?.hooks?.onUnsubscribe?.(socketId, channel, ctx)
+    },
+    onMemberAdded: async (
+      channel: string,
+      member: import('../channels/index.js').ChannelMember,
+      ctx?: Context
+    ) => {
+      const entry = findChannelDefinition(channel, channelRegistry)
+      if (entry?.config.onJoin && ctx) {
+        await entry.config.onJoin(member, ctx)
+      }
+      await baseOptions?.hooks?.onMemberAdded?.(channel, member, ctx)
+    },
+    onMemberRemoved: async (
+      channel: string,
+      member: import('../channels/index.js').ChannelMember,
+      ctx?: Context
+    ) => {
+      const entry = findChannelDefinition(channel, channelRegistry)
+      if (entry?.config.onLeave && ctx) {
+        await entry.config.onLeave(member, ctx)
+      }
+      await baseOptions?.hooks?.onMemberRemoved?.(channel, member, ctx)
+    },
+  } : undefined
+
+  return { authorize, presenceData, onPublish, hooks }
 }

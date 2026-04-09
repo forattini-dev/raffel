@@ -23,6 +23,8 @@ import {
   type Codec,
 } from '../utils/content-codecs.js'
 import { joinBasePath } from './channel-utils.js'
+import { mergeMetadata } from '../utils/header-metadata.js'
+import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 
 const logger = createLogger('server')
 
@@ -171,6 +173,7 @@ export interface RestMiddlewareOptions {
   maxBodySize: number
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
+  trustedProxies?: TrustedProxyConfig
 }
 
 export interface HttpOverrideMiddlewareOptions {
@@ -180,6 +183,55 @@ export interface HttpOverrideMiddlewareOptions {
   maxBodySize: number
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
+  trustedProxies?: TrustedProxyConfig
+}
+
+function buildHttpContextSeed(options: {
+  req: IncomingMessage
+  requestId: string
+  method: string
+  url: URL
+  input: {
+    body?: unknown
+    params?: Record<string, string>
+    query?: Record<string, unknown>
+  }
+  trustedProxies?: TrustedProxyConfig
+}): { metadata: Record<string, string>; seed: ContextSeed } {
+  const { req, method, url, input, trustedProxies } = options
+  const client = resolveClientIp({
+    headers: req.headers,
+    remoteAddress: req.socket?.remoteAddress,
+    remotePort: req.socket?.remotePort,
+    trustedProxies,
+  })
+  const metadata = mergeMetadata(
+    extractMetadataFromHeaders(req.headers),
+    client.ip ? { 'x-client-ip': client.ip } : undefined
+  )
+
+  return {
+    metadata,
+    seed: {
+      protocol: 'http',
+      input: {
+        body: input.body,
+        params: input.params,
+        query: input.query,
+        metadata,
+      },
+      http: {
+        kind: 'http',
+        method,
+        path: url.pathname,
+        url: url.toString(),
+        headers: metadata,
+        clientIp: client.ip,
+        remoteAddress: client.remoteAddress,
+        remotePort: client.remotePort,
+      },
+    },
+  }
 }
 
 export function createRestMiddleware(
@@ -192,6 +244,7 @@ export function createRestMiddleware(
     maxBodySize,
     contextFactory,
     codecs: configuredCodecs,
+    trustedProxies,
   } = options
   const codecs = resolveCodecs(configuredCodecs)
 
@@ -271,26 +324,23 @@ export function createRestMiddleware(
 
           const abortController = new AbortController()
           const requestId = (req.headers['x-request-id'] as string) || sid()
-          const metadata = extractMetadataFromHeaders(req.headers)
+          const httpContext = buildHttpContextSeed({
+            req,
+            requestId,
+            method,
+            url,
+            input: {
+              body,
+              params,
+              query,
+            },
+            trustedProxies,
+          })
+          const metadata = httpContext.metadata
           const ctx = await createAbortableContextAsync(
             requestId,
             mergeContextSeeds(
-              {
-                protocol: 'http',
-                input: {
-                  body,
-                  params,
-                  query,
-                  metadata,
-                },
-                http: {
-                  kind: 'http',
-                  method,
-                  path: url.pathname,
-                  url: url.toString(),
-                  headers: metadata,
-                },
-              },
+              httpContext.seed,
               await contextFactory?.(req)
             ),
             abortController
@@ -367,6 +417,7 @@ export function createHttpOverrideMiddleware(
     maxBodySize,
     contextFactory,
     codecs: configuredCodecs,
+    trustedProxies,
   } = options
   const codecs = resolveCodecs(configuredCodecs)
 
@@ -431,25 +482,23 @@ export function createHttpOverrideMiddleware(
 
       const abortController = new AbortController()
       const requestId = (req.headers['x-request-id'] as string) || sid()
-      const metadata = extractMetadataFromHeaders(req.headers)
+      const query = parseQueryParams(url.searchParams)
+      const httpContext = buildHttpContextSeed({
+        req,
+        requestId,
+        method,
+        url,
+        input: {
+          body: payload,
+          query,
+        },
+        trustedProxies,
+      })
+      const metadata = httpContext.metadata
       const ctx = await createAbortableContextAsync(
         requestId,
         mergeContextSeeds(
-          {
-            protocol: 'http',
-            input: {
-              body: payload,
-              query: parseQueryParams(url.searchParams),
-              metadata,
-            },
-            http: {
-              kind: 'http',
-              method,
-              path: url.pathname,
-              url: url.toString(),
-              headers: metadata,
-            },
-          },
+          httpContext.seed,
           await contextFactory?.(req)
         ),
         abortController

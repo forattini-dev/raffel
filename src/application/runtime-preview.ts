@@ -12,11 +12,10 @@ import {
 } from '../inspect/index.js'
 import type { SchemaRegistry } from '../validation/schema.js'
 import {
-  buildServerConfigPreview,
   emitConfigWarnings,
   logSinglePortConfig,
-  type ProtocolConfig,
   type ServerConfigPreviewContext,
+  type ServerConfigPreview,
 } from './config-preview.js'
 import type { LoggerPort } from '../ports/outbound/logger.js'
 
@@ -71,8 +70,11 @@ export interface RuntimePreviewContext<
   tcpHandlers: Iterable<TTcpHandler>
   udpHandlers: Iterable<TUdpHandler>
   operationRegistrations: Map<string, RuntimeInspectionOperationRegistration>
-  protocols: ProtocolConfig
-  serverConfigPreviewContext: ServerConfigPreviewContext
+  getRuntimePlan: () => {
+    previewContext: ServerConfigPreviewContext
+    previewConfig: ServerConfigPreview
+    protocols: unknown
+  }
   logger: LoggerPort
 }
 
@@ -84,15 +86,16 @@ export function createRuntimePreviewService<
   ctx: RuntimePreviewContext<TChannel, TTcpHandler, TUdpHandler>
 ) {
   function getPreviewConfig() {
-    return buildServerConfigPreview(ctx.serverConfigPreviewContext)
+    return ctx.getRuntimePlan().previewConfig
   }
 
   function getRuntimeInspectionPreview() {
+    const runtimePlan = ctx.getRuntimePlan()
     return buildRuntimeInspectionGraph({
       registry: ctx.registry,
       schemaRegistry: ctx.schemaRegistry,
-      config: getPreviewConfig(),
-      protocols: ctx.protocols as never,
+      config: runtimePlan.previewConfig,
+      protocols: runtimePlan.protocols as never,
       basePath: ctx.basePath,
       channels: ctx.channelRegistry.values() as never,
       tcpHandlers: ctx.tcpHandlers as never,
@@ -102,13 +105,13 @@ export function createRuntimePreviewService<
   }
 
   function emitWarnings() {
-    emitConfigWarnings(ctx.serverConfigPreviewContext, {
+    emitConfigWarnings(ctx.getRuntimePlan().previewContext, {
       warn: (message) => ctx.logger.warn(message),
     })
   }
 
   function logSinglePortConfiguration() {
-    logSinglePortConfig(ctx.serverConfigPreviewContext, {
+    logSinglePortConfig(ctx.getRuntimePlan().previewContext, {
       info: (context, message) => ctx.logger.info(context as Record<string, unknown>, message),
     })
   }

@@ -189,16 +189,16 @@ export interface ChannelLifecycleHooks {
   onDisconnect?: (event: ClientDisconnectEvent) => void | Promise<void>
 
   /** Called after a successful subscribe */
-  onSubscribe?: (socketId: string, channel: string) => void | Promise<void>
+  onSubscribe?: (socketId: string, channel: string, ctx?: Context) => void | Promise<void>
 
   /** Called after unsubscribe */
-  onUnsubscribe?: (socketId: string, channel: string) => void | Promise<void>
+  onUnsubscribe?: (socketId: string, channel: string, ctx?: Context) => void | Promise<void>
 
   /** Called when a member joins a presence channel */
-  onMemberAdded?: (channel: string, member: ChannelMember) => void | Promise<void>
+  onMemberAdded?: (channel: string, member: ChannelMember, ctx?: Context) => void | Promise<void>
 
   /** Called when a member leaves a presence channel */
-  onMemberRemoved?: (channel: string, member: ChannelMember) => void | Promise<void>
+  onMemberRemoved?: (channel: string, member: ChannelMember, ctx?: Context) => void | Promise<void>
 
   /** Called after a successful publish to a channel */
   onPublish?: (socketId: string, channel: string, event: string, data: unknown) => void | Promise<void>
@@ -427,7 +427,7 @@ export interface ChannelManager {
   /**
    * Unsubscribe a socket from a channel
    */
-  unsubscribe(socketId: string, channel: string): void
+  unsubscribe(socketId: string, channel: string, ctx?: Context): void
 
   /**
    * Unsubscribe a socket from all channels (called on disconnect)

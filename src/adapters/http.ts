@@ -17,6 +17,7 @@ import { mergeContextSeeds } from '../types/index.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
+import { mergeMetadata } from '../utils/header-metadata.js'
 import {
   jsonCodec,
   resolveCodecs,
@@ -24,6 +25,7 @@ import {
   selectCodecForContentType,
   type Codec,
 } from '../utils/content-codecs.js'
+import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 
 const logger = createLogger('http-adapter')
 
@@ -106,6 +108,13 @@ export interface HttpAdapterOptions {
    * - `TlsOptions`: inline PEM, file paths (K8s volume mounts), or env vars (base64)
    */
   tls?: boolean | TlsOptions
+
+  /**
+   * Trusted proxy IPs/CIDRs used to resolve client IP from forwarding headers.
+   * When false, forwarding headers are ignored for client IP resolution.
+   * @default false
+   */
+  trustedProxies?: TrustedProxyConfig
 }
 
 /**
@@ -388,6 +397,7 @@ export function createHttpAdapter(
     basePath = '/',
     maxBodySize = 1024 * 1024, // 1MB
     cors,
+    trustedProxies = false,
   } = options
   const codecs = resolveCodecs(options.codecs)
 
@@ -471,7 +481,16 @@ export function createHttpAdapter(
     try {
       // Build context
       const requestId = (req.headers['x-request-id'] as string) || sid()
-      const metadata = extractMetadataFromHeaders(req.headers)
+      const client = resolveClientIp({
+        headers: req.headers,
+        remoteAddress: req.socket?.remoteAddress,
+        remotePort: req.socket?.remotePort,
+        trustedProxies,
+      })
+      const metadata = mergeMetadata(
+        extractMetadataFromHeaders(req.headers),
+        client.ip ? { 'x-client-ip': client.ip } : undefined
+      )
       const adapterSeed: ContextSeed = {
         protocol: 'http',
         input: {
@@ -484,6 +503,9 @@ export function createHttpAdapter(
           path: url.pathname,
           url: url.toString(),
           headers: metadata,
+          clientIp: client.ip,
+          remoteAddress: client.remoteAddress,
+          remotePort: client.remotePort,
         },
       }
       ctx = await createAbortableContextAsync(

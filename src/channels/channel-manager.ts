@@ -518,7 +518,11 @@ export function createChannelManager(
 
         // Lifecycle hook: member added
         if (options.hooks?.onMemberAdded) {
-          Promise.resolve(options.hooks.onMemberAdded(channelName, member)).catch(() => {})
+          Promise.resolve(options.hooks.onMemberAdded(channelName, member, ctx)).catch(() => {})
+        }
+
+        if (options.hooks?.onSubscribe) {
+          Promise.resolve(options.hooks.onSubscribe(socketId, channelName, ctx)).catch(() => {})
         }
 
         return {
@@ -529,13 +533,13 @@ export function createChannelManager(
 
       // Lifecycle hook: subscribe
       if (options.hooks?.onSubscribe) {
-        Promise.resolve(options.hooks.onSubscribe(socketId, channelName)).catch(() => {})
+        Promise.resolve(options.hooks.onSubscribe(socketId, channelName, ctx)).catch(() => {})
       }
 
       return { success: true }
     },
 
-    unsubscribe(socketId: string, channelName: string): void {
+    unsubscribe(socketId: string, channelName: string, ctx?: Context): void {
       const channel = channels.get(channelName)
       if (!channel) return
 
@@ -556,14 +560,14 @@ export function createChannelManager(
 
           // Lifecycle hook: member removed
           if (options.hooks?.onMemberRemoved) {
-            Promise.resolve(options.hooks.onMemberRemoved(channelName, member)).catch(() => {})
+            Promise.resolve(options.hooks.onMemberRemoved(channelName, member, ctx)).catch(() => {})
           }
         }
       }
 
       // Lifecycle hook: unsubscribe
       if (options.hooks?.onUnsubscribe) {
-        Promise.resolve(options.hooks.onUnsubscribe(socketId, channelName)).catch(() => {})
+        Promise.resolve(options.hooks.onUnsubscribe(socketId, channelName, ctx)).catch(() => {})
       }
 
       cleanupIfEmpty(channelName)

@@ -29,6 +29,7 @@
 
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
+import { resolveRequestClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -82,9 +83,16 @@ export interface FailbanOptions {
 
   /**
    * Function to extract IP from context
-   * @default Uses x-forwarded-for or socket address
+   * @default Uses resolved client IP
    */
   getIp?: (c: HttpContextInterface) => string
+
+  /**
+   * Trusted proxy hops that are allowed to supply forwarding headers.
+   * When omitted or false, x-forwarded-for and x-real-ip are ignored.
+   * @default false
+   */
+  trustedProxies?: TrustedProxyConfig
 
   /**
    * Callback when IP is banned
@@ -531,13 +539,23 @@ export function failbanMiddleware<E extends Record<string, unknown> = Record<str
   failban: FailbanManager,
   options: {
     getIp?: (c: HttpContextInterface<E>) => string
+    trustedProxies?: TrustedProxyConfig
     message?: string
   } = {}
 ): HttpMiddleware<E> {
-  const { getIp = defaultGetIp as (c: HttpContextInterface<E>) => string, message = 'Access denied' } = options
+  const {
+    getIp,
+    trustedProxies = false,
+    message = 'Access denied',
+  } = options
+  const resolveIp = getIp ?? ((c: HttpContextInterface<E>) => {
+    return c.runtime?.http?.clientIp
+      ?? resolveRequestClientIp(c.req.raw, trustedProxies).ip
+      ?? 'unknown'
+  })
 
   return async (c, next) => {
-    const ip = getIp(c)
+    const ip = resolveIp(c)
 
     if (await failban.isBanned(ip)) {
       c.res = new Response(
@@ -570,31 +588,21 @@ export function failbanMiddleware<E extends Record<string, unknown> = Record<str
  * Default IP extraction function
  */
 function defaultGetIp(c: HttpContextInterface): string {
-  // Check X-Forwarded-For header
-  const forwardedFor = c.req.header('x-forwarded-for') as string | undefined
-  if (forwardedFor) {
-    // X-Forwarded-For can contain multiple IPs, take the first one
-    const firstIp = forwardedFor.split(',')[0].trim()
-    if (firstIp) {
-      return firstIp
-    }
-  }
-
-  // Check X-Real-IP header
-  const realIp = c.req.header('x-real-ip') as string | undefined
-  if (realIp) {
-    return realIp
-  }
-
-  // Fallback to unknown (in real implementation, would get from socket)
-  return 'unknown'
+  return c.runtime?.http?.clientIp
+    ?? resolveRequestClientIp(c.req.raw).ip
+    ?? 'unknown'
 }
 
 /**
  * Get client IP helper
  */
-export function getClientIp(c: HttpContextInterface): string {
-  return defaultGetIp(c)
+export function getClientIp(
+  c: HttpContextInterface,
+  trustedProxies: TrustedProxyConfig = false
+): string {
+  return c.runtime?.http?.clientIp
+    ?? resolveRequestClientIp(c.req.raw, trustedProxies).ip
+    ?? 'unknown'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

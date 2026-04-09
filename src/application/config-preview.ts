@@ -1,3 +1,5 @@
+import type { SharedPortPreviewConfig } from '../server/types.js'
+
 export type FrontDoorTransport =
   | 'http'
   | 'websocket'
@@ -62,24 +64,8 @@ export interface ServerConfigPreview {
     protocols: FrontDoorTransport[] | null
     protocolAliasMode: ProtocolAliasMode
   }
-  sharedPort: {
-    enabled: boolean
-    protocolFusion: boolean
-    protocolAliasMode: ProtocolAliasMode
-    sniffMaxBytes: number
-    sniffTimeoutMs: number
-    maxConcurrentDetections: number
-    protocols?: SinglePortProtocolKind[]
-  }
-  singlePort: {
-    enabled: boolean
-    protocolFusion: boolean
-    protocolAliasMode: ProtocolAliasMode
-    sniffMaxBytes: number
-    sniffTimeoutMs: number
-    maxConcurrentDetections: number
-    protocols?: SinglePortProtocolKind[]
-  }
+  sharedPort: SharedPortPreviewConfig
+  singlePort: SharedPortPreviewConfig
   protocols: {
     http: {
       enabled: true
@@ -170,6 +156,11 @@ export interface ServerConfigPreviewContext {
   getSinglePortConfig: () => SinglePortConfigLike
   getSinglePortAliasMode: () => ProtocolAliasMode
   getSinglePortSource: () => SourceType
+  getProviderCount?: () => number
+  getHttpExposure?: () => {
+    corsWildcard: boolean
+    trustedProxies: false | string[]
+  }
   protocols: ProtocolConfig
 }
 
@@ -214,6 +205,8 @@ export function logSinglePortConfig(
 export function getConfigWarnings(context: ServerConfigPreviewContext): string[] {
   const singlePortConfig = context.getSinglePortConfig()
   const warnings: string[] = []
+  const providerCount = context.getProviderCount?.() ?? 0
+  const httpExposure = context.getHttpExposure?.()
 
   if (
     context.protocols.tcp?.enabled
@@ -235,6 +228,24 @@ export function getConfigWarnings(context: ServerConfigPreviewContext): string[]
     )
   }
 
+  if (providerCount > 0) {
+    warnings.push(
+      'Startup providers are still mirrored onto top-level context keys for compatibility. Prefer ctx.services in new handlers.'
+    )
+  }
+
+  if (context.frontDoorEnabled && httpExposure?.trustedProxies === false) {
+    warnings.push(
+      'Front-door routing is enabled without http.trustedProxies. Forwarded client IP headers will be ignored until trusted proxies are configured.'
+    )
+  }
+
+  if (context.frontDoorEnabled && httpExposure?.corsWildcard) {
+    warnings.push(
+      'Front-door routing is enabled with wildcard CORS. Prefer explicit origins before public exposure.'
+    )
+  }
+
   return warnings
 }
 
@@ -250,7 +261,7 @@ export function emitConfigWarnings(
 export function buildServerConfigPreview(context: ServerConfigPreviewContext): ServerConfigPreview {
   const warnings = getConfigWarnings(context)
   const singlePortConfig = context.getSinglePortConfig()
-  const sharedPortPreview = {
+  const sharedPortPreview: SharedPortPreviewConfig = {
     enabled: singlePortConfig.enabled,
     protocolFusion: singlePortConfig.protocolFusion,
     protocolAliasMode: context.getSinglePortAliasMode(),

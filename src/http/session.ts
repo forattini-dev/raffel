@@ -27,6 +27,7 @@
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
 import { getCookie, setCookie, deleteCookie, type CookieOptions, type CookieContext } from './cookie.js'
+import { resolveRequestClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal Helpers
@@ -273,6 +274,13 @@ export interface SessionMiddlewareOptions {
    * Function to extract IP from context
    */
   getIp?: (c: HttpContextInterface) => string
+
+  /**
+   * Trusted proxy hops that are allowed to supply forwarding headers.
+   * When omitted or false, x-forwarded-for and x-real-ip are ignored.
+   * @default false
+   */
+  trustedProxies?: TrustedProxyConfig
 
   /**
    * Create session automatically if none exists
@@ -542,16 +550,9 @@ export function createSessionTracker(options: SessionManagerOptions = {}): Sessi
  * Default IP extraction function
  */
 function defaultGetIp(c: HttpContextInterface): string {
-  const forwardedFor = c.req.header('x-forwarded-for') as string | undefined
-  if (forwardedFor) {
-    const firstIp = forwardedFor.split(',')[0].trim()
-    if (firstIp) return firstIp
-  }
-
-  const realIp = c.req.header('x-real-ip') as string | undefined
-  if (realIp) return realIp
-
-  return 'unknown'
+  return c.runtime?.http?.clientIp
+    ?? resolveRequestClientIp(c.req.raw).ip
+    ?? 'unknown'
 }
 
 /**
@@ -579,10 +580,16 @@ export function sessionMiddleware<E extends Record<string, unknown> = Record<str
   const {
     cookieName = 'session_id',
     cookie = {},
-    getIp = defaultGetIp as (c: HttpContextInterface<E>) => string,
+    getIp,
     autoCreate = false,
     contextKey = 'session',
+    trustedProxies = false,
   } = options
+  const resolveIp = getIp ?? ((c: HttpContextInterface<E>) => {
+    return c.runtime?.http?.clientIp
+      ?? resolveRequestClientIp(c.req.raw, trustedProxies).ip
+      ?? 'unknown'
+  })
 
   const cookieOptions: CookieOptions = {
     httpOnly: true,
@@ -606,7 +613,7 @@ export function sessionMiddleware<E extends Record<string, unknown> = Record<str
     // Auto-create session if configured
     if (!session && autoCreate) {
       session = await sessions.create({
-        ip: getIp(c),
+        ip: resolveIp(c),
         userAgent: c.req.header('user-agent') as string | undefined,
       })
 
@@ -645,7 +652,8 @@ export async function createSession<E extends Record<string, unknown>>(
 
   const session = await sessions.create({
     userId,
-    ip: defaultGetIp(c as HttpContextInterface),
+    ip: c.runtime?.http?.clientIp
+      ?? defaultGetIp(c as HttpContextInterface),
     userAgent: c.req.header('user-agent') as string | undefined,
     data,
   })

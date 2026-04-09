@@ -78,6 +78,9 @@ export interface HttpContextCapability {
   readonly path: string
   readonly url: string
   readonly headers: Readonly<Record<string, string>>
+  readonly clientIp?: string
+  readonly remoteAddress?: string
+  readonly remotePort?: number
 }
 
 export interface WebSocketContextCapability {

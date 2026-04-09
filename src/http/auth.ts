@@ -35,6 +35,7 @@
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
 import { setSignedCookie, getSignedCookie, deleteCookie, type CookieContext } from './cookie.js'
+import { resolveRequestClientIp } from '../utils/client-ip.js'
 
 /**
  * Adapt HttpContextInterface to CookieContext
@@ -1487,12 +1488,9 @@ export function loginThrottleMiddleware<E extends Record<string, unknown> = Reco
   keyGenerator?: (c: HttpContextInterface<E>) => string
 ): HttpMiddleware<E> {
   const getKey = keyGenerator ?? ((c) => {
-    // Try common headers for real IP behind proxy
-    return (
-      (c.req.header('x-forwarded-for') as string)?.split(',')[0]?.trim() ||
-      (c.req.header('x-real-ip') as string) ||
-      'unknown'
-    )
+    return c.runtime?.http?.clientIp
+      ?? resolveRequestClientIp(c.req.raw).ip
+      ?? 'unknown'
   })
 
   return async (c, next) => {

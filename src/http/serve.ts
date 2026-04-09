@@ -7,6 +7,7 @@
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { BodyInit } from './web-types.js'
+import { attachRequestSocketInfo } from '../utils/client-ip.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -108,12 +109,19 @@ async function nodeRequestToWebRequest(req: IncomingMessage): Promise<Request> {
     }
   }
 
-  return new Request(url, {
+  const request = new Request(url, {
     method: req.method,
     headers,
     body,
     duplex: body ? 'half' : undefined,
   } as RequestInit)
+
+  attachRequestSocketInfo(request, {
+    remoteAddress: req.socket?.remoteAddress,
+    remotePort: req.socket?.remotePort,
+  })
+
+  return request
 }
 
 /**

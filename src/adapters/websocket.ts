@@ -9,8 +9,9 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage, Server } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import type { Envelope, Context, ContextSeed, Interceptor } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
+import { compose } from '../middleware/compose.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import {
@@ -72,6 +73,9 @@ export interface WebSocketAdapterOptions {
 
   /** Context factory for creating request context */
   contextFactory?: (ws: WebSocket, req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
+
+  /** Interceptors applied only to Raffel envelopes arriving over WebSocket */
+  interceptors?: Interceptor[]
 
   /**
    * Channel configuration for Pusher-like real-time channels.
@@ -291,6 +295,9 @@ export function createWebSocketAdapter(
     throw new Error('WebSocket adapter requires a port when no server is provided')
   }
 
+  const transportInterceptor = options.interceptors?.length
+    ? compose(...options.interceptors)
+    : null
   let wss: WebSocketServer | null = null
   let heartbeatTimer: NodeJS.Timeout | null = null
   const clients = new Map<string, ClientConnection>()
@@ -452,7 +459,7 @@ export function createWebSocketAdapter(
 
     if (messageType === 'unsubscribe') {
       const msg = parsed as UnsubscribeMessage
-      channelManager.unsubscribe(client.id, msg.channel)
+      channelManager.unsubscribe(client.id, msg.channel, ctx)
       sendRawMessage(client, {
         id: msg.id,
         type: 'unsubscribed',
@@ -732,7 +739,9 @@ export function createWebSocketAdapter(
 
     try {
       // Route the envelope
-      const result = await router.handle(envelope)
+      const result = transportInterceptor
+        ? await transportInterceptor(envelope, envelope.context, () => router.handle(envelope))
+        : await router.handle(envelope)
 
       const requestAbortController = client.activeRequests.get(envelope.id)
       if (requestAbortController?.signal.aborted) {

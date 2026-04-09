@@ -187,7 +187,9 @@ function defaultKeyGenerator(envelope: Envelope, ctx: Context): string {
 
   // Fall back to request ID (unique per request, not ideal for rate limiting)
   // In real scenarios, adapters should inject client IP or other identifiers
-  const clientId = envelope.metadata['x-client-id'] || envelope.metadata['x-forwarded-for']
+  const clientId = envelope.metadata['x-client-id']
+    || envelope.metadata['x-client-ip']
+    || envelope.metadata['x-forwarded-for']
   if (clientId) {
     return `client:${clientId}`
   }
