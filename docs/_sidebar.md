@@ -31,6 +31,7 @@
   - [TCP](/protocols/tcp.md)
   - [UDP](/protocols/udp.md)
   - [SMTP](/protocols/smtp.md)
+  - [MCP (build your own)](/protocols/mcp.md)
   - [Shared-Port Fusion](/protocols/single-port.md)
 
 - **HTTP Module** _(standalone)_
@@ -74,6 +75,7 @@
 
 - **Guides**
   - [REST API](/guides/rest-api.md)
+  - [Building MCP Servers](/guides/mcp-server.md)
   - [Authentication](/guides/auth.md)
   - [Multi-Protocol Service](/guides/multi-protocol-service.md)
   - [SMTP Server](/guides/smtp-server.md)
@@ -113,9 +115,9 @@
   - [Core Model](/reference/core-model.md)
   - [Error Codes](/reference/error-codes.md)
   - [API Reference](/reference/api-reference.md)
-  - **AI Intelligence**
-    - [MCP Intelligence](/reference/mcp.md)
-    - [MCP Feature Surface](/reference/mcp.md#one-line-capability-surface)
+  - **Raffel AI Assistant**
+    - [MCP for Raffel (built-in)](/reference/mcp.md)
+    - [Feature Surface](/reference/mcp.md#one-line-capability-surface)
   - **USD Specification**
     - [Overview](/spec/README.md)
     - [USD 1.0.0](/spec/usd-1.0.0.md)

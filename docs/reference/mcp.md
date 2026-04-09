@@ -1,16 +1,18 @@
-# MCP Server
+# Raffel AI Assistant (Built-in MCP)
 
-Raffel MCP is the AI-native control plane for the whole runtime: protocols, proxy modes, observability, security, and scaffolding.
+> **This is Raffel's own MCP server** — a pre-built AI assistant with tools for documentation, code generation, and debugging of Raffel projects.
+>
+> Want to build your own MCP server? See [MCP Protocol — Build Your Own](/protocols/mcp.md) and [Building MCP Servers (Guide)](/guides/mcp-server.md).
 
-It exposes **tools**, **resources**, and **prompts** so an assistant can discover the right feature first and generate code after the design is clear.
+Raffel ships a built-in MCP server that acts as an AI-native control plane for the whole runtime: protocols, proxy modes, observability, security, and scaffolding.
+
+It exposes **tools**, **resources**, and **prompts** so an assistant can discover the right Raffel feature first and generate code after the design is clear.
 
 ---
 
-## What is MCP?
+## What is this?
 
-MCP is a protocol where AI clients can call structured tools and read documented resources.
-
-For Raffel, this means:
+When you run `raffel mcp` or add Raffel as an MCP server in Claude Code, you get an AI assistant that knows everything about the Raffel framework. It can:
 
 - **Discovery first**: map a need (proxy mode, telemetry, auth, migration) before codegen.
 - **Canonical references**: responses always map to guides, patterns, and examples.
@@ -308,6 +310,15 @@ await server.start()
   - `npx raffel-mcp --category docs`
 - Connection/debug:
   - `npx raffel-mcp --debug`
+
+---
+
+## Build Your Own MCP Server
+
+This page documents Raffel's **built-in** AI assistant. If you want to build your own MCP server for your project — exposing your own tools, resources, and prompts to AI clients — see:
+
+- [MCP Protocol Reference](/protocols/mcp.md) — the `createMcpServer()` API and `mcp: true` integrated mode
+- [Building MCP Servers (Guide)](/guides/mcp-server.md) — step-by-step examples with code
 
 ---
 

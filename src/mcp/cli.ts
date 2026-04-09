@@ -48,6 +48,14 @@ interface McpCliOptions {
   debug: boolean
   category: CategoryName[]
   listCategories: boolean
+  /** When set, starts a docs MCP server instead of the Raffel MCP */
+  docs?: string
+  /** Path within git repo (used with --docs <git-url>) */
+  docsPath?: string
+  /** Git branch (used with --docs <git-url>) */
+  docsBranch?: string
+  /** Custom server name for docs mode */
+  docsName?: string
 }
 
 interface DevxCliOptions {
@@ -69,6 +77,7 @@ interface NewCliOptions {
   force: boolean
   help: boolean
 }
+
 
 const MCP_CATEGORY_TOKEN_ESTIMATE: Record<string, string> = {
   quickstart: '~1.5K',
@@ -200,6 +209,14 @@ function parseMcpArgs(args: string[]): McpCliOptions {
       result.category = ['quickstart']
     } else if (arg === '--list-categories') {
       result.listCategories = true
+    } else if (arg === '--docs') {
+      result.docs = args[++index]
+    } else if (arg === '--path') {
+      result.docsPath = args[++index]
+    } else if (arg === '--branch' || arg === '-b') {
+      result.docsBranch = args[++index]
+    } else if (arg === '--name' || arg === '-n') {
+      result.docsName = args[++index]
     } else if (arg === '--help' || arg === '-h') {
       printHelp()
       process.exit(0)
@@ -320,6 +337,19 @@ Mock Options:
   --jsonrpc                 Enable JSON-RPC on /rpc
   --id-key <field>          Record ID field (default: id)
   -w, --watch               Watch file for changes
+
+MCP Docs Mode (--docs):
+  raffel mcp --docs ./docs                                      Local directory
+  raffel mcp --docs ./docs -t http -p 3200                      HTTP transport
+  raffel mcp --docs https://github.com/org/repo                 Git repo
+  raffel mcp --docs https://github.com/org/repo --path docs/    Specific path
+  raffel mcp --docs https://github.com/org/repo -b main         Specific branch
+  raffel mcp --docs ./docs --name my-docs                       Custom name
+
+  --docs <dir|url>          Start docs MCP (local dir or git URL)
+  --path <path>             Path within git repo to index
+  -b, --branch <branch>     Git branch/tag to checkout
+  -n, --name <name>         Server name
 
 Inspection Examples:
   raffel new api my-service
@@ -535,6 +565,11 @@ async function runMcpCommand(options: McpCliOptions): Promise<void> {
     return
   }
 
+  // --docs flag → start docs MCP server instead
+  if (options.docs) {
+    return runDocsMcpServer(options)
+  }
+
   if (options.transport !== 'stdio') {
     printBanner(options)
   }
@@ -545,6 +580,41 @@ async function runMcpCommand(options: McpCliOptions): Promise<void> {
     debug: options.debug,
     category: options.category,
   })
+}
+
+async function runDocsMcpServer(options: McpCliOptions): Promise<void> {
+  const { createDocsMcpServer } = await import('../protocols/mcp/docs-server/index.js')
+
+  const source = options.docs!
+  const isGitUrl = source.startsWith('http://') || source.startsWith('https://') || source.startsWith('git@')
+
+  const server = createDocsMcpServer({
+    ...(isGitUrl
+      ? { repo: source, branch: options.docsBranch, path: options.docsPath }
+      : { dir: source }),
+    name: options.docsName ?? (isGitUrl ? source.split('/').pop()?.replace('.git', '') : 'docs'),
+    version: '1.0.0',
+  })
+
+  if (options.transport !== 'stdio') {
+    const label = isGitUrl ? `${source}${options.docsPath ? ` (${options.docsPath})` : ''}` : source
+    console.error(`\nRaffel Docs MCP Server`)
+    console.error(`  Source:     ${label}`)
+    console.error(`  Transport:  ${options.transport}`)
+    console.error(`  Port:       ${options.port}\n`)
+  }
+
+  switch (options.transport) {
+    case 'stdio':
+      await server.startStdio()
+      break
+    case 'http':
+      await server.startHttp({ port: options.port })
+      break
+    case 'sse':
+      await server.startSse({ port: options.port })
+      break
+  }
 }
 
 async function main(): Promise<void> {

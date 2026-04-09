@@ -2,37 +2,18 @@
  * Raffel MCP - Type Definitions
  *
  * Model Context Protocol types for JSON-RPC 2.0 communication.
+ * JSON-RPC types are re-exported from the shared protocol engine.
  */
 
-// === JSON-RPC 2.0 ===
+// === JSON-RPC 2.0 (shared with src/protocols/mcp/) ===
 
-export interface JsonRpcRequest {
-  jsonrpc: '2.0'
-  id?: string | number | null
-  method: string
-  params?: Record<string, unknown>
-}
+export type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  JsonRpcError,
+} from '../protocols/mcp/types.js'
 
-export interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: string | number | null
-  result?: unknown
-  error?: JsonRpcError
-}
-
-export interface JsonRpcError {
-  code: number
-  message: string
-  data?: unknown
-}
-
-export const JsonRpcErrorCode = {
-  ParseError: -32700,
-  InvalidRequest: -32600,
-  MethodNotFound: -32601,
-  InvalidParams: -32602,
-  InternalError: -32603,
-} as const
+export { JsonRpcErrorCode } from '../protocols/mcp/types.js'
 
 // === MCP Protocol ===
 

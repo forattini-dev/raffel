@@ -8,6 +8,7 @@
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { ValidatorType } from './types.js'
 import { getValidator, hasValidator, listValidators } from './schema.js'
+import { cleanJsonSchema } from './schema-utils.js'
 
 export const SCHEMA_DESCRIPTOR_VERSION = 1
 
@@ -65,31 +66,7 @@ function isZod4Schema(schema: unknown): schema is { toJSONSchema: () => Record<s
   )
 }
 
-function cleanJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-
-  for (const [key, value] of Object.entries(schema)) {
-    if (key === '$schema') continue
-
-    if (Array.isArray(value)) {
-      result[key] = value.map((entry) =>
-        entry && typeof entry === 'object' && !Array.isArray(entry)
-          ? cleanJsonSchema(entry as Record<string, unknown>)
-          : entry
-      )
-      continue
-    }
-
-    if (value && typeof value === 'object') {
-      result[key] = cleanJsonSchema(value as Record<string, unknown>)
-      continue
-    }
-
-    result[key] = value
-  }
-
-  return result
-}
+// cleanJsonSchema imported from ./schema-utils.js
 
 function withDiagnostics(
   baseSchema: Record<string, unknown>,

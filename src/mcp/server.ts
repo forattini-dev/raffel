@@ -1,37 +1,26 @@
 /**
  * Raffel MCP Server
  *
- * Model Context Protocol server with stdio, HTTP, and SSE transports.
+ * Built-in AI assistant with tools, resources, and prompts for the Raffel framework.
+ * Now powered by the Raffel MCP protocol engine (src/protocols/mcp/).
  */
 
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'http'
-import { createInterface } from 'readline'
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  JsonRpcError,
-  MCPServerOptions,
-  MCPCapabilities,
-  MCPInitializeResult,
-  CategoryName,
-} from './types.js'
-import { JsonRpcErrorCode } from './types.js'
+import type { JsonRpcRequest, JsonRpcResponse, MCPServerOptions, CategoryName } from './types.js'
 import { tools, getToolsByCategory, handlers } from './tools/index.js'
-import {
-  getStaticResources,
-  getResourceTemplates,
-  readResource,
-  getGuideCatalog,
-} from './resources/index.js'
+import { getStaticResources, getResourceTemplates, readResource, getGuideCatalog } from './resources/index.js'
 import { prompts, getPromptResult } from './prompts/index.js'
 import { MCP_VERSION } from './version.js'
 import { interceptors, adapters, errors } from './docs/index.js'
+import { createProtocolHandler, type McpProtocolHandler } from '../protocols/mcp/protocol.js'
+import { createStdioTransport } from '../protocols/mcp/transport/stdio.js'
+import { createStreamableHttpTransport } from '../protocols/mcp/transport/streamable-http.js'
+import { createSseTransport } from '../protocols/mcp/transport/sse.js'
+import type { McpTransport } from '../protocols/mcp/transport/types.js'
 
 export class MCPServer {
+  private protocol: McpProtocolHandler
   private options: MCPServerOptions
   private debug: boolean
-  private enabledTools: string[]
-  private _initialized: boolean = false
 
   constructor(options: MCPServerOptions = {}) {
     this.options = {
@@ -53,21 +42,21 @@ export class MCPServer {
 
     const enabledSet = new Set<string>()
     for (const cat of categories) {
-      const toolNames = getToolsByCategory(cat)
-      if (toolNames.length === 0) {
+      const toolDefs = getToolsByCategory(cat)
+      if (toolDefs.length === 0) {
         this.log(`Unknown MCP category: ${cat}`)
         continue
       }
-
-      for (const tool of toolNames) {
+      for (const tool of toolDefs) {
         enabledSet.add(tool.name)
       }
     }
-    this.enabledTools = Array.from(enabledSet)
+
+    let enabledTools = Array.from(enabledSet)
 
     // Apply additional filters
     if (this.options.toolsFilter) {
-      this.enabledTools = this.enabledTools.filter((name) => {
+      enabledTools = enabledTools.filter((name) => {
         return this.options.toolsFilter!.some((pattern) => {
           if (pattern.startsWith('!')) {
             return !this.matchPattern(name, pattern.slice(1))
@@ -76,6 +65,130 @@ export class MCPServer {
         })
       })
     }
+
+    // Create protocol handler from the new engine
+    this.protocol = createProtocolHandler({
+      name: this.options.name || 'raffel-mcp',
+      version: this.options.version || MCP_VERSION,
+      instructions: `Raffel MCP Server - Unified Multi-Protocol Server Runtime
+
+Available tools for documentation, code generation, and debugging:
+- raffel_getting_started: Quick start guide
+- raffel_search: Search documentation
+- raffel_api_patterns: Learn canonical API patterns
+- raffel_create_*: Generate server, procedures, streams, events
+- raffel_add_middleware: Add interceptors
+- raffel_explain_error: Debug error codes
+
+Use raffel_feature_catalog and raffel_api_patterns before generating implementation code to keep your output on track.`,
+    })
+
+    // Register only enabled tools
+    for (const name of enabledTools) {
+      const toolDef = tools.find((t) => t.name === name)
+      const handler = handlers[name]
+      if (!toolDef || !handler) continue
+
+      this.protocol.registerTool({
+        name: toolDef.name,
+        description: toolDef.description,
+        input: toolDef.inputSchema as import('../protocols/mcp/types.js').JsonSchema,
+        handler: async (args) => handler(args as Record<string, unknown>),
+      })
+    }
+
+    // Register resources
+    for (const resource of getStaticResources()) {
+      this.protocol.registerResource({
+        uri: resource.uri,
+        name: resource.name,
+        description: resource.description,
+        mimeType: resource.mimeType,
+        handler: async (uri) => {
+          const result = readResource(uri)
+          if (!result) {
+            return { contents: [{ uri, mimeType: 'text/plain', text: 'Resource not found' }] }
+          }
+          return result
+        },
+      })
+    }
+
+    // Register resource templates
+    for (const template of getResourceTemplates()) {
+      this.protocol.registerResourceTemplate({
+        uriTemplate: template.uriTemplate,
+        name: template.name,
+        description: template.description,
+        mimeType: template.mimeType,
+        handler: async (uri) => {
+          const result = readResource(uri)
+          if (!result) {
+            return { contents: [{ uri, mimeType: 'text/plain', text: 'Resource not found' }] }
+          }
+          return result
+        },
+        completions: this.buildTemplateCompletions(template.uriTemplate),
+      })
+    }
+
+    // Register prompts
+    for (const prompt of prompts) {
+      this.protocol.registerPrompt({
+        name: prompt.name,
+        description: prompt.description,
+        arguments: prompt.arguments,
+        handler: async (args) => {
+          const result = getPromptResult(prompt.name, args)
+          if (!result) {
+            return {
+              messages: [{ role: 'user', content: { type: 'text', text: `Prompt not found: ${prompt.name}` } }],
+            }
+          }
+          return result
+        },
+      })
+    }
+  }
+
+  private buildTemplateCompletions(uriTemplate: string): Record<string, (prefix: string) => string[]> | undefined {
+    // Provide completions for known template parameters
+    if (uriTemplate.includes('{name}')) {
+      if (uriTemplate.includes('interceptor')) {
+        return {
+          name: (prefix) => interceptors
+            .map((i) => i.name)
+            .filter((n) => n.toLowerCase().includes(prefix.toLowerCase())),
+        }
+      }
+      if (uriTemplate.includes('adapter')) {
+        return {
+          name: (prefix) => adapters
+            .map((a) => a.name)
+            .filter((n) => n.toLowerCase().includes(prefix.toLowerCase())),
+        }
+      }
+      if (uriTemplate.includes('pattern')) {
+        return {
+          name: () => ['rest-crud', 'event-driven', 'streaming', 'pub-sub'],
+        }
+      }
+    }
+    if (uriTemplate.includes('{code}')) {
+      return {
+        code: (prefix) => errors
+          .map((e) => e.code)
+          .filter((c) => c.includes(prefix.toUpperCase())),
+      }
+    }
+    if (uriTemplate.includes('{topic}')) {
+      return {
+        topic: (prefix) => getGuideCatalog()
+          .map((g) => g.topic)
+          .filter((t) => t.includes(prefix.toLowerCase())),
+      }
+    }
+    return undefined
   }
 
   private matchPattern(name: string, pattern: string): boolean {
@@ -95,456 +208,59 @@ export class MCPServer {
   }
 
   async start(): Promise<void> {
-    const transport = this.options.transport || 'stdio'
+    const transportType = this.options.transport || 'stdio'
+    let transport: McpTransport
 
-    switch (transport) {
+    switch (transportType) {
       case 'stdio':
-        await this.startStdio()
+        transport = createStdioTransport()
         break
-      case 'http':
-        await this.startHttp()
+      case 'http': {
+        const { transport: httpTransport, middleware } = createStreamableHttpTransport({
+          path: '/mcp',
+        })
+        transport = httpTransport
+
+        // For HTTP, also create a standalone HTTP server
+        const { createServer: createHttpServer } = await import('http')
+        const port = this.options.port || 3200
+        const httpServer = createHttpServer(async (req, res) => {
+          const handled = await middleware(req, res)
+          if (!handled) {
+            if (req.method === 'GET' && req.url === '/health') {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ status: 'ok', version: MCP_VERSION }))
+              return
+            }
+            res.writeHead(404)
+            res.end('Not found')
+          }
+        })
+        await new Promise<void>((resolve) => httpServer.listen(port, () => resolve()))
+        this.log(`HTTP server listening on port ${port}`)
+        console.error(`Raffel MCP server running on http://localhost:${port}`)
         break
-      case 'sse':
-        await this.startSSE()
+      }
+      case 'sse': {
+        const port = this.options.port || 3200
+        transport = createSseTransport({ port })
+        this.log(`SSE server listening on port ${port}`)
+        console.error(`Raffel MCP server running on http://localhost:${port}`)
+        console.error(`SSE endpoint: http://localhost:${port}/sse`)
         break
+      }
       default:
-        throw new Error(`Unknown transport: ${transport}`)
+        throw new Error(`Unknown transport: ${transportType}`)
     }
+
+    await transport.start((request) => this.protocol.handleRequest(request))
   }
 
-  private async startStdio(): Promise<void> {
-    this.log('Starting stdio transport')
-
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: false,
-    })
-
-    rl.on('line', async (line) => {
-      if (line.trim().length === 0) {
-        return
-      }
-
-      try {
-        const request = JSON.parse(line) as JsonRpcRequest
-        const response = await this.handleRequest(request)
-        if (response) {
-          console.log(JSON.stringify(response))
-        }
-      } catch (error) {
-        const errorResponse: JsonRpcResponse = {
-          jsonrpc: '2.0',
-          id: null,
-          error: {
-            code: JsonRpcErrorCode.ParseError,
-            message: 'Parse error',
-            data: (error as Error).message,
-          },
-        }
-        console.log(JSON.stringify(errorResponse))
-      }
-    })
-
-    rl.on('close', () => {
-      process.exit(0)
-    })
-  }
-
-  private async startHttp(): Promise<void> {
-    const port = this.options.port || 3200
-
-    const server = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // CORS
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204)
-        res.end()
-        return
-      }
-
-      if (req.method === 'GET' && req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'ok', version: MCP_VERSION }))
-        return
-      }
-
-      if (req.method === 'POST') {
-        let body = ''
-        req.on('data', (chunk) => (body += chunk))
-        req.on('end', async () => {
-          try {
-            const request = JSON.parse(body) as JsonRpcRequest
-            const response = await this.handleRequest(request)
-
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify(response))
-          } catch (error) {
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(
-              JSON.stringify({
-                jsonrpc: '2.0',
-                id: null,
-                error: {
-                  code: JsonRpcErrorCode.ParseError,
-                  message: 'Parse error',
-                  data: (error as Error).message,
-                },
-              })
-            )
-          }
-        })
-        return
-      }
-
-      res.writeHead(405)
-      res.end('Method not allowed')
-    })
-
-    server.listen(port, () => {
-      this.log(`HTTP server listening on port ${port}`)
-      console.error(`Raffel MCP server running on http://localhost:${port}`)
-    })
-  }
-
-  private async startSSE(): Promise<void> {
-    const port = this.options.port || 3200
-    const clients: ServerResponse[] = []
-
-    const server = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // CORS
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204)
-        res.end()
-        return
-      }
-
-      // SSE endpoint
-      if (req.method === 'GET' && req.url === '/sse') {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        })
-
-        clients.push(res)
-        res.write('data: {"type":"connected"}\n\n')
-
-        req.on('close', () => {
-          const index = clients.indexOf(res)
-          if (index > -1) clients.splice(index, 1)
-        })
-        return
-      }
-
-      if (req.method === 'GET' && req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'ok', version: MCP_VERSION, clients: clients.length }))
-        return
-      }
-
-      if (req.method === 'POST') {
-        let body = ''
-        req.on('data', (chunk) => (body += chunk))
-        req.on('end', async () => {
-          try {
-            const request = JSON.parse(body) as JsonRpcRequest
-            const response = await this.handleRequest(request)
-
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify(response))
-          } catch (error) {
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(
-              JSON.stringify({
-                jsonrpc: '2.0',
-                id: null,
-                error: {
-                  code: JsonRpcErrorCode.ParseError,
-                  message: 'Parse error',
-                  data: (error as Error).message,
-                },
-              })
-            )
-          }
-        })
-        return
-      }
-
-      res.writeHead(405)
-      res.end('Method not allowed')
-    })
-
-    server.listen(port, () => {
-      this.log(`SSE server listening on port ${port}`)
-      console.error(`Raffel MCP server running on http://localhost:${port}`)
-      console.error(`SSE endpoint: http://localhost:${port}/sse`)
-    })
-  }
-
+  /**
+   * Handle a raw JSON-RPC request (for testing and programmatic use).
+   */
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse | null> {
-    const { id, method, params } = request
-
-    // Notifications don't return responses
-    if (id === undefined || id === null) {
-      await this.handleNotification(method, params)
-      return null
-    }
-
-    try {
-      const result = await this.handleMethod(method, params || {})
-      return {
-        jsonrpc: '2.0',
-        id,
-        result,
-      }
-    } catch (error) {
-      return {
-        jsonrpc: '2.0',
-        id,
-        error: this.formatError(error),
-      }
-    }
-  }
-
-  private async handleNotification(
-    method: string,
-    params: Record<string, unknown> | undefined
-  ): Promise<void> {
-    this.log('Notification:', method, params)
-
-    switch (method) {
-      case 'notifications/initialized':
-        this._initialized = true
-        break
-      case 'notifications/cancelled':
-        // Handle request cancellation
-        break
-    }
-  }
-
-  private async handleMethod(
-    method: string,
-    params: Record<string, unknown>
-  ): Promise<unknown> {
-    this.log('Method:', method, params)
-
-    switch (method) {
-      case 'initialize':
-        return this.handleInitialize(params)
-
-      case 'tools/list':
-        return this.handleToolsList()
-
-      case 'tools/call':
-        return this.handleToolCall(params)
-
-      case 'resources/list':
-        return this.handleResourcesList()
-
-      case 'resources/templates/list':
-        return this.handleResourceTemplatesList()
-
-      case 'resources/read':
-        return this.handleResourceRead(params)
-
-      case 'prompts/list':
-        return this.handlePromptsList()
-
-      case 'prompts/get':
-        return this.handlePromptGet(params)
-
-      case 'completion/complete':
-        return this.handleCompletion(params)
-
-      case 'ping':
-        return {}
-
-      default:
-        throw {
-          code: JsonRpcErrorCode.MethodNotFound,
-          message: `Method not found: ${method}`,
-        }
-    }
-  }
-
-  private handleInitialize(params: Record<string, unknown>): MCPInitializeResult {
-    const capabilities: MCPCapabilities = {
-      tools: { listChanged: false },
-      resources: { subscribe: false, listChanged: false },
-      prompts: { listChanged: false },
-      logging: {},
-    }
-
-    return {
-      protocolVersion: '2024-11-05',
-      capabilities,
-      serverInfo: {
-        name: this.options.name || 'raffel-mcp',
-        version: this.options.version || MCP_VERSION,
-      },
-      instructions: `Raffel MCP Server - Unified Multi-Protocol Server Runtime
-
-Available tools for documentation, code generation, and debugging:
-- raffel_getting_started: Quick start guide
-- raffel_search: Search documentation
-- raffel_api_patterns: Learn canonical API patterns
-- raffel_create_*: Generate server, procedures, streams, events
-- raffel_add_middleware: Add interceptors
-- raffel_explain_error: Debug error codes
-
-Use raffel_feature_catalog and raffel_api_patterns before generating implementation code to keep your output on track.`,
-    }
-  }
-
-  private handleToolsList(): { tools: typeof tools } {
-    const enabledTools = tools.filter((t) => this.enabledTools.includes(t.name))
-    return { tools: enabledTools }
-  }
-
-  private async handleToolCall(params: Record<string, unknown>): Promise<unknown> {
-    const name = String(params.name || '')
-    const args = (params.arguments as Record<string, unknown>) || {}
-
-    if (!name) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: 'Tool name required' }
-    }
-
-    if (!this.enabledTools.includes(name)) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: `Tool not found: ${name}` }
-    }
-
-    const handler = handlers[name]
-    if (!handler) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: `Tool handler not found: ${name}` }
-    }
-
-    return await handler(args)
-  }
-
-  private handleResourcesList(): { resources: ReturnType<typeof getStaticResources> } {
-    return { resources: getStaticResources() }
-  }
-
-  private handleResourceTemplatesList(): {
-    resourceTemplates: ReturnType<typeof getResourceTemplates>
-  } {
-    return { resourceTemplates: getResourceTemplates() }
-  }
-
-  private handleResourceRead(params: Record<string, unknown>): unknown {
-    const uri = String(params.uri || '')
-    if (!uri) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: 'Resource URI required' }
-    }
-
-    const result = readResource(uri)
-    if (!result) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: `Resource not found: ${uri}` }
-    }
-
-    return result
-  }
-
-  private handlePromptsList(): { prompts: typeof prompts } {
-    return { prompts }
-  }
-
-  private handlePromptGet(params: Record<string, unknown>): unknown {
-    const name = String(params.name || '')
-    const args = (params.arguments as Record<string, string>) || {}
-
-    if (!name) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: 'Prompt name required' }
-    }
-
-    const result = getPromptResult(name, args)
-    if (!result) {
-      throw { code: JsonRpcErrorCode.InvalidParams, message: `Prompt not found: ${name}` }
-    }
-
-    return result
-  }
-
-  private handleCompletion(params: Record<string, unknown>): unknown {
-    const ref = params.ref as { type: string; name: string } | undefined
-    const argument = params.argument as { name: string; value: string } | undefined
-
-    if (!ref || !argument) {
-      return { completion: { values: [], hasMore: false } }
-    }
-
-    // Provide completions based on context
-    const values: string[] = []
-
-    if (ref.type === 'ref/argument') {
-      // Tool argument completions
-      if (argument.name === 'type' && ref.name === 'raffel_search') {
-        values.push(...['interceptor', 'adapter', 'pattern', 'error', 'guide'].filter((type) =>
-          type.includes(argument.value.toLowerCase()),
-        ))
-      }
-
-      if (argument.name === 'topic' && ref.name === 'raffel_get_guide') {
-        const guides = getGuideCatalog().map((guide) => guide.topic)
-        values.push(...guides.filter((name) => name.includes(argument.value.toLowerCase())))
-      }
-
-      if (argument.name === 'scope' && ref.name === 'raffel_feature_catalog') {
-        values.push(
-          ...['all', 'protocols', 'proxy', 'observability', 'security', 'devx'].filter((scope) =>
-            scope.includes(argument.value.toLowerCase()),
-          ),
-        )
-      }
-
-      if (argument.name === 'name' && ref.name === 'raffel_get_interceptor') {
-        const allInterceptors = interceptors.map((item) => item.name)
-        const normalizedValue = argument.value.toLowerCase()
-        values.push(...allInterceptors.filter((i) => i.toLowerCase().includes(normalizedValue)))
-      }
-
-      if (argument.name === 'name' && ref.name === 'raffel_get_adapter') {
-        const allAdapters = adapters.map((adapter) => adapter.name)
-        values.push(...allAdapters.filter((i) => i.toLowerCase().includes(argument.value.toLowerCase())))
-      }
-
-      if (argument.name === 'code' && ref.name === 'raffel_explain_error') {
-        const allErrors = errors.map((item) => item.code)
-        values.push(...allErrors.filter((e) => e.includes(argument.value.toUpperCase())))
-      }
-    }
-
-    return {
-      completion: {
-        values: values.slice(0, 10),
-        total: values.length,
-        hasMore: values.length > 10,
-      },
-    }
-  }
-
-  private formatError(error: unknown): JsonRpcError {
-    if (typeof error === 'object' && error !== null) {
-      const err = error as { code?: number; message?: string; data?: unknown }
-      return {
-        code: err.code || JsonRpcErrorCode.InternalError,
-        message: err.message || 'Internal error',
-        data: err.data,
-      }
-    }
-
-    return {
-      code: JsonRpcErrorCode.InternalError,
-      message: String(error),
-    }
+    return this.protocol.handleRequest(request)
   }
 }
 
