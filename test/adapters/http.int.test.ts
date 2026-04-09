@@ -338,6 +338,77 @@ describe('HttpAdapter', () => {
       expect(receivedMetadata['x-custom-header']).toBe('custom-value')
       expect(receivedMetadata['x-request-id']).toBe('req-123')
     })
+
+    it('should ignore forwarded IP headers when trusted proxies are disabled', async () => {
+      registry.procedure('clientIp', async (_input, ctx) => {
+        return {
+          clientIp: ctx.http?.clientIp,
+          metadataClientIp: ctx.input.metadata['x-client-ip'],
+          remoteAddress: ctx.http?.remoteAddress,
+        }
+      })
+
+      adapter = createHttpAdapter(router, {
+        port: TEST_PORT,
+        host: '127.0.0.1',
+      })
+      await adapter.start()
+
+      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/clientIp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '198.51.100.10',
+        },
+        body: JSON.stringify({}),
+      })
+
+      const body = await res.json() as {
+        clientIp?: string
+        metadataClientIp?: string
+        remoteAddress?: string
+      }
+
+      expect(body.clientIp).toBe(body.metadataClientIp)
+      expect(body.clientIp).toBe(body.remoteAddress)
+      expect(body.clientIp).not.toBe('198.51.100.10')
+    })
+
+    it('should trust forwarded IP headers only from configured proxies', async () => {
+      registry.procedure('clientIp', async (_input, ctx) => {
+        return {
+          clientIp: ctx.http?.clientIp,
+          metadataClientIp: ctx.input.metadata['x-client-ip'],
+          remoteAddress: ctx.http?.remoteAddress,
+        }
+      })
+
+      adapter = createHttpAdapter(router, {
+        port: TEST_PORT,
+        host: '127.0.0.1',
+        trustedProxies: ['127.0.0.1', '::1'],
+      })
+      await adapter.start()
+
+      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/clientIp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '198.51.100.10, 127.0.0.1',
+        },
+        body: JSON.stringify({}),
+      })
+
+      const body = await res.json() as {
+        clientIp?: string
+        metadataClientIp?: string
+        remoteAddress?: string
+      }
+
+      expect(body.remoteAddress).toBe('127.0.0.1')
+      expect(body.clientIp).toBe('198.51.100.10')
+      expect(body.metadataClientIp).toBe('198.51.100.10')
+    })
   })
 
   describe('CORS', () => {

@@ -244,6 +244,22 @@ describe('ChannelManager', () => {
       expect(result.error?.code).toBe('PERMISSION_DENIED')
     })
 
+    it('should call onSubscribe for presence channels with context', async () => {
+      const onSubscribe = vi.fn()
+      const manager = createChannelManager({
+        ...presenceOptions,
+        hooks: {
+          onSubscribe,
+        },
+      }, mockSend)
+      const ctx = createTestContext({ authenticated: true, principal: 'user-1' })
+
+      await manager.subscribe('socket-1', 'presence-lobby', ctx)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      expect(onSubscribe).toHaveBeenCalledWith('socket-1', 'presence-lobby', ctx)
+    })
+
     it('should track members on subscribe', async () => {
       const manager = createChannelManager(presenceOptions, mockSend)
       const ctx = createTestContext({ authenticated: true, principal: 'user-1' })

@@ -344,6 +344,14 @@ describe('HTTP Forward Proxy — filter', () => {
     expect(res.status).toBe(403)
   })
 
+  it('filter.blockPrivateRanges blocks loopback upstreams → 403', async () => {
+    upstream.get('/', () => ({ status: 200, body: 'ok' }))
+    await startProxy({ filter: { blockPrivateRanges: true } })
+
+    const res = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/`, proxyPort)
+    expect(res.status).toBe(403)
+  })
+
   it('filter.onDenied callback is invoked on block', async () => {
     let deniedInfo: { host: string; port: number; reason: string } | null = null
     upstream.get('/', () => ({ status: 200, body: 'ok' }))

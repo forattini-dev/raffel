@@ -395,6 +395,40 @@ describe('Router', () => {
       expect(result.payload).toBe('intercepted')
       expect(handlerCalled).toBe(false)
     })
+
+    it('should invalidate compiled plans when adding a global interceptor later', async () => {
+      const registry = createRegistry()
+      const router = createRouter(registry)
+      const calls: string[] = []
+
+      registry.procedure('test', async () => {
+        calls.push('handler')
+        return 'done'
+      })
+
+      const envelope = createTestEnvelope('test')
+      const firstResult = (await router.handle(envelope)) as Envelope
+
+      expect(firstResult.payload).toBe('done')
+      expect(calls).toEqual(['handler'])
+
+      router.use(async (_envelope, _ctx, next) => {
+        calls.push('late-before')
+        const result = (await next()) as string
+        calls.push('late-after')
+        return `${result}-patched`
+      })
+
+      const secondResult = (await router.handle(createTestEnvelope('test'))) as Envelope
+
+      expect(secondResult.payload).toBe('done-patched')
+      expect(calls).toEqual([
+        'handler',
+        'late-before',
+        'handler',
+        'late-after',
+      ])
+    })
   })
 
   describe('deadline and cancellation', () => {

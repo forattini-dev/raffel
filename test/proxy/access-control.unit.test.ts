@@ -201,6 +201,97 @@ describe('checkProxyFilter', () => {
     expect(ip.allowed).toBe(true)
   })
 
+  // ── CIDR / private range checks ───────────────────────────────────────────
+
+  it('allowCidrs allows literal IPs inside configured ranges', async () => {
+    const filter: ProxyFilter = { allowCidrs: ['203.0.113.0/24'] }
+
+    const allowed = await checkProxyFilter(filter, '203.0.113.10', 443)
+    expect(allowed.allowed).toBe(true)
+
+    const denied = await checkProxyFilter(filter, '198.51.100.10', 443)
+    expect(denied.allowed).toBe(false)
+    expect(denied.reason).toContain('allowCidrs')
+  })
+
+  it('denyCidrs blocks literal IPs inside configured ranges', async () => {
+    const filter: ProxyFilter = { denyCidrs: ['198.51.100.0/24'] }
+
+    const denied = await checkProxyFilter(filter, '198.51.100.42', 443)
+    expect(denied.allowed).toBe(false)
+    expect(denied.reason).toContain('denyCidrs')
+
+    const allowed = await checkProxyFilter(filter, '203.0.113.42', 443)
+    expect(allowed.allowed).toBe(true)
+  })
+
+  it('blockPrivateRanges blocks loopback and RFC1918 addresses', async () => {
+    const filter: ProxyFilter = { blockPrivateRanges: true }
+
+    const loopback = await checkProxyFilter(filter, '127.0.0.1', 443)
+    expect(loopback.allowed).toBe(false)
+    expect(loopback.reason).toContain('private ranges')
+
+    const privateNet = await checkProxyFilter(filter, '10.1.2.3', 443)
+    expect(privateNet.allowed).toBe(false)
+
+    const publicIp = await checkProxyFilter(filter, '203.0.113.20', 443)
+    expect(publicIp.allowed).toBe(true)
+  })
+
+  it('hostname IP-based rules require resolveDns to be enabled', async () => {
+    const filter: ProxyFilter = { blockPrivateRanges: true }
+    const result = await checkProxyFilter(filter, 'api.example.com', 443)
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toContain('requires resolveDns')
+  })
+
+  it('resolveDns blocks hostnames that resolve to private ranges', async () => {
+    const filter: ProxyFilter = { blockPrivateRanges: true, resolveDns: true }
+    const result = await checkProxyFilter(filter, 'api.example.com', 443, {
+      lookup: async () => [
+        { address: '203.0.113.10', family: 4 },
+        { address: '127.0.0.1', family: 4 },
+      ],
+    })
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toContain('127.0.0.1')
+  })
+
+  it('resolveDns enforces allowCidrs across all resolved addresses', async () => {
+    const filter: ProxyFilter = { allowCidrs: ['203.0.113.0/24'], resolveDns: true }
+
+    const allowed = await checkProxyFilter(filter, 'api.example.com', 443, {
+      lookup: async () => [
+        { address: '203.0.113.10', family: 4 },
+      ],
+    })
+    expect(allowed.allowed).toBe(true)
+
+    const denied = await checkProxyFilter(filter, 'api.example.com', 443, {
+      lookup: async () => [
+        { address: '203.0.113.10', family: 4 },
+        { address: '198.51.100.10', family: 4 },
+      ],
+    })
+    expect(denied.allowed).toBe(false)
+    expect(denied.reason).toContain('allowCidrs')
+  })
+
+  it('dns lookup failures deny hostnames when IP-based filtering is enabled', async () => {
+    const filter: ProxyFilter = { denyCidrs: ['10.0.0.0/8'], resolveDns: true }
+    const result = await checkProxyFilter(filter, 'api.example.com', 443, {
+      lookup: async () => {
+        throw new Error('dns down')
+      },
+    })
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toContain('dns lookup failed')
+  })
+
   // ── combined filters ───────────────────────────────────────────────────────
 
   it('port check runs before host check (denial order: ports first)', async () => {

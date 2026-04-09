@@ -17,7 +17,7 @@ import { z } from 'zod'
 import { WebSocket } from 'ws'
 import { createServer } from '../../src/server/builder.js'
 import { createRouterModule } from '../../src/server/router-module.js'
-import { createContext, type Context, type Envelope } from '../../src/types/index.js'
+import { createContext, type Context, type Envelope, type Interceptor } from '../../src/types/index.js'
 import { registerValidator, resetValidation, createZodAdapter } from '../../src/validation/index.js'
 import { loadDiscovery } from '../../src/server/fs-routes/loader.js'
 import {
@@ -386,11 +386,162 @@ describe('createServer', () => {
       expect(server.isRunning).toBe(true)
     })
 
+    it('should execute custom http middleware before the default procedure routing', async () => {
+      const port = await getFreePort()
+
+      server = createServer({
+        port,
+        http: {
+          middleware: [
+            async (req, res) => {
+              if (req.method !== 'POST' || req.url !== '/teapot') {
+                return false
+              }
+
+              res.statusCode = 418
+              res.setHeader('content-type', 'application/json')
+              res.end(JSON.stringify({ intercepted: true }))
+              return true
+            },
+          ],
+        },
+      })
+
+      server.procedure('teapot').handler(async () => 'brewed')
+
+      await server.start()
+
+      const response = await fetch(`http://127.0.0.1:${port}/teapot`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      expect(response.status).toBe(418)
+      expect(await response.json()).toEqual({ intercepted: true })
+    })
+
+    it('should restart the server with shared GraphQL and MCP middleware', async () => {
+      const port = await getFreePort()
+
+      server = createServer({
+        port,
+        basePath: '/api',
+        graphql: true,
+        mcp: true,
+      })
+
+      server
+        .procedure('getHello')
+        .description('Return a greeting')
+        .output(z.string())
+        .handler(async () => 'world')
+
+      await server.start()
+      await server.restart()
+
+      const gqlResponse = await fetch(`http://127.0.0.1:${port}/api/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ getHello }' }),
+      })
+
+      expect(gqlResponse.status).toBe(200)
+      const gqlBody = (await gqlResponse.json()) as { data: { getHello: string } }
+      expect(gqlBody.data).toEqual({ getHello: 'world' })
+
+      const mcpResponse = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      })
+
+      expect(mcpResponse.status).toBe(200)
+      const mcpBody = (await mcpResponse.json()) as {
+        result: { tools: Array<{ name: string }> }
+      }
+      const toolNames = mcpBody.result.tools.map((tool) => tool.name)
+      expect(toolNames).toContain('getHello')
+    })
+
     it('should throw error when starting already running server', async () => {
       server = createServer({ port: TEST_PORT })
       await server.start()
 
       await expect(server.start()).rejects.toThrow('Server is already running')
+    })
+  })
+
+  describe('providers and preview warnings', () => {
+    it('should resolve provider dependencies through ctx.services and keep compatibility aliases', async () => {
+      server = createServer({ port: TEST_PORT })
+        .provide('config', () => ({ prefix: 'Hello' }))
+        .provide('greeter', ({ config }) => {
+          const resolvedConfig = config as { prefix: string }
+          return {
+            greet(name: string) {
+              return `${resolvedConfig.prefix}, ${name}!`
+            },
+          }
+        })
+
+      server.procedure('greet', async (input: { name: string }, ctx) => {
+        const services = ctx.services as {
+          config: { prefix: string }
+          greeter: { greet: (name: string) => string }
+        }
+
+        return {
+          message: services.greeter.greet(input.name),
+          prefix: services.config.prefix,
+          legacyGreeter: Boolean((ctx as Record<string, unknown>).greeter),
+        }
+      })
+
+      await server.start()
+
+      const result = (await server.router.handle(
+        createTestEnvelope('greet', { name: 'Ada' })
+      )) as Envelope
+
+      expect(result.type).toBe('response')
+      expect(result.payload).toEqual({
+        message: 'Hello, Ada!',
+        prefix: 'Hello',
+        legacyGreeter: true,
+      })
+    })
+
+    it('should warn when providers rely on compatibility mirroring', () => {
+      server = createServer({ port: TEST_PORT })
+        .provide('config', () => ({ prefix: 'hello' }))
+
+      const preview = server.previewConfig()
+
+      expect(preview.warnings.join('\n')).toContain('Prefer ctx.services in new handlers')
+    })
+
+    it('should warn when front-door routing is enabled without trusted proxies', () => {
+      server = createServer({
+        port: TEST_PORT,
+        frontDoor: { enabled: true },
+      })
+
+      const preview = server.previewConfig()
+
+      expect(preview.warnings.join('\n')).toContain('without http.trustedProxies')
+    })
+
+    it('should warn when front-door routing uses wildcard CORS', () => {
+      server = createServer({
+        port: TEST_PORT,
+        frontDoor: { enabled: true },
+        cors: true,
+      })
+
+      const preview = server.previewConfig()
+
+      expect(preview.warnings.join('\n')).toContain('wildcard CORS')
     })
   })
 
@@ -665,6 +816,84 @@ describe('createServer', () => {
 
       expect(calls).toEqual(['global', 'handler2'])
     })
+
+    it('should persist grpc namespace middleware across getter accesses', async () => {
+      server = createServer({ port: TEST_PORT })
+
+      const calls: string[] = []
+
+      server.grpcNs.use(async (_env, _ctx, next) => {
+        calls.push('grpc')
+        return next()
+      })
+
+      server.grpcNs
+        .service('UserService', { packageName: 'pkg' })
+        .method('GetUser', async () => {
+          calls.push('handler')
+          return { id: 'user-1' }
+        })
+        .end()
+
+      const result = await server.router.handle(createTestEnvelope('pkg.UserService.GetUser'))
+      expect(result).toMatchObject({
+        type: 'response',
+        payload: { id: 'user-1' },
+      })
+      expect(calls).toEqual(['grpc', 'handler'])
+    })
+
+    it('should apply websocket namespace middleware only to websocket envelopes', async () => {
+      const port = await getFreePort()
+      let ws: WebSocket | null = null
+      server = createServer({
+        port,
+        host: '127.0.0.1',
+        websocket: { path: '/ws' },
+      })
+
+      const calls: string[] = []
+
+      server.ws.use(async (envelope, ctx, next) => {
+        calls.push(`ws:${ctx.ws?.kind}:${envelope.procedure}`)
+        const result = await next()
+        calls.push('ws:after')
+        return result
+      })
+
+      server
+        .procedure('ping')
+        .http('/ping', 'POST')
+        .handler(async () => {
+          calls.push('handler')
+          return 'pong'
+        })
+
+      await server.start()
+
+      ws = await createWebSocket(`ws://127.0.0.1:${port}/ws`)
+      const wsResponse = await sendWebSocketEnvelope(ws, {
+        id: 'ws-1',
+        type: 'request',
+        procedure: 'ping',
+        payload: {},
+      })
+
+      expect(wsResponse.type).toBe('response')
+      expect(calls).toEqual(['ws:websocket:ping', 'handler', 'ws:after'])
+
+      calls.length = 0
+
+      const httpResponse = await fetch(`http://127.0.0.1:${port}/ping`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(httpResponse.status).toBe(200)
+      expect(calls).toEqual(['handler'])
+
+      ws.close()
+    })
   })
 
   describe('envelope option', () => {
@@ -936,6 +1165,68 @@ describe('createServer', () => {
 
       expect(result.type).toBe('response')
       expect(result.payload).toBe('legacy-result')
+    })
+
+    it('should route direct procedure registration through the canonical procedure pipeline', async () => {
+      server = createServer({ port: TEST_PORT, basePath: '/api' })
+      const calls: string[] = []
+
+      const directInterceptor: Interceptor = async (_env, _ctx, next) => {
+        calls.push('direct')
+        return next()
+      }
+
+      server.use(async (_env, _ctx, next) => {
+        calls.push('global')
+        return next()
+      })
+
+      server.procedure(
+        'legacy.typed',
+        async (input: { name: string }) => ({ greeting: `hi ${input.name}` }),
+        {
+          summary: 'Legacy typed',
+          description: 'Legacy direct registration',
+          inputSchema: z.object({ name: z.string() }),
+          outputSchema: z.object({ greeting: z.string() }),
+          httpPath: '/legacy/typed',
+          httpMethod: 'POST',
+          interceptors: [directInterceptor],
+        }
+      )
+
+      const result = (await server.router.handle(
+        createTestEnvelope('legacy.typed', { name: 'Ada' })
+      )) as Envelope
+
+      expect(result.type).toBe('response')
+      expect(result.payload).toEqual({ greeting: 'hi Ada' })
+      expect(calls).toEqual(['global', 'direct'])
+
+      const invalidResult = (await server.router.handle(
+        createTestEnvelope('legacy.typed', { name: 123 })
+      )) as Envelope
+
+      expect(invalidResult.type).toBe('error')
+
+      const preview = server.preview()
+      const operation = preview.operations.find((entry) => entry.name === 'legacy.typed')
+
+      expect(operation).toMatchObject({
+        name: 'legacy.typed',
+        summary: 'Legacy typed',
+        description: 'Legacy direct registration',
+      })
+      expect(operation?.schema.input.present).toBe(true)
+      expect(operation?.schema.output.present).toBe(true)
+      expect(operation?.transports).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          protocol: 'http',
+          mode: 'rest',
+          method: 'POST',
+          path: '/api/legacy/typed',
+        }),
+      ]))
     })
   })
 
@@ -1299,6 +1590,60 @@ describe('createServer', () => {
       }
     })
 
+    it('should rollback startup in reverse phase order before provider shutdown', async () => {
+      const port = await getFreePort()
+      const events: string[] = []
+
+      server = createServer({
+        port,
+        providers: {
+          config: {
+            factory: () => {
+              events.push('provider:init')
+              return { ok: true }
+            },
+            onShutdown: async () => {
+              events.push('provider:shutdown')
+            },
+          },
+        },
+        protocolExtensions: [
+          {
+            name: 'ready',
+            factory: async () => ({
+              async start() {
+                events.push('extension:ready:start')
+              },
+              async stop() {
+                events.push('extension:ready:stop')
+              },
+            }),
+          },
+          {
+            name: 'broken',
+            factory: async () => ({
+              async start() {
+                events.push('extension:broken:start')
+                throw new Error('broken extension startup')
+              },
+              async stop() {},
+            }),
+          },
+        ],
+      })
+
+      await expect(server.start()).rejects.toThrow('broken extension startup')
+      expect(server.isRunning).toBe(false)
+      expect(server.addresses).toBeNull()
+      expect(events).toEqual([
+        'provider:init',
+        'extension:ready:start',
+        'extension:broken:start',
+        'extension:ready:stop',
+        'provider:shutdown',
+      ])
+    })
+
     it('should return deterministic 4xx for non-routed shared HTTP request', async () => {
       const port = await getFreePort()
 
@@ -1343,6 +1688,179 @@ describe('createServer', () => {
 
       expect(response).toContain('HTTP/1.1 200')
       expect(response).toContain('ok')
+    })
+
+    it('should apply fluent shared-port config to lifecycle startup decisions', async () => {
+      const port = await getFreePort()
+      server = createServer({
+        port,
+        host: '127.0.0.1',
+      }).enableSharedPort({
+        protocolFusion: true,
+      })
+
+      server.get('/health', async () => 'ok')
+
+      await server.start()
+
+      const response = await sendRawPayload(
+        port,
+        'GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n'
+      )
+
+      expect(response).toContain('HTTP/1.1 200')
+      expect(response).toContain('ok')
+
+      const state = server.getProtocolFusionState()
+      const decision = state.recentDecisions.find((entry) => entry.layer === 'shared-port')
+
+      expect(state.mode).toBe('shared-port')
+      expect(decision).toMatchObject({
+        protocol: 'http',
+        outcome: 'route',
+        detector: 'http-method',
+      })
+    })
+
+    it('should honor websocket onMessage registered after server construction', async () => {
+      const port = await getFreePort()
+      let ws: WebSocket | null = null
+      let publishedMessageTimeout: ReturnType<typeof setTimeout> | null = null
+      server = createServer({
+        port,
+        host: '127.0.0.1',
+        websocket: { path: '/ws' },
+      })
+
+      const publishedMessage = new Promise<{
+        channel: string
+        event: string
+        data: unknown
+      }>((resolve, reject) => {
+        publishedMessageTimeout = setTimeout(() => {
+          reject(new Error('WebSocket onMessage handler was not invoked'))
+        }, 2000)
+
+        server.ws
+          .channel('chat-room', { type: 'public' })
+          .onMessage((channel, event, data) => {
+            if (publishedMessageTimeout) {
+              clearTimeout(publishedMessageTimeout)
+              publishedMessageTimeout = null
+            }
+            resolve({ channel, event, data })
+          })
+      })
+
+      try {
+        await server.start()
+
+        ws = await createWebSocket(`ws://127.0.0.1:${port}/ws`)
+        const subscribed = await sendWebSocketEnvelope(ws, {
+          id: 'sub-1',
+          type: 'subscribe',
+          channel: 'chat-room',
+        })
+
+        expect(subscribed.type).toBe('subscribed')
+
+        ws.send(JSON.stringify({
+          id: 'pub-1',
+          type: 'publish',
+          channel: 'chat-room',
+          event: 'message',
+          data: { text: 'hello' },
+        }))
+
+        await expect(publishedMessage).resolves.toEqual({
+          channel: 'chat-room',
+          event: 'message',
+          data: { text: 'hello' },
+        })
+      } finally {
+        if (publishedMessageTimeout) {
+          clearTimeout(publishedMessageTimeout)
+          publishedMessageTimeout = null
+        }
+        ws?.close()
+      }
+    })
+
+    it('should honor websocket subscribe and unsubscribe handlers registered after channel definition', async () => {
+      const port = await getFreePort()
+      let ws: WebSocket | null = null
+      let subscribeTimeout: ReturnType<typeof setTimeout> | null = null
+      let unsubscribeTimeout: ReturnType<typeof setTimeout> | null = null
+      server = createServer({
+        port,
+        host: '127.0.0.1',
+        websocket: { path: '/ws' },
+      })
+
+      let resolveSubscribed!: (channel: string) => void
+      let resolveUnsubscribed!: (channel: string) => void
+      const subscribed = new Promise<string>((resolve, reject) => {
+        subscribeTimeout = setTimeout(() => {
+          reject(new Error('WebSocket onSubscribe handler was not invoked'))
+        }, 2000)
+        resolveSubscribed = resolve
+      })
+      const unsubscribed = new Promise<string>((resolve, reject) => {
+        unsubscribeTimeout = setTimeout(() => {
+          reject(new Error('WebSocket onUnsubscribe handler was not invoked'))
+        }, 2000)
+        resolveUnsubscribed = resolve
+      })
+
+      server.ws
+        .channel('chat-room', { type: 'public' })
+        .onSubscribe((channel) => {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout)
+            subscribeTimeout = null
+          }
+          resolveSubscribed(channel)
+        })
+        .onUnsubscribe((channel) => {
+          if (unsubscribeTimeout) {
+            clearTimeout(unsubscribeTimeout)
+            unsubscribeTimeout = null
+          }
+          resolveUnsubscribed(channel)
+        })
+
+      try {
+        await server.start()
+
+        ws = await createWebSocket(`ws://127.0.0.1:${port}/ws`)
+        const subscribeResponse = await sendWebSocketEnvelope(ws, {
+          id: 'sub-1',
+          type: 'subscribe',
+          channel: 'chat-room',
+        })
+
+        expect(subscribeResponse.type).toBe('subscribed')
+        await expect(subscribed).resolves.toBe('chat-room')
+
+        const unsubscribeResponse = await sendWebSocketEnvelope(ws, {
+          id: 'unsub-1',
+          type: 'unsubscribe',
+          channel: 'chat-room',
+        })
+
+        expect(unsubscribeResponse.type).toBe('unsubscribed')
+        await expect(unsubscribed).resolves.toBe('chat-room')
+      } finally {
+        if (subscribeTimeout) {
+          clearTimeout(subscribeTimeout)
+          subscribeTimeout = null
+        }
+        if (unsubscribeTimeout) {
+          clearTimeout(unsubscribeTimeout)
+          unsubscribeTimeout = null
+        }
+        ws?.close()
+      }
     })
 
     it('should return unsupported response for unknown single-port protocol', async () => {
