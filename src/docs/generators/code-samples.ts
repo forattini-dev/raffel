@@ -115,7 +115,16 @@ function genCurl(ctx: CodeSampleContext, body: unknown): USDCodeSample {
   }
 }
 
-function genTypeScript(ctx: CodeSampleContext, body: unknown): USDCodeSample {
+/**
+ * TypeScript and JavaScript share the same fetch-based snippet — only
+ * the displayed language label differs.
+ */
+function genFetchSnippet(
+  ctx: CodeSampleContext,
+  body: unknown,
+  lang: 'typescript' | 'javascript',
+  label: string,
+): USDCodeSample {
   const url = buildUrl(ctx)
   const method = ctx.method.toUpperCase()
   const hasBody = body !== undefined
@@ -136,31 +145,15 @@ function genTypeScript(ctx: CodeSampleContext, body: unknown): USDCodeSample {
   source += `const data = await response.json()\n`
   source += `console.log(data)`
 
-  return { lang: 'typescript', label: 'TypeScript', source }
+  return { lang, label, source }
+}
+
+function genTypeScript(ctx: CodeSampleContext, body: unknown): USDCodeSample {
+  return genFetchSnippet(ctx, body, 'typescript', 'TypeScript')
 }
 
 function genJavaScript(ctx: CodeSampleContext, body: unknown): USDCodeSample {
-  const url = buildUrl(ctx)
-  const method = ctx.method.toUpperCase()
-  const hasBody = body !== undefined
-
-  const headers: string[] = [`'Accept': 'application/json'`]
-  if (ctx.hasSecurity) headers.push(`'Authorization': 'Bearer <token>'`)
-  if (hasBody) headers.push(`'Content-Type': 'application/json'`)
-
-  const headersStr = headers.map(h => `    ${h}`).join(',\n')
-
-  let source = `const response = await fetch('${url}', {\n`
-  source += `  method: '${method}',\n`
-  source += `  headers: {\n${headersStr},\n  },\n`
-  if (hasBody) {
-    source += `  body: JSON.stringify(${JSON.stringify(body, null, 2).split('\n').join('\n  ')}),\n`
-  }
-  source += `})\n\n`
-  source += `const data = await response.json()\n`
-  source += `console.log(data)`
-
-  return { lang: 'javascript', label: 'JavaScript', source }
+  return genFetchSnippet(ctx, body, 'javascript', 'JavaScript')
 }
 
 function genPython(ctx: CodeSampleContext, body: unknown): USDCodeSample {
