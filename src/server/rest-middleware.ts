@@ -22,7 +22,7 @@ import {
   selectCodecForContentType,
   type Codec,
 } from '../utils/content-codecs.js'
-import { joinBasePath } from './channel-utils.js'
+import { joinBasePath } from './path-utils.js'
 import { mergeMetadata } from '../utils/header-metadata.js'
 import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 

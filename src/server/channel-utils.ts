@@ -38,19 +38,6 @@ export function escapeRegex(value: string): string {
 }
 
 /**
- * Join base path with a relative path
- */
-export function joinBasePath(prefix: string, path: string): string {
-  if (!prefix || prefix === '/') {
-    return path
-  }
-
-  const base = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
-  const suffix = path.startsWith('/') ? path : `/${path}`
-  return `${base}${suffix}`
-}
-
-/**
  * Check if a channel pattern matches a channel name.
  *
  * Patterns support:
