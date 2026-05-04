@@ -7,12 +7,12 @@ import type {
 } from './types.js'
 import { formatBindingLabel } from './format-utils.js'
 import {
-  buildGraphQLDocument,
   createSchemaExample,
   createSchemaInvalidExample,
-  extractPathParameters,
   getSchemaObjectExample,
 } from './schema-samples.js'
+import { buildGraphQLDocument } from './graphql-document.js'
+import { extractPathParameters } from './path-params.js'
 
 export type RuntimeContractTestCaseKind =
   | 'authorized'

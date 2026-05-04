@@ -17,9 +17,9 @@ export {
 export {
   createSchemaExample,
   createSchemaInvalidExample,
-  buildGraphQLDocument,
-  extractPathParameters,
 } from './schema-samples.js'
+export { buildGraphQLDocument } from './graphql-document.js'
+export { extractPathParameters } from './path-params.js'
 export {
   explainRuntimeInspectionSubject,
   buildRuntimeInspectionDoctorReport,

@@ -105,7 +105,3 @@ export function getSchemaObjectExample(
     : {}
 }
 
-// Re-exported here for compat — `extractPathParameters` and
-// `buildGraphQLDocument` were originally exported from this module.
-export { extractPathParameters } from './path-params.js'
-export { buildGraphQLDocument } from './graphql-document.js'
