@@ -1789,3 +1789,7 @@ export {
   createMockHlsLive,
 } from './mock-hls-server.js'
 export type { MockHlsServerOptions, MockHlsVariant } from './mock-hls-server.js'
+
+// === Cache Store Contract (slice 5 of architecture-deepening initiative) ===
+export { runCacheStoreContract } from './cache-store-contract.js'
+export type { CacheStoreFactory } from './cache-store-contract.js'
