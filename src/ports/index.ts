@@ -24,7 +24,10 @@ export type { CacheDriver, CacheEntry, CacheGetResult, CacheStats } from './outb
 export type { CacheStore } from './outbound/cache-store.js'
 
 // === Event Delivery Store ===
-export type { EventDeliveryStore } from './outbound/event-store.js'
+// Re-exported from core/event-delivery.ts directly. No port indirection:
+// the type has one definition site and no alternative driver, so a port
+// re-export was pure ceremony (deletion test: shuffle, not concentrate).
+export type { EventDeliveryStore } from '../core/event-delivery.js'
 
 // === Validator ===
 export type { ValidatorAdapter, ValidationResult, ValidationErrorDetails } from './outbound/validator.js'
