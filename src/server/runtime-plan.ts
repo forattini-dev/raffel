@@ -4,7 +4,7 @@ import {
   type ServerConfigPreviewContext,
 } from './orchestration/config-preview.js'
 import type { HttpAdapterOptions } from '../adapters/http.js'
-import { joinBasePath } from './channel-utils.js'
+import { joinBasePath } from './path-utils.js'
 import type { LoadedTcpHandler, LoadedUdpHandler } from './fs-routes/index.js'
 import type {
   FrontDoorProtocolAddress,

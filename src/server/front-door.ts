@@ -13,7 +13,7 @@ import type {
   ProtocolAliasMode,
 } from './types.js'
 import type { RecordProtocolFusionDecisionInput } from './protocol-fusion-diagnostics.js'
-import { joinBasePath } from './channel-utils.js'
+import { joinBasePath } from './path-utils.js'
 import { getFrontDoorProtocolAliases } from './protocol-aliases.js'
 
 const FRONT_DOOR_DETECTOR_DEFAULTS = ['websocket', 'jsonrpc', 'graphql', 'http'] as const
