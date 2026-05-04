@@ -321,17 +321,19 @@ export function createGrpcAdapter(
     }
   }
 
-  async function handleServerStream(
-    call: grpc.ServerWritableStream<any, any>,
-    method: GrpcMethodInfo
+  /**
+   * Pump router stream chunks out to a gRPC writable/duplex call. Shared
+   * by handleServerStream (server-streaming) and handleBidiStream
+   * (bidirectional). Translates Raffel envelopes (`stream:data`,
+   * `stream:end`, `stream:error`, `error`) into gRPC write/end/error
+   * calls. Returns when the stream is exhausted, errored, cancelled, or
+   * its context is aborted.
+   */
+  async function pumpRouterStreamToGrpc(
+    call: grpc.ServerWritableStream<any, any> | grpc.ServerDuplexStream<any, any>,
+    ctx: Context,
+    envelope: Envelope,
   ): Promise<void> {
-    const { ctx, metadata } = await buildContext(call, method)
-    ctx.input = {
-      ...ctx.input,
-      body: call.request,
-    }
-    const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', call.request, metadata, ctx)
-
     try {
       const result = await router.handle(envelope)
       if (!isAsyncIterable(result)) {
@@ -348,12 +350,7 @@ export function createGrpcAdapter(
         } else if (response.type === 'stream:end') {
           call.end()
           break
-        } else if (response.type === 'stream:error') {
-          const errorPayload = response.payload as { code: string; message: string }
-          call.emit('error', toServiceError(errorPayload.code, errorPayload.message))
-          call.end()
-          break
-        } else if (response.type === 'error') {
+        } else if (response.type === 'stream:error' || response.type === 'error') {
           const errorPayload = response.payload as { code: string; message: string }
           call.emit('error', toServiceError(errorPayload.code, errorPayload.message))
           call.end()
@@ -364,6 +361,19 @@ export function createGrpcAdapter(
       const error = err as Error
       call.emit('error', toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
     }
+  }
+
+  async function handleServerStream(
+    call: grpc.ServerWritableStream<any, any>,
+    method: GrpcMethodInfo
+  ): Promise<void> {
+    const { ctx, metadata } = await buildContext(call, method)
+    ctx.input = {
+      ...ctx.input,
+      body: call.request,
+    }
+    const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', call.request, metadata, ctx)
+    await pumpRouterStreamToGrpc(call, ctx, envelope)
   }
 
   /**
@@ -428,39 +438,7 @@ export function createGrpcAdapter(
     method: GrpcMethodInfo
   ): Promise<void> {
     const { ctx, envelope } = await buildInputStreamEnvelope(call, method, 'bidi')
-
-    try {
-      const result = await router.handle(envelope)
-      if (!isAsyncIterable(result)) {
-        call.emit('error', toServiceError('INTERNAL_ERROR', 'Handler did not return a stream'))
-        return
-      }
-
-      for await (const chunk of result as AsyncIterable<Envelope>) {
-        if (ctx.signal.aborted || call.cancelled) break
-
-        const response = chunk as Envelope
-        if (response.type === 'stream:data') {
-          call.write(response.payload)
-        } else if (response.type === 'stream:end') {
-          call.end()
-          break
-        } else if (response.type === 'stream:error') {
-          const errorPayload = response.payload as { code: string; message: string }
-          call.emit('error', toServiceError(errorPayload.code, errorPayload.message))
-          call.end()
-          break
-        } else if (response.type === 'error') {
-          const errorPayload = response.payload as { code: string; message: string }
-          call.emit('error', toServiceError(errorPayload.code, errorPayload.message))
-          call.end()
-          break
-        }
-      }
-    } catch (err) {
-      const error = err as Error
-      call.emit('error', toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
-    }
+    await pumpRouterStreamToGrpc(call, ctx, envelope)
   }
 
   function createImplementation(
