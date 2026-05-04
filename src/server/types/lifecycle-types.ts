@@ -809,6 +809,28 @@ export interface RaffelServer {
   addUdpHandler(handler: LoadedUdpHandler): this
 
   /**
+   * Single high-leverage entry point for programmatic handler registration.
+   * Replaces the four-step `procedure(name).input(...).output(...).handler(...)`
+   * ritual with one call. Discriminated by `opts.kind` (defaults to
+   * `'procedure'`).
+   *
+   * @example
+   * ```typescript
+   * server.registerHandler('users.get', getUser, { input: GetUserSchema })
+   * server.registerHandler('chat.tokens', tokenStream, { kind: 'stream', direction: 'server' })
+   * server.registerHandler('order.placed', onOrder, { kind: 'event', delivery: 'at-least-once' })
+   * ```
+   */
+  registerHandler(
+    name: string,
+    handler:
+      | import('../../types/index.js').ProcedureHandler
+      | import('../../types/index.js').StreamHandler
+      | import('../../types/index.js').EventHandler,
+    opts?: import('./handler-types.js').RegisterHandlerOptions,
+  ): this
+
+  /**
    * Add all handlers from a discovery result.
    * Convenience method for bulk registration.
    *
