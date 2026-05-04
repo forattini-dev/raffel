@@ -36,6 +36,3 @@ export function createDefaultEngine(
   }
 }
 
-export { evaluate } from './evaluate.js'
-export { compileGlob, matchAnyCompiled, matchSetBidirectional } from './match.js'
-export { compilePolicyPatterns, compilePrincipalSet } from './compile.js'
