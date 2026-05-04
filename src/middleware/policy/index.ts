@@ -34,6 +34,13 @@
 export { createDefaultEngine } from './engine/index.js'
 export type { CreateDefaultEngineOptions } from './engine/index.js'
 
+// Bootstrap — one-call wiring (slice 10 of architecture-deepening
+// initiative, PRD #6 / issue #13). Replaces the four-step ritual of
+// loadPoliciesFromDir → mergePolicies → createDefaultEngine →
+// createPolicyInterceptor.
+export { createPolicyBootstrap } from './bootstrap.js'
+export type { PolicyBootstrap, CreatePolicyBootstrapOptions } from './bootstrap.js'
+
 // Ctx helpers
 export type { PolicyCtxHelpers } from './ctx-helpers.js'
 
