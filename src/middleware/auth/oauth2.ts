@@ -458,15 +458,17 @@ export function createOAuth2Strategy(config: OAuth2Config): OAuth2StrategyWithFl
   }
 
   /**
-   * Exchange authorization code for tokens
+   * POST a `application/x-www-form-urlencoded` body to the OAuth2 token
+   * endpoint with the appropriate client credentials (in body or as Basic
+   * auth header) and parse the OAuth2Tokens response. Shared by the
+   * authorization_code (`exchangeCode`) and refresh_token (`refreshToken`)
+   * grants — they only differ in the body params and the error message
+   * prefix.
    */
-  async function exchangeCode(code: string): Promise<OAuth2Tokens> {
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: resolvedConfig.redirectUri,
-    })
-
+  async function postTokenRequest(
+    body: URLSearchParams,
+    errorPrefix: string,
+  ): Promise<Record<string, unknown>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
@@ -492,10 +494,24 @@ export function createOAuth2Strategy(config: OAuth2Config): OAuth2StrategyWithFl
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw new Error(`Token exchange failed: ${response.status} ${errorText}`)
+      throw new Error(`${errorPrefix}: ${response.status} ${errorText}`)
     }
 
-    const data = (await response.json()) as Record<string, unknown>
+    return (await response.json()) as Record<string, unknown>
+  }
+
+  /**
+   * Exchange authorization code for tokens
+   */
+  async function exchangeCode(code: string): Promise<OAuth2Tokens> {
+    const data = await postTokenRequest(
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: resolvedConfig.redirectUri,
+      }),
+      'Token exchange failed',
+    )
 
     return {
       accessToken: data.access_token as string,
@@ -511,40 +527,13 @@ export function createOAuth2Strategy(config: OAuth2Config): OAuth2StrategyWithFl
    * Refresh access token
    */
   async function refreshToken(refreshTokenValue: string): Promise<OAuth2Tokens> {
-    const body = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshTokenValue,
-    })
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-      ...config.tokenRequestHeaders,
-    }
-
-    if (clientCredentialsInBody) {
-      body.set('client_id', resolvedConfig.clientId)
-      body.set('client_secret', resolvedConfig.clientSecret)
-    } else {
-      const credentials = Buffer.from(
-        `${resolvedConfig.clientId}:${resolvedConfig.clientSecret}`
-      ).toString('base64')
-      headers['Authorization'] = `Basic ${credentials}`
-    }
-
-    const response = await fetchWithTimeout(resolvedConfig.tokenUrl, {
-      method: 'POST',
-      headers,
-      body: body.toString(),
-      timeout,
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`Token refresh failed: ${response.status} ${errorText}`)
-    }
-
-    const data = (await response.json()) as Record<string, unknown>
+    const data = await postTokenRequest(
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshTokenValue,
+      }),
+      'Token refresh failed',
+    )
 
     return {
       accessToken: data.access_token as string,
