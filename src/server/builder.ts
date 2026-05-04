@@ -65,14 +65,7 @@ import {
   type UdpServerInstance,
 } from './fs-routes/index.js'
 import { createLogger } from '../utils/logger.js'
-import { createDefaultEngine } from '../middleware/policy/index.js'
-import {
-  createPolicyInterceptor,
-  createNoPolicyDeclaredInterceptor,
-} from '../middleware/policy/interceptor.js'
-import { loadPoliciesFromDir, mergePolicies } from '../middleware/policy/loader.js'
-import { setPolicyProvider } from '../mcp/resources/index.js'
-import { createPrincipalResolver } from '../middleware/policy/principal/index.js'
+import { createPolicyBootstrap } from '../middleware/policy/index.js'
 import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type { PolicyEnginePort } from '../ports/outbound/policy-engine.js'
 import {
@@ -271,62 +264,14 @@ export function createServer(options: ServerOptions): RaffelServer {
   }
 
   // === Policy engine bootstrap (opt-in) ===
-  let policyEngine: PolicyEnginePort | undefined
-  let policyInterceptorFactory:
+  const policyBootstrap = createPolicyBootstrap(options.policy, { logger: loggerPort })
+  const policyEngine: PolicyEnginePort | undefined = policyBootstrap?.engine
+  const policyInterceptorFactory:
     | ((procedureName: string, config: ProcedurePolicyConfig) => Interceptor)
-    | undefined
-  let policyDefaultMode: 'allow' | 'deny' | undefined
-  let noPolicyDeclaredFactory: ((procedureName: string) => Interceptor) | undefined
-  if (options.policy) {
-    const policyConfig = options.policy
-
-    // Merge inline + JSON-loaded policies (eager validation, fail-fast).
-    let mergedPolicies = [...(policyConfig.policies ?? [])]
-    if (policyConfig.loadFromDir) {
-      const { policies: jsonPolicies } = loadPoliciesFromDir({
-        dir: policyConfig.loadFromDir,
-        customConditions: policyConfig.customConditions,
-      })
-      const merged = mergePolicies(mergedPolicies, jsonPolicies)
-      mergedPolicies = merged.merged
-      const policyLog = policyConfig.logger ?? loggerPort
-      for (const w of merged.warnings) {
-        policyLog.warn({ component: 'policy' }, w)
-      }
-    }
-
-    policyEngine = policyConfig.engine ?? createDefaultEngine({ policies: mergedPolicies })
-    const principalResolver = createPrincipalResolver(policyConfig.principal)
-    const productionErrorBody = process.env.NODE_ENV === 'production'
-    policyDefaultMode = policyConfig.defaultMode ?? 'allow'
-    const policyLogger = policyConfig.logger ?? loggerPort
-    policyInterceptorFactory = (procedureName, config) =>
-      createPolicyInterceptor({
-        engine: policyEngine!,
-        defaultAction: procedureName,
-        config,
-        principalResolver,
-        productionErrorBody,
-        logger: policyLogger,
-      })
-    noPolicyDeclaredFactory = (procedureName) =>
-      createNoPolicyDeclaredInterceptor(procedureName, productionErrorBody)
-
-    // Register a sanitised snapshot for MCP discovery. We strip `condition`
-    // (function — non-serialisable) and emit `hasCondition: boolean` instead.
-    setPolicyProvider(() =>
-      policyEngine!.list().map((p) => ({
-        id: p.id,
-        description: p.description,
-        effect: p.effect,
-        principals: [...p.principals],
-        actions: [...p.actions],
-        resources: [...p.resources],
-        hasCondition: typeof p.condition === 'function',
-        ...(p.match ? { match: p.match } : {}),
-      })),
-    )
-  }
+    | undefined = policyBootstrap?.interceptorFactory
+  const policyDefaultMode: 'allow' | 'deny' | undefined = policyBootstrap?.defaultMode
+  const noPolicyDeclaredFactory: ((procedureName: string) => Interceptor) | undefined =
+    policyBootstrap?.noPolicyDeclaredFactory
 
   function createEnvelopeInterceptorFromOptions(config?: boolean | EnvelopeConfig): Interceptor | undefined {
     if (config === undefined || config === false) {
