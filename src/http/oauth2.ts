@@ -29,6 +29,12 @@
 
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
+import {
+  buildCallbackUrl,
+  decodeStateData,
+  encodeStateData,
+  normalizePath,
+} from './_oauth-shared.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -692,43 +698,8 @@ function isSessionLike(value: unknown): value is SessionLike {
     typeof (value as SessionLike).set === 'function'
 }
 
-/**
- * Encode state data to string
- */
-function encodeStateData(data: Record<string, unknown>): string {
-  return btoa(JSON.stringify(data))
-}
-
-/**
- * Decode state data from string
- */
-function decodeStateData(state: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(atob(state))
-  } catch {
-    return null
-  }
-}
-
-/**
- * Normalize path (remove double slashes)
- */
-function normalizePath(path: string): string {
-  return path.replace(/\/+/g, '/').replace(/\/$/, '')
-}
-
-/**
- * Build callback URL from request
- */
-function buildCallbackUrl<E extends Record<string, unknown>>(
-  c: HttpContextInterface<E>,
-  callbackPath: string,
-  providerName: string
-): string {
-  const url = new URL(c.req.url)
-  const path = callbackPath.replace(':provider', providerName)
-  return `${url.protocol}//${url.host}${path}`
-}
+// State encoding, path normalization and callback URL helpers live in
+// ./_oauth-shared.ts so they're shared with src/http/oidc.ts.
 
 /**
  * Simple path matching with :param support
