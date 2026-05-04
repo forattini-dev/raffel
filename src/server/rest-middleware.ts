@@ -14,6 +14,7 @@ import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { getStatusForCode } from '../errors/codes.js'
 import { sid } from '../utils/id/index.js'
 import { createLogger } from '../utils/logger.js'
+import { applyRateLimitHeaders } from '../http/rate-limit-headers.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import {
   jsonCodec,
@@ -28,12 +29,8 @@ import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
 
 const logger = createLogger('server')
 
-type RateLimitHeaderInfo = {
-  limit?: number
-  remaining?: number
-  resetAt?: number
-  retryAfter?: number
-}
+// Rate limit header helpers moved to src/http/rate-limit-headers.ts —
+// shared with src/adapters/http.ts.
 
 class BodyParseError extends Error {
   code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR'
@@ -45,49 +42,6 @@ class BodyParseError extends Error {
 }
 
 
-function getRateLimitInfo(ctx: Context, details?: unknown): RateLimitHeaderInfo | null {
-  const ctxInfo = (ctx as { rateLimitInfo?: RateLimitHeaderInfo }).rateLimitInfo
-  const detailInfo = (details as RateLimitHeaderInfo | undefined) ?? undefined
-
-  const limit = detailInfo?.limit ?? ctxInfo?.limit
-  const remaining = detailInfo?.remaining ?? ctxInfo?.remaining
-  const resetAt = detailInfo?.resetAt ?? ctxInfo?.resetAt
-  const retryAfter = detailInfo?.retryAfter ?? ctxInfo?.retryAfter
-
-  if (
-    limit === undefined
-    && remaining === undefined
-    && resetAt === undefined
-    && retryAfter === undefined
-  ) {
-    return null
-  }
-
-  return { limit, remaining, resetAt, retryAfter }
-}
-
-function applyRateLimitHeaders(
-  res: ServerResponse,
-  ctx: Context,
-  details?: unknown,
-  includeRetryAfter = false
-): void {
-  const info = getRateLimitInfo(ctx, details)
-  if (!info) return
-
-  if (info.limit !== undefined) {
-    res.setHeader('X-RateLimit-Limit', info.limit.toString())
-  }
-  if (info.remaining !== undefined) {
-    res.setHeader('X-RateLimit-Remaining', info.remaining.toString())
-  }
-  if (info.resetAt !== undefined) {
-    res.setHeader('X-RateLimit-Reset', info.resetAt.toString())
-  }
-  if (includeRetryAfter && info.retryAfter !== undefined) {
-    res.setHeader('Retry-After', info.retryAfter.toString())
-  }
-}
 
 async function parseRequestBody(
   req: IncomingMessage,
