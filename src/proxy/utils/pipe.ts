@@ -17,6 +17,28 @@ export interface PipeBidirectionalOptions {
 }
 
 /**
+ * Wire one direction of socket piping (src → dst) with backpressure handling.
+ * The two directions of `pipeBidirectional` share this exact shape.
+ */
+function wireDirection(
+  src: Socket,
+  dst: Socket,
+  onChunk: (bytes: number) => void,
+  onClosed: () => void,
+): void {
+  src.on('data', (chunk: Buffer) => {
+    if (dst.destroyed) {
+      onClosed()
+      return
+    }
+    onChunk(chunk.length)
+    if (!dst.write(chunk)) src.pause()
+  })
+  dst.on('drain', () => { if (!src.destroyed) src.resume() })
+  src.on('end', () => { if (!dst.destroyed) dst.end() })
+}
+
+/**
  * Pipe data bidirectionally between two sockets with backpressure.
  *
  * Returns an idempotent teardown function that destroys both sockets.
@@ -40,31 +62,8 @@ export function pipeBidirectional(
     if (!b.destroyed) b.destroy()
   }
 
-  a.on('data', (chunk: Buffer) => {
-    if (b.destroyed) {
-      teardown()
-      return
-    }
-    bytesFromA += chunk.length
-    opts?.onDataFromA?.(chunk.length)
-    if (!b.write(chunk)) a.pause()
-  })
-
-  b.on('data', (chunk: Buffer) => {
-    if (a.destroyed) {
-      teardown()
-      return
-    }
-    bytesToA += chunk.length
-    opts?.onDataToA?.(chunk.length)
-    if (!a.write(chunk)) b.pause()
-  })
-
-  b.on('drain', () => { if (!a.destroyed) a.resume() })
-  a.on('drain', () => { if (!b.destroyed) b.resume() })
-
-  a.on('end', () => { if (!b.destroyed) b.end() })
-  b.on('end', () => { if (!a.destroyed) a.end() })
+  wireDirection(a, b, (n) => { bytesFromA += n; opts?.onDataFromA?.(n) }, () => teardown())
+  wireDirection(b, a, (n) => { bytesToA += n; opts?.onDataToA?.(n) }, () => teardown())
 
   a.on('close', () => teardown(undefined, 'a'))
   b.on('close', () => teardown(undefined, 'b'))
