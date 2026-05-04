@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage, Server } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Envelope, ContextSeed, Interceptor } from '../types/index.js'
+import type { Context, Envelope, ContextSeed, Interceptor } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
 import { composeTransportInterceptors, dispatchEnvelope } from './shared/dispatch.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
@@ -409,6 +409,145 @@ export function createWebSocketAdapter(
   /**
    * Handle channel message (subscribe/unsubscribe/publish)
    */
+  async function handleSubscribe(
+    client: ClientConnection,
+    msg: SubscribeMessage,
+    ctx: Context,
+  ): Promise<void> {
+    const result = await channelManager!.subscribe(client.id, msg.channel, ctx, msg.since)
+    if (result.success) {
+      sendRawMessage(client, {
+        id: msg.id,
+        type: 'subscribed',
+        channel: msg.channel,
+        members: result.members,
+      })
+      if (msg.since) {
+        channelManager!.replayHistory(client.id, msg.channel, msg.since.seq, msg.since.epoch)
+      }
+    } else {
+      sendRawMessage(client, {
+        id: msg.id,
+        type: 'error',
+        code: result.error!.code,
+        status: result.error!.status,
+        message: result.error!.message,
+      })
+    }
+  }
+
+  function handleUnsubscribe(
+    client: ClientConnection,
+    msg: UnsubscribeMessage,
+    ctx: Context,
+  ): void {
+    channelManager!.unsubscribe(client.id, msg.channel, ctx)
+    sendRawMessage(client, { id: msg.id, type: 'unsubscribed', channel: msg.channel })
+  }
+
+  async function authorizePublish(
+    client: ClientConnection,
+    channel: string,
+    event: string,
+    data: unknown,
+    ctx: Context,
+  ): Promise<boolean> {
+    if (!options.channels?.onPublish) return true
+    return await options.channels.onPublish(client.id, channel, event, data, ctx)
+  }
+
+  async function applyPublishTransform(
+    client: ClientConnection,
+    channel: string,
+    event: string,
+    data: unknown,
+  ): Promise<unknown | null> {
+    if (!options.channels?.transform) return data
+    const clientInfo = channelManager!.getClient(client.id)
+    return await options.channels.transform(channel, event, data, {
+      socketId: client.id,
+      userId: clientInfo?.userId,
+    })
+  }
+
+  async function handlePublish(
+    client: ClientConnection,
+    msg: PublishMessage,
+    ctx: Context,
+  ): Promise<void> {
+    if (!channelManager!.isSubscribed(client.id, msg.channel)) {
+      sendRawMessage(client, {
+        id: msg.id,
+        type: 'error',
+        code: 'PERMISSION_DENIED',
+        status: 403,
+        message: `Must be subscribed to publish to ${msg.channel}`,
+      })
+      return
+    }
+
+    const allowed = await authorizePublish(client, msg.channel, msg.event, msg.data, ctx)
+    if (!allowed) {
+      sendRawMessage(client, {
+        id: msg.id,
+        type: 'error',
+        code: 'PERMISSION_DENIED',
+        status: 403,
+        message: `Not allowed to publish to ${msg.channel}`,
+      })
+      return
+    }
+
+    const finalData = await applyPublishTransform(client, msg.channel, msg.event, msg.data)
+    if (finalData === null) return
+
+    channelManager!.broadcast(msg.channel, msg.event, finalData, client.id)
+    if (options.channels?.hooks?.onPublish) {
+      Promise.resolve(
+        options.channels.hooks.onPublish(client.id, msg.channel, msg.event, finalData)
+      ).catch(() => {})
+    }
+  }
+
+  async function handleBatchSubscribe(
+    client: ClientConnection,
+    msg: BatchSubscribeMessage,
+    ctx: Context,
+  ): Promise<void> {
+    const results: Record<string, import('../channels/types.js').SubscribeResult> = {}
+    for (const entry of msg.channels) {
+      const result = await channelManager!.subscribe(client.id, entry.channel, ctx, entry.since)
+      results[entry.channel] = result
+      if (result.success && entry.since) {
+        channelManager!.replayHistory(client.id, entry.channel, entry.since.seq, entry.since.epoch)
+      }
+    }
+    sendRawMessage(client, { id: msg.id, type: 'subscribed:batch', results })
+  }
+
+  async function handleBatchPublish(
+    client: ClientConnection,
+    msg: BatchPublishMessage,
+    ctx: Context,
+  ): Promise<void> {
+    for (const entry of msg.messages) {
+      if (!channelManager!.isSubscribed(client.id, entry.channel)) continue
+
+      const allowed = await authorizePublish(client, entry.channel, entry.event, entry.data, ctx)
+      if (!allowed) continue
+
+      const finalData = await applyPublishTransform(client, entry.channel, entry.event, entry.data)
+      if (finalData === null) continue
+
+      channelManager!.broadcast(entry.channel, entry.event, finalData, client.id)
+      if (options.channels?.hooks?.onPublish) {
+        Promise.resolve(
+          options.channels.hooks.onPublish(client.id, entry.channel, entry.event, finalData)
+        ).catch(() => {})
+      }
+    }
+  }
+
   async function handleChannelMessage(
     client: ClientConnection,
     parsed: Record<string, unknown>
@@ -433,181 +572,80 @@ export function createWebSocketAdapter(
       new AbortController()
     )
 
-    if (messageType === 'subscribe') {
-      const msg = parsed as SubscribeMessage
-      const result = await channelManager.subscribe(client.id, msg.channel, ctx, msg.since)
-
-      if (result.success) {
-        sendRawMessage(client, {
-          id: msg.id,
-          type: 'subscribed',
-          channel: msg.channel,
-          members: result.members,
-        })
-
-        // Replay history after subscribed response (if since is provided)
-        if (msg.since) {
-          channelManager.replayHistory(client.id, msg.channel, msg.since.seq, msg.since.epoch)
-        }
-      } else {
-        sendRawMessage(client, {
-          id: msg.id,
-          type: 'error',
-          code: result.error!.code,
-          status: result.error!.status,
-          message: result.error!.message,
-        })
-      }
-      return true
-    }
-
-    if (messageType === 'unsubscribe') {
-      const msg = parsed as UnsubscribeMessage
-      channelManager.unsubscribe(client.id, msg.channel, ctx)
-      sendRawMessage(client, {
-        id: msg.id,
-        type: 'unsubscribed',
-        channel: msg.channel,
-      })
-      return true
-    }
-
-    if (messageType === 'publish') {
-      const msg = parsed as PublishMessage
-
-      // Check if user is subscribed to the channel
-      if (!channelManager.isSubscribed(client.id, msg.channel)) {
-        sendRawMessage(client, {
-          id: msg.id,
-          type: 'error',
-          code: 'PERMISSION_DENIED',
-          status: 403,
-          message: `Must be subscribed to publish to ${msg.channel}`,
-        })
+    switch (messageType) {
+      case 'subscribe':
+        await handleSubscribe(client, parsed as SubscribeMessage, ctx)
+        return true
+      case 'unsubscribe':
+        handleUnsubscribe(client, parsed as UnsubscribeMessage, ctx)
+        return true
+      case 'publish':
+        await handlePublish(client, parsed as PublishMessage, ctx)
+        return true
+      case 'subscribe:batch':
+        await handleBatchSubscribe(client, parsed as unknown as BatchSubscribeMessage, ctx)
+        return true
+      case 'publish:batch':
+        await handleBatchPublish(client, parsed as unknown as BatchPublishMessage, ctx)
+        return true
+      case 'typing': {
+        const msg = parsed as unknown as TypingMessage
+        channelManager.handleTyping(client.id, msg.channel, msg.isTyping)
         return true
       }
-
-      // Check onPublish hook if provided (ChannelOptions.onPublish — authorization)
-      if (options.channels?.onPublish) {
-        const allowed = await options.channels.onPublish(
-          client.id,
-          msg.channel,
-          msg.event,
-          msg.data,
-          ctx
-        )
-        if (!allowed) {
-          sendRawMessage(client, {
-            id: msg.id,
-            type: 'error',
-            code: 'PERMISSION_DENIED',
-            status: 403,
-            message: `Not allowed to publish to ${msg.channel}`,
-          })
-          return true
-        }
-      }
-
-      // Apply transform if configured
-      let finalData = msg.data
-      if (options.channels?.transform) {
-        const clientInfo = channelManager.getClient(client.id)
-        const transformed = await options.channels.transform(
-          msg.channel,
-          msg.event,
-          msg.data,
-          { socketId: client.id, userId: clientInfo?.userId }
-        )
-        if (transformed === null) {
-          // Message dropped by transform
-          return true
-        }
-        finalData = transformed
-      }
-
-      // Broadcast to all subscribers except sender
-      channelManager.broadcast(msg.channel, msg.event, finalData, client.id)
-
-      // Lifecycle hook: onPublish (notification, not authorization)
-      if (options.channels?.hooks?.onPublish) {
-        Promise.resolve(options.channels.hooks.onPublish(client.id, msg.channel, msg.event, finalData)).catch(() => {})
-      }
-
-      return true
+      default:
+        return false
     }
-
-    // ─── Batch Subscribe ─────────────────────────────────────────────────────
-    if (messageType === 'subscribe:batch') {
-      const msg = parsed as unknown as BatchSubscribeMessage
-      const results: Record<string, import('../channels/types.js').SubscribeResult> = {}
-
-      for (const entry of msg.channels) {
-        const result = await channelManager.subscribe(client.id, entry.channel, ctx, entry.since)
-        results[entry.channel] = result
-
-        if (result.success && entry.since) {
-          channelManager.replayHistory(client.id, entry.channel, entry.since.seq, entry.since.epoch)
-        }
-      }
-
-      sendRawMessage(client, {
-        id: msg.id,
-        type: 'subscribed:batch',
-        results,
-      })
-      return true
-    }
-
-    // ─── Batch Publish ───────────────────────────────────────────────────────
-    if (messageType === 'publish:batch') {
-      const msg = parsed as unknown as BatchPublishMessage
-
-      for (const entry of msg.messages) {
-        if (!channelManager.isSubscribed(client.id, entry.channel)) continue
-
-        // Check onPublish hook
-        if (options.channels?.onPublish) {
-          const allowed = await options.channels.onPublish(
-            client.id, entry.channel, entry.event, entry.data, ctx
-          )
-          if (!allowed) continue
-        }
-
-        // Apply transform
-        let finalData = entry.data
-        if (options.channels?.transform) {
-          const clientInfo = channelManager.getClient(client.id)
-          const transformed = await options.channels.transform(
-            entry.channel, entry.event, entry.data,
-            { socketId: client.id, userId: clientInfo?.userId }
-          )
-          if (transformed === null) continue
-          finalData = transformed
-        }
-
-        channelManager.broadcast(entry.channel, entry.event, finalData, client.id)
-
-        if (options.channels?.hooks?.onPublish) {
-          Promise.resolve(options.channels.hooks.onPublish(client.id, entry.channel, entry.event, finalData)).catch(() => {})
-        }
-      }
-
-      return true
-    }
-
-    // ─── Typing Indicators ───────────────────────────────────────────────────
-    if (messageType === 'typing') {
-      const msg = parsed as unknown as TypingMessage
-      channelManager.handleTyping(client.id, msg.channel, msg.isTyping)
-      return true
-    }
-
-    return false
   }
 
   /**
    * Handle incoming message from client
    */
+  async function handleRecoveryMessage(
+    client: ClientConnection,
+    recoveryToken: string,
+  ): Promise<void> {
+    if (!recoveryStore || !channelManager) return
+    const session = recoveryStore.get(recoveryToken)
+    if (!session) {
+      sendRawMessage(client, {
+        type: 'error',
+        code: 'RECOVERY_FAILED',
+        status: 404,
+        message: 'Recovery token not found or expired',
+      })
+      return
+    }
+
+    recoveryStore.delete(recoveryToken)
+
+    // Re-register with previous user info if not already known
+    if (!channelManager.getClient(client.id)) {
+      channelManager.registerClient(client.id, {
+        userId: session.userId,
+        data: session.metadata,
+      })
+    }
+
+    channelManager.recoverClient(session.socketId, client.id, session.channels)
+
+    for (const groupName of session.groups) {
+      channelManager.joinGroup(groupName, client.id)
+    }
+
+    const newToken = generateRecoveryToken()
+    clientRecoveryTokens.set(client.id, newToken)
+
+    sendRawMessage(client, {
+      type: 'connection:recovered',
+      socketId: client.id,
+      recoveryToken: newToken,
+      channels: session.channels.map((c) => c.name),
+      groups: session.groups,
+    })
+    logger.info({ clientId: client.id, oldSocketId: session.socketId }, 'Client recovered')
+  }
+
   async function handleMessage(
     client: ClientConnection,
     data: Buffer | string
@@ -642,47 +680,7 @@ export function createWebSocketAdapter(
 
       // Handle recovery message
       if (recoveryStore && channelManager && isRecoverMessage(parsed)) {
-        const session = recoveryStore.get(parsed.recoveryToken)
-        if (session) {
-          recoveryStore.delete(parsed.recoveryToken)
-
-          // Re-register with previous user info
-          const existingClient = channelManager.getClient(client.id)
-          if (!existingClient) {
-            channelManager.registerClient(client.id, {
-              userId: session.userId,
-              data: session.metadata,
-            })
-          }
-
-          // Recover channel subscriptions
-          channelManager.recoverClient(session.socketId, client.id, session.channels)
-
-          // Re-join groups
-          for (const groupName of session.groups) {
-            channelManager.joinGroup(groupName, client.id)
-          }
-
-          // Generate new recovery token for this session
-          const newToken = generateRecoveryToken()
-          clientRecoveryTokens.set(client.id, newToken)
-
-          sendRawMessage(client, {
-            type: 'connection:recovered',
-            socketId: client.id,
-            recoveryToken: newToken,
-            channels: session.channels.map((c) => c.name),
-            groups: session.groups,
-          })
-          logger.info({ clientId: client.id, oldSocketId: session.socketId }, 'Client recovered')
-        } else {
-          sendRawMessage(client, {
-            type: 'error',
-            code: 'RECOVERY_FAILED',
-            status: 404,
-            message: 'Recovery token not found or expired',
-          })
-        }
+        await handleRecoveryMessage(client, parsed.recoveryToken)
         return
       }
 
