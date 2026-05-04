@@ -17,6 +17,7 @@ import { mergeContextSeeds } from '../types/index.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
+import { applyRateLimitHeaders } from '../http/rate-limit-headers.js'
 import { mergeMetadata } from '../utils/header-metadata.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
 import {
@@ -32,12 +33,8 @@ import { getStatusForCode } from '../errors/codes.js'
 
 const logger = createLogger('http-adapter')
 
-type RateLimitHeaderInfo = {
-  limit?: number
-  remaining?: number
-  resetAt?: number
-  retryAfter?: number
-}
+// Rate limit header helpers moved to src/http/rate-limit-headers.ts —
+// shared with src/server/rest-middleware.ts.
 
 class BodyParseError extends Error {
   code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR' | 'INVALID_ARGUMENT'
@@ -238,49 +235,6 @@ function requestHasBody(req: IncomingMessage): boolean {
   return false
 }
 
-function getRateLimitInfo(ctx: Context, details?: unknown): RateLimitHeaderInfo | null {
-  const ctxInfo = (ctx as { rateLimitInfo?: RateLimitHeaderInfo }).rateLimitInfo
-  const detailInfo = (details as RateLimitHeaderInfo | undefined) ?? undefined
-
-  const limit = ctxInfo?.limit ?? detailInfo?.limit
-  const remaining = ctxInfo?.remaining ?? detailInfo?.remaining
-  const resetAt = ctxInfo?.resetAt ?? detailInfo?.resetAt
-  const retryAfter = ctxInfo?.retryAfter ?? detailInfo?.retryAfter
-
-  if (
-    limit === undefined
-    && remaining === undefined
-    && resetAt === undefined
-    && retryAfter === undefined
-  ) {
-    return null
-  }
-
-  return { limit, remaining, resetAt, retryAfter }
-}
-
-function applyRateLimitHeaders(
-  res: ServerResponse,
-  ctx: Context,
-  details?: unknown,
-  includeRetryAfter = false
-): void {
-  const info = getRateLimitInfo(ctx, details)
-  if (!info) return
-
-  if (info.limit !== undefined) {
-    res.setHeader('X-RateLimit-Limit', info.limit.toString())
-  }
-  if (info.remaining !== undefined) {
-    res.setHeader('X-RateLimit-Remaining', info.remaining.toString())
-  }
-  if (info.resetAt !== undefined) {
-    res.setHeader('X-RateLimit-Reset', info.resetAt.toString())
-  }
-  if (includeRetryAfter && info.retryAfter !== undefined) {
-    res.setHeader('Retry-After', info.retryAfter.toString())
-  }
-}
 
 /**
  * Map Raffel error codes to HTTP status codes.
