@@ -19,7 +19,7 @@ let poolOffset: number = 0
  * Initialize or resize the entropy pool.
  * Uses a pre-allocated buffer to reduce GC pressure and improve performance.
  */
-export function initPool(size: number = DEFAULT_POOL_SIZE): void {
+function initPool(size: number = DEFAULT_POOL_SIZE): void {
   const actualSize = Math.max(size, MIN_POOL_SIZE)
   pool = new Uint8Array(actualSize)
   randomFillSync(pool)
@@ -30,7 +30,7 @@ export function initPool(size: number = DEFAULT_POOL_SIZE): void {
  * Get cryptographically secure random bytes from the pool.
  * Automatically refills the pool when exhausted.
  */
-export function getRandomBytes(count: number): Uint8Array {
+function getRandomBytes(count: number): Uint8Array {
   if (!pool) {
     initPool()
   }
@@ -55,7 +55,7 @@ export function getRandomBytes(count: number): Uint8Array {
  * Fill a pre-allocated buffer with random bytes.
  * More efficient than getRandomBytes when you already have a buffer.
  */
-export function fillRandomBytes(buffer: Uint8Array): Uint8Array {
+function fillRandomBytes(buffer: Uint8Array): Uint8Array {
   if (!pool) {
     initPool()
   }
@@ -86,7 +86,7 @@ export function fillRandomBytes(buffer: Uint8Array): Uint8Array {
  * Uses rejection sampling to eliminate modulo bias for non-power-of-2
  * alphabet sizes.
  */
-export function randomIndicesUnbiased(alphabetSize: number, count: number): Uint16Array {
+function randomIndicesUnbiased(alphabetSize: number, count: number): Uint16Array {
   if (alphabetSize <= 0 || alphabetSize > 65536) {
     throw new Error(`Invalid alphabet size: ${alphabetSize}. Must be 1-65536.`)
   }
