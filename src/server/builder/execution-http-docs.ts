@@ -14,7 +14,7 @@ type DocsHttpMiddlewareStep = Extract<
 
 export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext) {
   const { logger, state } = context
-  const { registry, schemaRegistry } = context.core
+  const { registry, schemaRegistry, getAuthzSnapshot } = context.core
   const {
     channelRegistry,
     restResourceRegistry,
@@ -28,6 +28,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
     httpMiddleware: HttpMiddleware[]
   ) {
     const { basePath: docsBasePath, config: docsConfig } = step.feature
+    const authzSnapshot = getAuthzSnapshot?.() ?? undefined
     state.usdDocsHandlers.value = createUSDHandlers(
       {
         registry,
@@ -37,6 +38,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         tcpHandlers,
         udpHandlers,
         protocolConfig: runtimePlan.protocols,
+        ...(authzSnapshot ? { authz: authzSnapshot } : {}),
       },
       {
         basePath: docsBasePath,

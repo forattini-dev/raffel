@@ -94,6 +94,23 @@ export interface RuntimeInspectionTransportBinding {
   field?: string
 }
 
+/**
+ * Authorization metadata for runtime preview / MCP discovery.
+ * Only the lightweight shape — no condition functions or full DSL trees.
+ */
+export interface RuntimeInspectionAuthz {
+  /** The action string the engine receives (defaults to procedure name). */
+  action: string
+  /** enforce | any */
+  mode: 'enforce' | 'any'
+  /** Procedure intentionally bypasses policy (defaultMode: 'deny' escape). */
+  public: boolean
+  /** Whether the procedure declared a resource resolver. */
+  hasResolver: boolean
+  /** Stream re-evaluation policy when applicable. */
+  streamMode?: 'open' | 'per-message'
+}
+
 export interface RuntimeInspectionOperation {
   id: string
   name: string
@@ -108,6 +125,7 @@ export interface RuntimeInspectionOperation {
     output: RuntimeInspectionSchema
   }
   policies: RuntimeInspectionPolicySummary
+  authz?: RuntimeInspectionAuthz
   transports: RuntimeInspectionTransportBinding[]
 }
 
@@ -176,6 +194,26 @@ export interface RuntimeInspectionDiagnostic {
   data?: Record<string, unknown>
 }
 
+export interface RuntimeInspectionExtensionNode {
+  id: string
+  kind: string
+  label: string
+  summary?: string
+  description?: string
+  tags?: string[]
+  href?: string
+  data?: Record<string, unknown>
+  children?: RuntimeInspectionExtensionNode[]
+}
+
+export interface RuntimeInspectionContribution {
+  namespace: string
+  title?: string
+  summary?: string
+  data?: Record<string, unknown>
+  nodes: RuntimeInspectionExtensionNode[]
+}
+
 export interface RuntimeInspectionGraph {
   version: typeof RUNTIME_INSPECTION_GRAPH_VERSION
   generatedAt: string
@@ -186,4 +224,5 @@ export interface RuntimeInspectionGraph {
   transportHandlers: RuntimeInspectionTransportHandler[]
   transports: RuntimeInspectionTransport[]
   diagnostics: RuntimeInspectionDiagnostic[]
+  extensions?: RuntimeInspectionContribution[]
 }

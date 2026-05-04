@@ -216,3 +216,67 @@ interface SessionConfig {
 ## Cookie Session Authentication
 
 For *authenticating* requests using a session cookie (i.e. checking if the user is logged in), see [Cookie Session Strategy](/auth/overview.md#cookie-session).
+
+---
+
+## Pair with authorization policies
+
+The session module pairs naturally with the [policy engine](/policies/README.md) for authorization. Once a user logs in, write their authz-relevant attributes onto `ctx.session.data.user`, then declare:
+
+```ts
+const server = createServer({
+  port: 3000,
+  session: { driver: 'memory', secret: process.env.SESSION_SECRET },
+  policy: {
+    principal: { from: 'session' },   // ← reads ctx.session.data.user
+    policies: [/* ... */],
+  },
+})
+```
+
+The policy engine uses `ctx.session.data.user` as the principal source. Default expected shape:
+
+```ts
+ctx.session.data.user = {
+  id: 'user-123',
+  tenantId: 'tenant-7',
+  scopes: ['lead.read', 'lead.write'],
+  groups: ['admins', 'channel:c1'],
+  attrs: { role: 'manager' },
+}
+```
+
+Set this on login:
+
+```ts
+server.procedure('auth.login').handler(async (input, ctx) => {
+  const user = await db.users.authenticate(input)
+  ctx.session.data.user = {
+    id: user.id,
+    tenantId: user.tenantId,
+    scopes: user.permissions,
+    groups: user.roles,
+    attrs: { role: user.role },
+  }
+  ctx.session.touch()
+  return { ok: true }
+})
+```
+
+Need a different shape? Override the mapper:
+
+```ts
+policy: {
+  principal: {
+    from: 'session',
+    map: (raw, ctx) => ({
+      id: ctx.session.data.userId,
+      tenantId: ctx.session.data.org,
+      scopes: [],
+      groups: ctx.session.data.roles ?? [],
+    }),
+  },
+}
+```
+
+Authorization is fully [opt-in](/policies/README.md) — sessions work the same with or without a policy module configured.

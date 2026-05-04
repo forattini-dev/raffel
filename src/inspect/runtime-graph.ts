@@ -7,7 +7,9 @@ import { normalizeSchemaDescriptor, type SchemaRegistry } from '../validation/in
 import type { HandlerSchema } from '../validation/index.js'
 import type {
   RuntimeInspectionChannel,
+  RuntimeInspectionContribution,
   RuntimeInspectionDiagnostic,
+  RuntimeInspectionExtensionNode,
   RuntimeInspectionGraph,
   RuntimeInspectionOperation,
   RuntimeInspectionOperationRegistration,
@@ -430,6 +432,17 @@ function buildOperations(
     const inputSchema = buildSchema(schema?.input, schema?.validator)
     const outputSchema = buildSchema(schema?.output, schema?.validator)
 
+    const authzCfg = meta.authz
+    const authz = authzCfg
+      ? {
+          action: authzCfg.action ?? meta.name,
+          mode: (authzCfg.mode ?? 'enforce') as 'enforce' | 'any',
+          public: authzCfg.public === true,
+          hasResolver: typeof authzCfg.resource === 'function',
+          ...(authzCfg.streamMode ? { streamMode: authzCfg.streamMode } : {}),
+        }
+      : undefined
+
     return {
       id: meta.name,
       name: meta.name,
@@ -447,6 +460,7 @@ function buildOperations(
         direct: normalizeContractPolicies(meta.policies),
         effective: normalizeContractPolicies(meta.policies),
       },
+      ...(authz ? { authz } : {}),
       transports: buildOperationBindings(meta, input.config, input.protocols, input.basePath, registration),
     }
   })
@@ -909,6 +923,24 @@ export function serializeRuntimeInspectionDiagnostic(
   return stripUndefined(diagnostic)
 }
 
+function serializeRuntimeInspectionExtensionNode(
+  node: RuntimeInspectionExtensionNode
+): RuntimeInspectionExtensionNode {
+  return stripUndefined({
+    ...node,
+    children: node.children?.map(serializeRuntimeInspectionExtensionNode),
+  })
+}
+
+function serializeRuntimeInspectionContribution(
+  contribution: RuntimeInspectionContribution
+): RuntimeInspectionContribution {
+  return stripUndefined({
+    ...contribution,
+    nodes: contribution.nodes.map(serializeRuntimeInspectionExtensionNode),
+  })
+}
+
 export function serializeRuntimeInspectionGraph(
   graph: RuntimeInspectionGraph
 ): RuntimeInspectionGraph {
@@ -920,6 +952,7 @@ export function serializeRuntimeInspectionGraph(
     transportHandlers: graph.transportHandlers.map(serializeRuntimeInspectionTransportHandler),
     transports: graph.transports.map(serializeRuntimeInspectionTransport),
     diagnostics: graph.diagnostics.map(serializeRuntimeInspectionDiagnostic),
+    extensions: graph.extensions?.map(serializeRuntimeInspectionContribution),
   })
 }
 

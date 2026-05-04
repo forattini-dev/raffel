@@ -81,6 +81,11 @@ const GUIDE_TOPIC_ALIASES: Record<string, string> = {
   'feature-map': 'feature-map',
   'feature-matrix': 'feature-map',
   'feature-maps': 'feature-map',
+  'framework-plugin': 'framework-plugins',
+  'framework-plugins': 'framework-plugins',
+  'framework-runtime': 'framework-plugins',
+  'runtime-plugin': 'framework-plugins',
+  'plugins': 'framework-plugins',
   'mcp-server': 'mcp-server',
   'build-mcp': 'mcp-server',
   'mcp-library': 'mcp-server',
@@ -176,6 +181,13 @@ function refreshGuideResources(): void {
       description:
         'Standalone createMcpServer(), integrated mcp: true mode, auth, transports, and protocol features for custom MCP servers.',
       content: MCP_SERVER_GUIDE,
+    },
+    {
+      topic: 'framework-plugins',
+      name: 'Framework Plugins',
+      description:
+        'Build higher-level frameworks on Raffel with ServerPlugin, lifecycle hooks, runtime inspection extensions, and a clear split between DI and runtime extension.',
+      content: FRAMEWORK_PLUGINS_GUIDE,
     },
     {
       topic: 'docs-mcp',
@@ -415,7 +427,52 @@ export function getStaticResources(): MCPResource[] {
     })
   }
 
+  // Policies (server-scoped — populated by createServer when policy is configured)
+  const policySnapshot = policyProvider?.()
+  if (policySnapshot && policySnapshot.length > 0) {
+    resources.push({
+      uri: 'raffel://policies',
+      name: 'Authorization Policies',
+      description: `${policySnapshot.length} loaded authorization policies`,
+      mimeType: 'application/json',
+    })
+    for (const p of policySnapshot) {
+      resources.push({
+        uri: `raffel://policy/${encodeURIComponent(p.id)}`,
+        name: `Policy: ${p.id}`,
+        description: p.description ?? `${p.effect} ${p.actions.join(',')}`,
+        mimeType: 'application/json',
+      })
+    }
+  }
+
   return resources
+}
+
+// === Server-scoped policy provider ===
+
+type PolicySnapshot = ReadonlyArray<{
+  id: string
+  description?: string
+  effect: 'allow' | 'deny' | 'audit'
+  principals: string[]
+  actions: string[]
+  resources: string[]
+  hasCondition: boolean
+  match?: unknown
+}>
+
+let policyProvider: (() => PolicySnapshot) | undefined
+
+/**
+ * Register a server-scoped policy provider so MCP discovery can list
+ * `raffel://policies` and `raffel://policy/<id>` resources.
+ *
+ * Called by `createServer` when `policy: { ... }` is configured.
+ * Pass `null` to clear (e.g. on server.stop / replacement).
+ */
+export function setPolicyProvider(provider: (() => PolicySnapshot) | null): void {
+  policyProvider = provider ?? undefined
 }
 
 // === Resource Templates ===
@@ -1406,6 +1463,80 @@ Supported protocol features include tools, resources, prompts, completion, progr
 Use \`docs-mcp\` when you want to expose Markdown documentation instead of building custom tools by hand.
 `
 
+const FRAMEWORK_PLUGINS_GUIDE = `# Framework Plugins
+
+If you are building a higher-level framework on top of Raffel, use \`ServerPlugin\`
+for runtime extension and \`server.provide()\` for dependency injection.
+
+## What plugins are for
+
+- register framework-owned handlers
+- run startup and shutdown orchestration
+- attach namespaced metadata to \`server.preview()\`
+
+## What providers are for
+
+- database clients
+- cache or queue clients
+- handler-facing services exposed through \`ctx.services\`
+
+## Quick example
+
+\`\`\`typescript
+import { createServer, type ServerPlugin } from 'raffel'
+
+const frameworkPlugin: ServerPlugin = {
+  name: 'purple',
+
+  register({ server }) {
+    server.procedure('purple.health').handler(async () => ({ ok: true }))
+  },
+
+  async beforeStart({ providers }) {
+    const services = providers as { db?: { ping(): Promise<void> } }
+    await services.db?.ping()
+  },
+
+  inspect: ({ preview }) => ({
+    namespace: 'purple',
+    title: 'Purple Runtime',
+    nodes: [
+      {
+        id: 'purple:summary',
+        kind: 'summary',
+        label: 'Purple Summary',
+        data: { operationCount: preview.operations.length },
+      },
+    ],
+  }),
+}
+
+const server = createServer({
+  port: 3000,
+  plugins: [frameworkPlugin],
+})
+\`\`\`
+
+## Lifecycle order
+
+1. \`register\`
+2. \`beforeStart\` in declaration order
+3. \`afterStart\` in declaration order
+4. \`beforeStop\` in reverse order
+5. \`afterStop\` in reverse order
+
+## Runtime graph extension
+
+Framework-specific metadata should live in \`server.preview().extensions\`.
+That keeps framework DX aligned with Raffel's canonical runtime graph instead of
+creating a second registry for workers, resources, schedules, or policies.
+
+## MCP guidance
+
+If your framework also exposes MCP, prefer Raffel's integrated \`mcp\` mode for
+tools/resources/prompts and use plugins for lifecycle + inspection metadata.
+`
+
 const DOCS_MCP_GUIDE = `# Documentation MCP Server
 
 Use \`createDocsMcpServer()\` or \`raffel mcp --docs\` to expose Markdown docs over MCP.
@@ -1671,10 +1802,14 @@ function parseResourceUri(uri: string): { type: string; name: string } | null {
   if (!uri.startsWith('raffel://')) return null
   const path = uri.slice('raffel://'.length).replace(/^\/+/, '')
   const [type, ...parts] = path.split('/')
+  if (!type) return null
   const name = parts.join('/').trim()
-  if (!type || !name) return null
+  // Some resource types are listings (no name segment) — `policies` is one.
+  if (!name && !LISTING_RESOURCE_TYPES.has(type.toLowerCase())) return null
   return { type: type.toLowerCase(), name }
 }
+
+const LISTING_RESOURCE_TYPES = new Set(['policies'])
 
 // === Resource Reader ===
 
@@ -1690,6 +1825,37 @@ export function readResource(uri: string): MCPResourceReadResult | null {
         return { contents: [{ uri, mimeType: 'text/markdown', text: guideContent }] }
       }
       return null
+    }
+
+    case 'policies': {
+      const snapshot = policyProvider?.()
+      if (!snapshot) return null
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify(snapshot, null, 2),
+          },
+        ],
+      }
+    }
+
+    case 'policy': {
+      const snapshot = policyProvider?.()
+      if (!snapshot) return null
+      const id = decodeURIComponent(name)
+      const policy = snapshot.find((p) => p.id === id)
+      if (!policy) return null
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify(policy, null, 2),
+          },
+        ],
+      }
     }
 
     case 'interceptor': {

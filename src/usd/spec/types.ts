@@ -48,6 +48,14 @@ export interface USDDocument {
 
   /** USD extension namespace */
   'x-usd'?: USDX
+
+  /**
+   * Authorization catalog — top-level Raffel extension. Present only when
+   * `policy: { ... }` is configured on the server. `condition` functions are
+   * sanitised to `has-condition: boolean`; only declarative `match` DSL is
+   * exposed. See [Policies](/policies/README.md).
+   */
+  'x-raffel-authz'?: USDAuthzCatalog
 }
 
 export interface USDX {
@@ -86,6 +94,60 @@ export interface USDX {
 
   /** Unified error definitions */
   errors?: USDErrors
+}
+
+// =============================================================================
+// Authorization (x-raffel-authz) — declarative authorization policies
+// =============================================================================
+//
+// The full catalog lives at the document root as `x-raffel-authz` (top-level
+// extension, kebab-case). Each operation that calls `.authz({...})` carries
+// a per-operation descriptor at `paths.<path>.<method>.x-raffel-authz`.
+// All field names use kebab-case for consistency with the wider OpenAPI
+// extension convention.
+
+/**
+ * Per-operation authorization gate descriptor (`x-raffel-authz` on operations).
+ */
+export interface USDAuthzOperation {
+  /** Action string the engine receives (defaults to operation name). */
+  action: string
+  /** enforce | any */
+  mode: 'enforce' | 'any'
+  /** Procedure intentionally bypasses the policy (`.authz({ public: true })`). */
+  public: boolean
+  /** Whether the procedure declared a resource resolver. */
+  'has-resolver': boolean
+  /** For client streams + WS continuous procedures only. */
+  'stream-mode'?: 'open' | 'per-message'
+}
+
+/** Sanitised view of a single policy — safe to serialise. */
+export interface USDAuthzPolicy {
+  id: string
+  description?: string
+  effect: 'allow' | 'deny' | 'audit'
+  principals: string[]
+  actions: string[]
+  resources: string[]
+  /** Whether the policy carries a TS `condition` function (opaque to USD). */
+  'has-condition': boolean
+  /** Declarative match DSL — JSON-serialisable. */
+  match?: unknown
+}
+
+/**
+ * Document-level authorization catalog (`x-raffel-authz` at the document root).
+ */
+export interface USDAuthzCatalog {
+  /**
+   * Default mode for operations that don't declare `.authz()`.
+   *  - `'allow'` (default): operations without authz pass through.
+   *  - `'deny'`: operations without authz are blocked unless `public: true`.
+   */
+  'default-mode': 'allow' | 'deny'
+  /** All loaded policies (inline + JSON, after merge), with `condition` sanitised. */
+  policies: USDAuthzPolicy[]
 }
 
 // =============================================================================
@@ -345,6 +407,13 @@ export interface USDOperation {
 
   /** Raffel-specific contract-bound policies attached to this operation */
   'x-raffel-policies'?: ContractPolicies
+
+  /**
+   * Authorization gate descriptor — present only when the operation declared
+   * `.authz({...})`. Pair with `x-usd.authz.policies` (document-level) to
+   * understand which policies in the catalog could match this action.
+   */
+  'x-raffel-authz'?: USDAuthzOperation
 }
 
 export interface USDParameter {

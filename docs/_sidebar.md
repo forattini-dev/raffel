@@ -51,6 +51,13 @@
   - [OIDC](/auth/oidc.md)
   - [Session Store](/auth/sessions.md)
 
+- **Authorization (Policies)** _(opt-in)_
+  - [Overview](/policies/README.md)
+  - [Guide](/guides/policies.md)
+  - [Match DSL Reference](/policies/match-dsl.md)
+  - [Patterns & Recipes](/policies/patterns.md)
+  - [API Reference](/reference/policies-api.md)
+
 - **Routing & Discovery**
   - [Route Discovery](/routing/discovery.md)
   - [File-System Discovery](/routing/file-system.md)
@@ -66,6 +73,7 @@
   - [Validation](/tooling/validation.md)
   - [OpenAPI](/tooling/openapi.md)
   - [Providers (DI)](/tooling/providers.md)
+  - [Framework Plugins](/tooling/framework-plugins.md)
   - [Cache Drivers](/core/interceptors/cache.md)
   - [Mock Server](/tooling/mock-server.md)
   - [JSON Server](/tooling/json-server.md)
@@ -116,6 +124,7 @@
   - [Core Model](/reference/core-model.md)
   - [Error Codes](/reference/error-codes.md)
   - [API Reference](/reference/api-reference.md)
+  - [Framework Runtime RFC](/reference/framework-runtime-rfc.md)
   - **Raffel AI Assistant**
     - [MCP for Raffel (built-in)](/reference/mcp.md)
     - [Feature Surface](/reference/mcp.md#one-line-capability-surface)

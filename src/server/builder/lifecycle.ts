@@ -65,6 +65,20 @@ export interface ServerLifecycleContext {
   schemaRegistry: SchemaRegistry
   router: Router
   globalInterceptors: Interceptor[]
+  /** Authorization snapshot supplier — wired into USD generator and discovery. */
+  getAuthzSnapshot?: () => {
+    defaultMode: 'allow' | 'deny'
+    policies: ReadonlyArray<{
+      id: string
+      description?: string
+      effect: 'allow' | 'deny' | 'audit'
+      principals: readonly string[]
+      actions: readonly string[]
+      resources: readonly string[]
+      hasCondition: boolean
+      match?: unknown
+    }>
+  }
   channelRegistry: Map<string, LoadedChannel>
   restResourceRegistry: LoadedRestResource[]
   tcpHandlers: LoadedTcpHandler[]
@@ -100,6 +114,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     schemaRegistry,
     getRuntimePlan,
     globalInterceptors,
+    getAuthzSnapshot,
     channelRegistry,
     restResourceRegistry,
     tcpHandlers,
@@ -136,6 +151,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       schemaRegistry,
       router,
       globalInterceptors,
+      getAuthzSnapshot,
     },
     http: {
       channelRegistry,

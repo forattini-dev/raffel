@@ -215,7 +215,13 @@ export function generateHttpPaths(
  * Create operation for a procedure
  */
 function createProcedureOperation(
-  meta: { name: string; summary?: string; description?: string; policies?: ContractPolicies },
+  meta: {
+    name: string
+    summary?: string
+    description?: string
+    policies?: ContractPolicies
+    authz?: import('../../middleware/policy/types.js').ProcedurePolicyConfig
+  },
   handlerSchema: HandlerSchema | undefined,
   schemaRegistry: ConvertedSchemaRegistry,
   tags: string[] | undefined,
@@ -233,6 +239,15 @@ function createProcedureOperation(
     tags,
     responses: createProcedureResponses(meta.name, handlerSchema, schemaRegistry, includeErrorResponses),
     ...(meta.policies && { 'x-raffel-policies': meta.policies }),
+    ...(meta.authz && {
+      'x-raffel-authz': {
+        action: meta.authz.action ?? meta.name,
+        mode: meta.authz.mode ?? 'enforce',
+        public: meta.authz.public === true,
+        'has-resolver': typeof meta.authz.resource === 'function',
+        ...(meta.authz.streamMode ? { 'stream-mode': meta.authz.streamMode } : {}),
+      },
+    }),
   }
 
   // Extract parameters from input schema based on path and naming conventions

@@ -51,6 +51,8 @@ export interface ModuleRoute {
   grpc?: GrpcMeta
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
+  /** Authorization policy config (synthesized at server.mount time). */
+  authz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
   moduleInterceptors: Interceptor[]
   interceptors: Interceptor[]
   schema?: HandlerSchema
@@ -68,6 +70,8 @@ export interface ModuleRoute {
 
 export interface RouterModuleDefinition {
   routes: ModuleRoute[]
+  /** Module-level authz default — applied to procedures without `.authz()`. */
+  defaultAuthz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
 }
 
 const MODULE_DEF = Symbol('raffel.router-module')
@@ -240,15 +244,21 @@ function createModuleView(
             jsonrpc: registration.jsonrpc,
             grpc: registration.grpc,
             policies: registration.policies,
+            authz: registration.authz ?? definition.defaultAuthz,
             moduleInterceptors: [...moduleInterceptors],
-            interceptors: registration.interceptors.length > 0 ? [...registration.interceptors] : [],
+            interceptors:
+              registration.interceptors.length > 0 ? [...registration.interceptors] : [],
             schema: registration.schema?.input || registration.schema?.output ? registration.schema : undefined,
             beforeHooks: registration.beforeHooks?.length ? [...registration.beforeHooks] : undefined,
             afterHooks: registration.afterHooks?.length ? [...registration.afterHooks] : undefined,
             errorHooks: registration.errorHooks?.length ? [...registration.errorHooks] : undefined,
             graphql: registration.graphql,
           })
-        }
+        },
+        undefined, // policyInterceptorFactory — not used in lazy mode
+        undefined, // policyDefaultMode
+        undefined, // noPolicyDeclaredFactory
+        true,      // lazyAuthz: store config on registration, mount synthesizes
       )
     },
     stream(name) {
@@ -269,8 +279,23 @@ function createModuleView(
   return module
 }
 
-export function createRouterModule(prefix = ''): RouterModule {
-  const definition: RouterModuleDefinition = { routes: [] }
+export interface CreateRouterModuleOptions {
+  /**
+   * Module-level authorization defaults. Applied to procedures within this
+   * module that did NOT call `.authz()` themselves. Per-procedure `.authz()`
+   * always wins.
+   */
+  authz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
+}
+
+export function createRouterModule(
+  prefix = '',
+  options: CreateRouterModuleOptions = {},
+): RouterModule {
+  const definition: RouterModuleDefinition = {
+    routes: [],
+    defaultAuthz: options.authz,
+  }
   return createModuleView(definition, prefix, [])
 }
 

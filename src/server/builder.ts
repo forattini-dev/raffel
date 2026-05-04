@@ -40,6 +40,7 @@ import type {
   ProviderFactory,
   ProviderDefinition,
   ResolvedProviders,
+  ServerPlugin,
   GlobalHooksConfig,
   ProtocolAdapter,
   ProtocolExtensionConfig,
@@ -64,6 +65,16 @@ import {
   type UdpServerInstance,
 } from './fs-routes/index.js'
 import { createLogger } from '../utils/logger.js'
+import { createDefaultEngine } from '../middleware/policy/index.js'
+import {
+  createPolicyInterceptor,
+  createNoPolicyDeclaredInterceptor,
+} from '../middleware/policy/interceptor.js'
+import { loadPoliciesFromDir, mergePolicies } from '../middleware/policy/loader.js'
+import { setPolicyProvider } from '../mcp/resources/index.js'
+import { createPrincipalResolver } from '../middleware/policy/principal/index.js'
+import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
+import type { PolicyEnginePort } from '../ports/outbound/policy-engine.js'
 import {
   createProcedureBuilder,
   createStreamBuilder,
@@ -89,6 +100,8 @@ import {
 import type { ContractPolicies } from '../types/index.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import {
+  type RuntimeInspectionContribution,
+  type RuntimeInspectionGraph,
   type RuntimeInspectionOperationRegistration,
   type RuntimeInspectionSource,
 } from '../inspect/index.js'
@@ -153,6 +166,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     discovery,
     hotReload = isDevelopment(),
     providers: initialProviders,
+    plugins: initialPlugins,
     protocolExtensions: initialProtocolExtensions,
     protocolAliasMode: serverProtocolAliasMode = 'standard',
     mcp: mcpOptions,
@@ -247,6 +261,64 @@ export function createServer(options: ServerOptions): RaffelServer {
     globalInterceptors.push(envelopeInterceptor)
   }
 
+  // === Policy engine bootstrap (opt-in) ===
+  let policyEngine: PolicyEnginePort | undefined
+  let policyInterceptorFactory:
+    | ((procedureName: string, config: ProcedurePolicyConfig) => Interceptor)
+    | undefined
+  let policyDefaultMode: 'allow' | 'deny' | undefined
+  let noPolicyDeclaredFactory: ((procedureName: string) => Interceptor) | undefined
+  if (options.policy) {
+    const policyConfig = options.policy
+
+    // Merge inline + JSON-loaded policies (eager validation, fail-fast).
+    let mergedPolicies = [...(policyConfig.policies ?? [])]
+    if (policyConfig.loadFromDir) {
+      const { policies: jsonPolicies } = loadPoliciesFromDir({
+        dir: policyConfig.loadFromDir,
+        customConditions: policyConfig.customConditions,
+      })
+      const merged = mergePolicies(mergedPolicies, jsonPolicies)
+      mergedPolicies = merged.merged
+      const policyLog = policyConfig.logger ?? loggerPort
+      for (const w of merged.warnings) {
+        policyLog.warn({ component: 'policy' }, w)
+      }
+    }
+
+    policyEngine = policyConfig.engine ?? createDefaultEngine({ policies: mergedPolicies })
+    const principalResolver = createPrincipalResolver(policyConfig.principal)
+    const productionErrorBody = process.env.NODE_ENV === 'production'
+    policyDefaultMode = policyConfig.defaultMode ?? 'allow'
+    const policyLogger = policyConfig.logger ?? loggerPort
+    policyInterceptorFactory = (procedureName, config) =>
+      createPolicyInterceptor({
+        engine: policyEngine!,
+        defaultAction: procedureName,
+        config,
+        principalResolver,
+        productionErrorBody,
+        logger: policyLogger,
+      })
+    noPolicyDeclaredFactory = (procedureName) =>
+      createNoPolicyDeclaredInterceptor(procedureName, productionErrorBody)
+
+    // Register a sanitised snapshot for MCP discovery. We strip `condition`
+    // (function — non-serialisable) and emit `hasCondition: boolean` instead.
+    setPolicyProvider(() =>
+      policyEngine!.list().map((p) => ({
+        id: p.id,
+        description: p.description,
+        effect: p.effect,
+        principals: [...p.principals],
+        actions: [...p.actions],
+        resources: [...p.resources],
+        hasCondition: typeof p.condition === 'function',
+        ...(p.match ? { match: p.match } : {}),
+      })),
+    )
+  }
+
   function createEnvelopeInterceptorFromOptions(config?: boolean | EnvelopeConfig): Interceptor | undefined {
     if (config === undefined || config === false) {
       return undefined
@@ -313,6 +385,7 @@ export function createServer(options: ServerOptions): RaffelServer {
   // Provider definitions (added via .provide() or options.providers)
   const providerDefinitions = new Map<string, ProviderDefinition>()
   const resolvedProviders: ResolvedProviders = {}
+  const registeredPlugins = new Map<string, ServerPlugin>()
 
   // Initialize provider definitions from options
   if (initialProviders) {
@@ -356,6 +429,61 @@ export function createServer(options: ServerOptions): RaffelServer {
     registration: RuntimeInspectionOperationRegistration
   ): void {
     operationRegistrations.set(name, registration)
+  }
+
+  function getPluginProviders(): Readonly<ResolvedProviders> {
+    return Object.freeze({ ...resolvedProviders })
+  }
+
+  function getPluginsInStartOrder(): ServerPlugin[] {
+    return [...registeredPlugins.values()]
+  }
+
+  function getPluginsInStopOrder(): ServerPlugin[] {
+    return getPluginsInStartOrder().reverse()
+  }
+
+  async function runPluginRuntimeHooks(
+    hookName: 'beforeStart' | 'afterStart' | 'beforeStop' | 'afterStop',
+    plugins: ServerPlugin[],
+    signal: AbortSignal
+  ): Promise<void> {
+    for (const plugin of plugins) {
+      const hook = plugin[hookName]
+      if (!hook) continue
+
+      await hook({
+        server,
+        providers: getPluginProviders(),
+        signal,
+      })
+    }
+  }
+
+  function getInspectionExtensions(
+    preview: RuntimeInspectionGraph
+  ): RuntimeInspectionContribution[] {
+    const contributions: RuntimeInspectionContribution[] = []
+
+    for (const plugin of registeredPlugins.values()) {
+      if (!plugin.inspect) continue
+
+      const result = plugin.inspect({
+        server,
+        providers: getPluginProviders(),
+        preview,
+      })
+
+      if (!result) continue
+
+      if (Array.isArray(result)) {
+        contributions.push(...result)
+      } else {
+        contributions.push(result)
+      }
+    }
+
+    return contributions
   }
 
   function programmaticSource(kind: RuntimeInspectionSource['kind'] = 'programmatic'): RuntimeInspectionSource {
@@ -504,6 +632,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     udpHandlers,
     operationRegistrations,
     getRuntimePlan,
+    getInspectionExtensions,
     logger: loggerPort,
   })
 
@@ -512,6 +641,22 @@ export function createServer(options: ServerOptions): RaffelServer {
     debug: logger.debug.bind(logger),
     warn: logger.warn.bind(logger),
   })
+
+  const getAuthzSnapshot = policyEngine
+    ? () => ({
+        defaultMode: policyDefaultMode ?? 'allow',
+        policies: policyEngine!.list().map((p) => ({
+          id: p.id,
+          description: p.description,
+          effect: p.effect,
+          principals: [...p.principals],
+          actions: [...p.actions],
+          resources: [...p.resources],
+          hasCondition: typeof p.condition === 'function',
+          ...(p.match ? { match: p.match } : {}),
+        })),
+      })
+    : undefined
 
   const serverLifecycle = createServerLifecycle({
     logger,
@@ -525,6 +670,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     schemaRegistry,
     router,
     globalInterceptors,
+    getAuthzSnapshot,
     channelRegistry,
     restResourceRegistry,
     tcpHandlers,
@@ -588,7 +734,21 @@ export function createServer(options: ServerOptions): RaffelServer {
     return server
   }
 
+  const policyNamespace = policyEngine
+    ? Object.freeze({
+        explain(input: import('../middleware/policy/types.js').AuthzInput) {
+          return policyEngine!.evaluate(input)
+        },
+        list() {
+          return policyEngine!.list()
+        },
+      })
+    : undefined
+
   const server: RaffelServer = {
+    // === Authorization (policies) ===
+    policy: policyNamespace,
+
     // === Protocol Configuration ===
 
     enableWebSocket(path = '/') {
@@ -938,6 +1098,31 @@ export function createServer(options: ServerOptions): RaffelServer {
       return server
     },
 
+    usePlugin(plugin: ServerPlugin) {
+      if (serverState.running.value) {
+        throw new Error('Cannot register plugin after the server has started')
+      }
+
+      const pluginName = plugin.name.trim()
+      if (!pluginName) {
+        throw new Error('Plugin name is required')
+      }
+
+      if (registeredPlugins.has(pluginName)) {
+        throw new Error(`Plugin "${pluginName}" already registered`)
+      }
+
+      registeredPlugins.set(pluginName, plugin)
+      try {
+        plugin.register?.({ server })
+      } catch (error) {
+        registeredPlugins.delete(pluginName)
+        throw error
+      }
+
+      return server
+    },
+
     // === Global Middleware ===
 
     use(interceptor: Interceptor) {
@@ -993,10 +1178,14 @@ export function createServer(options: ServerOptions): RaffelServer {
             jsonrpc: registration.jsonrpc,
             grpc: registration.grpc,
             policies: registration.policies,
+            authz: registration.authz,
             interceptors: registration.interceptors,
           })
           recordOperationRegistration(procedureName, { source: programmaticSource() })
-        }
+        },
+        policyInterceptorFactory,
+        policyDefaultMode,
+        noPolicyDeclaredFactory
       )
     },
 
@@ -1226,8 +1415,32 @@ export function createServer(options: ServerOptions): RaffelServer {
       for (const route of definition.routes) {
         const fullName = joinHandlerName(prefix, route.name)
         const routeSchema = route.kind === 'procedure' ? route.schema : undefined
+
+        // Synthesize policy interceptor at mount-time using the host server's
+        // factory. Module routes carry `route.authz` (resolved from per-procedure
+        // .authz() or module's defaultAuthz). When defaultMode is 'deny' and
+        // no authz was declared, inject the no-policy-declared deny.
+        const authzInterceptors: Interceptor[] = []
+        if (route.kind === 'procedure') {
+          if (route.authz && policyInterceptorFactory) {
+            authzInterceptors.push(policyInterceptorFactory(fullName, route.authz))
+          } else if (
+            !route.authz &&
+            policyDefaultMode === 'deny' &&
+            noPolicyDeclaredFactory
+          ) {
+            authzInterceptors.push(noPolicyDeclaredFactory(fullName))
+          }
+        }
+
         const interceptors = normalizeInterceptors(
-          [...globalInterceptors, ...mountInterceptors, ...route.moduleInterceptors, ...route.interceptors],
+          [
+            ...globalInterceptors,
+            ...mountInterceptors,
+            ...route.moduleInterceptors,
+            ...authzInterceptors,
+            ...route.interceptors,
+          ],
           routeSchema
         )
 
@@ -1245,6 +1458,7 @@ export function createServer(options: ServerOptions): RaffelServer {
             httpMethod: route.httpMethod,
             jsonrpc: route.jsonrpc,
             grpc: route.grpc,
+            authz: route.authz,
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })
         } else if (route.kind === 'stream') {
@@ -1436,11 +1650,63 @@ export function createServer(options: ServerOptions): RaffelServer {
     // === Lifecycle ===
 
     async start() {
-      await serverLifecycle.start()
+      if (serverState.running.value) {
+        throw new Error('Server is already running')
+      }
+
+      const startPlugins = getPluginsInStartOrder()
+      const startController = new AbortController()
+
+      try {
+        await runPluginRuntimeHooks('beforeStart', startPlugins, startController.signal)
+        await serverLifecycle.start()
+        await runPluginRuntimeHooks('afterStart', startPlugins, startController.signal)
+      } catch (error) {
+        startController.abort()
+
+        if (serverState.running.value) {
+          const stopPlugins = getPluginsInStopOrder()
+          const rollbackController = new AbortController()
+
+          try {
+            await runPluginRuntimeHooks('beforeStop', stopPlugins, rollbackController.signal)
+          } catch (rollbackError) {
+            logger.error({ err: rollbackError }, 'Plugin rollback beforeStop hook failed')
+          }
+
+          try {
+            await serverLifecycle.stop()
+          } finally {
+            try {
+              await runPluginRuntimeHooks('afterStop', stopPlugins, rollbackController.signal)
+            } catch (rollbackError) {
+              logger.error({ err: rollbackError }, 'Plugin rollback afterStop hook failed')
+            }
+            rollbackController.abort()
+          }
+        }
+
+        throw error
+      } finally {
+        startController.abort()
+      }
     },
 
     async stop() {
-      await serverLifecycle.stop()
+      if (!serverState.running.value) {
+        return
+      }
+
+      const stopPlugins = getPluginsInStopOrder()
+      const stopController = new AbortController()
+
+      try {
+        await runPluginRuntimeHooks('beforeStop', stopPlugins, stopController.signal)
+        await serverLifecycle.stop()
+        await runPluginRuntimeHooks('afterStop', stopPlugins, stopController.signal)
+      } finally {
+        stopController.abort()
+      }
     },
 
     async restart() {
@@ -2042,6 +2308,12 @@ export function createServer(options: ServerOptions): RaffelServer {
       return serverState.usdDocsHandlers.value.getOpenAPIDocument()
     },
   } as RaffelServer
+
+  if (initialPlugins) {
+    for (const plugin of initialPlugins) {
+      server.usePlugin(plugin)
+    }
+  }
 
   return server
 }

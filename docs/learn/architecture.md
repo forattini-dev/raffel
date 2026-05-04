@@ -634,3 +634,18 @@ The beauty of the design is that your business logic (the handler) knows nothing
 - **[Single-Port Detection](/protocols/single-port.md)** - Multiplexing protocols on one port
 - **[Interceptors](/core/interceptors/overview.md)** - All available interceptors
 - **[Streaming](/core/streams.md)** - How streams work in detail
+
+---
+
+## Authorization (opt-in)
+
+Raffel separates **authentication** (who) from **authorization** (what they may do). The optional [policy engine](/policies/README.md) sits in the request pipeline *after* authentication and validation, *before* the handler. Procedures gate themselves by calling `.authz({...})` on the builder.
+
+```
+ConnectionFilter → Session → Auth → Rate-limit → Validation
+  → Policy (opt-in)
+  → Custom interceptors
+  → Handler
+```
+
+Without `policy: { ... }` in `createServer({})`, the engine is not loaded and the pipeline is unchanged. See the [Policies overview](/policies/README.md) for the full picture.

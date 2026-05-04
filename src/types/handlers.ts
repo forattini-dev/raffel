@@ -185,6 +185,9 @@ export interface HandlerMeta {
 
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
+
+  /** Authorization policy config (for discovery; runtime gate via interceptor). */
+  authz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
 }
 
 /**

@@ -28,6 +28,7 @@ import type {
 import type { EventDeliveryOptions } from '../core/event-delivery.js'
 import type { ChannelOptions, ChannelManager } from '../channels/index.js'
 import type { HttpAdapter, HttpMiddleware } from '../adapters/http.js'
+import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type {
   DiscoveryConfig,
   DiscoveryWatcher,
@@ -56,7 +57,11 @@ import type { OpenAPIDocument } from '../usd/export/openapi.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { EnvelopeConfig } from '../middleware/types.js'
 import type { SessionConfig } from '../middleware/session/types.js'
-import type { RuntimeInspectionGraph } from '../inspect/index.js'
+import type { PolicyConfig } from '../middleware/policy/types.js'
+import type {
+  RuntimeInspectionContribution,
+  RuntimeInspectionGraph,
+} from '../inspect/index.js'
 import type { TrustedProxyConfig } from '../utils/client-ip.js'
 
 // === Providers (Dependency Injection) ===
@@ -86,6 +91,36 @@ export interface ProviderDefinition<T = unknown> {
  * Map of provider names to their definitions or factory functions.
  */
 export type ProvidersConfig = Record<string, ProviderFactory<unknown> | ProviderDefinition<unknown>>
+
+// === Server Plugins (Runtime Extensions) ===
+
+export interface ServerPluginRegisterContext {
+  server: RaffelServer
+}
+
+export interface ServerPluginRuntimeContext {
+  server: RaffelServer
+  providers: Readonly<ResolvedProviders>
+  signal: AbortSignal
+}
+
+export interface ServerPluginInspectContext {
+  server: RaffelServer
+  providers: Readonly<ResolvedProviders>
+  preview: RuntimeInspectionGraph
+}
+
+export interface ServerPlugin {
+  name: string
+  register?: (context: ServerPluginRegisterContext) => void
+  beforeStart?: (context: ServerPluginRuntimeContext) => void | Promise<void>
+  afterStart?: (context: ServerPluginRuntimeContext) => void | Promise<void>
+  beforeStop?: (context: ServerPluginRuntimeContext) => void | Promise<void>
+  afterStop?: (context: ServerPluginRuntimeContext) => void | Promise<void>
+  inspect?: (
+    context: ServerPluginInspectContext
+  ) => RuntimeInspectionContribution | RuntimeInspectionContribution[] | null | undefined
+}
 
 // === Error Handling ===
 
@@ -501,6 +536,12 @@ export interface ServerOptions {
    */
   protocolExtensions?: ProtocolExtensionConfig[]
 
+  /**
+   * Runtime plugins that can register handlers, attach lifecycle hooks, and
+   * contribute framework-specific inspection metadata.
+   */
+  plugins?: ServerPlugin[]
+
   // === Middleware ===
 
   /**
@@ -640,6 +681,45 @@ export interface ServerOptions {
    * ```
    */
   session?: SessionConfig | false
+
+  // === Policy (authorization) ===
+
+  /**
+   * Authorization policy configuration. Opt-in.
+   *
+   * When configured, procedures may declare `.authz({...})` to gate access by
+   * principal + action + resource. The default driver is in-process and uses a
+   * declarative match DSL plus inline `condition` functions.
+   *
+   * Pair with `session`, `oauth2`, or `oidc` and reference the source via
+   * `principal.from`.
+   *
+   * @example
+   * ```typescript
+   * const server = createServer({
+   *   port: 3000,
+   *   session: { driver: 'memory' },
+   *   policy: {
+   *     principal: { from: 'session' },
+   *     defaultMode: 'allow',
+   *     policies: [
+   *       {
+   *         id: 'admins-everything',
+   *         effect: 'allow',
+   *         principals: ['group:admins'],
+   *         actions: ['**'],
+   *         resources: ['**'],
+   *       },
+   *     ],
+   *   },
+   * })
+   *
+   * server.procedure('lead.read')
+   *   .authz({ resource: (input) => ({ type: 'lead', id: input.id, tenantId: input.tenantId }) })
+   *   .handler(loadLead)
+   * ```
+   */
+  policy?: PolicyConfig
 
   // === Advanced ===
 
@@ -1506,6 +1586,21 @@ export interface ProcedureBuilder<TInput = unknown, TOutput = unknown> {
   use(interceptor: Interceptor): this
   /** Attach contract-bound runtime policies */
   policy(policies: ContractPolicies): this
+  /**
+   * Declare an authorization policy for this procedure.
+   *
+   * Requires `policy: { ... }` on `createServer`. The policy interceptor runs
+   * after validation, before custom interceptors / handler.
+   *
+   * @example
+   * ```ts
+   * server.procedure('lead.read')
+   *   .input(z.object({ id: z.string() }))
+   *   .authz({ resource: (input, ctx) => ({ type: 'lead', id: input.id, tenantId: ctx.auth.tenantId ?? null }) })
+   *   .handler(async ({ id }) => loadLead(id))
+   * ```
+   */
+  authz(config: ProcedurePolicyConfig<TInput, Context>): this
   /** Mark GraphQL mapping */
   graphql(type: 'query' | 'mutation'): this
   /** Configure JSON-RPC metadata for USD generation */
@@ -2038,6 +2133,12 @@ export interface RaffelServer {
     options?: { onShutdown?: (instance: T) => void | Promise<void> }
   ): this
 
+  /**
+   * Register a runtime plugin.
+   * Plugins must be registered before `server.start()`.
+   */
+  usePlugin(plugin: ServerPlugin): this
+
   // === Global Middleware ===
 
   /** Add global interceptor */
@@ -2403,6 +2504,29 @@ export interface RaffelServer {
   stop(): Promise<void>
   /** Restart all protocols */
   restart(): Promise<void>
+
+  // === Authorization (policies) ===
+
+  /**
+   * Policy module namespace. Present only when `policy: { ... }` was passed
+   * to `createServer`. `undefined` otherwise.
+   */
+  readonly policy?: {
+    /**
+     * Evaluate an `AuthzInput` against the loaded policies without producing
+     * any side effects (no log, no metric, no decision attached to ctx).
+     * Useful for REPL / CLI debugging and unit tests.
+     */
+    explain(
+      input: import('../middleware/policy/types.js').AuthzInput
+    ): import('../middleware/policy/types.js').Decision
+      | Promise<import('../middleware/policy/types.js').Decision>
+
+    /**
+     * Read-only snapshot of all loaded policies (inline + JSON, after merge).
+     */
+    list(): readonly import('../middleware/policy/types.js').Policy[]
+  }
 
   // === Protocol Namespaces ===
 

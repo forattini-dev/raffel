@@ -199,6 +199,20 @@ export interface USDMiddlewareContext {
   udpHandlers?: LoadedUdpHandler[]
   /** Protocol configuration (jsonrpc/grpc detection) */
   protocolConfig?: USDGeneratorProtocolConfig
+  /** Authorization snapshot (when policy is configured on the server) */
+  authz?: {
+    defaultMode: 'allow' | 'deny'
+    policies: ReadonlyArray<{
+      id: string
+      description?: string
+      effect: 'allow' | 'deny' | 'audit'
+      principals: readonly string[]
+      actions: readonly string[]
+      resources: readonly string[]
+      hasCondition: boolean
+      match?: unknown
+    }>
+  }
 }
 
 // =============================================================================
@@ -249,6 +263,7 @@ export function createUSDHandlers(
         tcpHandlers: ctx.tcpHandlers,
         udpHandlers: ctx.udpHandlers,
         protocolConfig: ctx.protocolConfig,
+        ...(ctx.authz ? { authz: ctx.authz } : {}),
       },
       {
         info: {

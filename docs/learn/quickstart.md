@@ -187,3 +187,7 @@ Treat these as compatibility surfaces, not the main path:
 - [Procedures (RPC)](/core/procedures.md)
 - [Multi-Protocol Service Example](/guides/multi-protocol-service.md)
 - [DEVX Migration](/migration/devx.md)
+
+### Need authorization?
+
+Raffel ships an **opt-in** policy engine — declare who can do what to which resource via JSON or TS. See [Authorization (Policies)](/policies/README.md). Skip it entirely if you don't need it; the server runs without it.

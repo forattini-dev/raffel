@@ -189,3 +189,55 @@ server.use(createRefreshInterceptor({
   },
 }))
 ```
+
+---
+
+## Pair with authorization policies
+
+OAuth2 establishes *who* the request is — the [policy engine](/policies/README.md) uses that identity to decide *what* they're allowed to do. Configure the policy module to read from `ctx.auth` populated by this interceptor:
+
+```ts
+const server = createServer({
+  port: 3000,
+  policy: {
+    principal: { from: 'oauth2' },     // ← reads ctx.auth + ctx.auth.claims
+    policies: [
+      {
+        id: 'admins-everything',
+        effect: 'allow',
+        principals: ['group:admins'],   // matches roles claim 'admins'
+        actions: ['**'],
+        resources: ['**'],
+      },
+    ],
+  },
+})
+```
+
+Default mapping from `ctx.auth` claims:
+
+| Principal field | Sourced from |
+|---|---|
+| `id` | `ctx.auth.principalId` ?? `ctx.auth.principal` ?? `claims.sub` |
+| `tenantId` | `ctx.auth.tenantId` ?? `claims.tid` (Azure AD style) |
+| `scopes` | `ctx.auth.scopes` ?? `claims.scope` (space-split) |
+| `groups` | `ctx.auth.roles` ?? `claims.groups` ?? `claims.roles` |
+| `attrs` | full `claims` object |
+
+Override with a custom mapper if your provider uses different claim names:
+
+```ts
+policy: {
+  principal: {
+    from: 'oauth2',
+    map: (_raw, ctx) => ({
+      id: ctx.auth.claims.sub as string,
+      tenantId: (ctx.auth.claims['custom:tenant'] as string) ?? null,
+      scopes: (ctx.auth.claims.permissions as string[]) ?? [],
+      groups: (ctx.auth.claims['cognito:groups'] as string[]) ?? [],
+    }),
+  },
+}
+```
+
+Policies are [fully opt-in](/policies/README.md) — OAuth2 alone is enough for authentication.

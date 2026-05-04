@@ -58,6 +58,8 @@ export type {
   RuntimeInspectionService,
   RuntimeInspectionDiagnosticSeverity,
   RuntimeInspectionDiagnostic,
+  RuntimeInspectionExtensionNode,
+  RuntimeInspectionContribution,
   RuntimeInspectionGraph,
 } from './types.js'
 export type {

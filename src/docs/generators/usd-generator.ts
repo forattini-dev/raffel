@@ -164,6 +164,24 @@ export interface USDGeneratorContext {
 
   /** Protocol configuration (for jsonrpc/grpc detection) */
   protocolConfig?: USDGeneratorProtocolConfig
+
+  /**
+   * Authorization snapshot (when `policy: { ... }` is configured on the
+   * server). Drives the document-level `x-usd.authz` catalog. Omit to skip.
+   */
+  authz?: {
+    defaultMode: 'allow' | 'deny'
+    policies: ReadonlyArray<{
+      id: string
+      description?: string
+      effect: 'allow' | 'deny' | 'audit'
+      principals: readonly string[]
+      actions: readonly string[]
+      resources: readonly string[]
+      hasCondition: boolean
+      match?: unknown
+    }>
+  }
 }
 
 export interface USDGeneratorProtocolConfig {
@@ -521,6 +539,24 @@ export function generateUSD(
   }
   if (document.components && Object.keys(document.components).length === 0) {
     delete document.components
+  }
+
+  // Authorization catalog — top-level x-raffel-authz extension.
+  // Only emitted when `policy: { ... }` is configured on the server.
+  if (ctx.authz && ctx.authz.policies.length > 0) {
+    document['x-raffel-authz'] = {
+      'default-mode': ctx.authz.defaultMode,
+      policies: ctx.authz.policies.map((p) => ({
+        id: p.id,
+        ...(p.description ? { description: p.description } : {}),
+        effect: p.effect,
+        principals: [...p.principals],
+        actions: [...p.actions],
+        resources: [...p.resources],
+        'has-condition': p.hasCondition,
+        ...(p.match !== undefined ? { match: p.match } : {}),
+      })),
+    }
   }
 
   document['x-usd'] = xUsd

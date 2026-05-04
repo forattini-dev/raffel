@@ -4,6 +4,10 @@ Raffel provides a protocol-agnostic auth layer via interceptors and strategy hel
 You can attach auth globally or per-procedure and it works across HTTP, WebSocket,
 JSON-RPC, gRPC, GraphQL, TCP, and UDP.
 
+> **Authentication vs Authorization**
+>
+> This page covers **authentication** — *who* the request is (Bearer/JWT, API key, OAuth2, OIDC, sessions). For **authorization** — *what* the authenticated principal may do (allow/deny rules, RBAC, ABAC, multi-tenant isolation) — see [Policies](/policies/README.md). Both layers are independent and **opt-in**; you can run any combination.
+
 ---
 
 ## Quick Start

@@ -248,6 +248,8 @@ export type {
   RuntimeInspectionTransportBinding,
   RuntimeInspectionService,
   RuntimeInspectionChannel,
+  RuntimeInspectionExtensionNode,
+  RuntimeInspectionContribution,
   RuntimeInspectionSource,
   RuntimeInspectionSourceKind,
   RuntimeInspectionOperationRegistration,
@@ -470,6 +472,10 @@ export type {
   ProviderDefinition,
   ProvidersConfig,
   ResolvedProviders,
+  ServerPlugin,
+  ServerPluginRegisterContext,
+  ServerPluginRuntimeContext,
+  ServerPluginInspectContext,
   // Procedure Hooks
   BeforeHook,
   AfterHook,
@@ -796,6 +802,38 @@ export type {
   DevelopmentScenarioInput,
   DevelopmentScenarioOutput,
 } from './dx/index.js'
+
+// === Authorization Policies ===
+export {
+  createDefaultEngine,
+  loadPoliciesFromDir,
+  mergePolicies,
+} from './middleware/policy/index.js'
+export type {
+  AuthzInput,
+  CandidatePolicy,
+  Decision,
+  DecisionReason,
+  EvalContext,
+  JsonPolicy,
+  MatchLiteral,
+  MatchNode,
+  MatchOperator,
+  MatchValue,
+  Policy,
+  PolicyCondition,
+  PolicyConfig,
+  PolicyCtxHelpers,
+  PolicyEffect,
+  PolicyForbiddenBody,
+  Principal as AuthzPrincipal,
+  PrincipalConfig,
+  PrincipalSource,
+  ProcedurePolicyConfig,
+  Resource as AuthzResource,
+  ResourceResolver,
+} from './middleware/policy/index.js'
+export type { PolicyEnginePort } from './ports/outbound/policy-engine.js'
 
 // === Session Store ===
 export {

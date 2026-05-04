@@ -16,6 +16,7 @@ import type {
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import { normalizeInterceptors } from './interceptor-utils.js'
+import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type {
   ProcedureBuilder,
   StreamBuilder,
@@ -39,6 +40,26 @@ export interface ProcedureBuilderOptions {
     after: AfterHook<any, any>[]
     error: ErrorHook<any>[]
   }
+  /**
+   * Synthesize the policy interceptor for this procedure when `.authz()` is
+   * called. Provided by the server bootstrap when `policy: { ... }` is
+   * configured on `createServer`. Absent → `.authz()` throws at registration.
+   */
+  policyInterceptorFactory?: (
+    procedureName: string,
+    config: ProcedurePolicyConfig
+  ) => Interceptor
+  /**
+   * Server-level `policy.defaultMode`. When `'deny'`, procedures that did not
+   * call `.authz()` (and did not opt out via `.authz({ public: true })`)
+   * receive a "no-policy-declared" deny interceptor at registration.
+   */
+  policyDefaultMode?: 'allow' | 'deny'
+  /**
+   * Synthesize a "no-policy-declared" deny interceptor for procedures that
+   * skipped `.authz()` under `defaultMode: 'deny'`.
+   */
+  noPolicyDeclaredFactory?: (procedureName: string) => Interceptor
 }
 
 export interface ProcedureRegistrationMeta {
@@ -51,6 +72,7 @@ export interface ProcedureRegistrationMeta {
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies
+  authz?: ProcedurePolicyConfig
   interceptors: Interceptor[]
   schema?: HandlerSchema
   beforeHooks?: BeforeHook<any>[]
@@ -90,7 +112,16 @@ export function createProcedureBuilder(
       policies: registration.policies,
       interceptors: registration.interceptors,
     })
-  }
+  },
+  policyInterceptorFactory?: ProcedureBuilderOptions['policyInterceptorFactory'],
+  policyDefaultMode?: 'allow' | 'deny',
+  noPolicyDeclaredFactory?: (procedureName: string) => Interceptor,
+  /**
+   * When true, `.authz()` stores config on registration meta only (no interceptor
+   * pushed). Used by router-module so server.mount() can synthesize the real
+   * interceptor with the host server's factory and defaultMode.
+   */
+  lazyAuthz = false
 ): ProcedureBuilder {
   let inputSchema: z.ZodType | undefined
   let outputSchema: z.ZodType | undefined
@@ -103,6 +134,7 @@ export function createProcedureBuilder(
   let jsonrpcMeta: JsonRpcMeta | undefined
   let grpcMeta: GrpcMeta | undefined
   let policies: ContractPolicies | undefined
+  let authzConfig: ProcedurePolicyConfig | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
 
   // Local hooks (procedure-specific)
@@ -156,6 +188,26 @@ export function createProcedureBuilder(
       policies = mergeContractPolicies(policies, policyMeta)
       return builder
     },
+    authz(config) {
+      if (authzConfig) {
+        throw new Error(
+          `procedure '${name}': .authz() may only be called once per procedure.`,
+        )
+      }
+      authzConfig = config as ProcedurePolicyConfig
+      if (lazyAuthz) {
+        // Module-builder mode: server.mount() synthesizes the interceptor.
+        return builder
+      }
+      if (!policyInterceptorFactory) {
+        throw new Error(
+          `procedure '${name}': .authz() requires \`policy: { ... }\` on createServer().`,
+        )
+      }
+      const interceptor = policyInterceptorFactory(name, authzConfig)
+      interceptors.push(interceptor)
+      return builder
+    },
     before(hook) {
       beforeHooks.push(hook)
       return builder
@@ -169,6 +221,15 @@ export function createProcedureBuilder(
       return builder
     },
     handler(fn) {
+      // Default-deny: procedures that did not declare .authz() get a
+      // "no-policy-declared" deny interceptor injected at the front.
+      if (
+        policyDefaultMode === 'deny' &&
+        !authzConfig &&
+        noPolicyDeclaredFactory
+      ) {
+        interceptors.unshift(noPolicyDeclaredFactory(name))
+      }
       const hasSchema = inputSchema || outputSchema
 
       // Register schema
@@ -206,6 +267,7 @@ export function createProcedureBuilder(
           jsonrpc: jsonrpcMeta,
           grpc: grpcMeta,
           policies,
+          authz: authzConfig,
           interceptors: normalizedInterceptors,
           schema: hasSchema ? schema : undefined,
         })

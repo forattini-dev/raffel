@@ -41,3 +41,31 @@ const oidc = createOIDCStrategy({
 
 server.use(createAuthMiddleware({ strategies: [oidc] }))
 ```
+
+---
+
+## Pair with authorization policies
+
+OIDC identifies the user; the [policy engine](/policies/README.md) authorizes their actions. Wire them together:
+
+```ts
+const server = createServer({
+  port: 3000,
+  policy: {
+    principal: { from: 'oidc' },       // ← reads ctx.auth with OIDC claim conventions
+    policies: [/* ... */],
+  },
+})
+```
+
+The OIDC adapter prefers OIDC-standard claims:
+
+| Principal field | Sourced from |
+|---|---|
+| `id` | `claims.sub` (preferred) → `ctx.auth.principalId` → `ctx.auth.principal` |
+| `tenantId` | `ctx.auth.tenantId` → `claims.tid` → `claims.org_id` |
+| `scopes` | `ctx.auth.scopes` → `claims.scope` (space-split) |
+| `groups` | `claims.groups` (preferred) → `claims.roles` → `ctx.auth.roles` |
+| `attrs` | full `claims` |
+
+Policies are [fully opt-in](/policies/README.md) — OIDC works with or without them configured.

@@ -1739,3 +1739,79 @@ security:
 
 *USD Specification v1.0.0*
 *Copyright 2025 Tetis.io. All rights reserved.*
+
+---
+
+## x-raffel-authz — Authorization Catalog
+
+Document-level authorization model. Present **only** when `policy: { ... }` is configured on the Raffel server. The catalog lives at the document root as the top-level `x-raffel-authz` extension (consistent with the operation-level `x-raffel-authz` field). All field names use **kebab-case**.
+
+TS `condition` functions are **never** serialised — only `has-condition: boolean` is reported. Declarative `match` DSL is preserved verbatim.
+
+### Document-level field — `x-raffel-authz`
+
+| Field | Type | Description |
+|---|---|---|
+| `default-mode` | `'allow'` \| `'deny'` | Default behaviour for operations without a `.authz()` declaration. |
+| `policies` | array of [Authz Policy Object](#authz-policy-object) | All loaded policies after merging inline + JSON sources. |
+
+### Authz Policy Object
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Unique policy identifier. |
+| `description` | `string` | Optional human-readable description. |
+| `effect` | `'allow'` \| `'deny'` \| `'audit'` | Policy effect. |
+| `principals` | `string[]` | Glob patterns matched against the compiled principal set. |
+| `actions` | `string[]` | Glob patterns matched against the action string. |
+| `resources` | `string[]` | Glob patterns matched against `<type>:<id>` of the resource. |
+| `has-condition` | `boolean` | `true` if the original policy carried a TS `condition` function. The function itself is **not** serialised. |
+| `match` | `MatchNode` (optional) | Declarative match DSL — JSON-serialisable boolean tree. See the [Match DSL Reference](/policies/match-dsl.md) for the operator catalog. |
+
+### Operation-level field — `x-raffel-authz`
+
+Each operation that declared `.authz({...})` carries a small descriptor at `paths.<path>.<method>.x-raffel-authz`:
+
+| Field | Type | Description |
+|---|---|---|
+| `action` | `string` | Action string evaluated by the engine (defaults to procedure name). |
+| `mode` | `'enforce'` \| `'any'` | `enforce` requires every resource to pass; `any` requires at least one. |
+| `public` | `boolean` | `true` when the procedure intentionally bypasses the engine via `.authz({ public: true })`. |
+| `has-resolver` | `boolean` | `true` if the procedure declared a resource resolver function. |
+| `stream-mode` | `'open'` \| `'per-message'` (optional) | For client-stream / WS-continuous procedures. |
+
+### Example
+
+```json
+{
+  "x-raffel-authz": {
+    "default-mode": "deny",
+    "policies": [
+      {
+        "id": "allow-active-leads",
+        "effect": "allow",
+        "principals": ["scope:lead.read"],
+        "actions": ["lead.read"],
+        "resources": ["lead:*"],
+        "has-condition": false,
+        "match": { "resource.status": "active" }
+      }
+    ]
+  },
+  "paths": {
+    "/lead/read": {
+      "post": {
+        "operationId": "leadRead",
+        "x-raffel-authz": {
+          "action": "lead.read",
+          "mode": "enforce",
+          "public": false,
+          "has-resolver": true
+        }
+      }
+    }
+  }
+}
+```
+
+See the [Policies guide](/guides/policies.md) for the full authorization model.

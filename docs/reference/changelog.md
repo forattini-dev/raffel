@@ -5,6 +5,47 @@ page highlights notable updates in the docs.
 
 ---
 
+## 1.1.0
+
+### Authorization Policies (opt-in)
+
+Raffel now ships a declarative authorization engine, inspired by AWS IAM (allow / deny / audit, principal + action + resource + condition):
+
+- **Fully opt-in** — omit `policy: { ... }` and zero engine code is loaded; existing apps unaffected
+- **`PolicyEnginePort` + default driver** — replace with OPA/Cedar/Casbin via the port
+- **Match DSL** — declarative JSON conditions: `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `notIn`, `regex`, `startsWith`, `endsWith`, `contains`, `exists`, `@ref`, `!`, `anyOf`, `allOf`, `not`
+- **Wildcards** — `*`, `**`, `?`, `{a,b}`, `[abc]`, `[a-z]`
+- **Effects** — `allow`, `deny`, `audit` (shadow rollout), with tenant_mismatch precedence #1
+- **Principal adapters** — `'session'`, `'oauth2'`, `'oidc'`, `'custom'` with sensible default mappings
+- **JSON loader** — `loadFromDir`, schema-validated via Ajv, customCondition registry, fail-fast at boot
+- **Per-procedure builder** — `.authz({ action?, resource, mode?, public? })` on `ProcedureBuilder`
+- **Module-level inheritance** — `createRouterModule(prefix, { authz })` defaults applied at mount time
+- **Multi-protocol** — same `.authz()` works for HTTP, JSON-RPC, WS-RPC, gRPC, server-stream
+- **Ctx helpers** — `ctx.policy.evaluate(action, resource)` and `ctx.policy.filterResources(action, resources)` for ad-hoc checks and listings, with per-request dedup
+- **`defaultMode: 'allow' | 'deny'`** — global default with `.authz({ public: true })` escape
+- **Structured logging** via `LoggerPort` on every decision (info allow / warn deny / debug audit-only)
+- **Production-safe error body** — verbose in dev, minimal `{ error, code }` in `NODE_ENV=production`
+- **Discovery** — `runtime-preview` includes per-procedure authz metadata; MCP `raffel://policies` and `raffel://policy/<id>` resources expose the catalog (with `condition` functions sanitised to `hasCondition: boolean`)
+- **`server.policy.explain(input)` / `server.policy.list()`** — side-effect-free introspection
+- **Test harness** — `createPolicyHarness({ policies })` for unit testing without booting a server
+- **Failure safety** — a `condition` that throws becomes implicit_deny + logged error, never a 500
+
+171 tests cover the new module. See:
+
+- [Policies overview](/policies/README.md) — when to use it and how it fits
+- [Guide](/guides/policies.md) — full narrative tour
+- [Match DSL reference](/policies/match-dsl.md) — every operator
+- [Patterns & recipes](/policies/patterns.md) — RBAC, ABAC, multi-tenant, shadow rollout, owner-or-admin, time-windowed, sensitive fields, listings, emergency revocation, approval workflow, service-to-service
+- [API reference](/reference/policies-api.md) — types, config, helpers
+
+The engine is vendored from `github.com/filipeforattini/policy-engine` and adapted for Raffel.
+
+### Compatibility
+
+Backwards-compatible with 1.0.x. New surface is additive and only active when configured. The existing `.policy(policies: ContractPolicies)` builder method (timeout / rate-limit / auth-required) is unchanged — authorization uses the new `.authz()` method to keep concerns separated.
+
+---
+
 ## 1.0.27
 
 ### MCP Protocol Server

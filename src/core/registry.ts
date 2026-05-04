@@ -42,6 +42,12 @@ export interface ProcedureOptions {
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies
+  /**
+   * Authorization config — populated by the `.authz()` builder method.
+   * Discovery / runtime-preview / MCP read this to surface the gate's
+   * action / mode / public / hasResolver. Not used in the hot path.
+   */
+  authz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
   interceptors?: Interceptor[]
 }
 
@@ -173,6 +179,7 @@ export function createRegistry(): Registry {
           jsonrpc: options.jsonrpc,
           grpc: options.grpc,
           policies,
+          authz: options.authz,
         },
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })

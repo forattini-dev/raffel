@@ -47,6 +47,24 @@ export interface ServerLifecycleExecutionCoreContext {
   schemaRegistry: SchemaRegistry
   router: Router
   globalInterceptors: Interceptor[]
+  /**
+   * Authorization snapshot — present only when `policy: { ... }` was passed
+   * to `createServer`. Drives `x-usd.authz` in USD documents and similar
+   * discovery surfaces.
+   */
+  getAuthzSnapshot?: () => {
+    defaultMode: 'allow' | 'deny'
+    policies: ReadonlyArray<{
+      id: string
+      description?: string
+      effect: 'allow' | 'deny' | 'audit'
+      principals: readonly string[]
+      actions: readonly string[]
+      resources: readonly string[]
+      hasCondition: boolean
+      match?: unknown
+    }>
+  } | null
 }
 
 export interface ServerLifecycleExecutionHttpContext {
