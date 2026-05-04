@@ -1111,19 +1111,24 @@ export type {
 } from './mock-server/index.js'
 export { runMockCommand, mockParser } from './mock-server/cli.js'
 
-// === Application Layer (Hexagonal) ===
-export { createRegistrationService } from './application/index.js'
-export type { RegistrationService, RegistrationContext } from './application/index.js'
-export { createRuntimePreviewService } from './application/index.js'
-export type { RuntimePreviewService } from './application/index.js'
-export { buildServerConfigPreview, emitConfigWarnings, logSinglePortConfig, getConfigWarnings, resolveProtocolFusionMode } from './application/index.js'
+// === Server Orchestration (formerly application/) ===
+// Renamed from application/ to server/orchestration/ in slice 8 of the
+// architecture-deepening initiative (PRD #6 / issue #11). The previous
+// application/ folder name overpromised a use-case layer; in practice
+// these helpers are builder-internal. application/ kept as a compat
+// re-export shim for one release.
+export { createRegistrationService } from './server/orchestration/index.js'
+export type { RegistrationService, RegistrationContext } from './server/orchestration/index.js'
+export { createRuntimePreviewService } from './server/orchestration/index.js'
+export type { RuntimePreviewService } from './server/orchestration/index.js'
+export { buildServerConfigPreview, emitConfigWarnings, logSinglePortConfig, getConfigWarnings, resolveProtocolFusionMode } from './server/orchestration/index.js'
 export type {
   ServerConfigPreview,
   ServerConfigPreviewContext,
   ProtocolConfig,
   ProtocolPreviewConfig,
   FrontDoorTransport,
-} from './application/index.js'
+} from './server/orchestration/index.js'
 
 // === Bootstrap Layer (Hexagonal) ===
 // createServer is already exported from ./server/index.js above.

@@ -2,7 +2,7 @@ import {
   buildServerConfigPreview,
   type ServerConfigPreview,
   type ServerConfigPreviewContext,
-} from '../application/config-preview.js'
+} from './orchestration/config-preview.js'
 import type { HttpAdapterOptions } from '../adapters/http.js'
 import { joinBasePath } from './channel-utils.js'
 import type { LoadedTcpHandler, LoadedUdpHandler } from './fs-routes/index.js'
