@@ -93,6 +93,10 @@ export type {
   ProviderDefinition,
   ProvidersConfig,
   ResolvedProviders,
+  ServerPlugin,
+  ServerPluginRegisterContext,
+  ServerPluginRuntimeContext,
+  ServerPluginInspectContext,
 
   // Procedure Hooks
   BeforeHook,
@@ -108,6 +112,8 @@ export type {
   RuntimeInspectionChannel,
   RuntimeInspectionTransport,
   RuntimeInspectionOperationRegistration,
+  RuntimeInspectionExtensionNode,
+  RuntimeInspectionContribution,
   RuntimeInspectionDoctorReport,
   RuntimeInspectionExplanation,
   RuntimeInspectionLoadOptions,

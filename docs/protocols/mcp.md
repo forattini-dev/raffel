@@ -79,6 +79,21 @@ const server = createServer({
 
 Tool calls go through the full Raffel interceptor chain. If your server has auth, rate-limiting, or logging interceptors, they apply to MCP tool calls too.
 
+### Framework wrappers
+
+If you are building a framework on top of Raffel, prefer integrated `mcp` mode
+over running a separate MCP server by default.
+
+Recommended split:
+
+- expose tools/resources/prompts through the `mcp` server option
+- expose framework runtime metadata through `ServerPlugin.inspect()`
+- keep both derived from the same Raffel server instance
+
+See [Framework Plugins](/tooling/framework-plugins.md) for the runtime
+extension surface, and [Framework Runtime RFC](/reference/framework-runtime-rfc.md)
+for the broader roadmap.
+
 ---
 
 ## Standalone mode

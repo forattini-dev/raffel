@@ -15,6 +15,9 @@ The same graph feeds:
 That means the CLI, docs, playground, and contract automation all see the same
 routes, procedures, channels, schemas, policies, and diagnostics.
 
+Frameworks built on top of Raffel should extend that same graph instead of
+building a separate runtime metadata model.
+
 ---
 
 ## Official Workflow
@@ -65,6 +68,41 @@ Use it to confirm:
 
 If the runtime graph is wrong, fix that first. Do not debug downstream tooling
 before the graph is clean.
+
+---
+
+## Framework Extensions
+
+Frameworks can attach namespaced metadata to `server.preview()` via
+`ServerPlugin.inspect()`.
+
+```ts
+server.usePlugin({
+  name: 'purple',
+  inspect: ({ preview }) => ({
+    namespace: 'purple',
+    title: 'Purple Runtime',
+    nodes: [
+      {
+        id: 'purple:summary',
+        kind: 'summary',
+        label: 'Purple Summary',
+        data: {
+          operationCount: preview.operations.length,
+        },
+      },
+    ],
+  }),
+})
+```
+
+That keeps framework DX tied to the canonical graph:
+
+- app/runtime summaries come from one source of truth
+- framework-specific CLIs can read `preview.extensions`
+- future first-party tooling can consume the same extension surface
+
+See [Framework Plugins](/tooling/framework-plugins.md).
 
 ---
 

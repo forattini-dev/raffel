@@ -1531,6 +1531,109 @@ describe('createServer', () => {
         }),
       ]))
     })
+
+    it('should let plugins contribute custom runtime inspection extensions', () => {
+      server = createServer({ port: TEST_PORT })
+        .usePlugin({
+          name: 'purple-inspect',
+          inspect: ({ preview }) => ({
+            namespace: 'purple',
+            title: 'Purple Runtime',
+            nodes: [
+              {
+                id: 'purple:summary',
+                kind: 'summary',
+                label: 'Purple Summary',
+                data: {
+                  operationCount: preview.operations.length,
+                },
+              },
+            ],
+          }),
+        })
+
+      server.procedure('public.ping').handler(async () => 'pong')
+
+      const preview = server.preview()
+
+      expect(preview.extensions).toEqual([
+        expect.objectContaining({
+          namespace: 'purple',
+          title: 'Purple Runtime',
+          nodes: [
+            expect.objectContaining({
+              id: 'purple:summary',
+              kind: 'summary',
+              label: 'Purple Summary',
+              data: {
+                operationCount: 1,
+              },
+            }),
+          ],
+        }),
+      ])
+    })
+  })
+
+  describe('server plugins', () => {
+    it('should allow plugins to register handlers during setup', () => {
+      server = createServer({ port: TEST_PORT }).usePlugin({
+        name: 'purple-routes',
+        register: ({ server }) => {
+          server.procedure('purple.health').handler(async () => 'ok')
+        },
+      })
+
+      const preview = server.preview()
+
+      expect(preview.operations.some((operation) => operation.name === 'purple.health')).toBe(true)
+    })
+
+    it('should run plugin lifecycle hooks around server start and stop', async () => {
+      const events: string[] = []
+
+      server = createServer({
+        port: TEST_PORT,
+        plugins: [
+          {
+            name: 'alpha',
+            beforeStart: () => { events.push('alpha:beforeStart') },
+            afterStart: () => { events.push('alpha:afterStart') },
+            beforeStop: () => { events.push('alpha:beforeStop') },
+            afterStop: () => { events.push('alpha:afterStop') },
+          },
+          {
+            name: 'beta',
+            beforeStart: () => { events.push('beta:beforeStart') },
+            afterStart: () => { events.push('beta:afterStart') },
+            beforeStop: () => { events.push('beta:beforeStop') },
+            afterStop: () => { events.push('beta:afterStop') },
+          },
+        ],
+      })
+
+      await server.start()
+      await server.stop()
+
+      expect(events).toEqual([
+        'alpha:beforeStart',
+        'beta:beforeStart',
+        'alpha:afterStart',
+        'beta:afterStart',
+        'beta:beforeStop',
+        'alpha:beforeStop',
+        'beta:afterStop',
+        'alpha:afterStop',
+      ])
+    })
+
+    it('should reject duplicate plugin names', () => {
+      server = createServer({ port: TEST_PORT }).usePlugin({ name: 'purple-plugin' })
+
+      expect(() => {
+        server!.usePlugin({ name: 'purple-plugin' })
+      }).toThrow('Plugin "purple-plugin" already registered')
+    })
   })
 
   describe('shared protocol ports', () => {

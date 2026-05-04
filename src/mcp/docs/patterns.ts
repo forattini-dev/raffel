@@ -406,7 +406,7 @@ const server = createServer()
   {
     name: 'Providers (Dependency Injection)',
     description:
-      'Providers register singleton dependencies that are initialized at server.start(). In new code, prefer consuming them via ctx.services instead of broad top-level bags.',
+      'Providers register singleton dependencies that are initialized at server.start(). In new code, prefer consuming them via ctx.services instead of broad top-level bags. Do not use providers as a substitute for framework lifecycle plugins.',
     components: ['provide', 'ProviderFactory', 'onShutdown'],
     signature: `.provide('name', factoryFn, options?)
 
@@ -519,10 +519,104 @@ server.procedure('users.list')
           'Creating clients in handlers wastes resources. Use providers for singletons.',
       },
     ],
-    why: 'Providers ensure proper lifecycle management (connect on start, cleanup on stop), dependency resolution, and type-safe access in handlers.',
+    why: 'Providers ensure proper lifecycle management (connect on start, cleanup on stop), dependency resolution, and type-safe access in handlers. They are for dependencies, not framework boot kernels.',
   },
 
-  // === Pattern 5: Router Modules ===
+  // === Pattern 5: Server Plugins ===
+  {
+    name: 'Server Plugins',
+    description:
+      'Server plugins extend the Raffel runtime itself. Use them to register framework-owned handlers, run startup/shutdown orchestration, and attach namespaced metadata to server.preview().',
+    components: ['ServerPlugin', 'usePlugin', 'plugins', 'preview'],
+    signature: `type ServerPlugin = {
+  name: string
+  register?: ({ server }) => void
+  beforeStart?: ({ server, providers, signal }) => void | Promise<void>
+  afterStart?: ({ server, providers, signal }) => void | Promise<void>
+  beforeStop?: ({ server, providers, signal }) => void | Promise<void>
+  afterStop?: ({ server, providers, signal }) => void | Promise<void>
+  inspect?: ({ server, providers, preview }) => RuntimeInspectionContribution | RuntimeInspectionContribution[] | void
+}
+
+createServer({
+  port: 3000,
+  plugins: [myPlugin],
+})
+
+server.usePlugin(myPlugin)`,
+    correctExamples: [
+      {
+        title: 'Framework Plugin',
+        code: `import { createServer, type ServerPlugin } from 'raffel'
+
+const frameworkPlugin: ServerPlugin = {
+  name: 'purple',
+
+  register({ server }) {
+    server.procedure('purple.health').handler(async () => ({ ok: true }))
+  },
+
+  async beforeStart({ providers }) {
+    const services = providers as { db?: { ping(): Promise<void> } }
+    await services.db?.ping()
+  },
+
+  inspect: ({ preview }) => ({
+    namespace: 'purple',
+    title: 'Purple Runtime',
+    nodes: [
+      {
+        id: 'purple:summary',
+        kind: 'summary',
+        label: 'Purple Summary',
+        data: { operationCount: preview.operations.length },
+      },
+    ],
+  }),
+}
+
+const server = createServer({ port: 3000, plugins: [frameworkPlugin] })`,
+      },
+      {
+        title: 'Providers + Plugins',
+        code: `const server = createServer({ port: 3000 })
+  .provide('db', () => createDatabase())
+  .usePlugin({
+    name: 'runtime-bootstrap',
+    beforeStart: async ({ providers }) => {
+      const services = providers as { db: { migrate(): Promise<void> } }
+      await services.db.migrate()
+    },
+  })`,
+      },
+    ],
+    wrongExamples: [
+      {
+        title: 'Wrong: Boot logic inside provider setup semantics',
+        code: `// WRONG - This mixes DI and runtime orchestration
+defineProvider({
+  async setup({ server, db }) {
+    server.procedure('purple.health').handler(async () => 'ok')
+    await db.migrate()
+  },
+})`,
+        description:
+          'If the abstraction registers handlers or orchestrates startup, it should be a ServerPlugin, not a provider.',
+      },
+      {
+        title: 'Wrong: Registering plugin after start',
+        code: `const server = createServer({ port: 3000 })
+
+await server.start()
+server.usePlugin(myPlugin) // Error`,
+        description:
+          'Plugins must be registered before server.start() so registration and lifecycle are deterministic.',
+      },
+    ],
+    why: 'Plugins give frameworks a stable extension surface without forcing them to create a second runtime around Raffel.',
+  },
+
+  // === Pattern 6: Router Modules ===
   {
     name: 'Router Modules',
     description:

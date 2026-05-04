@@ -302,6 +302,22 @@ server
   .handler(async () => ({}))
 ```
 
+### Framework wrappers
+
+If you are building a higher-level framework on top of Raffel, prefer the
+integrated `mcp` surface over starting a second MCP runtime by default.
+
+Recommended split:
+
+- use `mcp` for tools, resources, resource templates, and prompts
+- use `ServerPlugin` for startup/shutdown orchestration
+- use `ServerPlugin.inspect()` for framework-owned runtime metadata
+
+That keeps MCP, runtime inspection, and the application server derived from one
+Raffel instance.
+
+See [Framework Plugins](/tooling/framework-plugins.md).
+
 ---
 
 ## Transports

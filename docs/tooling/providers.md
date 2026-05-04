@@ -15,6 +15,10 @@ In the 2026 Raffel golden path, providers are still the startup mechanism, but
 the recommended handler surface is `ctx.services`, not broad top-level bags like
 `ctx.db`.
 
+If you are extending the runtime itself, use
+[Framework Plugins](/tooling/framework-plugins.md) instead of stretching
+providers into lifecycle hooks.
+
 ---
 
 ## Official Model
@@ -56,6 +60,30 @@ Treat these as compatibility surfaces during migration, not the main path:
 
 They still work in many places, but the docs now recommend `ctx.services`
 because it is clearer, smaller, and more capability-based.
+
+---
+
+## Providers vs Plugins
+
+Use providers for:
+
+- singleton dependencies
+- handler-facing services
+- connection/client lifecycle tied to `server.start()` and `server.stop()`
+
+Use plugins for:
+
+- startup/shutdown orchestration
+- framework-owned route or runtime registration
+- runtime inspection graph extensions
+
+This is the key separation:
+
+- `server.provide(...)` is DI
+- `server.usePlugin(...)` is runtime extension
+
+If your abstraction looks like `setup({ server, db })`, it is usually a plugin,
+not a provider.
 
 ---
 

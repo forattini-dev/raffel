@@ -8,6 +8,9 @@
 import type { Registry } from '../core/registry.js'
 import {
   buildRuntimeInspectionGraph,
+  serializeRuntimeInspectionGraph,
+  type RuntimeInspectionContribution,
+  type RuntimeInspectionGraph,
   type RuntimeInspectionOperationRegistration,
 } from '../inspect/index.js'
 import type { SchemaRegistry } from '../validation/schema.js'
@@ -75,6 +78,7 @@ export interface RuntimePreviewContext<
     previewConfig: ServerConfigPreview
     protocols: unknown
   }
+  getInspectionExtensions?: (preview: RuntimeInspectionGraph) => RuntimeInspectionContribution[] | undefined
   logger: LoggerPort
 }
 
@@ -91,7 +95,7 @@ export function createRuntimePreviewService<
 
   function getRuntimeInspectionPreview() {
     const runtimePlan = ctx.getRuntimePlan()
-    return buildRuntimeInspectionGraph({
+    const preview = buildRuntimeInspectionGraph({
       registry: ctx.registry,
       schemaRegistry: ctx.schemaRegistry,
       config: runtimePlan.previewConfig,
@@ -101,6 +105,16 @@ export function createRuntimePreviewService<
       tcpHandlers: ctx.tcpHandlers as never,
       udpHandlers: ctx.udpHandlers as never,
       operationRegistrations: ctx.operationRegistrations,
+    })
+
+    const extensions = ctx.getInspectionExtensions?.(preview)
+    if (!extensions || extensions.length === 0) {
+      return preview
+    }
+
+    return serializeRuntimeInspectionGraph({
+      ...preview,
+      extensions,
     })
   }
 

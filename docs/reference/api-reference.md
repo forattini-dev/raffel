@@ -18,6 +18,8 @@ Key builder APIs:
 - `server.procedure(name)` → [Procedures](/core/procedures.md)
 - `server.stream(name)` → [Streams](/core/streams.md)
 - `server.event(name)` → [Events](/core/events.md)
+- `server.provide(name, factory)` → [Providers (DI)](/tooling/providers.md)
+- `server.usePlugin(plugin)` → [Framework Plugins](/tooling/framework-plugins.md)
 - `server.use(interceptor)` → [Interceptors](/core/interceptors/overview.md)
 - `server.mount(prefix, module)` → [Router Modules](/core/router-modules.md)
 - `server.preview()` → canonical runtime inspection graph
@@ -90,6 +92,11 @@ Programmatic helpers:
 - `loadRuntimeInspectionPreview(entry)`
 - `buildRuntimeContractTestSuite(graph)`
 - `startRuntimePlayground({ graph })`
+
+Framework-specific graph extension:
+
+- `RuntimeInspectionContribution`
+- `RuntimeInspectionExtensionNode`
 
 See [Developer Experience](/tooling/dx.md).
 

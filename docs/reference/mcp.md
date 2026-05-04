@@ -209,6 +209,7 @@ The MCP resource model mirrors the same guide/topic map:
 
 | Resource | What it gives you |
 |:---------|:------------------|
+| `raffel://guide/framework-plugins` | Build higher-level frameworks on Raffel with plugins, lifecycle hooks, and runtime inspection extensions |
 | `raffel://guide/proxy` | Full proxy family guide (reverse/explicit/SOCKS5h/udp/websocket/TLS) |
 | `raffel://guide/proxy-capabilities` | Feature matrix with protocol-by-mode coverage |
 | `raffel://guide/proxy-observability` | Source→destination graph and duration/error semantics |
@@ -223,6 +224,18 @@ The MCP resource model mirrors the same guide/topic map:
 | `raffel://pattern/{name}` | API patterns |
 | `raffel://error/{code}` | Error explanations |
 | `raffel://boilerplate/{template}` | Multi-file project templates |
+
+### Framework authors
+
+If you are wrapping Raffel inside another framework, use the assistant to keep
+the runtime model unified:
+
+1. `raffel_get_guide topic=framework-plugins`
+2. `raffel_get_guide topic=mcp-server`
+3. `raffel_search query="ServerPlugin preview extensions mcp resources prompts"`
+
+That workflow pushes framework authors toward one server, one runtime graph,
+and one MCP exposure layer.
 
 Resource templates:
 

@@ -130,6 +130,13 @@ const docsGuideIndex = [
   },
   {
     type: 'guide' as const,
+    name: 'Framework Plugins',
+    description:
+      'Build higher-level frameworks on Raffel with ServerPlugin, lifecycle hooks, runtime inspection graph extensions, and a clear split between DI providers and runtime extension.',
+    category: 'documentation',
+  },
+  {
+    type: 'guide' as const,
     name: 'Building MCP Servers',
     description:
       'Build your own MCP servers with createMcpServer(), integrated mcp: true mode, auth-aware HTTP endpoints, and full tools/resources/prompts support.',
