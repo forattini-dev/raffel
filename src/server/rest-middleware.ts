@@ -105,6 +105,55 @@ function sendErrorResponse(
   )
 }
 
+/**
+ * Build an envelope, dispatch through the router, and write the matching
+ * REST response (success or error). Shared by the REST resource handler
+ * and the procedure-via-HTTP handler — both have identical envelope-build
+ * + dispatch + response-mapping shape.
+ */
+async function dispatchRestEnvelope(args: {
+  res: ServerResponse
+  router: Router
+  procedure: string
+  payload: unknown
+  requestId: string
+  metadata: Record<string, string>
+  ctx: Context
+  responseCodec: Codec
+  method: string
+}): Promise<void> {
+  const { res, router, procedure, payload, requestId, metadata, ctx, responseCodec, method } = args
+  const envelope: Envelope = {
+    id: requestId,
+    procedure,
+    type: 'request',
+    payload,
+    metadata,
+    context: ctx,
+  }
+  const result = await router.handle(envelope)
+  if (result && typeof result === 'object' && 'type' in result) {
+    const resultEnvelope = result as Envelope
+    if (resultEnvelope.type === 'error') {
+      const errorPayload = resultEnvelope.payload as {
+        code: string
+        message: string
+        details?: unknown
+        status?: number
+      }
+      const status = errorPayload.status ?? getStatusForCode(errorPayload.code)
+      applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
+      sendErrorResponse(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
+      return
+    }
+    applyRateLimitHeaders(res, ctx)
+    sendEncodedResponse(res, 200, resultEnvelope.payload, responseCodec, method !== 'HEAD')
+    return
+  }
+  applyRateLimitHeaders(res, ctx)
+  sendEncodedResponse(res, 200, result, responseCodec, method !== 'HEAD')
+}
+
 function parseQueryParams(params: URLSearchParams): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   for (const [key, value] of params) {
@@ -312,37 +361,12 @@ export function createRestMiddleware(
           })
 
           try {
-            const envelope: Envelope = {
-              id: requestId,
+            await dispatchRestEnvelope({
+              res, router,
               procedure: `${resource.name}.${route.operation}`,
-              type: 'request',
               payload: body,
-              metadata,
-              context: ctx,
-            }
-            const result = await router.handle(envelope)
-
-            if (result && typeof result === 'object' && 'type' in result) {
-              const resultEnvelope = result as Envelope
-              if (resultEnvelope.type === 'error') {
-                const errorPayload = resultEnvelope.payload as {
-                  code: string
-                  message: string
-                  details?: unknown
-                  status?: number
-                }
-                const status = errorPayload.status ?? getStatusForCode(errorPayload.code)
-                applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
-                sendErrorResponse(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
-                return true
-              }
-              applyRateLimitHeaders(res, ctx)
-              sendEncodedResponse(res, 200, resultEnvelope.payload, responseCodec, method !== 'HEAD')
-              return true
-            }
-
-            applyRateLimitHeaders(res, ctx)
-            sendEncodedResponse(res, 200, result, responseCodec, method !== 'HEAD')
+              requestId, metadata, ctx, responseCodec, method,
+            })
             return true
           } catch (err: any) {
             const status = err.status ?? err.httpStatus ?? 500
@@ -466,37 +490,12 @@ export function createHttpOverrideMiddleware(
       })
 
       try {
-        const envelope: Envelope = {
-          id: requestId,
+        await dispatchRestEnvelope({
+          res, router,
           procedure: meta.name,
-          type: 'request',
           payload,
-          metadata,
-          context: ctx,
-        }
-        const result = await router.handle(envelope)
-
-        if (result && typeof result === 'object' && 'type' in result) {
-          const resultEnvelope = result as Envelope
-          if (resultEnvelope.type === 'error') {
-            const errorPayload = resultEnvelope.payload as {
-              code: string
-              message: string
-              details?: unknown
-              status?: number
-            }
-            const status = errorPayload.status ?? getStatusForCode(errorPayload.code)
-            applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
-            sendErrorResponse(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
-            return true
-          }
-          applyRateLimitHeaders(res, ctx)
-          sendEncodedResponse(res, 200, resultEnvelope.payload, responseCodec, method !== 'HEAD')
-          return true
-        }
-
-        applyRateLimitHeaders(res, ctx)
-        sendEncodedResponse(res, 200, result, responseCodec, method !== 'HEAD')
+          requestId, metadata, ctx, responseCodec, method,
+        })
         return true
       } catch (err: any) {
         const status = err.status ?? err.httpStatus ?? 500
