@@ -293,34 +293,9 @@ function createMessageRef(schemaName: string, contentType?: string): USDMessage 
   }
 }
 
-/**
- * Sanitize handler name for schema naming
- */
-function sanitizeName(name: string): string {
-  return name
-    .replace(/\./g, '_')
-    .replace(/-/g, '_')
-    .split('_')
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-    .join('')
-}
-
-/**
- * Extract tags from handler name
- */
-function extractTags(name: string): string[] {
-  const parts = name.split('.')
-  if (parts.length > 1) {
-    return [parts[0]]
-  }
-
-  const segments = name.split(/[-_]/)
-  if (segments.length > 1) {
-    return [segments[0]]
-  }
-
-  return []
-}
+// Handler name helpers moved to ./_handler-name-utils.ts (shared with
+// udp-generator).
+import { sanitizeName, extractTags } from './_handler-name-utils.js'
 
 /**
  * Helper to create a TCP server definition for manual configuration
