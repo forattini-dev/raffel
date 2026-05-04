@@ -37,6 +37,5 @@ export type { AlphabetName } from './alphabets.js'
 export {
   randomString,
   calculateEntropyBits,
-  getRandomBytes,
   resetPool,
 } from './entropy.js'

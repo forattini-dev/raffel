@@ -17,7 +17,7 @@ interface SinglePortGrpcConnectionHandler {
   handleConnection: (socket: Socket) => void
 }
 
-export function createSinglePortUnsupportedResponse(
+function createSinglePortUnsupportedResponse(
   diagnostic: ProtocolFusionDecision
 ): string {
   const payload = JSON.stringify({
@@ -52,15 +52,15 @@ export function createSinglePortUnsupportedResponse(
   ].join('\r\n')
 }
 
-export function getSinglePortTcpHost(protocolsHost?: string): string {
+function getSinglePortTcpHost(protocolsHost?: string): string {
   return protocolsHost ?? '0.0.0.0'
 }
 
-export function getSinglePortUdpHost(handlerHost?: string): string {
+function getSinglePortUdpHost(handlerHost?: string): string {
   return handlerHost ?? '0.0.0.0'
 }
 
-export function isSinglePortTcpHostCompatible(host: string, sharedHost: string): boolean {
+function isSinglePortTcpHostCompatible(host: string, sharedHost: string): boolean {
   return host === '0.0.0.0' || sharedHost === '0.0.0.0' || host === sharedHost
 }
 

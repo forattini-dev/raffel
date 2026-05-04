@@ -59,7 +59,7 @@ export interface ParsedRateLimitInfo {
  * // { limit: 100, remaining: 42, resetAt: 1699876543000, retryAfter: 30 }
  * ```
  */
-export function parseRateLimitHeaders(
+function parseRateLimitHeaders(
   headers: Record<string, string | undefined>
 ): ParsedRateLimitInfo {
   const result: ParsedRateLimitInfo = {}
@@ -121,7 +121,7 @@ export function parseRateLimitHeaders(
 /**
  * Check if rate limit is exceeded based on parsed headers
  */
-export function isRateLimitExceeded(info: ParsedRateLimitInfo): boolean {
+function isRateLimitExceeded(info: ParsedRateLimitInfo): boolean {
   if (info.remaining !== undefined && info.remaining <= 0) {
     return true
   }
@@ -131,7 +131,7 @@ export function isRateLimitExceeded(info: ParsedRateLimitInfo): boolean {
 /**
  * Calculate delay before next request based on rate limit info
  */
-export function calculateRateLimitDelay(info: ParsedRateLimitInfo): number {
+function calculateRateLimitDelay(info: ParsedRateLimitInfo): number {
   if (info.retryAfter !== undefined) {
     return info.retryAfter * 1000
   }
@@ -393,7 +393,7 @@ export interface TokenBucketConfig {
  * server.use(rateLimit)
  * ```
  */
-export function createTokenBucketLimiter(config: TokenBucketConfig): Interceptor {
+function createTokenBucketLimiter(config: TokenBucketConfig): Interceptor {
   const {
     bucketSize,
     refillRate,
