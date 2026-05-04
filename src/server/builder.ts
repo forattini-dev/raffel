@@ -1585,6 +1585,51 @@ export function createServer(options: ServerOptions): RaffelServer {
       return server
     },
 
+    registerHandler(name: string, handler: any, opts?: any) {
+      const kind = opts?.kind ?? 'procedure'
+      if (kind === 'stream') {
+        return server.addStream({
+          name,
+          handler: handler as StreamHandler,
+          inputSchema: opts?.input,
+          outputSchema: opts?.output,
+          direction: opts?.direction,
+          description: opts?.description,
+          policies: opts?.policies,
+          interceptors: opts?.interceptors,
+        } as AddStreamInput)
+      }
+      if (kind === 'event') {
+        return server.addEvent({
+          name,
+          handler: handler as EventHandler,
+          inputSchema: opts?.input,
+          description: opts?.description,
+          delivery: opts?.delivery,
+          retryPolicy: opts?.retryPolicy,
+          deduplicationWindow: opts?.deduplicationWindow,
+          policies: opts?.policies,
+          interceptors: opts?.interceptors,
+        } as AddEventInput)
+      }
+      return server.addProcedure({
+        name,
+        handler: handler as ProcedureHandler,
+        inputSchema: opts?.input,
+        outputSchema: opts?.output,
+        summary: opts?.summary,
+        description: opts?.description,
+        tags: opts?.tags,
+        graphql: opts?.graphql,
+        httpPath: opts?.httpPath,
+        httpMethod: opts?.httpMethod,
+        jsonrpc: opts?.jsonrpc,
+        grpc: opts?.grpc,
+        policies: opts?.policies,
+        interceptors: opts?.interceptors,
+      } as AddProcedureInput)
+    },
+
     addDiscovery(result: DiscoveryResult) {
       applyDiscoveryResult(result)
       logger.debug(
