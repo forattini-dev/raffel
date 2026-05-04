@@ -89,6 +89,27 @@ export function matchesPattern(procedureName: string, pattern: string): boolean 
 }
 
 /**
+ * Collect every hook (or hook list) registered against a pattern that
+ * matches the given procedure name.
+ */
+function collectMatchingHooks<H>(
+  procedureName: string,
+  patternMap: Record<string, H | H[]> | undefined,
+): H[] {
+  if (!patternMap) return []
+  const matched: H[] = []
+  for (const [pattern, hooks] of Object.entries(patternMap)) {
+    if (!matchesPattern(procedureName, pattern)) continue
+    if (Array.isArray(hooks)) {
+      matched.push(...hooks)
+    } else {
+      matched.push(hooks)
+    }
+  }
+  return matched
+}
+
+/**
  * Resolve matching hooks for a procedure name from global hooks config
  */
 export function resolveHooksForProcedure(
@@ -99,48 +120,9 @@ export function resolveHooksForProcedure(
   after: AfterHook<any, any>[]
   error: ErrorHook<any>[]
 } {
-  const before: BeforeHook<any>[] = []
-  const after: AfterHook<any, any>[] = []
-  const error: ErrorHook<any>[] = []
-
-  // Collect matching before hooks
-  if (globalHooks.before) {
-    for (const [pattern, hooks] of Object.entries(globalHooks.before)) {
-      if (matchesPattern(procedureName, pattern)) {
-        if (Array.isArray(hooks)) {
-          before.push(...hooks)
-        } else {
-          before.push(hooks)
-        }
-      }
-    }
+  return {
+    before: collectMatchingHooks<BeforeHook<any>>(procedureName, globalHooks.before),
+    after: collectMatchingHooks<AfterHook<any, any>>(procedureName, globalHooks.after),
+    error: collectMatchingHooks<ErrorHook<any>>(procedureName, globalHooks.error),
   }
-
-  // Collect matching after hooks
-  if (globalHooks.after) {
-    for (const [pattern, hooks] of Object.entries(globalHooks.after)) {
-      if (matchesPattern(procedureName, pattern)) {
-        if (Array.isArray(hooks)) {
-          after.push(...hooks)
-        } else {
-          after.push(hooks)
-        }
-      }
-    }
-  }
-
-  // Collect matching error hooks
-  if (globalHooks.error) {
-    for (const [pattern, hooks] of Object.entries(globalHooks.error)) {
-      if (matchesPattern(procedureName, pattern)) {
-        if (Array.isArray(hooks)) {
-          error.push(...hooks)
-        } else {
-          error.push(hooks)
-        }
-      }
-    }
-  }
-
-  return { before, after, error }
 }
