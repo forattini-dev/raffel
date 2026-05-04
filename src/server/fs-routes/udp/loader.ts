@@ -129,6 +129,36 @@ export function createUdpServer(handler: LoadedUdpHandler): UdpServerInstance {
     ipv6Only: config.ipv6Only,
   })
 
+  // Send / broadcast helpers shared by the per-message context and the
+  // top-level UdpServerInstance interface.
+  async function sendDatagram(data: Buffer | string, port: number, address: string): Promise<void> {
+    const buf = typeof data === 'string' ? Buffer.from(data) : data
+    return new Promise<void>((resolve, reject) => {
+      socket.send(buf, port, address, (err) => {
+        if (err) reject(err)
+        else resolve()
+      })
+    })
+  }
+
+  async function broadcastDatagram(
+    data: Buffer | string,
+    targets: Array<{ port: number; address: string }>,
+  ): Promise<void> {
+    const buf = typeof data === 'string' ? Buffer.from(data) : data
+    await Promise.all(
+      targets.map(
+        ({ port, address }) =>
+          new Promise<void>((resolve, reject) => {
+            socket.send(buf, port, address, (err) => {
+              if (err) reject(err)
+              else resolve()
+            })
+          }),
+      ),
+    )
+  }
+
   // Create base context (without sender info)
   function createBaseContext(): UdpContext {
     const baseCtx = createContext(sid())
@@ -140,30 +170,8 @@ export function createUdpServer(handler: LoadedUdpHandler): UdpServerInstance {
       address: { host: config.host, port: config.port },
       sender: currentSender,
 
-      async send(data: Buffer | string, port: number, address: string) {
-        const buf = typeof data === 'string' ? Buffer.from(data) : data
-        return new Promise<void>((resolve, reject) => {
-          socket.send(buf, port, address, (err) => {
-            if (err) reject(err)
-            else resolve()
-          })
-        })
-      },
-
-      async broadcast(data: Buffer | string, targets: Array<{ port: number; address: string }>) {
-        const buf = typeof data === 'string' ? Buffer.from(data) : data
-        await Promise.all(
-          targets.map(
-            ({ port, address }) =>
-              new Promise<void>((resolve, reject) => {
-                socket.send(buf, port, address, (err) => {
-                  if (err) reject(err)
-                  else resolve()
-                })
-              })
-          )
-        )
-      },
+      send: sendDatagram,
+      broadcast: broadcastDatagram,
 
       async reply(data: Buffer | string) {
         if (!currentSender) {
@@ -304,30 +312,8 @@ export function createUdpServer(handler: LoadedUdpHandler): UdpServerInstance {
       })
     },
 
-    async send(data: Buffer | string, port: number, address: string) {
-      const buf = typeof data === 'string' ? Buffer.from(data) : data
-      return new Promise<void>((resolve, reject) => {
-        socket.send(buf, port, address, (err) => {
-          if (err) reject(err)
-          else resolve()
-        })
-      })
-    },
-
-    async broadcast(data: Buffer | string, targets: Array<{ port: number; address: string }>) {
-      const buf = typeof data === 'string' ? Buffer.from(data) : data
-      await Promise.all(
-        targets.map(
-          ({ port, address }) =>
-            new Promise<void>((resolve, reject) => {
-              socket.send(buf, port, address, (err) => {
-                if (err) reject(err)
-                else resolve()
-              })
-            })
-        )
-      )
-    },
+    send: sendDatagram,
+    broadcast: broadcastDatagram,
   }
 }
 
