@@ -24,7 +24,7 @@ import type {
   TcpOptions,
 } from './types.js'
 import type { GraphQLOptions } from '../graphql/index.js'
-import type { ServerConfigPreviewContext } from '../application/config-preview.js'
+import type { ServerConfigPreviewContext } from './orchestration/config-preview.js'
 import {
   isSinglePortTcpRouteEnabled as detectSinglePortTcpRouteEnabled,
   isSinglePortGrpcRouteEnabled as detectSinglePortGrpcRouteEnabled,
