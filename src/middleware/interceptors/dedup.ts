@@ -69,33 +69,12 @@ interface PendingRequest {
   waitingCount: number
 }
 
-/**
- * Simple hash function for payload
- */
-function hashPayload(payload: unknown): string {
-  if (payload === undefined || payload === null) {
-    return 'null'
-  }
+// Payload hashing + key construction live in ./_payload-hash.ts —
+// shared with the cache interceptor.
+import { envelopeKey } from './_payload-hash.js'
 
-  try {
-    const str = JSON.stringify(payload)
-    // Simple djb2 hash
-    let hash = 5381
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) + hash) ^ str.charCodeAt(i)
-    }
-    return (hash >>> 0).toString(36)
-  } catch {
-    // If payload can't be stringified, use a random key (no dedup)
-    return Math.random().toString(36).slice(2)
-  }
-}
-
-/**
- * Default key generator: procedure + payload hash
- */
 function defaultKeyGenerator(envelope: Envelope): string {
-  return `${envelope.procedure}:${hashPayload(envelope.payload)}`
+  return envelopeKey(envelope)
 }
 
 
