@@ -33,7 +33,7 @@ interface ChannelRuntimeHandlers {
 /**
  * Escape special regex characters in a string
  */
-export function escapeRegex(value: string): string {
+function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
@@ -46,7 +46,7 @@ export function escapeRegex(value: string): string {
  * - Wildcard params: ':roomId*' matches remaining path
  * - Optional params: ':userId?' matches optionally
  */
-export function matchesChannelPattern(pattern: string, channel: string): boolean {
+function matchesChannelPattern(pattern: string, channel: string): boolean {
   if (pattern === channel) return true
 
   const segments = pattern.split('/')
@@ -70,7 +70,7 @@ export function matchesChannelPattern(pattern: string, channel: string): boolean
 /**
  * Find a channel definition by name, supporting pattern matching
  */
-export function findChannelDefinition(
+function findChannelDefinition(
   channel: string,
   channelRegistry: Map<string, LoadedChannel>
 ): LoadedChannel | undefined {
