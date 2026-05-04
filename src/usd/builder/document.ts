@@ -375,66 +375,63 @@ export class DocumentBuilder {
       info: this.doc.info!,
     }
 
+    this.copyOptionalTopLevel(doc)
+
     const xUsd: USDX = this.doc['x-usd'] ? { ...this.doc['x-usd'] } : {}
     let hasXUsd = Object.keys(xUsd).length > 0
 
-    // Copy optional fields
+    if (this.httpBuilder) {
+      doc.paths = this.httpBuilder.build()
+    }
+    hasXUsd = this.buildXUsdProtocolSections(xUsd) || hasXUsd
+    hasXUsd = this.inferProtocolsList(doc, xUsd) || hasXUsd
+
+    if (hasXUsd) {
+      doc['x-usd'] = xUsd
+    }
+    return doc
+  }
+
+  private copyOptionalTopLevel(doc: USDDocument): void {
     if (this.doc.servers) doc.servers = this.doc.servers
     if (this.doc.tags) doc.tags = this.doc.tags
     if (this.doc.externalDocs) doc.externalDocs = this.doc.externalDocs
     if (this.doc.security) doc.security = this.doc.security
     if (this.doc.components) doc.components = this.doc.components
+  }
 
-    // Build protocol sections
-    if (this.httpBuilder) {
-      doc.paths = this.httpBuilder.build()
-    }
-    if (this.wsBuilder) {
-      xUsd.websocket = this.wsBuilder.build()
-      hasXUsd = true
-    }
-    if (this.streamsBuilder) {
-      xUsd.streams = this.streamsBuilder.build()
-      hasXUsd = true
-    }
-    if (this.rpcBuilder) {
-      xUsd.jsonrpc = this.rpcBuilder.build()
-      hasXUsd = true
-    }
-    if (this.grpcBuilder) {
-      xUsd.grpc = this.grpcBuilder.build()
-      hasXUsd = true
-    }
-    if (this.tcpBuilder) {
-      xUsd.tcp = this.tcpBuilder.build()
-      hasXUsd = true
-    }
-    if (this.udpBuilder) {
-      xUsd.udp = this.udpBuilder.build()
-      hasXUsd = true
-    }
+  /**
+   * Build the six non-HTTP protocol sections into `xUsd`. Returns true if
+   * any section was added.
+   */
+  private buildXUsdProtocolSections(xUsd: USDX): boolean {
+    let added = false
+    if (this.wsBuilder) { xUsd.websocket = this.wsBuilder.build(); added = true }
+    if (this.streamsBuilder) { xUsd.streams = this.streamsBuilder.build(); added = true }
+    if (this.rpcBuilder) { xUsd.jsonrpc = this.rpcBuilder.build(); added = true }
+    if (this.grpcBuilder) { xUsd.grpc = this.grpcBuilder.build(); added = true }
+    if (this.tcpBuilder) { xUsd.tcp = this.tcpBuilder.build(); added = true }
+    if (this.udpBuilder) { xUsd.udp = this.udpBuilder.build(); added = true }
+    return added
+  }
 
-    // Infer protocols if not set
-    if (!xUsd.protocols || xUsd.protocols.length === 0) {
-      const protocols: USDProtocol[] = []
-      if (doc.paths && Object.keys(doc.paths).length > 0) protocols.push('http')
-      if (xUsd.websocket) protocols.push('websocket')
-      if (xUsd.streams) protocols.push('streams')
-      if (xUsd.jsonrpc) protocols.push('jsonrpc')
-      if (xUsd.grpc) protocols.push('grpc')
-      if (xUsd.tcp) protocols.push('tcp')
-      if (xUsd.udp) protocols.push('udp')
-      if (protocols.length > 0) {
-        xUsd.protocols = protocols
-        hasXUsd = true
-      }
-    }
-
-    if (hasXUsd) {
-      doc['x-usd'] = xUsd
-    }
-
-    return doc
+  /**
+   * Populate `xUsd.protocols` by inspecting which sections ended up in the
+   * built document. Returns true if the list was set.
+   */
+  private inferProtocolsList(doc: USDDocument, xUsd: USDX): boolean {
+    if (xUsd.protocols && xUsd.protocols.length > 0) return false
+    const protocols: USDProtocol[] = []
+    if (doc.paths && Object.keys(doc.paths).length > 0) protocols.push('http')
+    if (xUsd.websocket) protocols.push('websocket')
+    if (xUsd.streams) protocols.push('streams')
+    if (xUsd.jsonrpc) protocols.push('jsonrpc')
+    if (xUsd.grpc) protocols.push('grpc')
+    if (xUsd.tcp) protocols.push('tcp')
+    if (xUsd.udp) protocols.push('udp')
+    if (protocols.length === 0) return false
+    xUsd.protocols = protocols
+    return true
   }
 
   /**
