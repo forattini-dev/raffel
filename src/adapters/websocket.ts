@@ -11,7 +11,7 @@ import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, ContextSeed, Interceptor } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
-import { compose } from '../middleware/compose.js'
+import { composeTransportInterceptors, dispatchEnvelope } from './shared/dispatch.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import {
@@ -301,9 +301,7 @@ export function createWebSocketAdapter(
     throw new Error('WebSocket adapter requires a port when no server is provided')
   }
 
-  const transportInterceptor = options.interceptors?.length
-    ? compose(...options.interceptors)
-    : null
+  const transportInterceptor = composeTransportInterceptors(options.interceptors)
   let wss: WebSocketServer | null = null
   let heartbeatTimer: NodeJS.Timeout | null = null
   const clients = new Map<string, ClientConnection>()
@@ -745,9 +743,7 @@ export function createWebSocketAdapter(
 
     try {
       // Route the envelope
-      const result = transportInterceptor
-        ? await transportInterceptor(envelope, envelope.context, () => router.handle(envelope))
-        : await router.handle(envelope)
+      const result = await dispatchEnvelope(router, envelope, envelope.context, transportInterceptor)
 
       const requestAbortController = client.activeRequests.get(envelope.id)
       if (requestAbortController?.signal.aborted) {
