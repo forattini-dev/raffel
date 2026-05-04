@@ -366,17 +366,19 @@ export function createGrpcAdapter(
     }
   }
 
-  async function handleClientStream(
-    call: grpc.ServerReadableStream<any, any>,
-    callback: grpc.sendUnaryData<any>,
-    method: GrpcMethodInfo
-  ): Promise<void> {
-    const { ctx, metadata } = await buildContext(call, method)
-    ctx.stream = {
-      kind: 'stream',
-      mode: 'client',
-      id: ctx.requestId,
-    }
+  /**
+   * Wire a gRPC inbound stream call into a Raffel input stream and the
+   * surrounding context/envelope. Shared by client-stream and bidi-stream
+   * handlers — both consume the call's data/end/error events identically
+   * and produce a 'stream:start' envelope.
+   */
+  async function buildInputStreamEnvelope(
+    call: grpc.ServerReadableStream<any, any> | grpc.ServerDuplexStream<any, any>,
+    method: GrpcMethodInfo,
+    mode: 'client' | 'bidi',
+  ): Promise<{ ctx: Context; metadata: Record<string, string>; envelope: Envelope; inputStream: ReturnType<typeof createStream> }> {
+    const { ctx, metadata } = await buildContext(call as never, method)
+    ctx.stream = { kind: 'stream', mode, id: ctx.requestId }
     const inputStream = createStream<any>()
 
     call.on('data', (chunk) => {
@@ -386,16 +388,19 @@ export function createGrpcAdapter(
         .catch((err) => inputStream.error(err as Error))
         .finally(() => call.resume())
     })
-
-    call.on('end', () => {
-      inputStream.end()
-    })
-
-    call.on('error', (err) => {
-      inputStream.error(err as Error)
-    })
+    call.on('end', () => { inputStream.end() })
+    call.on('error', (err) => { inputStream.error(err as Error) })
 
     const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', inputStream, metadata, ctx)
+    return { ctx, metadata, envelope, inputStream }
+  }
+
+  async function handleClientStream(
+    call: grpc.ServerReadableStream<any, any>,
+    callback: grpc.sendUnaryData<any>,
+    method: GrpcMethodInfo
+  ): Promise<void> {
+    const { envelope } = await buildInputStreamEnvelope(call, method, 'client')
 
     try {
       const result = await router.handle(envelope)
@@ -422,31 +427,7 @@ export function createGrpcAdapter(
     call: grpc.ServerDuplexStream<any, any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = await buildContext(call, method)
-    ctx.stream = {
-      kind: 'stream',
-      mode: 'bidi',
-      id: ctx.requestId,
-    }
-    const inputStream = createStream<any>()
-
-    call.on('data', (chunk) => {
-      call.pause()
-      inputStream
-        .write(chunk)
-        .catch((err) => inputStream.error(err as Error))
-        .finally(() => call.resume())
-    })
-
-    call.on('end', () => {
-      inputStream.end()
-    })
-
-    call.on('error', (err) => {
-      inputStream.error(err as Error)
-    })
-
-    const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', inputStream, metadata, ctx)
+    const { ctx, envelope } = await buildInputStreamEnvelope(call, method, 'bidi')
 
     try {
       const result = await router.handle(envelope)
