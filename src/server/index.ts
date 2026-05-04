@@ -4,7 +4,7 @@
  * Single entry point for multi-protocol Raffel server.
  */
 
-export { createServer } from '../bootstrap/create-server.js'
+export { createServer } from './builder.js'
 export { createRouterModule } from './router-module.js'
 export { loadRouterModule, pathToRouteName } from './route-discovery.js'
 export {
