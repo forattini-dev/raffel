@@ -4,13 +4,13 @@
 
 import type { FrontDoorTransport, SinglePortProtocolKind, ProtocolAliasMode } from './types.js'
 
-export const FRONT_DOOR_PROTOCOL_ALIASES_STANDARD = {
+const FRONT_DOOR_PROTOCOL_ALIASES_STANDARD = {
   rpc: 'jsonrpc',
   jrpc: 'jsonrpc',
   https: 'http',
 } as const satisfies Record<string, FrontDoorTransport>
 
-export const FRONT_DOOR_PROTOCOL_ALIASES_EXTENDED = {
+const FRONT_DOOR_PROTOCOL_ALIASES_EXTENDED = {
   ...FRONT_DOOR_PROTOCOL_ALIASES_STANDARD,
   ping: 'http',
   icmp: 'http',
@@ -19,9 +19,7 @@ export const FRONT_DOOR_PROTOCOL_ALIASES_EXTENDED = {
   telnet: 'tcp',
 } as const satisfies Record<string, FrontDoorTransport>
 
-export const FRONT_DOOR_PROTOCOL_ALIASES = FRONT_DOOR_PROTOCOL_ALIASES_STANDARD
-
-export const SINGLE_PORT_PROTOCOL_ALIASES_STANDARD = {
+const SINGLE_PORT_PROTOCOL_ALIASES_STANDARD = {
   https: 'tls',
   h2: 'http2',
   ws: 'websocket',
@@ -30,7 +28,7 @@ export const SINGLE_PORT_PROTOCOL_ALIASES_STANDARD = {
   rpc: 'jsonrpc',
 } as const satisfies Record<string, SinglePortProtocolKind>
 
-export const SINGLE_PORT_PROTOCOL_ALIASES_EXTENDED = {
+const SINGLE_PORT_PROTOCOL_ALIASES_EXTENDED = {
   ...SINGLE_PORT_PROTOCOL_ALIASES_STANDARD,
   ping: 'http',
   ftp: 'tcp',
@@ -38,8 +36,6 @@ export const SINGLE_PORT_PROTOCOL_ALIASES_EXTENDED = {
   whois: 'tcp',
   telnet: 'tcp',
 } as const satisfies Record<string, SinglePortProtocolKind>
-
-export const SINGLE_PORT_PROTOCOL_ALIASES = SINGLE_PORT_PROTOCOL_ALIASES_STANDARD
 
 export function getFrontDoorProtocolAliases(mode: ProtocolAliasMode = 'standard'): Record<string, FrontDoorTransport> {
   if (mode === 'extended') {

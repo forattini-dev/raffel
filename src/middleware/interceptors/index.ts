@@ -8,12 +8,8 @@
 export {
   createRateLimitInterceptor,
   createAuthRateLimiter,
-  createTokenBucketLimiter,
-  parseRateLimitHeaders,
-  isRateLimitExceeded,
-  calculateRateLimitDelay,
 } from './rate-limit.js'
-export type { ParsedRateLimitInfo, TokenBucketConfig } from './rate-limit.js'
+export type { ParsedRateLimitInfo } from './rate-limit.js'
 
 // Request ID
 export {
