@@ -109,6 +109,15 @@ import { adaptPinoLogger } from '../adapters/outbound/logger/pino.js'
 import { createServerPlanner } from './planner.js'
 import { createServerRuntimePlanBuilder } from './runtime-plan.js'
 import type { ServerLifecycleState } from './builder/state.js'
+import {
+  createHttpNamespace,
+  createWebSocketNamespace,
+  createStreamsNamespace,
+  createRpcNamespace,
+  createTcpNamespace,
+  createUdpNamespace,
+  createGrpcNamespace,
+} from './builder/protocol-namespaces.js'
 
 const logger = createLogger('server')
 const loggerPort = adaptPinoLogger(logger)
@@ -1716,538 +1725,66 @@ export function createServer(options: ServerOptions): RaffelServer {
 
     // === Protocol Namespaces ===
 
-    get http(): import('./types.js').HttpNamespace {
-      // Uses persistent httpInterceptors from outer scope for shared middleware chain
-      const httpNamespace: import('./types.js').HttpNamespace = {
-        get(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('GET', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        post(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('POST', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        put(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('PUT', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        patch(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('PATCH', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        delete(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('DELETE', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        options(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('OPTIONS', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        head(path: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerHttpRoute('HEAD', path, optionsOrHandler, maybeHandler)
-          return httpNamespace
-        },
-        use(interceptor: Interceptor) {
-          httpInterceptors.push(interceptor)
-          return httpNamespace
-        },
-      }
-
-      return httpNamespace
+    get http() {
+      return createHttpNamespace({ registerHttpRoute, httpInterceptors })
     },
 
-    get ws(): import('./types.js').WebSocketNamespace {
-      // Uses persistent wsInterceptors/handlers from outer scope for shared middleware chain
-
-      const wsNamespace: import('./types.js').WebSocketNamespace = {
-        channel(channelName: string, options?: import('./types.js').WebSocketChannelOptions) {
-          // Determine auth requirement based on type
-          const authRequirement = options?.type === 'public' ? 'none' : 'required'
-
-          // Register channel with the channel registry using correct LoadedChannel structure
-          const channelDef: LoadedChannel = {
-            name: channelName,
-            filePath: '<programmatic>',
-            config: {
-              auth: authRequirement,
-            },
-            // Include documentation metadata
-            type: options?.type ?? 'public',
-            description: options?.description,
-            tags: options?.tags,
-          }
-          channelRegistry.set(channelName, channelDef)
-          logger.debug({ name: channelName, type: options?.type ?? 'public', auth: authRequirement }, 'Added WebSocket channel')
-
-          return wsNamespace
-        },
-        onSubscribe(handler: import('./types.js').WebSocketSubscribeHandler) {
-          wsSubscribeHandler = handler
-          return wsNamespace
-        },
-        onMessage(handler: import('./types.js').WebSocketMessageHandler) {
-          wsMessageHandler = handler
-          return wsNamespace
-        },
-        onUnsubscribe(handler: import('./types.js').WebSocketUnsubscribeHandler) {
-          wsUnsubscribeHandler = handler
-          return wsNamespace
-        },
-        use(interceptor: Interceptor) {
-          wsInterceptors.push(interceptor)
-          return wsNamespace
-        },
-      }
-
-      return wsNamespace
+    get ws() {
+      return createWebSocketNamespace({
+        channelRegistry,
+        wsInterceptors,
+        setSubscribeHandler: (handler) => { wsSubscribeHandler = handler },
+        setMessageHandler: (handler) => { wsMessageHandler = handler },
+        setUnsubscribeHandler: (handler) => { wsUnsubscribeHandler = handler },
+        logger,
+      })
     },
 
-    get streams(): import('./types.js').StreamsNamespace {
-      // Uses persistent streamInterceptors from outer scope for shared middleware chain
-      const isStreamOptions = (optionsOrHandler: any): optionsOrHandler is import('./types.js').StreamOptions =>
-        typeof optionsOrHandler === 'object'
-        && optionsOrHandler !== null
-        && !isAsyncIterable(optionsOrHandler)
-
-      const streamsNamespace: import('./types.js').StreamsNamespace = {
-        source(name: string, optionsOrHandler: any, maybeHandler?: any) {
-          const isOptionsObject = isStreamOptions(optionsOrHandler)
-          const options = isOptionsObject ? (optionsOrHandler as import('./types.js').StreamOptions) : {}
-          const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-          // Register as a stream handler using the registry
-          const streamName = `stream:${name}`
-          let interceptors = normalizeInterceptors([...globalInterceptors, ...streamInterceptors])
-
-          if (options.input) {
-            const schema: HandlerSchema = { input: options.input }
-            schemaRegistry.register(streamName, schema)
-            interceptors = normalizeInterceptors(interceptors, schema)
-          }
-
-          registry.stream(streamName, handler, {
-            description: options.description,
-            direction: 'server',
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
-          })
-          recordOperationRegistration(streamName, { source: programmaticSource() })
-
-          logger.debug({ name: streamName, path: options.path ?? `/${name}` }, 'Added stream source')
-          return streamsNamespace
-        },
-
-        sink(name: string, optionsOrHandler: any, maybeHandler?: any) {
-          const isOptionsObject = isStreamOptions(optionsOrHandler)
-          const options = isOptionsObject ? (optionsOrHandler as import('./types.js').StreamOptions) : {}
-          const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-          const streamName = `stream:${name}`
-          let interceptors = normalizeInterceptors([...globalInterceptors, ...streamInterceptors])
-
-          if (options.input) {
-            const schema: HandlerSchema = { input: options.input }
-            schemaRegistry.register(streamName, schema)
-            interceptors = normalizeInterceptors(interceptors, schema)
-          }
-
-          registry.stream(streamName, handler, {
-            description: options.description,
-            direction: 'client',
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
-          })
-          recordOperationRegistration(streamName, { source: programmaticSource() })
-
-          logger.debug({ name: streamName, path: options.path ?? `/${name}` }, 'Added stream sink')
-          return streamsNamespace
-        },
-
-        duplex(name: string, optionsOrHandler: any, maybeHandler?: any) {
-          const isOptionsObject = isStreamOptions(optionsOrHandler)
-          const options = isOptionsObject ? (optionsOrHandler as import('./types.js').StreamOptions) : {}
-          const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-          const streamName = `stream:${name}`
-          let interceptors = normalizeInterceptors([...globalInterceptors, ...streamInterceptors])
-
-          if (options.input) {
-            const schema: HandlerSchema = { input: options.input }
-            schemaRegistry.register(streamName, schema)
-            interceptors = normalizeInterceptors(interceptors, schema)
-          }
-
-          registry.stream(streamName, handler, {
-            description: options.description,
-            direction: 'bidi',
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
-          })
-          recordOperationRegistration(streamName, { source: programmaticSource() })
-
-          logger.debug({ name: streamName, path: options.path ?? `/${name}` }, 'Added stream duplex')
-          return streamsNamespace
-        },
-
-        use(interceptor: Interceptor) {
-          streamInterceptors.push(interceptor)
-          return streamsNamespace
-        },
-      }
-
-      return streamsNamespace
+    get streams() {
+      return createStreamsNamespace({
+        globalInterceptors,
+        streamInterceptors,
+        registry,
+        schemaRegistry,
+        normalizeInterceptors,
+        recordOperationRegistration,
+        programmaticSource,
+        logger,
+      })
     },
 
-    get rpc(): import('./types.js').RpcNamespace {
-      // Uses persistent rpcInterceptors from outer scope for shared middleware chain
-      const registerRpcMethod = (
-        name: string,
-        optionsOrHandler: import('./types.js').RpcMethodOptions | ProcedureHandler,
-        maybeHandler?: ProcedureHandler,
-        isNotification = false
-      ) => {
-        const isOptionsObject = typeof optionsOrHandler === 'object' && optionsOrHandler !== null && typeof maybeHandler === 'function'
-        const options = isOptionsObject ? (optionsOrHandler as import('./types.js').RpcMethodOptions) : {}
-        const handler = isOptionsObject ? maybeHandler : (optionsOrHandler as ProcedureHandler)
-
-        let interceptors = normalizeInterceptors([...globalInterceptors, ...rpcInterceptors])
-
-          if (options.input) {
-            const schema: HandlerSchema = { input: options.input, output: options.output }
-            schemaRegistry.register(name, schema)
-            interceptors = normalizeInterceptors(interceptors, schema)
-          }
-
-        registry.procedure(name, handler, {
-          description: options.description,
-          tags: options.tags,
-          jsonrpc: { notification: isNotification },
-          interceptors: interceptors.length > 0 ? interceptors : undefined,
-        })
-        recordOperationRegistration(name, { source: programmaticSource('rpc-namespace') })
-
-        logger.debug({ name, notification: isNotification }, 'Added RPC method')
-      }
-
-      const rpcNamespace: import('./types.js').RpcNamespace = {
-        method(name: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerRpcMethod(name, optionsOrHandler, maybeHandler, false)
-          return rpcNamespace
-        },
-        notification(name: string, optionsOrHandler: any, maybeHandler?: any) {
-          registerRpcMethod(name, optionsOrHandler, maybeHandler, true)
-          return rpcNamespace
-        },
-        use(interceptor: Interceptor) {
-          rpcInterceptors.push(interceptor)
-          return rpcNamespace
-        },
-      }
-
-      return rpcNamespace
+    get rpc() {
+      return createRpcNamespace({
+        globalInterceptors,
+        rpcInterceptors,
+        registry,
+        schemaRegistry,
+        normalizeInterceptors,
+        recordOperationRegistration,
+        programmaticSource,
+        logger,
+      })
     },
 
-    get tcpNs(): import('./types.js').TcpNamespace {
-      // Uses persistent tcpInterceptors from outer scope for shared middleware chain
-      const tcpNamespace: import('./types.js').TcpNamespace = {
-        handler(name: string, options?: import('./types.js').TcpHandlerOptions): import('./types.js').TcpHandlerBuilder {
-          let connectHandler: import('./fs-routes/tcp/types.js').TcpConnectHandler | undefined
-          let dataHandler: import('./fs-routes/tcp/types.js').TcpDataHandler | undefined
-          let closeHandler: import('./fs-routes/tcp/types.js').TcpCloseHandler | undefined
-          let errorHandler: import('./fs-routes/tcp/types.js').TcpErrorHandler | undefined
-
-          const handlerBuilder: import('./types.js').TcpHandlerBuilder = {
-            onConnect(handler) {
-              connectHandler = handler as unknown as import('./fs-routes/tcp/types.js').TcpConnectHandler
-              return handlerBuilder
-            },
-            onData(handler) {
-              dataHandler = handler as unknown as import('./fs-routes/tcp/types.js').TcpDataHandler
-              return handlerBuilder
-            },
-            onClose(handler) {
-              closeHandler = handler as unknown as import('./fs-routes/tcp/types.js').TcpCloseHandler
-              return handlerBuilder
-            },
-            onError(handler) {
-              errorHandler = handler as unknown as import('./fs-routes/tcp/types.js').TcpErrorHandler
-              return handlerBuilder
-            },
-            end() {
-              let framingConfig: LoadedTcpHandler['config']['framing'] = null
-              if (options?.framing === 'length-prefixed') {
-                framingConfig = {
-                  type: 'length-prefixed',
-                  lengthBytes: 4,
-                  lengthEncoding: 'BE',
-                  maxMessageSize: 16 * 1024 * 1024,
-                  delimiter: undefined,
-                }
-              } else if (options?.framing === 'delimiter' || options?.framing === 'line') {
-                framingConfig = {
-                  type: 'delimiter',
-                  lengthBytes: 4,
-                  lengthEncoding: 'BE',
-                  maxMessageSize: 16 * 1024 * 1024,
-                  delimiter: Buffer.from(options.delimiter ?? '\n'),
-                }
-              }
-
-              // Store TCP handler configuration for later startup
-              const tcpHandler: LoadedTcpHandler = {
-                name,
-                filePath: '<programmatic>',
-                config: {
-                  port: options?.port ?? 0,
-                  host: options?.host ?? '0.0.0.0',
-                  keepAlive: true,
-                  keepAliveInitialDelay: 30000,
-                  timeout: 0,
-                  maxConnections: 0,
-                  noDelay: true,
-                  framing: framingConfig,
-                },
-                handlers: {
-                  onConnect: connectHandler,
-                  onData: framingConfig
-                    ? undefined
-                    : dataHandler,
-                  onMessage: framingConfig
-                    ? dataHandler as unknown as import('./fs-routes/tcp/types.js').TcpMessageHandler
-                    : undefined,
-                  onClose: closeHandler,
-                  onError: errorHandler,
-                },
-              }
-              tcpHandlers.push(tcpHandler)
-              logger.debug({ name, port: options?.port }, 'Added TCP handler')
-              return tcpNamespace
-            },
-          }
-
-          return handlerBuilder
-        },
-        use(interceptor: Interceptor) {
-          tcpInterceptors.push(interceptor)
-          return tcpNamespace
-        },
-      }
-
-      return tcpNamespace
+    get tcpNs() {
+      return createTcpNamespace({ tcpHandlers, tcpInterceptors, logger })
     },
 
-    get udp(): import('./types.js').UdpNamespace {
-      // Uses persistent udpInterceptors from outer scope for shared middleware chain
-      const udpNamespace: import('./types.js').UdpNamespace = {
-        handler(name: string, options?: import('./types.js').UdpHandlerOptions): import('./types.js').UdpHandlerBuilder {
-          let messageHandler: import('./fs-routes/udp/types.js').UdpMessageHandler | undefined
-          let errorHandler: import('./fs-routes/udp/types.js').UdpErrorHandler | undefined
-
-          const handlerBuilder: import('./types.js').UdpHandlerBuilder = {
-            onMessage(handler) {
-              messageHandler = handler as unknown as import('./fs-routes/udp/types.js').UdpMessageHandler
-              return handlerBuilder
-            },
-            onError(handler) {
-              errorHandler = handler as unknown as import('./fs-routes/udp/types.js').UdpErrorHandler
-              return handlerBuilder
-            },
-            end() {
-              // Build multicast config if specified
-              const multicastConfig = options?.multicast ? {
-                group: options.multicast,
-                ttl: 1,
-                loopback: false,
-              } : null
-
-              // Store UDP handler configuration for later startup
-              const udpHandler: LoadedUdpHandler = {
-                name,
-                filePath: '<programmatic>',
-                config: {
-                  port: options?.port ?? 0,
-                  host: options?.host ?? '0.0.0.0',
-                  type: options?.type ?? 'udp4',
-                  reuseAddr: true,
-                  reusePort: false,
-                  recvBufferSize: 65536,
-                  sendBufferSize: 65536,
-                  ipv6Only: false,
-                  multicast: multicastConfig,
-                },
-                handlers: {
-                  onMessage: messageHandler!,
-                  onError: errorHandler,
-                },
-              }
-              udpHandlers.push(udpHandler)
-              logger.debug({ name, port: options?.port }, 'Added UDP handler')
-              return udpNamespace
-            },
-          }
-
-          return handlerBuilder
-        },
-        use(interceptor: Interceptor) {
-          udpInterceptors.push(interceptor)
-          return udpNamespace
-        },
-      }
-
-      return udpNamespace
+    get udp() {
+      return createUdpNamespace({ udpHandlers, udpInterceptors, logger })
     },
 
-    get grpcNs(): import('./types.js').GrpcNamespace {
-      const grpcNamespace: import('./types.js').GrpcNamespace = {
-        service(serviceName: string, serviceOptions?: import('./types.js').GrpcServiceOptions): import('./types.js').GrpcServiceBuilder {
-          const packageName = serviceOptions?.packageName ?? ''
-
-          const serviceBuilder: import('./types.js').GrpcServiceBuilder = {
-            method(name: string, optionsOrHandler: any, maybeHandler?: any) {
-              const isOptionsObject = typeof optionsOrHandler === 'object' && optionsOrHandler !== null && typeof maybeHandler === 'function'
-              const options = isOptionsObject ? (optionsOrHandler as import('./types.js').GrpcMethodOptions) : {}
-              const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-              const procedureName = packageName ? `${packageName}.${serviceName}.${name}` : `${serviceName}.${name}`
-              let interceptors = normalizeInterceptors([...globalInterceptors, ...grpcInterceptors])
-
-              if (options.input || options.output) {
-                const schema: HandlerSchema = {}
-                if (options.input) schema.input = options.input
-                if (options.output) schema.output = options.output
-                schemaRegistry.register(procedureName, schema)
-                interceptors = normalizeInterceptors(interceptors, schema)
-              }
-
-              registry.procedure(procedureName, handler as ProcedureHandler, {
-                description: options.description,
-                grpc: { serviceName, methodName: name, type: 'unary' },
-                interceptors: interceptors.length > 0 ? interceptors : undefined,
-              })
-              recordOperationRegistration(procedureName, {
-                source: programmaticSource('grpc-namespace'),
-                grpc: {
-                  serviceName: packageName ? `${packageName}.${serviceName}` : serviceName,
-                  methodName: name,
-                  type: 'unary',
-                },
-              })
-
-              logger.debug({ name: procedureName, type: 'unary' }, 'Added gRPC method')
-              return serviceBuilder
-            },
-
-            serverStream(name: string, optionsOrHandler: any, maybeHandler?: any) {
-              const isOptionsObject = typeof optionsOrHandler === 'object' && optionsOrHandler !== null && typeof maybeHandler === 'function'
-              const options = isOptionsObject ? (optionsOrHandler as import('./types.js').GrpcMethodOptions) : {}
-              const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-              const procedureName = packageName ? `${packageName}.${serviceName}.${name}` : `${serviceName}.${name}`
-              const interceptors = [...globalInterceptors, ...grpcInterceptors]
-
-              if (options.input || options.output) {
-                const schema: HandlerSchema = {}
-                if (options.input) schema.input = options.input
-                if (options.output) schema.output = options.output
-                schemaRegistry.register(procedureName, schema)
-              }
-
-              registry.stream(procedureName, handler as StreamHandler, {
-                description: options.description,
-                direction: 'server',
-                interceptors: interceptors.length > 0 ? interceptors : undefined,
-              })
-              recordOperationRegistration(procedureName, {
-                source: programmaticSource('grpc-namespace'),
-                grpc: {
-                  serviceName: packageName ? `${packageName}.${serviceName}` : serviceName,
-                  methodName: name,
-                  type: 'server-streaming',
-                },
-              })
-
-              logger.debug({ name: procedureName, type: 'server-stream' }, 'Added gRPC server stream')
-              return serviceBuilder
-            },
-
-            clientStream(name: string, optionsOrHandler: any, maybeHandler?: any) {
-              const isOptionsObject = typeof optionsOrHandler === 'object' && optionsOrHandler !== null && typeof maybeHandler === 'function'
-              const options = isOptionsObject ? (optionsOrHandler as import('./types.js').GrpcMethodOptions) : {}
-              const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-              const procedureName = packageName ? `${packageName}.${serviceName}.${name}` : `${serviceName}.${name}`
-              const interceptors = [...globalInterceptors, ...grpcInterceptors]
-
-              if (options.input || options.output) {
-                const schema: HandlerSchema = {}
-                if (options.input) schema.input = options.input
-                if (options.output) schema.output = options.output
-                schemaRegistry.register(procedureName, schema)
-              }
-
-              registry.stream(procedureName, handler as StreamHandler, {
-                description: options.description,
-                direction: 'client',
-                interceptors: interceptors.length > 0 ? interceptors : undefined,
-              })
-              recordOperationRegistration(procedureName, {
-                source: programmaticSource('grpc-namespace'),
-                grpc: {
-                  serviceName: packageName ? `${packageName}.${serviceName}` : serviceName,
-                  methodName: name,
-                  type: 'client-streaming',
-                },
-              })
-
-              logger.debug({ name: procedureName, type: 'client-stream' }, 'Added gRPC client stream')
-              return serviceBuilder
-            },
-
-            bidiStream(name: string, optionsOrHandler: any, maybeHandler?: any) {
-              const isOptionsObject = typeof optionsOrHandler === 'object' && optionsOrHandler !== null && typeof maybeHandler === 'function'
-              const options = isOptionsObject ? (optionsOrHandler as import('./types.js').GrpcMethodOptions) : {}
-              const handler = isOptionsObject ? maybeHandler : optionsOrHandler
-
-              const procedureName = packageName ? `${packageName}.${serviceName}.${name}` : `${serviceName}.${name}`
-              const interceptors = [...globalInterceptors, ...grpcInterceptors]
-
-              if (options.input || options.output) {
-                const schema: HandlerSchema = {}
-                if (options.input) schema.input = options.input
-                if (options.output) schema.output = options.output
-                schemaRegistry.register(procedureName, schema)
-              }
-
-              registry.stream(procedureName, handler as StreamHandler, {
-                description: options.description,
-                direction: 'bidi',
-                interceptors: interceptors.length > 0 ? interceptors : undefined,
-              })
-              recordOperationRegistration(procedureName, {
-                source: programmaticSource('grpc-namespace'),
-                grpc: {
-                  serviceName: packageName ? `${packageName}.${serviceName}` : serviceName,
-                  methodName: name,
-                  type: 'bidirectional',
-                },
-              })
-
-              logger.debug({ name: procedureName, type: 'bidi-stream' }, 'Added gRPC bidi stream')
-              return serviceBuilder
-            },
-
-            end() {
-              return grpcNamespace
-            },
-          }
-
-          return serviceBuilder
-        },
-
-        use(interceptor: Interceptor) {
-          grpcInterceptors.push(interceptor)
-          return grpcNamespace
-        },
-      }
-
-      return grpcNamespace
+    get grpcNs() {
+      return createGrpcNamespace({
+        globalInterceptors,
+        grpcInterceptors,
+        registry,
+        schemaRegistry,
+        normalizeInterceptors,
+        recordOperationRegistration,
+        programmaticSource,
+        logger,
+      })
     },
 
     // === Accessors ===
