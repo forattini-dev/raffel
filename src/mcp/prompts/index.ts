@@ -762,7 +762,7 @@ Use raffel_get_interceptor with cache, bulkhead, and other performance intercept
 
 // === Export Helpers ===
 
-export function getPrompt(name: string): MCPPrompt | undefined {
+function getPrompt(name: string): MCPPrompt | undefined {
   return prompts.find((p) => p.name === name)
 }
 
