@@ -545,6 +545,38 @@ describe('createServer', () => {
     })
   })
 
+  describe('registerHandler() — single high-leverage entry point', () => {
+    it('registers a procedure when kind defaults to procedure', async () => {
+      server = createServer({ port: TEST_PORT })
+      server.registerHandler('users.get', async (input: { id: string }) => ({ id: input.id }), {
+        input: z.object({ id: z.string() }),
+      })
+      expect(server.registry.getProcedure('users.get')).toBeDefined()
+    })
+
+    it('routes kind: stream to addStream', async () => {
+      server = createServer({ port: TEST_PORT })
+      async function* stream() { yield 1; yield 2 }
+      server.registerHandler('counter', stream as never, { kind: 'stream', direction: 'server' })
+      expect(server.registry.getStream('counter')).toBeDefined()
+    })
+
+    it('routes kind: event to addEvent', async () => {
+      server = createServer({ port: TEST_PORT })
+      server.registerHandler('order.placed', async () => undefined, {
+        kind: 'event',
+        delivery: 'best-effort',
+      })
+      expect(server.registry.getEvent('order.placed')).toBeDefined()
+    })
+
+    it('returns the server for chaining', () => {
+      server = createServer({ port: TEST_PORT })
+      const result = server.registerHandler('a', async () => 1)
+      expect(result).toBe(server)
+    })
+  })
+
   describe('fluent procedure registration', () => {
     it('should register a procedure with fluent API', async () => {
       server = createServer({ port: TEST_PORT })

@@ -1133,3 +1133,53 @@ export interface AddEventInput {
   /** Interceptors */
   interceptors?: Interceptor[]
 }
+
+// === registerHandler() options (slice 3 of architecture-deepening initiative) ===
+
+/**
+ * Discriminated options for `RaffelServer.registerHandler()`.
+ *
+ * Unifies procedure / stream / event registration behind one call.
+ * Defaults to `kind: 'procedure'` when omitted.
+ */
+export type RegisterHandlerOptions =
+  | RegisterProcedureOptions
+  | RegisterStreamOptions
+  | RegisterEventOptions
+
+export interface RegisterProcedureOptions {
+  kind?: 'procedure'
+  input?: import('zod').ZodType
+  output?: import('zod').ZodType
+  summary?: string
+  description?: string
+  tags?: string[]
+  graphql?: { type: 'query' | 'mutation' }
+  httpPath?: string
+  httpMethod?: HttpMethod
+  jsonrpc?: JsonRpcMeta
+  grpc?: GrpcMeta
+  policies?: ContractPolicies
+  interceptors?: Interceptor[]
+}
+
+export interface RegisterStreamOptions {
+  kind: 'stream'
+  input?: import('zod').ZodType
+  output?: import('zod').ZodType
+  direction?: StreamDirection
+  description?: string
+  policies?: ContractPolicies
+  interceptors?: Interceptor[]
+}
+
+export interface RegisterEventOptions {
+  kind: 'event'
+  input?: import('zod').ZodType
+  description?: string
+  delivery?: 'best-effort' | 'at-least-once' | 'at-most-once'
+  retryPolicy?: RetryPolicy
+  deduplicationWindow?: number
+  policies?: ContractPolicies
+  interceptors?: Interceptor[]
+}
