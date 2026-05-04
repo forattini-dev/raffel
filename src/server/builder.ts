@@ -111,6 +111,8 @@ import {
   createUdpNamespace,
   createGrpcNamespace,
 } from './builder/protocol-namespaces.js'
+import { applyExtendedProtocolConfig } from './builder/with-protocols.js'
+import { applyResourceMap } from './builder/resources.js'
 
 const logger = createLogger('server')
 const loggerPort = adaptPinoLogger(logger)
@@ -792,114 +794,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     },
 
       withProtocols(config: ExtendedProtocolConfig) {
-      const hasOwnFields = (value: object): boolean => {
-        for (const key in value) {
-          if (Object.prototype.hasOwnProperty.call(value, key)) {
-            return true
-          }
-        }
-
-        return false
-      }
-
-      // Helper to check if a slot has enabled: false
-      function isDisabled(value: unknown): boolean {
-        if (value === false) return true
-        if (typeof value === 'object' && value !== null && 'enabled' in value) {
-          return (value as { enabled: boolean }).enabled === false
-        }
-        return false
-      }
-
-      // WebSocket
-      if (config.websocket !== undefined && !isDisabled(config.websocket)) {
-        const ws = config.websocket
-        if (ws === true) {
-          server.enableWebSocket('/ws')
-        } else if (typeof ws === 'string') {
-          server.enableWebSocket(ws)
-        } else if (typeof ws === 'object' && 'enabled' in ws) {
-          const { enabled: _enabled, ...rest } = ws as { enabled: boolean } & Partial<WebSocketOptions>
-          if (hasOwnFields(rest)) {
-            server.websocket(rest as WebSocketOptions)
-          } else {
-            server.enableWebSocket('/ws')
-          }
-        } else {
-          server.websocket(ws as WebSocketOptions)
-        }
-      }
-
-      // JSON-RPC
-      if (config.jsonrpc !== undefined && !isDisabled(config.jsonrpc)) {
-        const jrpc = config.jsonrpc
-        if (jrpc === true) {
-          server.enableJsonRpc('/rpc')
-        } else if (typeof jrpc === 'string') {
-          server.enableJsonRpc(jrpc)
-        } else if (typeof jrpc === 'object' && 'enabled' in jrpc) {
-          const { enabled: _enabled, ...rest } = jrpc as { enabled: boolean } & Partial<JsonRpcOptions>
-          server.enableJsonRpc(rest.path ?? '/rpc')
-        } else {
-          server.jsonrpc(jrpc as JsonRpcOptions)
-        }
-      }
-
-      // Streams
-      if (config.streams !== undefined && config.streams !== false) {
-        logger.debug({ streams: config.streams }, 'Streams protocol enabled')
-      }
-
-      // GraphQL
-      if (config.graphql !== undefined && !isDisabled(config.graphql)) {
-        const gql = config.graphql
-        if (gql === true) {
-          server.enableGraphQL('/graphql')
-        } else if (typeof gql === 'string') {
-          server.enableGraphQL(gql)
-        } else if (typeof gql === 'object' && 'enabled' in gql) {
-          const { enabled: _enabled, ...rest } = gql as { enabled: boolean } & Partial<import('../graphql/index.js').GraphQLOptions>
-          if (hasOwnFields(rest)) {
-            server.configureGraphQL(rest as import('../graphql/index.js').GraphQLOptions)
-          } else {
-            server.enableGraphQL('/graphql')
-          }
-        } else {
-          server.configureGraphQL(gql as import('../graphql/index.js').GraphQLOptions)
-        }
-      }
-
-      // TCP
-      if (config.tcp !== undefined && !isDisabled(config.tcp)) {
-        const tcpCfg = config.tcp
-        if (typeof tcpCfg === 'object' && 'enabled' in tcpCfg) {
-          const { enabled: _enabled, ...rest } = tcpCfg as { enabled: boolean } & Partial<TcpOptions>
-          if (rest.port !== undefined) {
-            server.tcp(rest as TcpOptions)
-          }
-        } else {
-          server.tcp(tcpCfg as TcpOptions)
-        }
-      }
-
-      // UDP (test-scope marker only — no production adapter)
-      if (config.udp !== undefined && !isDisabled(config.udp)) {
-        logger.debug('UDP protocol noted (test-scope only; no production adapter registered)')
-      }
-
-      // gRPC
-      if (config.grpc !== undefined && !isDisabled(config.grpc)) {
-        const grpcCfg = config.grpc
-        if (typeof grpcCfg === 'object' && 'enabled' in grpcCfg) {
-          const { enabled: _enabled, ...rest } = grpcCfg as { enabled: boolean } & Partial<GrpcOptions>
-          if (rest.port !== undefined && rest.protoPath !== undefined) {
-            server.grpc(rest as GrpcOptions)
-          }
-        } else {
-          server.grpc(grpcCfg as GrpcOptions)
-        }
-      }
-
+      applyExtendedProtocolConfig(server, logger, config)
       runtimePreviewService.emitWarnings()
       return server
     },
@@ -1234,118 +1129,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     },
 
     resources(map: import('./types.js').ResourceMap) {
-      for (const [name, def] of Object.entries(map)) {
-        const basePath = def.basePath ?? `/${name}`
-        const tags = def.tags ?? [name]
-
-        // Helper to register an operation
-        const registerOp = (
-          opName: string,
-          handler: Function,
-          method: import('../types/index.js').HttpMethod,
-          path: string,
-          inputSchema?: z.ZodType
-        ) => {
-          const procedureName = `${name}.${opName}`
-          registerProcedureOperation({
-            name: procedureName,
-            handler: handler as ProcedureHandler,
-            inputSchema,
-            outputSchema: def.schema,
-            tags,
-            httpPath: path,
-            httpMethod: method,
-            summary: `${opName.charAt(0).toUpperCase() + opName.slice(1)} ${name}`,
-            interceptors: def.use ?? [],
-          })
-        }
-
-        // Register standard operations
-        if (def.list) {
-          const listDef = def.list
-          if (typeof listDef === 'function') {
-            registerOp('list', listDef, 'GET', basePath, undefined)
-          } else {
-            registerOp('list', listDef.handler, 'GET', basePath, listDef.input)
-          }
-        }
-
-        if (def.get) {
-          registerOp(
-            'get',
-            async (input: { id: string }, ctx: any) => def.get!(input.id, ctx),
-            'GET',
-            `${basePath}/:id`
-          )
-        }
-
-        if (def.create) {
-          const createDef = def.create
-          if (typeof createDef === 'function') {
-            registerOp('create', createDef, 'POST', basePath, undefined)
-          } else {
-            registerOp('create', createDef.handler, 'POST', basePath, createDef.input)
-          }
-        }
-
-        if (def.update) {
-          const updateDef = def.update
-          if (typeof updateDef === 'function') {
-            const handler = async (input: { id: string } & Record<string, unknown>, ctx: any) =>
-              updateDef(input.id, input, ctx)
-            registerOp('update', handler, 'PUT', `${basePath}/:id`, undefined)
-          } else {
-            const handler = async (input: { id: string } & Record<string, unknown>, ctx: any) =>
-              updateDef.handler(input.id, input, ctx)
-            registerOp('update', handler, 'PUT', `${basePath}/:id`, updateDef.input)
-          }
-        }
-
-        if (def.patch) {
-          const patchDef = def.patch
-          if (typeof patchDef === 'function') {
-            const handler = async (input: { id: string } & Record<string, unknown>, ctx: any) =>
-              patchDef(input.id, input, ctx)
-            registerOp('patch', handler, 'PATCH', `${basePath}/:id`, undefined)
-          } else {
-            const handler = async (input: { id: string } & Record<string, unknown>, ctx: any) =>
-              patchDef.handler(input.id, input, ctx)
-            registerOp('patch', handler, 'PATCH', `${basePath}/:id`, patchDef.input)
-          }
-        }
-
-        if (def.delete) {
-          registerOp(
-            'delete',
-            async (input: { id: string }, ctx: any) => def.delete!(input.id, ctx),
-            'DELETE',
-            `${basePath}/:id`
-          )
-        }
-
-        // Register custom actions
-        if (def.actions) {
-          for (const [actionName, action] of Object.entries(def.actions)) {
-            registerOp(actionName, action.handler, 'POST', `${basePath}/${actionName}`, action.input)
-          }
-        }
-
-        // Register item actions
-        if (def.itemActions) {
-          for (const [actionName, action] of Object.entries(def.itemActions)) {
-            const isObj = typeof action === 'object' && 'handler' in action
-            const handler = isObj
-              ? async (input: { id: string } & Record<string, unknown>, ctx: any) =>
-                  action.handler(input.id, input, ctx)
-              : async (input: { id: string }, ctx: any) => (action as Function)(input.id, ctx)
-            const inputSchema = isObj ? action.input : undefined
-            registerOp(actionName, handler, 'POST', `${basePath}/:id/${actionName}`, inputSchema)
-          }
-        }
-
-        logger.debug({ name, basePath, operations: Object.keys(def).length }, 'Added resource from map')
-      }
-
+      applyResourceMap(map, { registerProcedureOperation, logger })
       return server
     },
 
