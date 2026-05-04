@@ -1,17 +1,28 @@
 /**
- * Application Layer
+ * Compat re-exports for the previous `application/` layer.
  *
- * Orchestration services extracted from the monolithic builder.
- * This layer sits between the core domain and the bootstrap/infrastructure layer.
+ * The orchestration helpers moved to `src/server/orchestration/` as part
+ * of slice 8 of the architecture-deepening initiative (PRD #6 / issue #11).
+ * The folder name `application/` overpromised a use-case layer; in reality
+ * these helpers are builder-internal and only called from `server/builder.ts`.
+ *
+ * Kept solely as a compat surface so external code importing from this path
+ * keeps working. New code should import from `server/orchestration/` directly.
  */
 
-// Registration — handler/channel/resource registration orchestration
-export { createRegistrationService } from './registration.js'
-export type { RegistrationService, RegistrationContext } from './registration.js'
+export {
+  createRegistrationService,
+  buildServerConfigPreview,
+  emitConfigWarnings,
+  logSinglePortConfig,
+  getConfigWarnings,
+  resolveProtocolFusionMode,
+  createRuntimePreviewService,
+} from '../server/orchestration/index.js'
 
-// Config Preview — server configuration preview and diagnostics
-export { buildServerConfigPreview, emitConfigWarnings, logSinglePortConfig, getConfigWarnings, resolveProtocolFusionMode } from './config-preview.js'
 export type {
+  RegistrationService,
+  RegistrationContext,
   ServerConfigPreview,
   ServerConfigPreviewContext,
   ProtocolConfig,
@@ -21,8 +32,6 @@ export type {
   ProtocolFusionMode,
   FrontDoorStrategy,
   ProtocolAliasMode,
-} from './config-preview.js'
-
-// Runtime Preview — config preview and inspection graph
-export { createRuntimePreviewService } from './runtime-preview.js'
-export type { RuntimePreviewService, RuntimePreviewContext } from './runtime-preview.js'
+  RuntimePreviewService,
+  RuntimePreviewContext,
+} from '../server/orchestration/index.js'
