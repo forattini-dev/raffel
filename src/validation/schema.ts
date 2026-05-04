@@ -190,46 +190,54 @@ export function validate<T>(
  * }
  * ```
  */
+/**
+ * Run input + output validation around a handler step. Mutates
+ * `envelope.payload` with the parsed input on success; returns the
+ * (possibly parsed) handler result. Throws RaffelError on either
+ * validation failure.
+ *
+ * Shared by createValidationInterceptor (per-handler schema) and
+ * createSchemaValidationInterceptor (registry-driven schema).
+ */
+async function runSchemaValidatedHandler(
+  schema: HandlerSchema,
+  envelope: Envelope,
+  next: () => Promise<unknown>,
+): Promise<unknown> {
+  const validatorType = schema.validator ?? globalConfig.defaultValidator
+  const validator = getValidator(validatorType)
+
+  if (schema.input) {
+    const result = validator.validate(schema.input, envelope.payload)
+    if (!result.success) {
+      throw new RaffelError('VALIDATION_ERROR', 'Input validation failed', {
+        errors: result.errors,
+        validator: validatorType,
+      })
+    }
+    envelope.payload = result.data
+  }
+
+  const handlerResult = await next()
+
+  if (schema.output) {
+    const result = validator.validate(schema.output, handlerResult)
+    if (!result.success) {
+      throw new RaffelError('OUTPUT_VALIDATION_ERROR', 'Output validation failed', {
+        errors: result.errors,
+        validator: validatorType,
+      })
+    }
+    return result.data
+  }
+
+  return handlerResult
+}
+
 export function createValidationInterceptor<TInput, TOutput>(
   schema: HandlerSchema<TInput, TOutput>
 ): Interceptor {
-  return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
-    const validatorType = schema.validator ?? globalConfig.defaultValidator
-    const validator = getValidator(validatorType)
-
-    // Validate input if schema provided
-    if (schema.input) {
-      const result = validator.validate<TInput>(schema.input, envelope.payload)
-
-      if (!result.success) {
-        throw new RaffelError('VALIDATION_ERROR', 'Input validation failed', {
-          errors: result.errors,
-          validator: validatorType,
-        })
-      }
-
-      envelope.payload = result.data
-    }
-
-    // Execute handler
-    const handlerResult = await next()
-
-    // Validate output if schema provided
-    if (schema.output) {
-      const result = validator.validate<TOutput>(schema.output, handlerResult)
-
-      if (!result.success) {
-        throw new RaffelError('OUTPUT_VALIDATION_ERROR', 'Output validation failed', {
-          errors: result.errors,
-          validator: validatorType,
-        })
-      }
-
-      return result.data
-    }
-
-    return handlerResult
-  }
+  return async (envelope, _ctx, next) => runSchemaValidatedHandler(schema as HandlerSchema, envelope, next)
 }
 
 /**
@@ -304,49 +312,10 @@ export function createSchemaRegistry(): SchemaRegistry {
  * ```
  */
 export function createSchemaValidationInterceptor(schemaRegistry: SchemaRegistry): Interceptor {
-  return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
+  return async (envelope, _ctx, next) => {
     const schema = schemaRegistry.get(envelope.procedure)
-
-    if (!schema) {
-      // No schema registered, skip validation
-      return next()
-    }
-
-    const validatorType = schema.validator ?? globalConfig.defaultValidator
-    const validator = getValidator(validatorType)
-
-    // Validate input if schema provided
-    if (schema.input) {
-      const result = validator.validate(schema.input, envelope.payload)
-
-      if (!result.success) {
-        throw new RaffelError('VALIDATION_ERROR', 'Input validation failed', {
-          errors: result.errors,
-          validator: validatorType,
-        })
-      }
-
-      envelope.payload = result.data
-    }
-
-    // Execute handler
-    const handlerResult = await next()
-
-    // Validate output if schema provided
-    if (schema.output) {
-      const result = validator.validate(schema.output, handlerResult)
-
-      if (!result.success) {
-        throw new RaffelError('OUTPUT_VALIDATION_ERROR', 'Output validation failed', {
-          errors: result.errors,
-          validator: validatorType,
-        })
-      }
-
-      return result.data
-    }
-
-    return handlerResult
+    if (!schema) return next()
+    return runSchemaValidatedHandler(schema, envelope, next)
   }
 }
 
