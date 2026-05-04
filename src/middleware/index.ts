@@ -1,249 +1,62 @@
 /**
- * Middleware Module
+ * Middleware Module — Compat Barrel
  *
- * Comprehensive middleware for Raffel services including:
- * - Protocol-agnostic interceptors (rate limiting, timeout, retry, circuit breaker)
- * - HTTP-specific middleware (security headers, compression)
- * - Authentication & authorization
- * - Composition helpers
- * - Pre-configured presets
+ * This file is a thin compat barrel that re-exports every middleware-layer
+ * symbol from its canonical subfolder. The barrel exists so that documented
+ * imports such as
+ *
+ *   import { createCacheInterceptor } from 'raffel/middleware'
+ *
+ * keep working. New code should import from the specific subfolder:
+ *
+ * - `raffel/middleware/compose`      — composition helpers
+ * - `raffel/middleware/interceptors` — protocol-agnostic interceptors
+ * - `raffel/middleware/http`         — HTTP-only middleware
+ * - `raffel/middleware/auth`         — auth + OAuth2/OIDC strategies
+ * - `raffel/middleware/session`      — session store + interceptor
+ * - `raffel/middleware/policy`       — declarative authorization
+ *
+ * Slice 9 (narrowed) of architecture-deepening initiative (PRD #6 / issue #12):
+ * the umbrella stays as compat surface (it is shipped in MCP docs examples
+ * and `cache/index.ts` JSDoc); duplication and dump-style ordering removed.
  */
 
-// ============================================================================
-// Composition Helpers
-// ============================================================================
+// === Composition helpers ===
+export * from './compose.js'
 
-export {
-  compose,
-  when,
-  forProcedures,
-  forPattern,
-  except,
-  branch,
-  passthrough,
-} from './compose.js'
+// === Auth + OAuth2/OIDC strategies ===
+export * from './auth.js'
 
-// ============================================================================
-// Types
-// ============================================================================
+// === Protocol-agnostic interceptors ===
+export * from './interceptors/index.js'
 
+// === HTTP-only middleware ===
+export * from './http/index.js'
+
+// === Shared middleware types ===
 export type {
-  // Rate Limiting
   RateLimitConfig,
   RateLimitInfo,
   RateLimitRule,
-
-  // Request ID
   RequestIdConfig,
-
-  // Logging
   LogLevel,
   LogFilterContext,
   LoggingConfig,
-
-  // Timeout
   TimeoutConfig,
-
-  // Retry
   RetryConfig,
-
-  // Circuit Breaker
   CircuitState,
   CircuitBreakerConfig,
-
-  // Cache
   CacheConfig,
   CacheStore,
-
-  // HTTP Security
   HstsConfig,
   CspConfig,
   CspDirective,
   PermissionsPolicyConfig,
   SecurityConfig,
-
-  // HTTP Compression
   CompressionConfig,
   CompressionEncoding,
-
-  // HTTP CORS
   EnhancedCorsConfig,
-
-  // Presets
   SecurityPreset,
   PerformancePreset,
-
-  // Response Envelope
   EnvelopeConfig,
 } from './types.js'
-
-// ============================================================================
-// Protocol-Agnostic Interceptors
-// ============================================================================
-
-// Rate Limiting
-export {
-  createRateLimitInterceptor,
-  createAuthRateLimiter,
-} from './interceptors/rate-limit.js'
-
-// Request ID
-export {
-  createRequestIdInterceptor,
-  createPrefixedRequestIdInterceptor,
-  createCorrelatedRequestIdInterceptor,
-} from './interceptors/request-id.js'
-
-// Logging
-export {
-  createLoggingInterceptor,
-  createProductionLoggingInterceptor,
-  createDebugLoggingInterceptor,
-} from './interceptors/logging.js'
-
-// Timeout
-export {
-  createTimeoutInterceptor,
-  createCascadingTimeoutInterceptor,
-  createDeadlinePropagationInterceptor,
-} from './interceptors/timeout.js'
-
-// Retry
-export {
-  createRetryInterceptor,
-  createSelectiveRetryInterceptor,
-} from './interceptors/retry.js'
-
-// Circuit Breaker
-export {
-  createCircuitBreakerInterceptor,
-  createProcedureCircuitBreaker,
-  createCircuitBreakerManager,
-} from './interceptors/circuit-breaker.js'
-export type { CircuitBreakerManager } from './interceptors/circuit-breaker.js'
-
-// Cache
-export {
-  createCacheInterceptor,
-  createReadThroughCacheInterceptor,
-  createMemoryCacheStore,
-  createCacheInvalidator,
-  CachePresets,
-} from './interceptors/cache.js'
-export type { CacheEventContext, ExtendedCacheConfig } from './interceptors/cache.js'
-
-// Response Envelope
-export {
-  createEnvelopeInterceptor,
-  createMinimalEnvelopeInterceptor,
-  createStandardEnvelopeInterceptor,
-  createDetailedEnvelopeInterceptor,
-  isEnvelopeResponse,
-  isEnvelopeSuccess,
-  isEnvelopeError,
-  EnvelopePresets,
-} from './interceptors/envelope.js'
-export type {
-  EnvelopeSuccess,
-  EnvelopeError,
-  EnvelopeMeta,
-  EnvelopeResponse,
-} from './interceptors/envelope.js'
-
-// ============================================================================
-// HTTP-Specific Middleware
-// ============================================================================
-
-// Security Headers
-export {
-  applySecurityHeaders,
-  createSecurityMiddleware,
-  getSecurityPreset,
-  mergeSecurityConfig,
-  defaultSecurityConfig,
-  strictSecurityConfig,
-  relaxedSecurityConfig,
-} from './http/security.js'
-
-// Compression
-export {
-  compressBuffer,
-  compressResponse,
-  createCompressionMiddleware,
-  defaultCompressionConfig,
-} from './http/compression.js'
-export type { CompressionResult } from './http/compression.js'
-
-// ============================================================================
-// Legacy Exports (backwards compatible)
-// ============================================================================
-
-// Authentication & Authorization
-export {
-  // Middleware creators
-  createAuthMiddleware,
-  createAuthzMiddleware,
-
-  // Strategy creators
-  createBearerStrategy,
-  createApiKeyStrategy,
-  createStaticApiKeyStrategy,
-  createRefreshInterceptor,
-
-  // Helpers
-  requireAuth,
-  hasRole,
-  hasAnyRole,
-  hasAllRoles,
-  hasScope,
-  hasAnyScope,
-} from './auth.js'
-
-export type {
-  // Auth types
-  AuthResult,
-  AuthStrategy,
-  AuthMiddlewareOptions,
-  BearerTokenOptions,
-  ApiKeyOptions,
-
-  // Authz types
-  AuthzMiddlewareOptions,
-  AuthzRule,
-
-  // OAuth2/OIDC types
-  RefreshInterceptorOptions,
-  RefreshTokenCookieOptions,
-  OAuth2Config,
-  OAuth2Tokens,
-  OAuth2UserInfo,
-  OAuth2StrategyWithFlow,
-  OIDCConfig,
-  OIDCDiscoveryDocument,
-  OIDCStrategyWithFlow,
-  OAuth2Provider,
-  ClientCredentialsConfig,
-  ClientCredentialsExchangeOptions,
-  ClientCredentialsStrategy,
-
-  // JWKS verifier types
-  CreateJWKSVerifierOptions,
-  JWKSVerifier,
-} from './auth.js'
-
-// OAuth2/OIDC Strategies
-export {
-  createOAuth2Strategy,
-  createOIDCStrategy,
-  OAuth2Providers,
-  createGoogleOAuth2Strategy,
-  createGitHubOAuth2Strategy,
-  createMicrosoftOAuth2Strategy,
-  createAppleOAuth2Strategy,
-  createFacebookOAuth2Strategy,
-  createClientCredentialsStrategy,
-  generateState,
-  generateNonce,
-  clearDiscoveryCache,
-  createJWKSVerifier,
-} from './auth.js'
