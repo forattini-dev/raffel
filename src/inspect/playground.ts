@@ -9,11 +9,11 @@ import { createServer, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { loadRuntimeInspectionPreview, type RuntimeInspectionLoadOptions } from './loader.js'
 import {
-  buildGraphQLDocument,
   createSchemaExample,
-  extractPathParameters,
   getSchemaObjectExample,
 } from './schema-samples.js'
+import { buildGraphQLDocument } from './graphql-document.js'
+import { extractPathParameters } from './path-params.js'
 import { formatBindingLabel } from './format-utils.js'
 import type {
   RuntimeInspectionChannel,
