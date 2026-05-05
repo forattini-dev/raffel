@@ -25,7 +25,7 @@ The target is not only to render Markdown. The target is to provide a docs app t
 | Image zoom | Done | Markdown images zoom unless `:no-zoom` is set | None known |
 | Emoji | Done | Common emoji shorthand renders unless `markdown.noEmoji` is set | Emoji catalog is intentionally small |
 | Pagination | Done | Previous/next page navigation renders from page order | Advanced pagination options are not implemented |
-| Theme and layout | Partial | Light/dark/auto theme support, persisted user preference, hidden sidebar, skip link, responsive layout, and top navigation exist | Markdown docs dark/light visual parity still needs deeper review |
+| Theme and layout | Done for current surface | Light/dark/auto theme support, persisted user preference, Markdown-specific light/dark CSS variables, hidden sidebar, skip link, responsive layout, and top navigation exist; browser smoke validates dark Markdown variables | Continue visual review as new components are added |
 | Plugin/extensibility model | Done for API v1 | `window.RaffelDocs.apiVersion` exposes API version `1`; runtime hooks exist for `beforeMarkdown`, `afterMarkdown`, render hooks, route changes, search results, Svelte-friendly component mounts, image zoom, tab changes, and copy-code events | Add API v2 hooks only when new docs features need them |
 | Svelte integration | Done | `svelte-component` fences create mount targets; host code mounts via plugin hooks; no Vue dependency is embedded | A first-party Svelte adapter package is not implemented |
 | Raw HTML handling | Done | Markdown HTML is escaped by default; `markdown.html: 'raw'` opts into trusted raw HTML rendering and browser smoke covers both modes | Sanitization is intentionally not implemented; use raw mode only for trusted Markdown |
@@ -37,8 +37,7 @@ The target is not only to render Markdown. The target is to provide a docs app t
 These are the remaining blockers before this can honestly be called a full in-house docs replacement:
 
 1. Replace or significantly harden the Markdown parser.
-2. Improve Markdown docs dark/light visual parity.
-3. Expand protocol-specific try-it flows as the generated reference matures.
+2. Expand protocol-specific try-it flows as the generated reference matures.
 
 ## Verification Gates
 

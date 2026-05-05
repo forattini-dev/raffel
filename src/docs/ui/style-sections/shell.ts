@@ -8,9 +8,17 @@ export function generateShellStyles(
       --primary-color: ${primaryColor};
       --primary-hover: ${primaryHover};
       --bg-color: #ffffff;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-tertiary: #f1f5f9;
+      --surface-color: #f8fafc;
       --text-color: #1f2937;
+      --text-primary: #1f2937;
+      --text-secondary: #475569;
       --text-muted: #6b7280;
       --border-color: #e5e7eb;
+      --border: #e5e7eb;
+      --accent: ${primaryColor};
       --code-bg: #f3f4f6;
       --sidebar-bg: #f9fafb;
       --hover-bg: rgba(99, 102, 241, 0.08);
@@ -21,9 +29,17 @@ export function generateShellStyles(
 
     [data-theme="dark"] {
       --bg-color: #0f172a;
+      --bg-primary: #0f172a;
+      --bg-secondary: #111c33;
+      --bg-tertiary: #1e293b;
+      --surface-color: #111c33;
       --text-color: #f1f5f9;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
       --text-muted: #94a3b8;
       --border-color: #334155;
+      --border: #334155;
+      --accent: #a5b4fc;
       --code-bg: #1e293b;
       --sidebar-bg: #1e293b;
       --hover-bg: rgba(99, 102, 241, 0.15);
@@ -32,9 +48,17 @@ export function generateShellStyles(
     @media (prefers-color-scheme: dark) {
       [data-theme="auto"] {
         --bg-color: #0f172a;
+        --bg-primary: #0f172a;
+        --bg-secondary: #111c33;
+        --bg-tertiary: #1e293b;
+        --surface-color: #111c33;
         --text-color: #f1f5f9;
+        --text-primary: #f8fafc;
+        --text-secondary: #cbd5e1;
         --text-muted: #94a3b8;
         --border-color: #334155;
+        --border: #334155;
+        --accent: #a5b4fc;
         --code-bg: #1e293b;
         --sidebar-bg: #1e293b;
         --hover-bg: rgba(99, 102, 241, 0.15);

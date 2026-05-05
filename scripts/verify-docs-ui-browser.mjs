@@ -299,6 +299,12 @@ window.__runRaffelDocsSmoke = function () {
   if (!window.__themeSmokeRan) {
     window.__themeSmokeRan = true
     document.documentElement.setAttribute('data-theme-persisted-ok', String(document.documentElement.getAttribute('data-theme') === 'dark'))
+    const rootStyle = getComputedStyle(document.documentElement)
+    document.documentElement.setAttribute('data-dark-markdown-vars-ok', String(
+      rootStyle.getPropertyValue('--bg-tertiary').trim() === '#1e293b' &&
+      rootStyle.getPropertyValue('--text-primary').trim() === '#f8fafc' &&
+      rootStyle.getPropertyValue('--border').trim() === '#334155'
+    ))
     document.getElementById('themeToggle')?.click()
     document.documentElement.setAttribute('data-theme-toggle-persisted-ok', String(
       document.documentElement.getAttribute('data-theme') === 'light' &&
@@ -571,6 +577,7 @@ async function run() {
       { label: 'tab rendering', needle: 'class="md-tabs"' },
       { label: 'tab interaction', needle: 'data-active-tab-ok="true"' },
       { label: 'stored theme applies on load', needle: 'data-theme-persisted-ok="true"' },
+      { label: 'dark Markdown CSS variables', needle: 'data-dark-markdown-vars-ok="true"' },
       { label: 'theme toggle persists user choice', needle: 'data-theme-toggle-persisted-ok="true"' },
       { label: 'admonition rendering', needle: 'class="md-alert md-alert-note"' },
       { label: 'important callout rendering', needle: 'class="md-alert md-alert-important"' },
