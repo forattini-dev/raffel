@@ -15,9 +15,9 @@ The target is not only to render Markdown. The target is to provide a docs app t
 | Markdown pages alongside API docs | Done | `x-usd.documentation.pages` and `docsDir` pages render in the same UI as generated API/protocol docs | None known |
 | Sidebar and navbar conventions | Done | `_sidebar.md` controls sections/order, nested sidebars are supported, `_navbar.md` supports dropdown children | Sidebar collapse persistence is not implemented |
 | Search | Done | `src/docs/search-index.ts` builds page and heading entries with weighted scoring for exact phrases, title matches, section matches, excerpts, body text, and all-term coverage; browser smoke validates search results and hotkey | Full-text indexing can still evolve if docs become very large |
-| Basic GFM rendering | Partial | Tables, task lists, fenced code, inline code, strong/emphasis, links/images, and strikethrough are implemented and smoke-tested | Full GFM edge-case coverage still needs a real Markdown engine or a much larger parser |
+| Basic GFM rendering | Done | The external runtime uses the packaged Markdown engine for GFM parsing, while browser smoke validates tables, task lists, fenced code, inline code, links/images, and strikethrough | Add fixtures when new edge cases are found |
 | Heading anchors | Done | Custom `:id=...`, generated slugs, duplicate generated heading IDs, active heading links, TOC, and sidebar subheadings are covered | None known |
-| Markdown attributes | Partial | Link `:ignore`, `:target`, `:disabled`; image `:class`, `:id`, `:size`, `:no-zoom` are implemented | Other plugin-specific attributes are not exhaustively covered |
+| Markdown attributes | Done for supported attrs | Link `:ignore`, `:target`, `:disabled`; image `:class`, `:id`, `:size`, `:no-zoom` are implemented and smoke-tested | Add new attribute syntax only when a project needs it |
 | Admonitions and legacy callouts | Done | `[!NOTE]`, `[!WARNING]`, `[!IMPORTANT]`, `!>`, and `?>` render in the browser smoke | None known |
 | Tabs | Done | `<!-- tabs:start -->` / `<!-- tabs:end -->` blocks render and switch panels | Advanced plugin options are not implemented |
 | Mermaid | Done | Mermaid code fences render through `window.mermaid` when present and fall back safely | Bundled Mermaid is intentionally not included |
@@ -46,5 +46,5 @@ pnpm exec vitest run -c vitest.config.unit.ts test/docs/markdown-loader.unit.tes
 pnpm run test:docs-ui-browser
 pnpm run check:line-limits
 git diff --check
-pnpm pack --dry-run | rg "dist/docs/ui/assets/raffel-docs|README.md|package.json"
+pnpm pack --dry-run | rg "dist/docs/ui/assets/(raffel-docs|marked|protocol-console)|README.md|package.json"
 ```
