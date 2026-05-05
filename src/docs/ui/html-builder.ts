@@ -19,6 +19,7 @@ import {
   generateAppContainer,
   generateHeroSection,
   generateIntroductionSection,
+  generateSkipLink,
   generateTopNavigation,
   mergeHeroConfig,
 } from './html-shell.js'
@@ -45,6 +46,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const version = doc.info.version
   const sidebar = ui?.sidebar
   const docsPages = usdDocumentation?.pages ?? []
+  const docsAliases = usdDocumentation?.aliases ?? {}
   const searchIndex = buildDocsSearchIndex(docsPages)
   const externalLinks = (usdDocumentation?.externalLinks ?? []) as Array<{
     title: string
@@ -57,8 +59,10 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   } satisfies NavItem))
   const footer = ui?.footer ?? usdDocumentation?.footer
   const toc = ui?.toc ?? {}
+  const markdown = ui?.markdown ?? {}
   const assetMode = ui?.assets?.mode ?? 'inline'
   const assetBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
+  const docsAssetBasePath = `${assetBasePath}/-/assets`
 
   // Merge hero config from USD spec and UI config
   const hero = mergeHeroConfig(usdDocumentation, ui?.hero)
@@ -73,9 +77,12 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedSidebar = escapeJsonForScript(sidebar ?? {})
   const escapedIntroduction = escapeJsonForScript(introduction ?? null)
   const escapedDocsPages = escapeJsonForScript(docsPages)
+  const escapedDocsAliases = escapeJsonForScript(docsAliases)
   const escapedSearchIndex = escapeJsonForScript(searchIndex)
+  const escapedDocsAssetBasePath = escapeJsonForScript(docsAssetBasePath)
   const escapedFooter = escapeJsonForScript(footer ?? null)
   const escapedToc = escapeJsonForScript(toc)
+  const escapedMarkdown = escapeJsonForScript(markdown)
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -98,9 +105,12 @@ ${styles}
     escapedSidebar,
     escapedIntroduction,
     escapedDocsPages,
+    escapedDocsAliases,
     escapedSearchIndex,
+    escapedDocsAssetBasePath,
     escapedFooter,
-    escapedToc
+    escapedToc,
+    escapedMarkdown
   )
   const runtimeScript = assetMode === 'external'
     ? `<script type="module" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
@@ -119,6 +129,7 @@ ${generateClientRuntimeScript()}
   ${stylesHtml}
 </head>
 <body>
+  ${generateSkipLink(ui?.skipLink)}
   ${generateHeroSection(hero, logo, title, version)}
   ${generateIntroductionSection(introduction)}
   ${generateTopNavigation(logo, title, navItems)}

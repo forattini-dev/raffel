@@ -4,12 +4,17 @@
 
 export const contentClientScript = String.raw`    function renderContent() {
       const main = document.getElementById('mainContent');
+      unmountDocsComponents(main);
       main.textContent = '';
+      runVoidHook('beforeRender', getPluginContext());
 
       const docsPage = getActiveDocsPage();
       if (docsPage) {
         renderDocsPage(main, docsPage);
         renderTableOfContents(main);
+        renderMermaidDiagrams(main);
+        mountDocsComponents(main);
+        runVoidHook('afterRender', getPluginContext());
         return;
       }
 
@@ -50,6 +55,9 @@ export const contentClientScript = String.raw`    function renderContent() {
           main.appendChild(empty);
         }
         renderTableOfContents(main);
+        renderMermaidDiagrams(main);
+        mountDocsComponents(main);
+        runVoidHook('afterRender', getPluginContext());
         return;
       }
 
@@ -89,6 +97,9 @@ export const contentClientScript = String.raw`    function renderContent() {
       });
 
       renderTableOfContents(main);
+      renderMermaidDiagrams(main);
+      mountDocsComponents(main);
+      runVoidHook('afterRender', getPluginContext());
     }
 
     function getActiveDocsPage() {
@@ -100,7 +111,7 @@ export const contentClientScript = String.raw`    function renderContent() {
       const article = document.createElement('article');
       article.className = 'docs-page markdown-content';
       article.dataset.path = page.path;
-      article.innerHTML = parseMarkdown(page.markdown || '');
+      article.innerHTML = parseMarkdown(getDocsPageMarkdown(page));
       main.appendChild(article);
       document.title = page.title ? page.title + ' - ' + spec.info.title : spec.info.title;
       renderDocsPagination(main, page);
@@ -108,11 +119,11 @@ export const contentClientScript = String.raw`    function renderContent() {
 
     function renderDocsPageSearchResults(main) {
       if (!Array.isArray(docsPages) || docsPages.length === 0) return;
-      const matches = getDocsPageViews().filter(page =>
+      const matches = applySearchResultsHook(getDocsPageViews().filter(page =>
         (page.title || '').toLowerCase().includes(searchQuery) ||
         (page.description || '').toLowerCase().includes(searchQuery) ||
         (page.markdown || '').toLowerCase().includes(searchQuery)
-      );
+      ), getPluginContext());
       if (matches.length === 0) return;
 
       const section = document.createElement('section');
@@ -182,13 +193,14 @@ export const contentClientScript = String.raw`    function renderContent() {
       if (!toc) return;
       toc.textContent = '';
       if (tocConfig.enabled === false) return;
+      if (root.querySelector('[data-markdown-ignore-all="true"]')) return;
 
       const min = Number(tocConfig.minLevel || 2);
       const max = Number(tocConfig.maxLevel || 3);
       const headings = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6'))
         .filter(heading => {
           const level = Number(heading.tagName.slice(1));
-          return level >= min && level <= max && heading.id;
+          return level >= min && level <= max && heading.id && heading.dataset.markdownIgnore !== 'true';
         });
 
       if (headings.length === 0) return;

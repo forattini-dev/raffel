@@ -1,8 +1,34 @@
 export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
+    .skip-link {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      transform: translateY(-160%);
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: var(--primary-color);
+      color: white;
+      font-weight: 600;
+      text-decoration: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      transition: transform 0.15s ease;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+      outline: 2px solid white;
+      outline-offset: 2px;
+    }
+
     .app-container {
       display: grid;
       grid-template-columns: 300px 1fr;
       min-height: calc(100vh - 300px);
+    }
+
+    .app-container-no-sidebar {
+      grid-template-columns: 1fr;
     }
 
     /* ========== SIDEBAR ========== */
@@ -14,6 +40,10 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       position: sticky;
       top: 0;
       height: 100vh;
+    }
+
+    .sidebar-hidden {
+      display: none;
     }
 
     .sidebar-header {
@@ -183,6 +213,48 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .nav-item.active {
       background: var(--primary-color);
       color: white;
+    }
+
+    .nav-subitems {
+      display: grid;
+      gap: 2px;
+      margin: 2px 0 8px 12px;
+      padding-left: 12px;
+      border-left: 1px solid var(--border-color);
+    }
+
+    .nav-subitem {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 5px 8px;
+      text-align: left;
+      border-radius: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .nav-subitem-level-3,
+    .nav-subitem-level-4,
+    .nav-subitem-level-5,
+    .nav-subitem-level-6 {
+      margin-left: 10px;
+    }
+
+    .nav-subitem:hover {
+      background: var(--hover-bg);
+      color: var(--text-color);
+    }
+
+    .nav-subitem.active {
+      color: var(--primary-color);
+      font-weight: 600;
     }
 
     .nav-item-intro {

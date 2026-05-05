@@ -8,15 +8,25 @@ export interface MarkdownDocsDirConfig {
   dir: string
   /** Route prefix for discovered pages, for example `/guides`. */
   routeBase?: string
+  /** file-backed Markdown route aliases. Keys and values are normalized to hash routes. */
+  aliases?: Record<string, string>
+  /** Markdown file to use as the docs home page instead of README.md. */
+  homepage?: string
   /** Directory names to skip while walking docs. */
   excludeDirs?: string[]
 }
 
-export type MarkdownDocsSource = string | MarkdownDocsDirConfig
+export type MarkdownDocsSource = true | string | MarkdownDocsDirConfig
 
 export interface LoadedMarkdownDocs {
   documentation: USDDocumentation
   navbar?: NavItem[]
+}
+
+export interface ResolvedMarkdownDocsSource {
+  rootDir: string
+  routeBase: string
+  excludeDirs: Set<string>
 }
 
 interface FrontmatterResult {
@@ -31,32 +41,40 @@ interface SidebarEntry {
   order: number
 }
 
+interface SidebarManifest {
+  routePrefix: string
+  entriesByPath: Map<string, SidebarEntry>
+}
+
 const SPECIAL_DOCSIFY_FILES = new Set(['_sidebar.md', '_navbar.md', '_coverpage.md', '_404.md'])
 
 export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs {
-  const config = typeof source === 'string' ? { dir: source } : source
-  const rootDir = path.resolve(config.dir)
-  const routeBase = normalizeRouteBase(config.routeBase)
-  const excludedDirs = new Set(config.excludeDirs ?? ['node_modules', '.git', 'dist', 'build'])
-  const markdownFiles = listMarkdownFiles(rootDir, excludedDirs)
+  const { rootDir, routeBase, excludeDirs } = resolveMarkdownDocsSource(source)
+  const config = normalizeMarkdownDocsSource(source)
+  const homepage = normalizeHomepagePath(config.homepage)
+  const configuredAliases = normalizeDocsAliases(config.aliases, routeBase, homepage)
+  const markdownFiles = listMarkdownFiles(rootDir, excludeDirs)
   const specialFiles = new Map(markdownFiles
     .filter(file => SPECIAL_DOCSIFY_FILES.has(path.basename(file)))
     .map(file => [path.basename(file), file]))
-  const sidebarEntries = specialFiles.has('_sidebar.md')
-    ? parseSidebar(readFileSync(specialFiles.get('_sidebar.md')!, 'utf8'), routeBase)
-    : []
-  const sidebarByPath = new Map(sidebarEntries.map(entry => [entry.path, entry]))
+  const sidebars = loadSidebars(markdownFiles, rootDir, routeBase, homepage)
   const pages = markdownFiles
     .filter(file => !SPECIAL_DOCSIFY_FILES.has(path.basename(file)))
     .map((file, index) => {
       const relativePath = path.relative(rootDir, file)
       const markdown = readFileSync(file, 'utf8')
-      const routePath = normalizeRoutePath(markdownFileToRoute(relativePath), routeBase)
-      return createDocumentationPage(markdown, routePath, relativePath, index, sidebarByPath)
+      const routePath = normalizeRoutePath(markdownFileToRoute(relativePath, homepage), routeBase)
+      const sidebarByPath = findNearestSidebar(routePath, sidebars)
+      const updatedAt = statSync(file).mtime.toISOString()
+      return createDocumentationPage(markdown, routePath, relativePath, index, sidebarByPath, updatedAt)
     })
     .sort(comparePages)
 
   const documentation: USDDocumentation = { pages }
+  if (routeBase) documentation.routeBase = routeBase
+  if (Object.keys(configuredAliases).length > 0) {
+    documentation.aliases = configuredAliases
+  }
   const coverpage = specialFiles.get('_coverpage.md')
   if (coverpage) {
     documentation.introduction = readFileSync(coverpage, 'utf8')
@@ -69,14 +87,29 @@ export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs
       markdown: readFileSync(notFound, 'utf8'),
       section: 'System',
       order: Number.MAX_SAFE_INTEGER,
+      updatedAt: statSync(notFound).mtime.toISOString(),
     })
   }
 
   const navbar = specialFiles.has('_navbar.md')
-    ? parseNavbar(readFileSync(specialFiles.get('_navbar.md')!, 'utf8'), routeBase)
+    ? parseNavbar(readFileSync(specialFiles.get('_navbar.md')!, 'utf8'), routeBase, homepage)
     : undefined
 
   return { documentation, navbar }
+}
+
+export function resolveMarkdownDocsSource(source: MarkdownDocsSource): ResolvedMarkdownDocsSource {
+  const config = normalizeMarkdownDocsSource(source)
+  return {
+    rootDir: path.resolve(config.dir),
+    routeBase: normalizeRouteBase(config.routeBase),
+    excludeDirs: new Set(config.excludeDirs ?? ['node_modules', '.git', 'dist', 'build']),
+  }
+}
+
+function normalizeMarkdownDocsSource(source: MarkdownDocsSource): MarkdownDocsDirConfig {
+  if (source === true) return { dir: 'docs' }
+  return typeof source === 'string' ? { dir: source } : source
 }
 
 export function mergeMarkdownDocumentation(
@@ -98,6 +131,7 @@ export function mergeMarkdownDocumentation(
     ...loaded,
     ...explicit,
     hero: { ...loaded.hero, ...explicit.hero },
+    aliases: { ...(loaded.aliases ?? {}), ...(explicit.aliases ?? {}) },
     pages: Array.from(pagesByPath.values()).sort(comparePages),
     externalLinks: [
       ...(loaded.externalLinks ?? []),
@@ -129,7 +163,8 @@ function createDocumentationPage(
   routePath: string,
   relativePath: string,
   index: number,
-  sidebarByPath: Map<string, SidebarEntry>
+  sidebarByPath: Map<string, SidebarEntry>,
+  updatedAt?: string
 ): USDDocumentationPage {
   const parsed = parseFrontmatter(markdown)
   const sidebar = sidebarByPath.get(routePath)
@@ -148,6 +183,7 @@ function createDocumentationPage(
     description: parsed.data.description,
     section: parsed.data.section ?? sidebar?.section ?? sectionFromPath,
     order: parseNumericOrder(parsed.data.order) ?? sidebar?.order ?? index,
+    updatedAt,
   }
 }
 
@@ -166,7 +202,28 @@ function parseFrontmatter(markdown: string): FrontmatterResult {
   return { data, body }
 }
 
-function parseSidebar(markdown: string, routeBase: string): SidebarEntry[] {
+function loadSidebars(markdownFiles: string[], rootDir: string, routeBase: string, homepage = 'README.md'): SidebarManifest[] {
+  return markdownFiles
+    .filter(file => path.basename(file) === '_sidebar.md')
+    .map(file => {
+      const relativeDir = path.dirname(path.relative(rootDir, file))
+      const localRouteBase = normalizeRoutePath(relativeDir === '.' ? '/' : markdownFileToRoute(`${relativeDir}/README.md`, homepage), routeBase)
+      const entries = parseSidebar(readFileSync(file, 'utf8'), localRouteBase, routeBase, homepage)
+      return {
+        routePrefix: localRouteBase,
+        entriesByPath: new Map(entries.map(entry => [entry.path, entry])),
+      }
+    })
+    .sort((a, b) => b.routePrefix.length - a.routePrefix.length)
+}
+
+function findNearestSidebar(routePath: string, sidebars: SidebarManifest[]): Map<string, SidebarEntry> {
+  return sidebars.find(sidebar =>
+    routePath === sidebar.routePrefix || routePath.startsWith(`${sidebar.routePrefix}/`)
+  )?.entriesByPath ?? new Map()
+}
+
+function parseSidebar(markdown: string, routeBase: string, rootRouteBase = routeBase, homepage = 'README.md'): SidebarEntry[] {
   const entries: SidebarEntry[] = []
   let section: string | undefined
   let order = 0
@@ -184,7 +241,7 @@ function parseSidebar(markdown: string, routeBase: string): SidebarEntry[] {
     }
     entries.push({
       title: linkTitle.trim(),
-      path: normalizeDocsHref(href, routeBase),
+      path: normalizeDocsHref(href, routeBase, rootRouteBase, homepage),
       section,
       order: order++,
     })
@@ -193,39 +250,68 @@ function parseSidebar(markdown: string, routeBase: string): SidebarEntry[] {
   return entries
 }
 
-function parseNavbar(markdown: string, routeBase: string): NavItem[] {
+function parseNavbar(markdown: string, routeBase: string, homepage = 'README.md'): NavItem[] {
   const items: NavItem[] = []
+  const stack: Array<{ indent: number, item: NavItem }> = []
+
   for (const line of markdown.split(/\r?\n/)) {
-    const match = /^\s*[-*]\s+\[([^\]]+)\]\(([^)]+)\)/.exec(line)
+    const match = /^(\s*)[-*]\s+(?:\[([^\]]+)\]\(([^)]+)\)|(.+))\s*$/.exec(line)
     if (!match) continue
-    const title = match[1].trim()
-    const href = match[2].trim()
-    const external = isExternalHref(href)
-    items.push({
-      title,
-      href: external ? href : `#${normalizeDocsHref(href, routeBase)}`,
-      external,
-    })
+    const indent = match[1].length
+    const title = (match[2] ?? match[4] ?? '').trim()
+    const href = match[3]?.trim()
+    if (!title) continue
+
+    const item: NavItem = href
+      ? {
+          title,
+          href: isExternalHref(href) ? href : `#${normalizeDocsHref(href, routeBase, routeBase, homepage)}`,
+          external: isExternalHref(href),
+        }
+      : { title }
+
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) stack.pop()
+    const parent = stack[stack.length - 1]?.item
+    if (parent) {
+      parent.children ??= []
+      parent.children.push(item)
+    } else {
+      items.push(item)
+    }
+    stack.push({ indent, item })
   }
   return items
 }
 
-function markdownFileToRoute(relativePath: string): string {
-  const normalized = relativePath.split(path.sep).join('/')
-  if (/^README\.md$/i.test(normalized)) return '/'
+function markdownFileToRoute(relativePath: string, homepage = 'README.md'): string {
+  const normalized = relativePath.split(path.sep).join('/').replace(/^\/+/, '')
+  const normalizedHomepage = normalizeHomepagePath(homepage)
+  if (normalizeHomepagePath(normalized) === normalizedHomepage) return '/'
+  if (/^README\.md$/i.test(normalized)) return normalizedHomepage === 'README.md' ? '/' : '/README'
   if (/\/README\.md$/i.test(normalized)) {
     return `/${normalized.replace(/\/README\.md$/i, '')}`
   }
   return `/${normalized.replace(/\.md$/i, '')}`
 }
 
-function normalizeDocsHref(href: string, routeBase: string): string {
+function normalizeDocsHref(href: string, routeBase: string, rootRouteBase = routeBase, homepage = 'README.md'): string {
   if (isExternalHref(href)) return href
   const withoutHash = href.split('#')[0]
   const route = withoutHash.endsWith('.md')
-    ? markdownFileToRoute(withoutHash)
+    ? markdownFileToRoute(withoutHash, homepage)
     : withoutHash
-  return normalizeRoutePath(route, routeBase)
+  return normalizeRoutePath(route, href.startsWith('/') ? rootRouteBase : routeBase)
+}
+
+function normalizeDocsAliases(aliases: Record<string, string> | undefined, routeBase: string, homepage = 'README.md'): Record<string, string> {
+  const normalized: Record<string, string> = {}
+  for (const [from, to] of Object.entries(aliases ?? {})) {
+    const fromPath = normalizeDocsHref(from, routeBase, routeBase, homepage)
+    const toPath = normalizeDocsHref(to, routeBase, routeBase, homepage)
+    if (isExternalHref(fromPath) || isExternalHref(toPath) || fromPath === toPath) continue
+    normalized[fromPath] = toPath
+  }
+  return normalized
 }
 
 function normalizeRouteBase(routeBase: string | undefined): string {
@@ -241,6 +327,14 @@ function normalizeRoutePath(routePath: string, routeBase = ''): string {
   if (!routeBase) return pathPart || '/'
   if (pathPart === '/') return routeBase || '/'
   return `${routeBase}${pathPart}`.replace(/\/+/g, '/')
+}
+
+function normalizeHomepagePath(homepage: string | undefined): string {
+  const normalized = String(homepage || 'README.md')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+/g, '/')
+  return normalized || 'README.md'
 }
 
 function extractFirstHeading(markdown: string): string | undefined {

@@ -17,7 +17,9 @@ export const navigationClientScript = String.raw`    // Search functionality
       themeToggle.addEventListener('click', () => {
         const root = document.documentElement;
         const current = root.getAttribute('data-theme') || 'auto';
-        root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+        const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : 'auto';
+        root.setAttribute('data-theme', next);
+        localStorage?.setItem?.('raffel-docs-theme', next);
       });
     }
 
@@ -42,8 +44,13 @@ export const navigationClientScript = String.raw`    // Search functionality
       activePagePath = normalizeDocsPath(location.hash && location.hash.startsWith('#/')
         ? location.hash.slice(1)
         : '');
+      activePagePath = resolveDocsAlias(activePagePath);
+      runVoidHook('onRouteChange', getPluginContext({ pagePath: activePagePath }));
+      unmountDocsComponents(document.getElementById('mainContent'));
       renderSidebar();
       renderContent();
+      renderMermaidDiagrams();
+      mountDocsComponents(document.getElementById('mainContent'));
     });
 
     function renderProtocolTabs() {
@@ -67,17 +74,24 @@ export const navigationClientScript = String.raw`    // Search functionality
       if (location.hash && location.hash.startsWith('#/')) {
         history.replaceState(null, '', '#docs');
       }
+      unmountDocsComponents(document.getElementById('mainContent'));
       renderProtocolTabs();
       renderSidebar();
       renderContent();
+      renderMermaidDiagrams();
+      mountDocsComponents(document.getElementById('mainContent'));
     }
 
     function setDocsPage(path) {
-      activePagePath = normalizeDocsPath(path);
+      activePagePath = resolveDocsAlias(normalizeDocsPath(path));
       history.replaceState(null, '', '#' + activePagePath);
+      runVoidHook('onRouteChange', getPluginContext({ pagePath: activePagePath }));
+      unmountDocsComponents(document.getElementById('mainContent'));
       renderProtocolTabs();
       renderSidebar();
       renderContent();
+      renderMermaidDiagrams();
+      mountDocsComponents(document.getElementById('mainContent'));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -244,7 +258,10 @@ export const navigationClientScript = String.raw`    // Search functionality
 
         const items = document.createElement('div');
         items.className = 'tag-group-items';
-        items.style.maxHeight = (sectionPages.length * 50) + 'px';
+        const headingCount = sectionPages.reduce((count, page) => (
+          count + (normalizeDocsPath(page.path) === activePagePath && !searchQuery ? extractSidebarHeadings(page.markdown).length : 0)
+        ), 0);
+        items.style.maxHeight = ((sectionPages.length * 50) + (headingCount * 34)) + 'px';
         sectionPages.forEach(page => {
           const path = normalizeDocsPath(page.path);
           const item = document.createElement('div');
@@ -255,6 +272,28 @@ export const navigationClientScript = String.raw`    // Search functionality
             setDocsPage(path);
           };
           items.appendChild(item);
+          if (path === activePagePath && !searchQuery) {
+            const headings = extractSidebarHeadings(page.markdown);
+            if (headings.length > 0) {
+              const subItems = document.createElement('div');
+              subItems.className = 'nav-subitems';
+              headings.forEach(heading => {
+                const child = document.createElement('button');
+                child.type = 'button';
+                child.className = 'nav-subitem nav-subitem-level-' + heading.level;
+                child.textContent = heading.title;
+                child.onclick = (event) => {
+                  event.stopPropagation();
+                  if (path !== activePagePath) setDocsPage(path);
+                  const target = document.getElementById(heading.id);
+                  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  history.replaceState(null, '', '#' + path + '?id=' + encodeURIComponent(heading.id));
+                };
+                subItems.appendChild(child);
+              });
+              items.appendChild(subItems);
+            }
+          }
         });
 
         groupEl.appendChild(header);

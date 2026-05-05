@@ -16,7 +16,8 @@ import type {
   USDPathItem, USDSchema, USDSecurityScheme, USDParameter, USDResponse, USDRequestBody, USDExample,
 } from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import path from 'node:path'
 import {
   generateUSD,
   type USDGeneratorOptions,
@@ -25,6 +26,7 @@ import {
 import {
   loadMarkdownDocs,
   mergeMarkdownDocumentation,
+  resolveMarkdownDocsSource,
   type MarkdownDocsSource,
 } from './markdown-loader.js'
 import type { LoadedTcpHandler } from './generators/tcp-generator.js'
@@ -37,6 +39,62 @@ function readBuiltDocsRuntime(): string | null {
   const assetUrl = new URL('./ui/assets/raffel-docs.js', import.meta.url)
   if (!existsSync(assetUrl)) return null
   return readFileSync(assetUrl, 'utf8')
+}
+
+export function readDocsAsset(rootDir: string, relativePath: string): Response | null {
+  if (!relativePath || relativePath.includes('\0')) return null
+  const normalized = path.normalize(relativePath)
+  if (!normalized || normalized.startsWith('..') || path.isAbsolute(normalized)) return null
+  const assetPath = path.resolve(rootDir, normalized)
+  const rootPath = path.resolve(rootDir)
+  if (assetPath !== rootPath && !assetPath.startsWith(`${rootPath}${path.sep}`)) return null
+  if (!existsSync(assetPath)) return null
+  const stats = statSync(assetPath)
+  if (!stats.isFile() || assetPath.toLowerCase().endsWith('.md')) return null
+
+  return new Response(readFileSync(assetPath), {
+    headers: {
+      'Content-Type': contentTypeForAsset(assetPath),
+      'Cache-Control': 'public, max-age=3600',
+    },
+  })
+}
+
+function contentTypeForAsset(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.apng':
+      return 'image/apng'
+    case '.avif':
+      return 'image/avif'
+    case '.css':
+      return 'text/css; charset=utf-8'
+    case '.gif':
+      return 'image/gif'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.js':
+    case '.mjs':
+      return 'application/javascript; charset=utf-8'
+    case '.json':
+      return 'application/json; charset=utf-8'
+    case '.pdf':
+      return 'application/pdf'
+    case '.png':
+      return 'image/png'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.txt':
+      return 'text/plain; charset=utf-8'
+    case '.webp':
+      return 'image/webp'
+    case '.woff':
+      return 'font/woff'
+    case '.woff2':
+      return 'font/woff2'
+    default:
+      return 'application/octet-stream'
+  }
 }
 
 // =============================================================================
@@ -138,13 +196,28 @@ export interface USDMiddlewareConfig {
       showCounts?: boolean
       /** Show Markdown documentation pages in the sidebar */
       docsPages?: boolean
+      /** Hide the sidebar entirely */
+      hide?: boolean
+      /** file-backed Markdown heading depth to include under the active docs page */
+      subMaxLevel?: number
     }
     /** Top navigation links */
-    navbar?: Array<{ title: string; href: string; external?: boolean }>
+    navbar?: Array<{ title: string; href?: string; external?: boolean; children?: Array<{ title: string; href?: string; external?: boolean }> }>
     /** Footer markdown/text */
     footer?: string
     /** In-page table of contents */
     toc?: { enabled?: boolean; minLevel?: number; maxLevel?: number }
+    /** Markdown rendering behavior */
+    markdown?: {
+      autoHeader?: boolean
+      formatUpdated?: string
+      noEmoji?: boolean
+      externalLinkTarget?: string
+      externalLinkRel?: string
+      noCompileLinks?: string[]
+    }
+    /** Skip navigation link text or toggle */
+    skipLink?: boolean | string
     /** UI asset delivery mode */
     assets?: { mode?: 'inline' | 'external' }
   }
@@ -167,8 +240,9 @@ export interface USDMiddlewareConfig {
   /**
    * Markdown docs directory to load by convention.
    *
-   * Supports Docsify-style files such as README.md, nested Markdown pages,
-   * _sidebar.md, _navbar.md, _coverpage.md, and _404.md.
+   * Supports file-backed Markdown files such as README.md, nested Markdown pages,
+   * _sidebar.md, _navbar.md, _coverpage.md, and _404.md. Use `true` to
+   * load the project's `./docs` directory.
    */
   docsDir?: MarkdownDocsSource
 
@@ -209,6 +283,8 @@ export interface USDHandlers {
   serveUIRuntime: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
+  /** Serve static assets referenced by Markdown docsDir pages */
+  serveDocsAsset: (pathname: string) => Response | null
   /** Get the USD document */
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */
@@ -282,6 +358,7 @@ export function createUSDHandlers(
   } = config
 
   const loadedMarkdownDocs = docsDir ? loadMarkdownDocs(docsDir) : undefined
+  const markdownDocsSource = docsDir ? resolveMarkdownDocsSource(docsDir) : undefined
   const mergedDocumentation = mergeMarkdownDocumentation(documentation, loadedMarkdownDocs?.documentation)
   const mergedUI = loadedMarkdownDocs?.navbar && !ui?.navbar
     ? { ...ui, navbar: loadedMarkdownDocs.navbar }
@@ -419,6 +496,15 @@ export function createUSDHandlers(
           'Cache-Control': 'public, max-age=3600',
         },
       })
+    },
+
+    serveDocsAsset: (pathname: string) => {
+      if (!markdownDocsSource) return null
+      const prefix = `${basePath.replace(/\/$/, '')}/-/assets/`
+      if (!pathname.startsWith(prefix)) return null
+      const relativePath = decodeURIComponent(pathname.slice(prefix.length))
+      const response = readDocsAsset(markdownDocsSource.rootDir, relativePath)
+      return response
     },
 
     getUSDDocument: getUSD,

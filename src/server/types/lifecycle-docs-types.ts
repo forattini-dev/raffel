@@ -75,7 +75,7 @@ export interface USDDocsConfig {
       enabled?: boolean
       languages?: ('typescript' | 'python' | 'go' | 'curl')[]
     }
-    /** Hero section configuration (Docsify-style cover page) */
+    /** Hero section configuration (file-backed Markdown cover page) */
     hero?: {
       /** Override title from info.title */
       title?: string
@@ -104,13 +104,26 @@ export interface USDDocsConfig {
       expandAll?: boolean
       showCounts?: boolean
       docsPages?: boolean
+      hide?: boolean
+      subMaxLevel?: number
     }
     /** Top navigation links */
-    navbar?: Array<{ title: string; href: string; external?: boolean }>
+    navbar?: Array<{ title: string; href?: string; external?: boolean; children?: Array<{ title: string; href?: string; external?: boolean }> }>
     /** Footer markdown/text */
     footer?: string
     /** In-page table of contents */
     toc?: { enabled?: boolean; minLevel?: number; maxLevel?: number }
+    /** Markdown rendering behavior */
+    markdown?: {
+      autoHeader?: boolean
+      formatUpdated?: string
+      noEmoji?: boolean
+      externalLinkTarget?: string
+      externalLinkRel?: string
+      noCompileLinks?: string[]
+    }
+    /** Skip navigation link text or toggle */
+    skipLink?: boolean | string
     /** UI asset delivery mode */
     assets?: { mode?: 'inline' | 'external' }
   }
@@ -141,6 +154,10 @@ export interface USDDocsConfig {
       section?: string
       order?: number
     }>
+    /** Route aliases for preserving old docs links, for example { '/old': '/new' } */
+    aliases?: Record<string, string>
+    /** In-app route prefix used by file-backed Markdown docs, for example `/guides` */
+    routeBase?: string
     /** Logo URL */
     logo?: string
     /** Favicon URL */
@@ -154,8 +171,9 @@ export interface USDDocsConfig {
   /**
    * Markdown docs directory to load by convention.
    *
-   * Supports Docsify-style files such as README.md, nested Markdown pages,
-   * _sidebar.md, _navbar.md, _coverpage.md, and _404.md.
+   * Supports file-backed Markdown files such as README.md, nested Markdown pages,
+   * _sidebar.md, _navbar.md, _coverpage.md, and _404.md. Use `true` to
+   * load the project's `./docs` directory.
    */
   docsDir?: MarkdownDocsSource
 
@@ -213,6 +231,8 @@ export interface USDDocsHandlers {
   serveUIRuntime: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
+  /** Serve static assets referenced by Markdown docsDir pages */
+  serveDocsAsset: (pathname: string) => Response | null
   /** Get the USD document */
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */

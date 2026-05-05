@@ -146,6 +146,6 @@ for a cleaner source tree separation.
 
 ## Unreleased
 
-- Expanded docsify home page and quickstart
+- Expanded docs home page and quickstart
 - MCP docs aligned with tools, prompts, resources, docs mode, and guide discovery
 - Added reference pages for auth, interceptors, HTTP module, and REST Auto-CRUD

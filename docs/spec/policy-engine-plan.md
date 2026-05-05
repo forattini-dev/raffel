@@ -364,7 +364,7 @@ Goal: smallest possible vertical slice that proves the architecture. One HTTP pr
 **Deps**: Phases 1–9 complete (so examples are real)
 **Out**: Per spec §10 of policy-engine.md. All examples runnable against actual API. Sidebar updated.
 **AC**: `pnpm docs:dev` (or equivalent) renders the new section without errors.
-**Verify**: manual review + Docsify lint if available.
+**Verify**: manual review + docs lint if available.
 
 ### T10.2 — API reference + cross-links
 **Files**:
