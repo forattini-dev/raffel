@@ -368,11 +368,12 @@ window.__runRaffelDocsSmoke = function () {
       button?.click()
       const mainText = document.getElementById('mainContent')?.textContent || ''
       const tryPanel = document.querySelector('.protocol-try-it-' + label.toLowerCase())
+      const liveExpected = ['Websocket', 'Streams', 'Jsonrpc'].includes(label)
       document.documentElement.setAttribute(
         'data-protocol-' + label.toLowerCase() + '-ok',
         String(Boolean(button) && mainText.includes(pathNeedle) && mainText.includes(detailsNeedle))
       )
-      document.documentElement.setAttribute('data-protocol-try-' + label.toLowerCase() + '-ok', String(Boolean(tryPanel) && tryPanel.textContent.includes('Starter request')))
+      document.documentElement.setAttribute('data-protocol-try-' + label.toLowerCase() + '-ok', String(Boolean(tryPanel) && tryPanel.textContent.includes(liveExpected ? 'Live console' : 'Starter request')))
     }
   }
 
@@ -415,6 +416,7 @@ async function assertBuildOutputExists() {
     await access(htmlBuilderPath)
     await access(join(assetsDir, 'raffel-docs.js'))
     await access(join(assetsDir, 'marked-renderer.js'))
+    await access(join(assetsDir, 'protocol-console.js'))
     await access(join(assetsDir, 'marked.umd.js'))
     await access(join(assetsDir, 'raffel-docs.css'))
   } catch {
@@ -438,6 +440,7 @@ function close(server) {
 async function createFixtureServer(html) {
   const runtimeJs = await readFile(join(assetsDir, 'raffel-docs.js'))
   const markedRendererJs = await readFile(join(assetsDir, 'marked-renderer.js'))
+  const protocolConsoleJs = await readFile(join(assetsDir, 'protocol-console.js'))
   const markedUmdJs = await readFile(join(assetsDir, 'marked.umd.js'))
   const runtimeCss = await readFile(join(assetsDir, 'raffel-docs.css'))
   const logoSvg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#0f766e"/><text x="8" y="25" fill="white">Raffel</text></svg>')
@@ -457,6 +460,11 @@ async function createFixtureServer(html) {
     if (path === '/docs/-/marked-renderer.js') {
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
       response.end(markedRendererJs)
+      return
+    }
+    if (path === '/docs/-/protocol-console.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(protocolConsoleJs)
       return
     }
     if (path === '/docs/-/marked.umd.js') {

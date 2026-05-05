@@ -39,7 +39,7 @@ function readBuiltDocsRuntime(): string | null {
   return readBuiltDocsUIAsset('raffel-docs.js')
 }
 
-function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'marked.umd.js'): string | null {
+function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'protocol-console.js' | 'marked.umd.js'): string | null {
   const assetUrl = new URL(`./ui/assets/${fileName}`, import.meta.url)
   if (!existsSync(assetUrl)) return null
   return readFileSync(assetUrl, 'utf8')
@@ -290,6 +290,8 @@ export interface USDHandlers {
   serveUIMarkdownEngine: () => Response
   /** Serve reusable Markdown renderer bridge */
   serveUIMarkdownRenderer: () => Response
+  /** Serve reusable protocol console bridge */
+  serveUIProtocolConsole: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
@@ -500,6 +502,13 @@ export function createUSDHandlers(
     }),
 
     serveUIMarkdownRenderer: () => new Response(readBuiltDocsUIAsset('marked-renderer.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
+    serveUIProtocolConsole: () => new Response(readBuiltDocsUIAsset('protocol-console.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
         'Cache-Control': 'public, max-age=3600',
