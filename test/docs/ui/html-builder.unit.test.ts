@@ -266,6 +266,7 @@ describe('Documentation UI HTML builder', () => {
     expect(runtimeSource).toContain('COMMON_EMOJI_ENTITIES')
     expect(runtimeSource).toContain('function renderEmojiShorthand')
     expect(runtimeSource).toContain('markdownConfig.noEmoji')
+    expect(runtimeSource).toContain("markdownConfig.html === 'raw'")
     expect(runtimeSource).toContain('markdownConfig.autoHeader')
     expect(runtimeSource).toContain('themeStorageKey')
     expect(runtimeSource).toContain("win.localStorage?.setItem?.(themeStorageKey, next)")

@@ -181,6 +181,7 @@ export const markdownClientScript = String.raw`    // Helper to escape text for 
         return token;
       });
 
+      if (markdownConfig.html === 'raw') text = text.replace(/<!--[\s\S]*?-->|<\/?[A-Za-z][^>]*>/g, protectHtml);
       text = esc(text);
       text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, destination) {
         const parsed = parseMarkdownDestination(destination);
@@ -348,6 +349,11 @@ export const markdownClientScript = String.raw`    // Helper to escape text for 
 
         if (trimmed === '<!-- tabs:start -->') {
           html.push(renderTabs());
+          continue;
+        }
+
+        if (markdownConfig.html === 'raw' && /^<\/?[A-Za-z][^>]*>$/.test(trimmed)) {
+          html.push(readUntilBlank().join('\n'));
           continue;
         }
 

@@ -28,7 +28,7 @@ The target is not only to render Markdown. The target is to provide a docs app t
 | Theme and layout | Partial | Light/dark/auto theme support, persisted user preference, hidden sidebar, skip link, responsive layout, and top navigation exist | Markdown docs dark/light visual parity still needs deeper review |
 | Plugin/extensibility model | Partial | `window.RaffelDocs.apiVersion` exposes API version `1`; runtime hooks exist for `beforeMarkdown`, `afterMarkdown`, render hooks, route changes, search results, and Svelte-friendly component mounts | More hook coverage can still be added as features need it |
 | Svelte integration | Done | `svelte-component` fences create mount targets; host code mounts via plugin hooks; no Vue dependency is embedded | A first-party Svelte adapter package is not implemented |
-| Raw HTML handling | Missing | Current parser escapes HTML by default | Need a deliberate `escape` / `sanitize` / `raw` policy before supporting HTML |
+| Raw HTML handling | Done | Markdown HTML is escaped by default; `markdown.html: 'raw'` opts into trusted raw HTML rendering and browser smoke covers both modes | Sanitization is intentionally not implemented; use raw mode only for trusted Markdown |
 | Markdown engine foundation | Missing | `marked` is present as an optional dependency, but the browser runtime still uses the in-house parser | Need a bundled/browser-safe renderer plan or server/build-time pre-rendering |
 | Browser regression coverage | Done for current surface | `scripts/verify-docs-ui-browser.mjs` opens real generated docs with Chrome and validates routing, search, Markdown features, protocols, Svelte mounts, Mermaid, tabs, zoom, and routeBase links | Add fixtures as new parity rows move from partial/missing to done |
 
@@ -37,11 +37,10 @@ The target is not only to render Markdown. The target is to provide a docs app t
 These are the remaining blockers before this can honestly be called a full in-house docs replacement:
 
 1. Replace or significantly harden the Markdown parser.
-2. Define safe raw HTML behavior.
-3. Expand plugin hook coverage where new docs features need it.
-4. Improve Markdown docs dark/light visual parity.
-5. Expand search ranking for large docs.
-6. Expand first-party examples as new protocol-specific try-it flows mature.
+2. Expand plugin hook coverage where new docs features need it.
+3. Improve Markdown docs dark/light visual parity.
+4. Expand search ranking for large docs.
+5. Expand first-party examples as new protocol-specific try-it flows mature.
 
 ## Verification Gates
 
