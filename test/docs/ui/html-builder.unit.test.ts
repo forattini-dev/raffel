@@ -249,6 +249,7 @@ describe('Documentation UI HTML builder', () => {
     expect(runtimeSource).toContain('function renderTabs()')
     expect(runtimeSource).toContain('function getDocsSearchResults()')
     expect(runtimeSource).toContain('highlightSearchExcerpt')
+    expect(runtimeSource).toContain('protocol-try-it')
     expect(runtimeSource).toContain('function renderMissingDocsPage')
     expect(runtimeSource).toContain('function resolveDocsAlias')
     expect(runtimeSource).toContain('function resolveDocsAliasTarget')

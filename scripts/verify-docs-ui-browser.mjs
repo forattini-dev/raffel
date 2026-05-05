@@ -364,10 +364,12 @@ window.__runRaffelDocsSmoke = function () {
       const button = buttons.find((item) => (item.textContent || '').includes(label))
       button?.click()
       const mainText = document.getElementById('mainContent')?.textContent || ''
+      const tryPanel = document.querySelector('.protocol-try-it-' + label.toLowerCase())
       document.documentElement.setAttribute(
         'data-protocol-' + label.toLowerCase() + '-ok',
         String(Boolean(button) && mainText.includes(pathNeedle) && mainText.includes(detailsNeedle))
       )
+      document.documentElement.setAttribute('data-protocol-try-' + label.toLowerCase() + '-ok', String(Boolean(tryPanel) && tryPanel.textContent.includes('Starter request')))
     }
   }
 
@@ -597,6 +599,12 @@ async function run() {
       { label: 'auto-generated gRPC docs', needle: 'data-protocol-grpc-ok="true"' },
       { label: 'auto-generated TCP docs', needle: 'data-protocol-tcp-ok="true"' },
       { label: 'auto-generated UDP docs', needle: 'data-protocol-udp-ok="true"' },
+      { label: 'WebSocket try panel', needle: 'data-protocol-try-websocket-ok="true"' },
+      { label: 'stream try panel', needle: 'data-protocol-try-streams-ok="true"' },
+      { label: 'JSON-RPC try panel', needle: 'data-protocol-try-jsonrpc-ok="true"' },
+      { label: 'gRPC try panel', needle: 'data-protocol-try-grpc-ok="true"' },
+      { label: 'TCP try panel', needle: 'data-protocol-try-tcp-ok="true"' },
+      { label: 'UDP try panel', needle: 'data-protocol-try-udp-ok="true"' },
       { label: 'search Ctrl+K hotkey focus', needle: 'data-search-hotkey-ok="true"' },
       { label: 'search index UI result', needle: 'data-search-results-ok="true"' },
     ])

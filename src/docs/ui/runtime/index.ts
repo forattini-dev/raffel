@@ -31,33 +31,16 @@ type SearchIndexEntry = {
   text?: string
   rank?: number
 }
-type SidebarHeadingItem = {
-  id: string
-  title: string
-  level: number
-}
+type SidebarHeadingItem = { id: string; title: string; level: number }
 type MarkdownAttributes = {
-  title?: string
-  target?: string
-  disabled?: boolean
-  ignore?: boolean
-  noZoom?: boolean
+  title?: string; target?: string
+  disabled?: boolean; ignore?: boolean; noZoom?: boolean
   id?: string
   classes: string[]
-  width?: string
-  height?: string
-  widthStyle?: string
+  width?: string; height?: string; widthStyle?: string
 }
-type DocsRuntimeState = {
-  activePagePath: string
-  activeHeadingId: string
-  activeProtocol: string
-  searchQuery: string
-}
-type DocsPluginContext = DocsRuntimeState & {
-  pagePath?: string
-  headingId?: string
-}
+type DocsRuntimeState = { activePagePath: string; activeHeadingId: string; activeProtocol: string; searchQuery: string }
+type DocsPluginContext = DocsRuntimeState & { pagePath?: string; headingId?: string }
 type DocsRuntimePlugin = {
   name?: string
   beforeMarkdown?: (markdown: string, context: DocsPluginContext) => string | undefined
@@ -1038,6 +1021,7 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   const container = doc.createElement('div')
   container.className = 'endpoint-details'
   const data = (endpoint.data ?? {}) as any
+  appendProtocolTryIt(container, endpoint, data)
   const appendMany = (items: Array<[string, unknown]>) => items.forEach(([title, value]) => appendSchemaSubsection(container, title, value))
   if (activeProtocol === 'http') appendMany([['Parameters', data.parameters], ['Request Body', getFirstContentSchema(data.requestBody?.content)], ['Responses', data.responses]])
   if (activeProtocol === 'websocket') {
@@ -1068,6 +1052,18 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   return container
 }
 
+function appendProtocolTryIt(container: any, endpoint: Endpoint, data: any): void {
+  if (activeProtocol === 'http') return
+  const sample = activeProtocol === 'websocket' ? `new WebSocket("${String(spec.servers?.[0]?.url ?? 'http://localhost:3000').replace(/^http/, 'ws')}${wsSpec.path ?? '/ws'}")\n${JSON.stringify({ type: 'subscribe', channel: endpoint.path, id: '1' }, null, 2)}`
+    : activeProtocol === 'streams' ? `const events = new EventSource("${String(spec.servers?.[0]?.url ?? 'http://localhost:3000')}/${endpoint.path}")`
+      : activeProtocol === 'jsonrpc' ? JSON.stringify({ jsonrpc: '2.0', method: endpoint.path, params: data.params ?? {}, id: 1 }, null, 2)
+        : activeProtocol === 'grpc' ? `grpcurl ${data.serviceName}/${data.methodName}`
+          : activeProtocol === 'tcp' ? `nc ${data.host ?? 'localhost'} ${data.port ?? ''}` : `printf '{}' | nc -u ${data.host ?? '0.0.0.0'} ${data.port ?? ''}`
+  const panel = doc.createElement('div')
+  panel.className = `try-it-out protocol-try-it protocol-try-it-${activeProtocol}`
+  panel.innerHTML = `<div class="try-it-header"><span class="try-it-title">Try ${esc(activeProtocol)}</span></div><div class="try-it-form"><div class="try-it-section-title">Starter request</div><div class="md-code-wrap"><button type="button" class="copy-code-btn">Copy</button><pre class="md-code-block"><code>${esc(sample)}</code></pre></div></div>`
+  container.appendChild(panel)
+}
 function parameterMapToSchema(parameters: unknown): unknown {
   if (!parameters || typeof parameters !== 'object' || Object.keys(parameters).length === 0) return null
   const schema = { type: 'object', properties: {}, required: [] as string[] } as any

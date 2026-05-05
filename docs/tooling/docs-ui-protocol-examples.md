@@ -177,4 +177,4 @@ docs/
     `-- realtime-flow.svg
 ```
 
-`docs/guides/channels.md` can explain auth and workflows, while `x-usd.websocket.channels` remains the source of channel names, payload schemas, and protocol metadata.
+`docs/guides/channels.md` can explain auth and workflows, while `x-usd.websocket.channels` remains the source of channel names, payload schemas, and protocol metadata. For non-HTTP protocols, the generated reference also includes a starter request panel so readers have an immediate command or payload to adapt.
