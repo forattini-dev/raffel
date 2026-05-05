@@ -53,6 +53,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         externalDocs: docsConfig.externalDocs,
         ui: docsConfig.ui,
         documentation: docsConfig.documentation,
+        docsDir: docsConfig.docsDir,
         includeErrorSchemas: docsConfig.includeErrorSchemas,
         includeStreamEventSchemas: docsConfig.includeStreamEventSchemas,
         jsonrpc: docsConfig.jsonrpc,
@@ -65,6 +66,8 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
       { method: 'GET', path: `${docsBasePath}/usd.json`, handler: state.usdDocsHandlers.value.serveUSD },
       { method: 'GET', path: `${docsBasePath}/usd.yaml`, handler: state.usdDocsHandlers.value.serveUSDYaml },
       { method: 'GET', path: `${docsBasePath}/openapi.json`, handler: state.usdDocsHandlers.value.serveOpenAPI },
+      { method: 'GET', path: `${docsBasePath}/-/raffel-docs.js`, handler: state.usdDocsHandlers.value.serveUIRuntime },
+      { method: 'GET', path: `${docsBasePath}/-/raffel-docs.css`, handler: state.usdDocsHandlers.value.serveUIStyles },
     ]))
     logger.info({ basePath: docsBasePath }, 'USD Documentation middleware registered')
   }

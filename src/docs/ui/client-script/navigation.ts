@@ -2,4 +2,381 @@
  * Embedded docs UI client script chunk.
  */
 
-export const navigationClientScript = "    // Search functionality\n    const searchInput = document.getElementById('searchInput');\n    if (searchInput) {\n      searchInput.addEventListener('input', (e) => {\n        searchQuery = e.target.value.toLowerCase();\n        renderSidebar();\n        renderContent();\n      });\n    }\n\n    const themeToggle = document.getElementById('themeToggle');\n    if (themeToggle) {\n      themeToggle.addEventListener('click', () => {\n        const root = document.documentElement;\n        const current = root.getAttribute('data-theme') || 'auto';\n        root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');\n      });\n    }\n\n    const backToTop = document.getElementById('backToTop');\n    if (backToTop) {\n      backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));\n    }\n\n    window.addEventListener('scroll', () => {\n      const progress = document.getElementById('readingProgress');\n      if (progress) {\n        const max = document.documentElement.scrollHeight - window.innerHeight;\n        const pct = max > 0 ? (window.scrollY / max) * 100 : 0;\n        progress.style.width = pct + '%';\n      }\n      if (backToTop) {\n        backToTop.classList.toggle('visible', window.scrollY > 400);\n      }\n    }, { passive: true });\n\n    window.addEventListener('hashchange', () => {\n      activePagePath = normalizeDocsPath(location.hash && location.hash.startsWith('#/')\n        ? location.hash.slice(1)\n        : '');\n      renderSidebar();\n      renderContent();\n    });\n\n    function renderProtocolTabs() {\n      const container = document.getElementById('protocolTabs');\n      if (!container) return;\n      container.textContent = '';\n      protocols.forEach(p => {\n        const btn = document.createElement('button');\n        btn.className = 'protocol-tab' + (!activePagePath && p === activeProtocol ? ' active' : '');\n        const label = p.charAt(0).toUpperCase() + p.slice(1);\n        const count = protocolData[p];\n        btn.innerHTML = label + (sidebarConfig.showCounts !== false ? '<span class=\"count\">' + count + '</span>' : '');\n        btn.onclick = () => setProtocol(p);\n        container.appendChild(btn);\n      });\n    }\n\n    function setProtocol(protocol) {\n      activeProtocol = protocol;\n      activePagePath = '';\n      if (location.hash && location.hash.startsWith('#/')) {\n        history.replaceState(null, '', '#docs');\n      }\n      renderProtocolTabs();\n      renderSidebar();\n      renderContent();\n    }\n\n    function setDocsPage(path) {\n      activePagePath = normalizeDocsPath(path);\n      history.replaceState(null, '', '#' + activePagePath);\n      renderProtocolTabs();\n      renderSidebar();\n      renderContent();\n      window.scrollTo({ top: 0, behavior: 'smooth' });\n    }\n\n    function renderSidebar() {\n      const nav = document.getElementById('sidebarNav');\n      if (!nav) return;\n      nav.textContent = '';\n\n      renderDocsPagesNav(nav);\n\n      // Add Introduction link if there's a description (and not searching)\n      if (!searchQuery && spec.info && spec.info.description && !activePagePath) {\n        const introLink = document.createElement('div');\n        introLink.className = 'nav-item nav-item-intro';\n        introLink.innerHTML = '<span class=\"nav-item-icon\">Docs</span><span class=\"nav-item-text\">Introduction</span>';\n        introLink.onclick = () => {\n          const el = document.getElementById('introduction');\n          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });\n        };\n        nav.appendChild(introLink);\n      }\n\n      if (activePagePath) return;\n\n      // Get endpoints for current protocol\n      const endpoints = getEndpointsForProtocol(activeProtocol);\n\n      // Filter by search\n      const filtered = searchQuery\n        ? endpoints.filter(e =>\n            e.path.toLowerCase().includes(searchQuery) ||\n            (e.summary || '').toLowerCase().includes(searchQuery) ||\n            (e.description || '').toLowerCase().includes(searchQuery)\n          )\n        : endpoints;\n\n      // Group by tags\n      const tagMap = new Map();\n      const untagged = [];\n\n      filtered.forEach(ep => {\n        const tags = ep.tags || ['Other'];\n        if (tags.length === 0) {\n          untagged.push(ep);\n        } else {\n          tags.forEach(tag => {\n            if (!tagMap.has(tag)) tagMap.set(tag, []);\n            tagMap.get(tag).push(ep);\n          });\n        }\n      });\n\n      // Use tagGroups if defined, otherwise auto-group by tags (sorted, Other last)\n      const sortedTags = Array.from(tagMap.keys()).sort((a, b) => {\n        if (a === 'Other') return 1;\n        if (b === 'Other') return -1;\n        return a.localeCompare(b);\n      });\n      const groups = tagGroups.length > 0 ? tagGroups : sortedTags.map(name => ({\n        name,\n        tags: [name],\n        expanded: sidebarConfig.expandAll !== false\n      }));\n\n      groups.forEach((group) => {\n        const groupEndpoints = [];\n        group.tags.forEach(tag => {\n          const eps = tagMap.get(tag) || [];\n          groupEndpoints.push(...eps);\n        });\n\n        if (groupEndpoints.length === 0) return;\n\n        const groupEl = document.createElement('div');\n        groupEl.className = 'tag-group' + (group.expanded === false ? ' collapsed' : '');\n\n        const header = document.createElement('div');\n        header.className = 'tag-group-header';\n        header.innerHTML = '<span class=\"tag-group-arrow\">▼</span>' +\n          esc(group.name) +\n          '<span class=\"tag-group-count\">' + groupEndpoints.length + '</span>';\n        header.onclick = () => groupEl.classList.toggle('collapsed');\n\n        const items = document.createElement('div');\n        items.className = 'tag-group-items';\n        items.style.maxHeight = group.expanded === false ? '0' : (groupEndpoints.length * 50) + 'px';\n\n        groupEndpoints.forEach(ep => {\n          const item = document.createElement('div');\n          item.className = 'nav-item';\n          item.innerHTML = '<span class=\"nav-item-method ' + getMethodClass(ep.method) + '\">' +\n            esc(ep.method) + '</span><span class=\"nav-item-path\">' + esc(ep.path) + '</span>';\n          item.onclick = (e) => {\n            e.stopPropagation();\n            scrollToEndpoint(ep.id);\n          };\n          items.appendChild(item);\n        });\n\n        groupEl.appendChild(header);\n        groupEl.appendChild(items);\n        nav.appendChild(groupEl);\n      });\n\n      // Add untagged if any\n      if (untagged.length > 0) {\n        const groupEl = document.createElement('div');\n        groupEl.className = 'tag-group';\n\n        const header = document.createElement('div');\n        header.className = 'tag-group-header';\n        header.innerHTML = '<span class=\"tag-group-arrow\">▼</span>Other<span class=\"tag-group-count\">' + untagged.length + '</span>';\n        header.onclick = () => groupEl.classList.toggle('collapsed');\n\n        const items = document.createElement('div');\n        items.className = 'tag-group-items';\n        items.style.maxHeight = (untagged.length * 50) + 'px';\n\n        untagged.forEach(ep => {\n          const item = document.createElement('div');\n          item.className = 'nav-item';\n          item.innerHTML = '<span class=\"nav-item-method ' + getMethodClass(ep.method) + '\">' +\n            esc(ep.method) + '</span><span class=\"nav-item-path\">' + esc(ep.path) + '</span>';\n          item.onclick = (e) => {\n            e.stopPropagation();\n            scrollToEndpoint(ep.id);\n          };\n          items.appendChild(item);\n        });\n\n        groupEl.appendChild(header);\n        groupEl.appendChild(items);\n        nav.appendChild(groupEl);\n      }\n    }\n\n    function renderDocsPagesNav(nav) {\n      if (sidebarConfig.docsPages === false || !Array.isArray(docsPages) || docsPages.length === 0) return;\n      const filteredPages = searchQuery\n        ? docsPages.filter(page =>\n            (page.title || '').toLowerCase().includes(searchQuery) ||\n            (page.description || '').toLowerCase().includes(searchQuery)\n          )\n        : docsPages;\n      if (filteredPages.length === 0) return;\n\n      const groupEl = document.createElement('div');\n      groupEl.className = 'tag-group docs-pages-group';\n      const header = document.createElement('div');\n      header.className = 'tag-group-header';\n      header.innerHTML = '<span class=\"tag-group-arrow\">▼</span>Guides<span class=\"tag-group-count\">' + filteredPages.length + '</span>';\n      header.onclick = () => groupEl.classList.toggle('collapsed');\n\n      const items = document.createElement('div');\n      items.className = 'tag-group-items';\n      items.style.maxHeight = (filteredPages.length * 50) + 'px';\n      filteredPages\n        .slice()\n        .sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.title || '').localeCompare(String(b.title || '')))\n        .forEach(page => {\n          const path = normalizeDocsPath(page.path);\n          const item = document.createElement('div');\n          item.className = 'nav-item docs-page-nav-item' + (path === activePagePath ? ' active' : '');\n          item.innerHTML = '<span class=\"nav-item-text\">' + esc(page.title || page.path) + '</span>';\n          item.onclick = (event) => {\n            event.stopPropagation();\n            setDocsPage(path);\n          };\n          items.appendChild(item);\n        });\n\n      groupEl.appendChild(header);\n      groupEl.appendChild(items);\n      nav.appendChild(groupEl);\n    }\n\n    function getMethodClass(method) {\n      const m = method.toLowerCase();\n      if (m === 'get') return 'method-get';\n      if (m === 'post') return 'method-post';\n      if (m === 'put') return 'method-put';\n      if (m === 'patch') return 'method-patch';\n      if (m === 'delete') return 'method-delete';\n      if (m === 'ws' || m === 'websocket') return 'method-ws';\n      if (m === 'stream' || m === 'sse') return 'method-stream';\n      if (m === 'rpc') return 'method-rpc';\n      if (m === 'grpc' || m === 'unary') return 'method-grpc';\n      return 'method-post';\n    }\n\n    function getEndpointsForProtocol(protocol) {\n      const endpoints = [];\n      let id = 0;\n\n      if (protocol === 'http' && spec.paths) {\n        Object.entries(spec.paths).forEach(([path, methods]) => {\n          Object.entries(methods).forEach(([method, op]) => {\n            if (!['get','post','put','patch','delete'].includes(method)) return;\n            endpoints.push({\n              id: 'ep-' + (id++),\n              path,\n              method: method.toUpperCase(),\n              summary: op.summary,\n              description: op.description,\n              tags: op.tags || [],\n              data: op\n            });\n          });\n        });\n      } else if (protocol === 'websocket' && wsSpec?.channels) {\n        Object.entries(wsSpec.channels).forEach(([name, channel]) => {\n          endpoints.push({\n            id: 'ep-' + (id++),\n            path: name,\n            method: 'WS',\n            summary: channel.description,\n            tags: channel.tags || [],\n            data: channel\n          });\n        });\n      } else if (protocol === 'streams' && streamsSpec?.endpoints) {\n        Object.entries(streamsSpec.endpoints).forEach(([name, endpoint]) => {\n          endpoints.push({\n            id: 'ep-' + (id++),\n            path: name,\n            method: endpoint.direction || 'STREAM',\n            summary: endpoint.description,\n            tags: endpoint.tags || [],\n            data: endpoint\n          });\n        });\n      } else if (protocol === 'jsonrpc' && jsonrpcSpec?.methods) {\n        Object.entries(jsonrpcSpec.methods).forEach(([name, method]) => {\n          endpoints.push({\n            id: 'ep-' + (id++),\n            path: name,\n            method: 'RPC',\n            summary: method.description,\n            tags: method.tags || [],\n            data: method\n          });\n        });\n      } else if (protocol === 'grpc' && grpcSpec?.services) {\n        Object.entries(grpcSpec.services).forEach(([serviceName, service]) => {\n          Object.entries(service.methods || {}).forEach(([methodName, method]) => {\n            const type = getGrpcMethodType(method);\n            endpoints.push({\n              id: 'ep-' + (id++),\n              path: serviceName + '/' + methodName,\n              method: type.toUpperCase(),\n              summary: method.description,\n              tags: service.tags || [],\n              data: { service, method, serviceName, methodName }\n            });\n          });\n        });\n      } else if (protocol === 'tcp' && tcpSpec?.servers) {\n        Object.entries(tcpSpec.servers).forEach(([name, server]) => {\n          endpoints.push({\n            id: 'ep-' + (id++),\n            path: name,\n            method: 'TCP',\n            summary: server.description,\n            tags: server.tags || [],\n            data: server\n          });\n        });\n      } else if (protocol === 'udp' && udpSpec?.endpoints) {\n        Object.entries(udpSpec.endpoints).forEach(([name, endpoint]) => {\n          endpoints.push({\n            id: 'ep-' + (id++),\n            path: name,\n            method: 'UDP',\n            summary: endpoint.description,\n            tags: endpoint.tags || [],\n            data: endpoint\n          });\n        });\n      }\n\n      return endpoints;\n    }\n\n    function scrollToEndpoint(id) {\n      activePagePath = '';\n      const el = document.getElementById(id);\n      if (el) {\n        el.scrollIntoView({ behavior: 'smooth', block: 'start' });\n        el.classList.add('expanded');\n      }\n    }\n\n"
+export const navigationClientScript = String.raw`    // Search functionality
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value.toLowerCase();
+        renderSidebar();
+        renderContent();
+      });
+    }
+
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+      themeToggle.addEventListener('click', () => {
+        const root = document.documentElement;
+        const current = root.getAttribute('data-theme') || 'auto';
+        root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+      });
+    }
+
+    const backToTop = document.getElementById('backToTop');
+    if (backToTop) {
+      backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    }
+
+    window.addEventListener('scroll', () => {
+      const progress = document.getElementById('readingProgress');
+      if (progress) {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        const pct = max > 0 ? (window.scrollY / max) * 100 : 0;
+        progress.style.width = pct + '%';
+      }
+      if (backToTop) {
+        backToTop.classList.toggle('visible', window.scrollY > 400);
+      }
+    }, { passive: true });
+
+    window.addEventListener('hashchange', () => {
+      activePagePath = normalizeDocsPath(location.hash && location.hash.startsWith('#/')
+        ? location.hash.slice(1)
+        : '');
+      renderSidebar();
+      renderContent();
+    });
+
+    function renderProtocolTabs() {
+      const container = document.getElementById('protocolTabs');
+      if (!container) return;
+      container.textContent = '';
+      protocols.forEach(p => {
+        const btn = document.createElement('button');
+        btn.className = 'protocol-tab' + (!activePagePath && p === activeProtocol ? ' active' : '');
+        const label = p.charAt(0).toUpperCase() + p.slice(1);
+        const count = protocolData[p];
+        btn.innerHTML = label + (sidebarConfig.showCounts !== false ? '<span class="count">' + count + '</span>' : '');
+        btn.onclick = () => setProtocol(p);
+        container.appendChild(btn);
+      });
+    }
+
+    function setProtocol(protocol) {
+      activeProtocol = protocol;
+      activePagePath = '';
+      if (location.hash && location.hash.startsWith('#/')) {
+        history.replaceState(null, '', '#docs');
+      }
+      renderProtocolTabs();
+      renderSidebar();
+      renderContent();
+    }
+
+    function setDocsPage(path) {
+      activePagePath = normalizeDocsPath(path);
+      history.replaceState(null, '', '#' + activePagePath);
+      renderProtocolTabs();
+      renderSidebar();
+      renderContent();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderSidebar() {
+      const nav = document.getElementById('sidebarNav');
+      if (!nav) return;
+      nav.textContent = '';
+
+      renderDocsPagesNav(nav);
+
+      // Add Introduction link if there's a description (and not searching)
+      if (!searchQuery && spec.info && spec.info.description && !activePagePath) {
+        const introLink = document.createElement('div');
+        introLink.className = 'nav-item nav-item-intro';
+        introLink.innerHTML = '<span class="nav-item-icon">Docs</span><span class="nav-item-text">Introduction</span>';
+        introLink.onclick = () => {
+          const el = document.getElementById('introduction');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+        nav.appendChild(introLink);
+      }
+
+      if (activePagePath) return;
+
+      // Get endpoints for current protocol
+      const endpoints = getEndpointsForProtocol(activeProtocol);
+
+      // Filter by search
+      const filtered = searchQuery
+        ? endpoints.filter(e =>
+            e.path.toLowerCase().includes(searchQuery) ||
+            (e.summary || '').toLowerCase().includes(searchQuery) ||
+            (e.description || '').toLowerCase().includes(searchQuery)
+          )
+        : endpoints;
+
+      // Group by tags
+      const tagMap = new Map();
+      const untagged = [];
+
+      filtered.forEach(ep => {
+        const tags = ep.tags || ['Other'];
+        if (tags.length === 0) {
+          untagged.push(ep);
+        } else {
+          tags.forEach(tag => {
+            if (!tagMap.has(tag)) tagMap.set(tag, []);
+            tagMap.get(tag).push(ep);
+          });
+        }
+      });
+
+      // Use tagGroups if defined, otherwise auto-group by tags (sorted, Other last)
+      const sortedTags = Array.from(tagMap.keys()).sort((a, b) => {
+        if (a === 'Other') return 1;
+        if (b === 'Other') return -1;
+        return a.localeCompare(b);
+      });
+      const groups = tagGroups.length > 0 ? tagGroups : sortedTags.map(name => ({
+        name,
+        tags: [name],
+        expanded: sidebarConfig.expandAll !== false
+      }));
+
+      groups.forEach((group) => {
+        const groupEndpoints = [];
+        group.tags.forEach(tag => {
+          const eps = tagMap.get(tag) || [];
+          groupEndpoints.push(...eps);
+        });
+
+        if (groupEndpoints.length === 0) return;
+
+        const groupEl = document.createElement('div');
+        groupEl.className = 'tag-group' + (group.expanded === false ? ' collapsed' : '');
+
+        const header = document.createElement('div');
+        header.className = 'tag-group-header';
+        header.innerHTML = '<span class="tag-group-arrow">▼</span>' +
+          esc(group.name) +
+          '<span class="tag-group-count">' + groupEndpoints.length + '</span>';
+        header.onclick = () => groupEl.classList.toggle('collapsed');
+
+        const items = document.createElement('div');
+        items.className = 'tag-group-items';
+        items.style.maxHeight = group.expanded === false ? '0' : (groupEndpoints.length * 50) + 'px';
+
+        groupEndpoints.forEach(ep => {
+          const item = document.createElement('div');
+          item.className = 'nav-item';
+          item.innerHTML = '<span class="nav-item-method ' + getMethodClass(ep.method) + '">' +
+            esc(ep.method) + '</span><span class="nav-item-path">' + esc(ep.path) + '</span>';
+          item.onclick = (e) => {
+            e.stopPropagation();
+            scrollToEndpoint(ep.id);
+          };
+          items.appendChild(item);
+        });
+
+        groupEl.appendChild(header);
+        groupEl.appendChild(items);
+        nav.appendChild(groupEl);
+      });
+
+      if (untagged.length > 0) {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'tag-group';
+
+        const header = document.createElement('div');
+        header.className = 'tag-group-header';
+        header.innerHTML = '<span class="tag-group-arrow">▼</span>Other<span class="tag-group-count">' + untagged.length + '</span>';
+        header.onclick = () => groupEl.classList.toggle('collapsed');
+
+        const items = document.createElement('div');
+        items.className = 'tag-group-items';
+        items.style.maxHeight = (untagged.length * 50) + 'px';
+
+        untagged.forEach(ep => {
+          const item = document.createElement('div');
+          item.className = 'nav-item';
+          item.innerHTML = '<span class="nav-item-method ' + getMethodClass(ep.method) + '">' +
+            esc(ep.method) + '</span><span class="nav-item-path">' + esc(ep.path) + '</span>';
+          item.onclick = (e) => {
+            e.stopPropagation();
+            scrollToEndpoint(ep.id);
+          };
+          items.appendChild(item);
+        });
+
+        groupEl.appendChild(header);
+        groupEl.appendChild(items);
+        nav.appendChild(groupEl);
+      }
+    }
+
+    function renderDocsPagesNav(nav) {
+      if (sidebarConfig.docsPages === false || !Array.isArray(docsPages) || docsPages.length === 0) return;
+      const pages = getDocsPageViews();
+      const filteredPages = searchQuery
+        ? pages.filter(page =>
+            (page.title || '').toLowerCase().includes(searchQuery) ||
+            (page.description || '').toLowerCase().includes(searchQuery) ||
+            (page.markdown || '').toLowerCase().includes(searchQuery)
+          )
+        : pages;
+      if (filteredPages.length === 0) return;
+
+      const sectionMap = new Map();
+      filteredPages.forEach(page => {
+        const section = page.section || 'Guides';
+        if (!sectionMap.has(section)) sectionMap.set(section, []);
+        sectionMap.get(section).push(page);
+      });
+
+      sectionMap.forEach((sectionPages, sectionName) => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'tag-group docs-pages-group';
+        const header = document.createElement('div');
+        header.className = 'tag-group-header';
+        header.innerHTML = '<span class="tag-group-arrow">▼</span>' +
+          esc(sectionName) +
+          '<span class="tag-group-count">' + sectionPages.length + '</span>';
+        header.onclick = () => groupEl.classList.toggle('collapsed');
+
+        const items = document.createElement('div');
+        items.className = 'tag-group-items';
+        items.style.maxHeight = (sectionPages.length * 50) + 'px';
+        sectionPages.forEach(page => {
+          const path = normalizeDocsPath(page.path);
+          const item = document.createElement('div');
+          item.className = 'nav-item docs-page-nav-item' + (path === activePagePath ? ' active' : '');
+          item.innerHTML = '<span class="nav-item-text">' + esc(page.title || page.path) + '</span>';
+          item.onclick = (event) => {
+            event.stopPropagation();
+            setDocsPage(path);
+          };
+          items.appendChild(item);
+        });
+
+        groupEl.appendChild(header);
+        groupEl.appendChild(items);
+        nav.appendChild(groupEl);
+      });
+    }
+
+    function getMethodClass(method) {
+      const m = method.toLowerCase();
+      if (m === 'get') return 'method-get';
+      if (m === 'post') return 'method-post';
+      if (m === 'put') return 'method-put';
+      if (m === 'patch') return 'method-patch';
+      if (m === 'delete') return 'method-delete';
+      if (m === 'ws' || m === 'websocket') return 'method-ws';
+      if (m === 'stream' || m === 'sse') return 'method-stream';
+      if (m === 'rpc') return 'method-rpc';
+      if (m === 'grpc' || m === 'unary') return 'method-grpc';
+      return 'method-post';
+    }
+
+    function getEndpointsForProtocol(protocol) {
+      const endpoints = [];
+      let id = 0;
+
+      if (protocol === 'http' && spec.paths) {
+        Object.entries(spec.paths).forEach(([path, methods]) => {
+          Object.entries(methods).forEach(([method, op]) => {
+            if (!['get','post','put','patch','delete'].includes(method)) return;
+            endpoints.push({
+              id: 'ep-' + (id++),
+              path,
+              method: method.toUpperCase(),
+              summary: op.summary,
+              description: op.description,
+              tags: op.tags || [],
+              data: op
+            });
+          });
+        });
+      } else if (protocol === 'websocket' && wsSpec?.channels) {
+        Object.entries(wsSpec.channels).forEach(([name, channel]) => {
+          endpoints.push({
+            id: 'ep-' + (id++),
+            path: name,
+            method: 'WS',
+            summary: channel.description,
+            tags: channel.tags || [],
+            data: channel
+          });
+        });
+      } else if (protocol === 'streams' && streamsSpec?.endpoints) {
+        Object.entries(streamsSpec.endpoints).forEach(([name, endpoint]) => {
+          endpoints.push({
+            id: 'ep-' + (id++),
+            path: name,
+            method: endpoint.direction || 'STREAM',
+            summary: endpoint.description,
+            tags: endpoint.tags || [],
+            data: endpoint
+          });
+        });
+      } else if (protocol === 'jsonrpc' && jsonrpcSpec?.methods) {
+        Object.entries(jsonrpcSpec.methods).forEach(([name, method]) => {
+          endpoints.push({
+            id: 'ep-' + (id++),
+            path: name,
+            method: 'RPC',
+            summary: method.description,
+            tags: method.tags || [],
+            data: method
+          });
+        });
+      } else if (protocol === 'grpc' && grpcSpec?.services) {
+        Object.entries(grpcSpec.services).forEach(([serviceName, service]) => {
+          Object.entries(service.methods || {}).forEach(([methodName, method]) => {
+            const type = getGrpcMethodType(method);
+            endpoints.push({
+              id: 'ep-' + (id++),
+              path: serviceName + '/' + methodName,
+              method: type.toUpperCase(),
+              summary: method.description,
+              tags: service.tags || [],
+              data: { service, method, serviceName, methodName }
+            });
+          });
+        });
+      } else if (protocol === 'tcp' && tcpSpec?.servers) {
+        Object.entries(tcpSpec.servers).forEach(([name, server]) => {
+          endpoints.push({
+            id: 'ep-' + (id++),
+            path: name,
+            method: 'TCP',
+            summary: server.description,
+            tags: server.tags || [],
+            data: server
+          });
+        });
+      } else if (protocol === 'udp' && udpSpec?.endpoints) {
+        Object.entries(udpSpec.endpoints).forEach(([name, endpoint]) => {
+          endpoints.push({
+            id: 'ep-' + (id++),
+            path: name,
+            method: 'UDP',
+            summary: endpoint.description,
+            tags: endpoint.tags || [],
+            data: endpoint
+          });
+        });
+      }
+
+      return endpoints;
+    }
+
+    function scrollToEndpoint(id) {
+      activePagePath = '';
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('expanded');
+      }
+    }
+
+`

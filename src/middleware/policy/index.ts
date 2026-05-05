@@ -24,7 +24,7 @@
  *   },
  * })
  *
- * server.procedure('lead.read').policy({
+ * server.procedure('lead.read').authz({
  *   resource: (input) => ({ type: 'lead', id: input.id, tenantId: input.tenantId }),
  * }).handler(async ({ id }) => loadLead(id))
  * ```

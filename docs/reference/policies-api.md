@@ -18,6 +18,7 @@ import type {
   Decision,
   MatchNode,
   AuthzInput,
+  EvalContext,
   Principal,
   Resource,
   PolicyConfig,
@@ -28,7 +29,7 @@ import type {
 import type { PolicyEnginePort } from 'raffel/ports/outbound/policy-engine'
 ```
 
-> Subject to your bundler's path resolution; flat re-exports from `raffel` work too in v1.1+.
+Flat re-exports from `raffel` work too in v1.1+.
 
 ---
 
@@ -99,7 +100,7 @@ interface PrincipalConfig {
 | `'oidc'` | `ctx.auth` | Same as OAuth2 + `claims.org_id` fallback for `tenantId`; prefers `claims.groups` over `claims.roles` |
 | `'custom'` | (anything) | requires `map` |
 
-Throws at startup if `from: 'session'` but the session module is not enabled (or at request-time, depending on detection — currently a runtime error on first denied call).
+With `from: 'session'`, missing session support or missing `ctx.session.data.user.id` fails at request time when a protected procedure resolves its principal.
 
 ---
 
@@ -137,13 +138,6 @@ interface ProcedurePolicyConfig<TInput, TCtx> {
    *  - 'any': at least one must pass.
    */
   mode?: 'enforce' | 'any'
-
-  /**
-   * For client streams + WS continuous procedures only.
-   *  - 'open' (default): evaluate once at stream/connection open.
-   *  - 'per-message': re-evaluate on each inbound frame.
-   */
-  streamMode?: 'open' | 'per-message'
 
   /**
    * Explicit "this procedure intentionally needs no policy".
@@ -189,15 +183,25 @@ Attached automatically when the policy interceptor runs (idempotent — safe acr
 interface PolicyCtxHelpers {
   /**
    * Evaluate (action, resource) using the cached principal.
-   * Sync/async depending on engine. Cached per request by (action, resource.id).
+   * Sync/async depending on engine. Cached per request by
+   * (action, resource.type, resource.id) when no explicit context is supplied.
    */
-  evaluate(action: string, resource: Resource): Decision | Promise<Decision>
+  evaluate(
+    action: string,
+    resource: Resource,
+    context?: EvalContext,
+  ): Decision | Promise<Decision>
 
   /**
    * Filter resources, returning only those for which engine.evaluate
-   * yields allowed:true. Same per-request cache.
+   * yields allowed:true. Uses the same per-request cache when no explicit
+   * context is supplied.
    */
-  filterResources(action: string, resources: readonly Resource[]): Promise<Resource[]>
+  filterResources(
+    action: string,
+    resources: readonly Resource[],
+    context?: EvalContext,
+  ): Promise<Resource[]>
 }
 ```
 
@@ -205,19 +209,15 @@ Access via:
 
 ```ts
 async (input, ctx) => {
-  const helpers = (ctx as any).policy as PolicyCtxHelpers
-  // ...
+  const decision = await ctx.policy?.evaluate('lead.read', {
+    type: 'lead',
+    id: input.id,
+    tenantId: ctx.principal?.tenantId ?? null,
+  })
 }
 ```
 
-> **Type augmentation**: to get type-safe access without casts, augment the `Context` interface in your project:
-> ```ts
-> import 'raffel'
-> import type { PolicyCtxHelpers } from 'raffel/policy'
-> declare module 'raffel' {
->   interface Context { policy: PolicyCtxHelpers }
-> }
-> ```
+`ctx.policy`, `ctx.principal`, and `ctx.policyDecision` are typed on Raffel's `Context` and are present after a non-public `.authz()` gate runs.
 
 ---
 

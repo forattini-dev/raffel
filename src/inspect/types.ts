@@ -107,8 +107,6 @@ export interface RuntimeInspectionAuthz {
   public: boolean
   /** Whether the procedure declared a resource resolver. */
   hasResolver: boolean
-  /** Stream re-evaluation policy when applicable. */
-  streamMode?: 'open' | 'per-message'
 }
 
 export interface RuntimeInspectionOperation {

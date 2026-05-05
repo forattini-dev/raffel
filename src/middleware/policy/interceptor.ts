@@ -36,7 +36,7 @@ export interface CreatePolicyInterceptorOptions {
   engine: PolicyEnginePort
   /** Default action when the procedure didn't override it. */
   defaultAction: string
-  /** Per-procedure config from `.policy({...})`. */
+  /** Per-procedure config from `.authz({...})`. */
   config: ProcedurePolicyConfig
   /** Resolves the principal from ctx (cached per request). */
   principalResolver: PrincipalResolver
@@ -90,6 +90,7 @@ function readCachedPrincipal(ctx: Context): Principal | undefined {
 function writeCachedPrincipal(ctx: Context, principal: Principal): void {
   const bag = ctx as unknown as Record<string, unknown>
   bag[POLICY_PRINCIPAL_KEY] = principal
+  bag.principal = principal
 }
 
 function attachDecision(ctx: Context, decision: Decision): void {

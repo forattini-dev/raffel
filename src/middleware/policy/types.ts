@@ -234,10 +234,10 @@ export interface PolicyConfig {
   /** Where to read the principal from. Required when policies are configured. */
   principal: PrincipalConfig
   /**
-   * What to do when a procedure has no `.policy()` declared.
+   * What to do when a procedure has no `.authz()` declared.
    * - `'allow'` (default): pass through.
    * - `'deny'`: return forbidden with `reason: 'no_policy_declared'`.
-   *   Procedures may opt out via `.policy({ public: true })`.
+   *   Procedures may opt out via `.authz({ public: true })`.
    */
   defaultMode?: 'allow' | 'deny'
   /** Override the default engine driver. */
@@ -281,12 +281,6 @@ export interface ProcedurePolicyConfig<TInput = unknown, TCtx = unknown> {
    * - `'any'`: at least one must pass.
    */
   mode?: 'enforce' | 'any'
-  /**
-   * For client streams + WS continuous procedures only. Ignored otherwise.
-   * - `'open'` (default): evaluate once at connection/stream open.
-   * - `'per-message'`: re-evaluate on each inbound frame.
-   */
-  streamMode?: 'open' | 'per-message'
   /**
    * Explicit "this procedure intentionally needs no policy". Required when
    * server-level `defaultMode: 'deny'`.

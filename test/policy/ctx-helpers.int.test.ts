@@ -6,7 +6,6 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from '../../src/server/builder.js'
 import type { Principal, Resource } from '../../src/middleware/policy/types.js'
-import type { PolicyCtxHelpers } from '../../src/middleware/policy/index.js'
 
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -58,12 +57,11 @@ describe('ctx.policy helpers', () => {
       .procedure('test')
       .authz({ resource: () => ({ type: 'meta', id: 'gate', tenantId: 't1' }) })
       .handler(async (_input, ctx) => {
-        const helpers = (ctx as unknown as { policy: PolicyCtxHelpers }).policy
         const allowed: Resource = { type: 'lead', id: 'l1', tenantId: 't1' }
         const denied: Resource = { type: 'lead', id: 'l2', tenantId: 't1' }
         return {
-          a: (await helpers.evaluate('lead.read', allowed)).allowed,
-          b: (await helpers.evaluate('lead.read', denied)).allowed,
+          a: (await ctx.policy!.evaluate('lead.read', allowed)).allowed,
+          b: (await ctx.policy!.evaluate('lead.read', denied)).allowed,
         }
       })
 
@@ -99,12 +97,11 @@ describe('ctx.policy helpers', () => {
       .procedure('test')
       .authz({ resource: () => ({ type: 'meta', id: 'gate', tenantId: 't1' }) })
       .handler(async (_input, ctx) => {
-        const helpers = (ctx as unknown as { policy: PolicyCtxHelpers }).policy
         const allowed: Resource = { type: 'lead', id: 'l1', tenantId: 't1' }
         const denied: Resource = { type: 'lead', id: 'l2', tenantId: 't1' }
         return {
-          a: (await helpers.evaluate('lead.read', allowed)).allowed,
-          b: (await helpers.evaluate('lead.read', denied)).allowed,
+          a: (await ctx.policy!.evaluate('lead.read', allowed)).allowed,
+          b: (await ctx.policy!.evaluate('lead.read', denied)).allowed,
         }
       })
 
@@ -150,13 +147,12 @@ describe('ctx.policy helpers', () => {
       .procedure('leads.list')
       .authz({ resource: () => ({ type: 'meta', id: 'gate', tenantId: 't1' }) })
       .handler(async (_input, ctx) => {
-        const helpers = (ctx as unknown as { policy: PolicyCtxHelpers }).policy
         const all: Resource[] = ['l1', 'l2', 'l3', 'l4'].map((id) => ({
           type: 'lead',
           id,
           tenantId: 't1',
         }))
-        const filtered = await helpers.filterResources('lead.read', all)
+        const filtered = await ctx.policy!.filterResources('lead.read', all)
         return { ids: filtered.map((r) => r.id) }
       })
 
@@ -171,7 +167,7 @@ describe('ctx.policy helpers', () => {
     expect(body.ids.sort()).toEqual(['l1', 'l3'])
   })
 
-  it('dedup: evaluate twice with same (action, resource.id) calls engine once', async () => {
+  it('dedup: evaluate twice with same (action, resource.type, resource.id) calls engine once', async () => {
     const port = await getFreePort()
 
     // Wrap engine.evaluate via a custom engine that counts calls
@@ -201,12 +197,11 @@ describe('ctx.policy helpers', () => {
       .procedure('t')
       .authz({ resource: () => ({ type: 'g', id: '1', tenantId: 't1' }) })
       .handler(async (_input, ctx) => {
-        const helpers = (ctx as unknown as { policy: PolicyCtxHelpers }).policy
         const r: Resource = { type: 'lead', id: 'l1', tenantId: 't1' }
-        await helpers.evaluate('lead.read', r)
-        await helpers.evaluate('lead.read', r) // same → dedup
-        await helpers.evaluate('lead.read', r) // same → dedup
-        await helpers.filterResources('lead.read', [r, r, r]) // also dedup
+        await ctx.policy!.evaluate('lead.read', r)
+        await ctx.policy!.evaluate('lead.read', r) // same → dedup
+        await ctx.policy!.evaluate('lead.read', r) // same → dedup
+        await ctx.policy!.filterResources('lead.read', [r, r, r]) // also dedup
         return { ok: true }
       })
 
@@ -220,5 +215,154 @@ describe('ctx.policy helpers', () => {
     // 1 call for the gate (action=t, resource g:1)
     // 1 call for action=lead.read, resource lead:l1 (deduplicated)
     expect(calls).toHaveBeenCalledTimes(2)
+  })
+
+  it('dedup keeps resources with the same id but different type separate', async () => {
+    const port = await getFreePort()
+    const calls = vi.fn()
+    server = createServer({
+      port,
+      policy: {
+        principal: { from: 'custom', map: () => P },
+        engine: {
+          evaluate: (input) => {
+            calls(input)
+            return {
+              allowed: true,
+              reason: 'allow' as const,
+              matchedPolicyIds: ['x'],
+              auditedPolicyIds: [],
+              candidatePolicies: [],
+            }
+          },
+          list: () => [],
+        },
+        policies: [],
+      },
+    })
+
+    server
+      .procedure('typed-cache')
+      .authz({ resource: () => ({ type: 'g', id: '1', tenantId: 't1' }) })
+      .handler(async (_input, ctx) => {
+        const lead: Resource = { type: 'lead', id: 'same', tenantId: 't1' }
+        const account: Resource = { type: 'account', id: 'same', tenantId: 't1' }
+        await ctx.policy!.evaluate('read', lead)
+        await ctx.policy!.evaluate('read', lead)
+        await ctx.policy!.evaluate('read', account)
+        await ctx.policy!.evaluate('read', account)
+        return { ok: true }
+      })
+
+    await server.start()
+    await fetch(`http://127.0.0.1:${port}/typed-cache`, {
+      method: 'POST',
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+    })
+
+    // 1 gate call + 1 cached lead decision + 1 cached account decision.
+    expect(calls).toHaveBeenCalledTimes(3)
+    expect(calls).toHaveBeenCalledWith(expect.objectContaining({
+      resource: expect.objectContaining({ type: 'lead', id: 'same' }),
+    }))
+    expect(calls).toHaveBeenCalledWith(expect.objectContaining({
+      resource: expect.objectContaining({ type: 'account', id: 'same' }),
+    }))
+  })
+
+  it('exposes the resolved policy principal on ctx', async () => {
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      policy: {
+        principal: { from: 'custom', map: () => P },
+        policies: [
+          {
+            id: 'allow-gate',
+            effect: 'allow',
+            principals: ['**'],
+            actions: ['whoami'],
+            resources: ['meta:gate'],
+          },
+        ],
+      },
+    })
+
+    server
+      .procedure('whoami')
+      .authz({ resource: () => ({ type: 'meta', id: 'gate', tenantId: 't1' }) })
+      .handler((_input, ctx) => ({
+        id: ctx.principal?.id,
+        tenantId: ctx.principal?.tenantId,
+        hasPolicyHelpers: typeof ctx.policy?.evaluate === 'function',
+      }))
+
+    await server.start()
+    const res = await fetch(`http://127.0.0.1:${port}/whoami`, {
+      method: 'POST',
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      id: 's1',
+      tenantId: 't1',
+      hasPolicyHelpers: true,
+    })
+  })
+
+  it('passes explicit evaluation context through ctx.policy.evaluate', async () => {
+    const port = await getFreePort()
+    const calls = vi.fn()
+    server = createServer({
+      port,
+      policy: {
+        principal: { from: 'custom', map: () => P },
+        engine: {
+          evaluate: (input) => {
+            calls(input)
+            return {
+              allowed: input.action === 'gate' || input.context?.region === 'eu',
+              reason: 'allow' as const,
+              matchedPolicyIds: ['x'],
+              auditedPolicyIds: [],
+              candidatePolicies: [],
+            }
+          },
+          list: () => [],
+        },
+        policies: [],
+      },
+    })
+
+    server
+      .procedure('contextual')
+      .authz({
+        action: 'gate',
+        resource: () => ({ type: 'meta', id: 'gate', tenantId: 't1' }),
+      })
+      .handler(async (_input, ctx) => {
+        const resource: Resource = { type: 'lead', id: 'l1', tenantId: 't1' }
+        const allowed = await ctx.policy!.evaluate('lead.read', resource, { region: 'eu' })
+        const denied = await ctx.policy!.evaluate('lead.read', resource, { region: 'us' })
+        return { allowed: allowed.allowed, denied: denied.allowed }
+      })
+
+    await server.start()
+    const res = await fetch(`http://127.0.0.1:${port}/contextual`, {
+      method: 'POST',
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ allowed: true, denied: false })
+    expect(calls).toHaveBeenCalledTimes(3)
+    expect(calls).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'lead.read',
+      context: { region: 'eu' },
+    }))
   })
 })

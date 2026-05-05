@@ -147,7 +147,7 @@ Operators expect `number` or `string`. Mismatched types compare as `false`.
 { regex: '@acme\\.com$' }
 ```
 
-Compiled with no flags. Use `(?i)` inline flag for case-insensitive (engine-supported subset of ECMAScript regex).
+Compiled with JavaScript `RegExp` and no flags. Case-insensitive inline flags such as `(?i)` are not supported.
 
 ### String / array operators
 
@@ -345,7 +345,7 @@ match: {
 }
 ```
 
-`context` is the `EvalContext` (`AuthzInput.context`) — populate it however you like (e.g. via a custom interceptor that sets `ctx.policy.context = { region, hour, ... }` before the policy evaluates, or pass via `engine.evaluate({ ...input, context })` from `ctx.policy.evaluate`).
+`context` is the `EvalContext` (`AuthzInput.context`) — pass it via `ctx.policy.evaluate(action, resource, context)` or direct `engine.evaluate({ ...input, context })`.
 
 ### Email domain whitelist
 

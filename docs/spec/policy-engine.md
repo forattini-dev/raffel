@@ -68,7 +68,7 @@ Add an opt-in authorization module to Raffel that lets developers declare *who c
 - Adapters know how to read each source's standard payload; `map` overrides shape.
 - Cached in `ctx.principal` once per request (per WS connection for streams).
 - **AC**: With `from: 'session'`, principal extraction reads `ctx.session.data.user`; with `from: 'oauth2'`, reads JWT claims; both yield a valid `Principal` without user-supplied mapper for default shapes.
-- **Startup error** if `from: 'session'` configured but session module not enabled.
+- **Request-time error** if `from: 'session'` is configured but a protected request has no `ctx.session.data.user.id`.
 
 ### F7 — Per-procedure declaration
 
@@ -80,19 +80,20 @@ Add an opt-in authorization module to Raffel that lets developers declare *who c
 - Module-level inheritance: `routerModule({ policy: { action, resource } })` defaults for all procedures, override per procedure.
 - **AC**: Procedure with `.authz({ resource: r => r })` evaluates correctly for HTTP, gRPC, JSON-RPC, WS-RPC, server stream.
 
-### F8 — Stream support with mode
+### F8 — Stream support
 
 - HTTP/gRPC/JSON-RPC/WS-RPC/server stream: policy runs once before handler.
-- Client stream + WS continuous: `mode: 'open' | 'per-message'` on `.authz()` (default `'open'`).
+- Client stream + WS continuous: use explicit `ctx.policy.evaluate()` calls inside the handler loop for per-message checks.
 - TCP/UDP raw transports: **out of scope** — use `ConnectionFilter`.
-- **AC**: WS continuous procedure with `mode: 'per-message'` re-evaluates on each frame; with `mode: 'open'` (default) only at connection open.
+- **AC**: Stream handlers can evaluate each inbound frame explicitly with `ctx.policy.evaluate(action, resource, context?)`.
 
 ### F9 — Filter mode + ad-hoc checks (DX)
 
-- `ctx.policy.evaluate(action, resource): Decision` — synchronous-ish check inside handler.
-- `ctx.policy.filterResources(action, resources: Resource[]): Promise<Resource[]>` — returns only allowed.
-- Dedup by `resource.id` within a single request (resolver called once per id).
-- **AC**: Handler that lists 100 leads and calls `ctx.policy.filterResources('lead.read', leads)` returns only those the principal can read; resource resolver invoked at most 100 times even if filter is called twice.
+- `ctx.policy.evaluate(action, resource, context?): Decision` — synchronous-ish check inside handler.
+- `ctx.policy.filterResources(action, resources: Resource[], context?): Promise<Resource[]>` — returns only allowed.
+- Helper decision dedup by `(action, resource.type, resource.id)` within a single request when no explicit evaluation context is supplied.
+- Calls with explicit `EvalContext` evaluate directly instead of using the request-local decision cache.
+- **AC**: Handler that lists 100 leads and calls `ctx.policy.filterResources('lead.read', leads)` twice without explicit context returns only those the principal can read and reuses the helper decision cache.
 
 ### F10 — Default mode + escape hatch
 
@@ -130,7 +131,7 @@ Add an opt-in authorization module to Raffel that lets developers declare *who c
 
 - All glob patterns pre-compiled to `RegExp` at startup, attached to compiled policy as `_compiled`.
 - Compiled principal set cached in `ctx.principal._compiledSet` per request.
-- Resource resolver dedup'd by `resource.id` per request.
+- Helper decisions dedup'd by `(action, resource.type, resource.id)` per request when no explicit evaluation context is supplied.
 - **No decision cache, no action index, no short-circuit eval** in v1.
 - **AC**: 1000 policies × 100 evaluates in a single request completes in <100ms on a modern dev machine (sanity check, not a benchmark).
 
@@ -253,7 +254,7 @@ docs/
 - `interceptor.int.test.ts` — coverage across HTTP, WS-RPC, JSON-RPC, gRPC. enforce + any modes. defaultMode allow + deny + public escape. principal extraction from session, oauth2, oidc, custom.
 - `builder.int.test.ts` — `.authz()` builder shape, default action inference, module inheritance + override, async resolver, null resolver.
 - `ctx-helpers.int.test.ts` — `ctx.policy.evaluate/filterResources`, dedup proof.
-- `streams.int.test.ts` — server stream (open-only), client stream + WS continuous (open vs per-message).
+- `streams.int.test.ts` — server stream open checks and explicit per-message checks through `ctx.policy.evaluate`.
 - `dx.int.test.ts` — error shape per NODE_ENV, log structure via fake LoggerPort, `server.policy.explain()` returns Decision without side effects.
 - `discovery.int.test.ts` — runtime-preview shape, MCP `raffel://policies` shape.
 - `perf.int.test.ts` — 1000 policies × 100 evaluates < threshold.
@@ -273,7 +274,7 @@ docs/
 ### Always do
 - Pre-compile all glob patterns at startup; never compile on hot path.
 - Cache principal compiled set per-request (`ctx.principal._compiledSet`).
-- Dedup resource resolver by `resource.id` per request.
+- Dedup helper decisions by `(action, resource.type, resource.id)` per request when no explicit evaluation context is supplied.
 - Log every decision via `LoggerPort` — never directly to stdout.
 - Validate all JSON policies + customCondition refs at startup; fail fast.
 - Treat `condition` throw as `implicit_deny`, log with stack.
@@ -303,7 +304,7 @@ Explicitly deferred to a future minor:
 - Decision result caching
 - Action prefix indexing for >500 policies
 - TCP/UDP policy support
-- Per-message policy on raw streams (only on declared `mode: 'per-message'` procedures)
+- Automatic per-message policy on raw streams.
 - Multi-policy-per-procedure (`.authz().authz()` chaining)
 - OPA / Cedar / Casbin reference drivers (port allows them; we don't ship them)
 - Policy versioning / staged rollout via flags (use `audit` effect for shadow testing instead)

@@ -16,16 +16,28 @@ import type {
   USDPathItem, USDSchema, USDSecurityScheme, USDParameter, USDResponse, USDRequestBody, USDExample,
 } from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   generateUSD,
   type USDGeneratorOptions,
   type USDGeneratorProtocolConfig,
 } from './generators/usd-generator.js'
+import {
+  loadMarkdownDocs,
+  mergeMarkdownDocumentation,
+  type MarkdownDocsSource,
+} from './markdown-loader.js'
 import type { LoadedTcpHandler } from './generators/tcp-generator.js'
 import type { LoadedUdpHandler } from './generators/udp-generator.js'
 import { exportOpenAPI } from '../usd/export/openapi.js'
 import { dump as yamlStringify } from 'js-yaml'
-import { generateUIHTML } from './ui/index.js'
+import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from './ui/index.js'
+
+function readBuiltDocsRuntime(): string | null {
+  const assetUrl = new URL('./ui/assets/raffel-docs.js', import.meta.url)
+  if (!existsSync(assetUrl)) return null
+  return readFileSync(assetUrl, 'utf8')
+}
 
 // =============================================================================
 // Types
@@ -133,6 +145,8 @@ export interface USDMiddlewareConfig {
     footer?: string
     /** In-page table of contents */
     toc?: { enabled?: boolean; minLevel?: number; maxLevel?: number }
+    /** UI asset delivery mode */
+    assets?: { mode?: 'inline' | 'external' }
   }
 
   /** Include standard error schemas */
@@ -149,6 +163,14 @@ export interface USDMiddlewareConfig {
 
   /** Documentation customization (portable with the spec) */
   documentation?: USDDocumentation
+
+  /**
+   * Markdown docs directory to load by convention.
+   *
+   * Supports Docsify-style files such as README.md, nested Markdown pages,
+   * _sidebar.md, _navbar.md, _coverpage.md, and _404.md.
+   */
+  docsDir?: MarkdownDocsSource
 
   /**
    * External paths to merge into the generated document.
@@ -183,6 +205,10 @@ export interface USDHandlers {
   serveUSDYaml: () => Response
   /** Serve pure OpenAPI 3.1 JSON (for Swagger UI compatibility) */
   serveOpenAPI: () => Response
+  /** Serve reusable docs UI JavaScript runtime */
+  serveUIRuntime: () => Response
+  /** Serve docs UI stylesheet */
+  serveUIStyles: () => Response
   /** Get the USD document */
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */
@@ -248,11 +274,18 @@ export function createUSDHandlers(
     grpc,
     ui,
     documentation,
+    docsDir,
     includeErrorSchemas = true,
     includeStreamEventSchemas = true,
     externalPaths,
     externalComponents,
   } = config
+
+  const loadedMarkdownDocs = docsDir ? loadMarkdownDocs(docsDir) : undefined
+  const mergedDocumentation = mergeMarkdownDocumentation(documentation, loadedMarkdownDocs?.documentation)
+  const mergedUI = loadedMarkdownDocs?.navbar && !ui?.navbar
+    ? { ...ui, navbar: loadedMarkdownDocs.navbar }
+    : ui
 
   // Cache for generated documents
   let cachedUSD: USDDocument | null = null
@@ -290,7 +323,7 @@ export function createUSDHandlers(
         defaultSecurity,
         tags,
         externalDocs,
-        documentation,
+        documentation: mergedDocumentation,
         tagGroups: config.tagGroups,
         jsonrpc,
         grpc,
@@ -325,7 +358,7 @@ export function createUSDHandlers(
       const html = generateUIHTML({
         doc: getUSD(),
         basePath,
-        ui,
+        ui: mergedUI,
         tagGroups: config.tagGroups,
       })
       return new Response(html, {
@@ -359,6 +392,31 @@ export function createUSDHandlers(
       return new Response(JSON.stringify(doc, null, 2), {
         headers: {
           'Content-Type': 'application/json',
+        },
+      })
+    },
+
+    serveUIRuntime: () => {
+      const runtime = readBuiltDocsRuntime() ?? generateUIRuntimeJS()
+      return new Response(runtime, {
+        headers: {
+          'Content-Type': 'application/javascript; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
+    },
+
+    serveUIStyles: () => {
+      const css = generateUICSS({
+        doc: getUSD(),
+        basePath,
+        ui: mergedUI,
+        tagGroups: config.tagGroups,
+      })
+      return new Response(css, {
+        headers: {
+          'Content-Type': 'text/css; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
         },
       })
     },

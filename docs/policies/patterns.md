@@ -210,7 +210,7 @@ policy: {
 }
 ```
 
-Pass `context` from a custom interceptor or via `ctx.policy.evaluate(action, resource)` with explicit context. The engine doesn't auto-set time — keep policies pure-data and inject volatile state via `context`.
+Pass `context` via `ctx.policy.evaluate(action, resource, context)` or direct `engine.evaluate({ ...input, context })`. The engine doesn't auto-set time — keep policies pure-data and inject volatile state via `context`.
 
 ---
 
@@ -308,7 +308,7 @@ Return only resources the principal can read. Dedup'd resolver per request.
 ```ts
 server
   .procedure('leads.list')
-  .authz({ resource: () => ({ type: 'leadbag', id: 'all', tenantId: ctx.principal.tenantId }) })
+  .authz({ resource: (_input, ctx) => ({ type: 'leadbag', id: 'all', tenantId: ctx.principal?.tenantId ?? null }) })
   .handler(async (_, ctx) => {
     const all = await db.leads.list()
     return ctx.policy.filterResources('lead.read', all.map(l => ({

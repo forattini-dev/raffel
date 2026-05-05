@@ -22,6 +22,14 @@
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"
     },
+    "./policy": {
+      "types": "./dist/policy.d.ts",
+      "import": "./dist/policy.js"
+    },
+    "./ports/outbound/policy-engine": {
+      "types": "./dist/ports/outbound/policy-engine.d.ts",
+      "import": "./dist/ports/outbound/policy-engine.js"
+    },
     "./proxy": {
       "types": "./dist/proxy/index.d.ts",
       "import": "./dist/proxy/index.js"
@@ -212,9 +220,11 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && tsc -p tsconfig.ui.json",
+    "build": "tsc && tsc -p tsconfig.ui.json && pnpm run build:docs-ui-assets",
     "build:main": "tsc",
     "build:ui": "tsc -p tsconfig.ui.json",
+    "build:docs-ui-assets": "node scripts/build-docs-ui-assets.mjs",
+    "prepack": "pnpm run build",
     "dev": "tsc --watch",
     "docs": "serve docs -p 3000",
     "test": "node --test --import tsx tests/smoke.test.ts",
