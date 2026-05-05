@@ -439,7 +439,6 @@ function buildOperations(
           mode: (authzCfg.mode ?? 'enforce') as 'enforce' | 'any',
           public: authzCfg.public === true,
           hasResolver: typeof authzCfg.resource === 'function',
-          ...(authzCfg.streamMode ? { streamMode: authzCfg.streamMode } : {}),
         }
       : undefined
 

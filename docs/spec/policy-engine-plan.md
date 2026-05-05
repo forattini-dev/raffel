@@ -168,8 +168,8 @@ Goal: smallest possible vertical slice that proves the architecture. One HTTP pr
 ### T3.2 — Session adapter
 **Files**: `src/middleware/policy/principal/session.ts`
 **Deps**: T3.1
-**Out**: Reads `ctx.session.data.user` with default shape `{ id, tenantId, scopes, groups, attrs }`. Optional `map` overrides. **Startup error** if session module not enabled.
-**AC**: Server with session module + `from: 'session'` boots; without session + `from: 'session'` fails fast at start.
+**Out**: Reads `ctx.session.data.user` with default shape `{ id, tenantId, scopes, groups, attrs }`. Optional `map` overrides. Missing session/user data fails when a protected request resolves its principal.
+**AC**: Server with `from: 'session'` boots; protected requests without `ctx.session.data.user.id` fail with an actionable request-time error.
 **Verify**: int test.
 
 ### T3.3 — OAuth2 adapter
@@ -339,14 +339,14 @@ Goal: smallest possible vertical slice that proves the architecture. One HTTP pr
 
 ---
 
-## Phase 9 — Streams (per-message)
+## Phase 9 — Streams (explicit per-message checks)
 
-### T9.1 — `mode: 'open' | 'per-message'` on `.authz()`
-**Files**: `src/middleware/policy/builder.ts`, `interceptor.ts`
+### T9.1 — `ctx.policy.evaluate()` inside stream handlers
+**Files**: `src/middleware/policy/ctx-helpers.ts`, stream handler docs/tests
 **Deps**: T4.4
-**Out**: For client streams + WS continuous procedures, `mode: 'per-message'` re-evaluates policy on each inbound frame. `mode: 'open'` (default) only at open. RPC and server stream ignore the field.
-**AC**: F8 acceptance — per-message branch verified.
-**Verify**: int test on WS continuous procedure.
+**Out**: For client streams + WS continuous procedures, handlers call `ctx.policy.evaluate(action, resource, context?)` for each inbound frame that needs a fresh decision.
+**AC**: F8 acceptance — explicit per-message pattern verified.
+**Verify**: unit/int test covering a stream handler loop.
 
 **✅ Checkpoint 9**: F8 fully verified.
 

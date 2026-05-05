@@ -2,4 +2,215 @@
  * Embedded docs UI client script chunk.
  */
 
-export const contentClientScript = "    function renderContent() {\n      const main = document.getElementById('mainContent');\n      main.textContent = '';\n\n      const docsPage = getActiveDocsPage();\n      if (docsPage) {\n        renderDocsPage(main, docsPage);\n        renderTableOfContents(main);\n        return;\n      }\n\n      document.title = spec.info.title;\n\n      // Render API introduction/description (only when not searching)\n      if (!searchQuery && spec.info && spec.info.description) {\n        const intro = document.createElement('div');\n        intro.className = 'intro-section';\n        intro.id = 'introduction';\n\n        const content = document.createElement('div');\n        content.className = 'markdown-content';\n        content.innerHTML = parseMarkdown(spec.info.description);\n        intro.appendChild(content);\n        main.appendChild(intro);\n      }\n\n      const endpoints = getEndpointsForProtocol(activeProtocol);\n      const filtered = searchQuery\n        ? endpoints.filter(e =>\n            e.path.toLowerCase().includes(searchQuery) ||\n            (e.summary || '').toLowerCase().includes(searchQuery)\n          )\n        : endpoints;\n\n      if (filtered.length === 0) {\n        const empty = document.createElement('div');\n        empty.className = 'section';\n        empty.innerHTML = '<p style=\"color: var(--text-muted);\">No endpoints found' +\n          (searchQuery ? ' matching \"' + esc(searchQuery) + '\"' : '') + '</p>';\n        main.appendChild(empty);\n        renderTableOfContents(main);\n        return;\n      }\n\n      // Group by tags for display\n      const tagMap = new Map();\n      filtered.forEach(ep => {\n        const tag = (ep.tags && ep.tags[0]) || 'Endpoints';\n        if (!tagMap.has(tag)) tagMap.set(tag, []);\n        tagMap.get(tag).push(ep);\n      });\n\n      tagMap.forEach((eps, tag) => {\n        const section = document.createElement('div');\n        section.className = 'section';\n\n        const title = document.createElement('h2');\n        title.className = 'section-title';\n        title.id = slugifyHeading(tag);\n        title.textContent = tag;\n        section.appendChild(title);\n\n        // Find tag description from spec\n        const tagDef = (spec.tags || []).find(t => t.name === tag);\n        if (tagDef?.description) {\n          const desc = document.createElement('p');\n          desc.className = 'section-desc';\n          desc.textContent = tagDef.description;\n          section.appendChild(desc);\n        }\n\n        eps.forEach(ep => {\n          const card = createEndpointCard(ep);\n          section.appendChild(card);\n        });\n\n        main.appendChild(section);\n      });\n\n      renderTableOfContents(main);\n    }\n\n    function getActiveDocsPage() {\n      if (!activePagePath || !Array.isArray(docsPages)) return null;\n      return docsPages.find(page => normalizeDocsPath(page.path) === activePagePath) || null;\n    }\n\n    function renderDocsPage(main, page) {\n      const article = document.createElement('article');\n      article.className = 'docs-page markdown-content';\n      article.dataset.path = page.path;\n      article.innerHTML = parseMarkdown(page.markdown || '');\n      main.appendChild(article);\n      document.title = page.title ? page.title + ' - ' + spec.info.title : spec.info.title;\n    }\n\n    function renderFooter() {\n      const footer = document.getElementById('docsFooter');\n      if (!footer || !footerMarkdown) return;\n      footer.innerHTML = parseMarkdown(footerMarkdown);\n    }\n\n    function renderTableOfContents(root) {\n      const toc = document.getElementById('pageToc');\n      if (!toc) return;\n      toc.textContent = '';\n      if (tocConfig.enabled === false) return;\n\n      const min = Number(tocConfig.minLevel || 2);\n      const max = Number(tocConfig.maxLevel || 3);\n      const headings = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6'))\n        .filter(heading => {\n          const level = Number(heading.tagName.slice(1));\n          return level >= min && level <= max && heading.id;\n        });\n\n      if (headings.length === 0) return;\n\n      const title = document.createElement('div');\n      title.className = 'toc-title';\n      title.textContent = 'On this page';\n      toc.appendChild(title);\n\n      headings.forEach(heading => {\n        const level = Number(heading.tagName.slice(1));\n        const item = document.createElement('a');\n        item.className = 'toc-link toc-level-' + level;\n        item.href = '#' + heading.id;\n        item.textContent = heading.textContent ? heading.textContent.replace(/^#/, '').trim() : '';\n        item.onclick = (event) => {\n          event.preventDefault();\n          heading.scrollIntoView({ behavior: 'smooth', block: 'start' });\n          history.replaceState(null, '', '#' + heading.id);\n        };\n        toc.appendChild(item);\n      });\n    }\n\n"
+export const contentClientScript = String.raw`    function renderContent() {
+      const main = document.getElementById('mainContent');
+      main.textContent = '';
+
+      const docsPage = getActiveDocsPage();
+      if (docsPage) {
+        renderDocsPage(main, docsPage);
+        renderTableOfContents(main);
+        return;
+      }
+
+      document.title = spec.info.title;
+
+      if (searchQuery) {
+        renderDocsPageSearchResults(main);
+      }
+
+      // Render API introduction/description (only when not searching)
+      if (!searchQuery && spec.info && spec.info.description) {
+        const intro = document.createElement('div');
+        intro.className = 'intro-section';
+        intro.id = 'introduction';
+
+        const content = document.createElement('div');
+        content.className = 'markdown-content';
+        content.innerHTML = parseMarkdown(spec.info.description);
+        intro.appendChild(content);
+        main.appendChild(intro);
+      }
+
+      const endpoints = getEndpointsForProtocol(activeProtocol);
+      const filtered = searchQuery
+        ? endpoints.filter(e =>
+            e.path.toLowerCase().includes(searchQuery) ||
+            (e.summary || '').toLowerCase().includes(searchQuery) ||
+            (e.description || '').toLowerCase().includes(searchQuery)
+          )
+        : endpoints;
+
+      if (filtered.length === 0) {
+        if (main.childElementCount === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'section';
+          empty.innerHTML = '<p style="color: var(--text-muted);">No endpoints found' +
+            (searchQuery ? ' matching "' + esc(searchQuery) + '"' : '') + '</p>';
+          main.appendChild(empty);
+        }
+        renderTableOfContents(main);
+        return;
+      }
+
+      // Group by tags for display
+      const tagMap = new Map();
+      filtered.forEach(ep => {
+        const tag = (ep.tags && ep.tags[0]) || 'Endpoints';
+        if (!tagMap.has(tag)) tagMap.set(tag, []);
+        tagMap.get(tag).push(ep);
+      });
+
+      tagMap.forEach((eps, tag) => {
+        const section = document.createElement('div');
+        section.className = 'section';
+
+        const title = document.createElement('h2');
+        title.className = 'section-title';
+        title.id = slugifyHeading(tag);
+        title.textContent = tag;
+        section.appendChild(title);
+
+        // Find tag description from spec
+        const tagDef = (spec.tags || []).find(t => t.name === tag);
+        if (tagDef?.description) {
+          const desc = document.createElement('p');
+          desc.className = 'section-desc';
+          desc.textContent = tagDef.description;
+          section.appendChild(desc);
+        }
+
+        eps.forEach(ep => {
+          const card = createEndpointCard(ep);
+          section.appendChild(card);
+        });
+
+        main.appendChild(section);
+      });
+
+      renderTableOfContents(main);
+    }
+
+    function getActiveDocsPage() {
+      if (!activePagePath || !Array.isArray(docsPages)) return null;
+      return getDocsPageViews().find(page => normalizeDocsPath(page.path) === activePagePath) || null;
+    }
+
+    function renderDocsPage(main, page) {
+      const article = document.createElement('article');
+      article.className = 'docs-page markdown-content';
+      article.dataset.path = page.path;
+      article.innerHTML = parseMarkdown(page.markdown || '');
+      main.appendChild(article);
+      document.title = page.title ? page.title + ' - ' + spec.info.title : spec.info.title;
+      renderDocsPagination(main, page);
+    }
+
+    function renderDocsPageSearchResults(main) {
+      if (!Array.isArray(docsPages) || docsPages.length === 0) return;
+      const matches = getDocsPageViews().filter(page =>
+        (page.title || '').toLowerCase().includes(searchQuery) ||
+        (page.description || '').toLowerCase().includes(searchQuery) ||
+        (page.markdown || '').toLowerCase().includes(searchQuery)
+      );
+      if (matches.length === 0) return;
+
+      const section = document.createElement('section');
+      section.className = 'section docs-search-results';
+      const title = document.createElement('h2');
+      title.className = 'section-title';
+      title.id = 'docs-pages';
+      title.textContent = 'Documentation pages';
+      section.appendChild(title);
+
+      matches
+        .forEach(page => {
+          const card = document.createElement('button');
+          card.type = 'button';
+          card.className = 'docs-page-result';
+          card.innerHTML = '<span class="docs-page-result-title">' + esc(page.title || page.path) + '</span>' +
+            (page.description ? '<span class="docs-page-result-desc">' + esc(page.description) + '</span>' : '');
+          card.onclick = () => setDocsPage(page.path);
+          section.appendChild(card);
+        });
+
+      main.appendChild(section);
+    }
+
+    function renderDocsPagination(main, page) {
+      const pages = getDocsPageViews();
+      const currentIndex = pages.findIndex(item => normalizeDocsPath(item.path) === normalizeDocsPath(page.path));
+      if (currentIndex === -1 || pages.length < 2) return;
+
+      const previous = pages[currentIndex - 1];
+      const next = pages[currentIndex + 1];
+      const nav = document.createElement('nav');
+      nav.className = 'docs-pagination';
+      nav.setAttribute('aria-label', 'Documentation pagination');
+
+      if (previous) {
+        nav.appendChild(createDocsPaginationLink(previous, 'Previous', 'previous'));
+      } else {
+        nav.appendChild(document.createElement('span'));
+      }
+
+      if (next) {
+        nav.appendChild(createDocsPaginationLink(next, 'Next', 'next'));
+      }
+
+      main.appendChild(nav);
+    }
+
+    function createDocsPaginationLink(page, label, direction) {
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'docs-pagination-link docs-pagination-' + direction;
+      link.innerHTML = '<span class="docs-pagination-label">' + esc(label) + '</span>' +
+        '<span class="docs-pagination-title">' + esc(page.title) + '</span>';
+      link.onclick = () => setDocsPage(page.path);
+      return link;
+    }
+
+    function renderFooter() {
+      const footer = document.getElementById('docsFooter');
+      if (!footer || !footerMarkdown) return;
+      footer.innerHTML = parseMarkdown(footerMarkdown);
+    }
+
+    function renderTableOfContents(root) {
+      const toc = document.getElementById('pageToc');
+      if (!toc) return;
+      toc.textContent = '';
+      if (tocConfig.enabled === false) return;
+
+      const min = Number(tocConfig.minLevel || 2);
+      const max = Number(tocConfig.maxLevel || 3);
+      const headings = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+        .filter(heading => {
+          const level = Number(heading.tagName.slice(1));
+          return level >= min && level <= max && heading.id;
+        });
+
+      if (headings.length === 0) return;
+
+      const title = document.createElement('div');
+      title.className = 'toc-title';
+      title.textContent = 'On this page';
+      toc.appendChild(title);
+
+      headings.forEach(heading => {
+        const level = Number(heading.tagName.slice(1));
+        const item = document.createElement('a');
+        item.className = 'toc-link toc-level-' + level;
+        item.href = '#' + heading.id;
+        item.textContent = heading.textContent ? heading.textContent.replace(/^#/, '').trim() : '';
+        item.onclick = (event) => {
+          event.preventDefault();
+          heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          history.replaceState(null, '', '#' + heading.id);
+        };
+        toc.appendChild(item);
+      });
+    }
+
+`

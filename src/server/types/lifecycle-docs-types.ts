@@ -8,6 +8,7 @@ import type {
   USDSecurityScheme,
 } from '../../usd/index.js'
 import type { OpenAPIDocument } from '../../usd/export/openapi.js'
+import type { MarkdownDocsSource } from '../../docs/markdown-loader.js'
 
 // === USD Documentation Types ===
 
@@ -110,6 +111,8 @@ export interface USDDocsConfig {
     footer?: string
     /** In-page table of contents */
     toc?: { enabled?: boolean; minLevel?: number; maxLevel?: number }
+    /** UI asset delivery mode */
+    assets?: { mode?: 'inline' | 'external' }
   }
 
   /** Documentation customization for USD spec (portable, included in x-usd) */
@@ -147,6 +150,14 @@ export interface USDDocsConfig {
     /** Footer markdown/text */
     footer?: string
   }
+
+  /**
+   * Markdown docs directory to load by convention.
+   *
+   * Supports Docsify-style files such as README.md, nested Markdown pages,
+   * _sidebar.md, _navbar.md, _coverpage.md, and _404.md.
+   */
+  docsDir?: MarkdownDocsSource
 
   /** Include standard error schemas */
   includeErrorSchemas?: boolean
@@ -198,6 +209,10 @@ export interface USDDocsHandlers {
   serveUSDYaml: () => Response
   /** Serve pure OpenAPI 3.1 JSON (for Swagger UI compatibility) */
   serveOpenAPI: () => Response
+  /** Serve reusable docs UI JavaScript runtime */
+  serveUIRuntime: () => Response
+  /** Serve docs UI stylesheet */
+  serveUIStyles: () => Response
   /** Get the USD document */
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */

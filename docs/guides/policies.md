@@ -31,26 +31,27 @@ Inspired by the AWS IAM model (allow / deny / audit, principal + action + resour
 1. [Why policies?](#why-policies)
 2. [Mental model](#mental-model)
 3. [Quickstart](#quickstart)
-4. [Concepts](#concepts)
+4. [Anatomy of a policy](#anatomy-of-a-policy)
+5. [Concepts](#concepts)
    - [Principal](#principal)
    - [Action](#action)
    - [Resource](#resource)
    - [Effect](#effect)
    - [Decision](#decision)
    - [Tenant isolation](#tenant-isolation)
-5. [Wildcards](#wildcards)
-6. [Match DSL — declarative conditions](#match-dsl--declarative-conditions)
-7. [TS `condition` functions](#ts-condition-functions)
-8. [JSON loader & customConditions](#json-loader--customconditions)
-9. [Ctx helpers](#ctx-helpers)
-10. [Default mode + public escape](#default-mode--public-escape)
-11. [Module-level inheritance](#module-level-inheritance)
-12. [Pipeline placement](#pipeline-placement)
-13. [Error responses](#error-responses)
-14. [Multi-protocol behaviour](#multi-protocol-behaviour)
-15. [Common patterns](#common-patterns)
-16. [Troubleshooting](#troubleshooting)
-17. [Performance notes](#performance-notes)
+6. [Wildcards](#wildcards)
+7. [Match DSL — declarative conditions](#match-dsl--declarative-conditions)
+8. [TS `condition` functions](#ts-condition-functions)
+9. [JSON loader & customConditions](#json-loader--customconditions)
+10. [Ctx helpers](#ctx-helpers)
+11. [Default mode + public escape](#default-mode--public-escape)
+12. [Module-level inheritance](#module-level-inheritance)
+13. [Pipeline placement](#pipeline-placement)
+14. [Error responses](#error-responses)
+15. [Multi-protocol behaviour](#multi-protocol-behaviour)
+16. [Common patterns](#common-patterns)
+17. [Troubleshooting](#troubleshooting)
+18. [Performance notes](#performance-notes)
 
 ---
 
@@ -200,6 +201,299 @@ curl -X POST http://localhost:3000/lead.read -d '{"id":"l1"}'
 # Same lead, but archived → 403 (deny beats allow)
 # Different lead they don't own → 403 (no allow matched)
 ```
+
+---
+
+## Anatomy of a policy
+
+A policy is a rule the engine can evaluate against one request-local authorization input:
+
+```ts
+type AuthzInput = {
+  principal: Principal      // who is calling
+  action: string            // what they are trying to do
+  resource: Resource        // which object/scope they are acting on
+  context?: EvalContext     // extra request-local facts, optional
+}
+```
+
+The policy does not read HTTP routes, JWTs, sessions, or database rows directly. Those are normalized before evaluation:
+
+1. Auth/session middleware authenticates the request and populates `ctx.auth` or `ctx.session`.
+2. The policy principal adapter maps that data into a flat `Principal`.
+3. The procedure `.authz()` config chooses the `action` and resolves the `Resource`.
+4. The engine evaluates policies and returns a `Decision`.
+5. The interceptor turns the decision into `next()` or `PERMISSION_DENIED`.
+
+### Complete inline policy
+
+```ts
+import type { Policy } from 'raffel/policy'
+
+const readOwnActiveLead = {
+  // Stable id used in logs, errors, discovery, and candidatePolicies.
+  id: 'leads-read-own-active',
+
+  // Optional human explanation. Useful in docs, MCP discovery, and debugging.
+  description: 'Sellers may read active leads assigned to themselves.',
+
+  // allow grants access when the whole policy matches.
+  // deny blocks when matched and wins over allow.
+  // audit records a match but never changes allowed.
+  effect: 'allow',
+
+  // Matched against the compiled principal set:
+  // [principal.id, user:<id>, scope:<scope>, group:<group>, *]
+  principals: ['scope:lead.read'],
+
+  // Matched against the action string. By default this is the procedure name,
+  // but `.authz({ action })` can override it.
+  actions: ['lead.read'],
+
+  // Matched against `${resource.type}:${resource.id}`.
+  resources: ['lead:*'],
+
+  // JSON-friendly predicate. Paths read from AuthzInput.
+  match: {
+    allOf: [
+      { 'resource.status': 'active' },
+      { 'resource.assignedTo': '@principal.id' },
+    ],
+  },
+
+  // TS-only imperative predicate. If both `match` and `condition` exist,
+  // both must pass.
+  condition: ({ principal, resource }) =>
+    resource.attrs?.region === principal.attrs?.region,
+} satisfies Policy
+```
+
+Read that as:
+
+> Allow principals carrying `scope:lead.read` to perform `lead.read` on any `lead:*` resource, only when the lead is active, assigned to that principal, and in the same region.
+
+### The `.authz()` side
+
+Policies are reusable catalog entries. `.authz()` is the per-procedure enforcement point that builds the input for the engine:
+
+```ts
+server
+  .procedure('lead.read')
+  .authz({
+    // Defaults to the procedure name (`lead.read`), so this is optional here.
+    action: 'lead.read',
+
+    // Convert procedure input + ctx into the Resource the policies understand.
+    resource: async ({ id }, ctx) => {
+      const lead = await db.leads.get(id)
+      return {
+        type: 'lead',
+        id: lead.id,
+        tenantId: lead.tenantId,
+        attrs: {
+          assignedTo: lead.assignedTo,
+          status: lead.status,
+          region: lead.region,
+        },
+      }
+    },
+
+    // enforce: every resolved resource must be allowed.
+    // any: at least one resolved resource must be allowed.
+    mode: 'enforce',
+  })
+  .handler(async ({ id }) => db.leads.get(id))
+```
+
+For that request, the engine receives an input shaped like:
+
+```ts
+{
+  principal: {
+    id: 'u_123',
+    tenantId: 'tenant_acme',
+    scopes: ['lead.read'],
+    groups: ['sales'],
+    attrs: { region: 'br' },
+  },
+  action: 'lead.read',
+  resource: {
+    type: 'lead',
+    id: 'lead_456',
+    tenantId: 'tenant_acme',
+    attrs: {
+      assignedTo: 'u_123',
+      status: 'active',
+      region: 'br',
+    },
+  },
+}
+```
+
+The matching result is:
+
+```ts
+{
+  allowed: true,
+  reason: 'allow',
+  matchedPolicyIds: ['leads-read-own-active'],
+  auditedPolicyIds: [],
+  candidatePolicies: [],
+}
+```
+
+If the lead belonged to another tenant, the engine returns `tenant_mismatch` before allow/deny policy effects are considered. If no allow policy fully matches, it returns `implicit_deny`.
+
+### JSON policy in a versioned directory
+
+Use JSON when you want policies reviewed and versioned as data:
+
+```json
+{
+  "id": "leads-read-own-active",
+  "description": "Sellers may read active leads assigned to themselves.",
+  "effect": "allow",
+  "principals": ["scope:lead.read"],
+  "actions": ["lead.read"],
+  "resources": ["lead:*"],
+  "match": {
+    "allOf": [
+      { "resource.status": "active" },
+      { "resource.assignedTo": "@principal.id" }
+    ]
+  }
+}
+```
+
+Example layout:
+
+```txt
+policies/
+  leads/
+    read-own-active.json
+    deny-archived.json
+  admin/
+    admin-all.json
+```
+
+Then load the directory:
+
+```ts
+const server = createServer({
+  policy: {
+    principal: { from: 'oauth2' },
+    loadFromDir: './policies',
+  },
+})
+```
+
+JSON policies cannot contain functions. When a rule needs JS, reference a named condition:
+
+```json
+{
+  "id": "leads-create-business-hours",
+  "effect": "deny",
+  "principals": ["**"],
+  "actions": ["lead.create"],
+  "resources": ["lead:*"],
+  "customCondition": "outsideBusinessHours"
+}
+```
+
+```ts
+const server = createServer({
+  policy: {
+    principal: { from: 'oauth2' },
+    loadFromDir: './policies',
+    customConditions: {
+      outsideBusinessHours: ({ context }) => {
+        const hour = Number(context?.hour)
+        return hour < 9 || hour >= 18
+      },
+    },
+  },
+})
+```
+
+Pass volatile facts through explicit evaluation context when you call helpers inside handlers:
+
+```ts
+const decision = await ctx.policy!.evaluate(
+  'lead.create',
+  { type: 'lead', id: 'new', tenantId: ctx.principal?.tenantId ?? null },
+  { hour: new Date().getHours() },
+)
+```
+
+### Field-by-field guide
+
+| Field | Required | Meaning | Common examples |
+|---|---:|---|---|
+| `id` | Yes | Stable identifier for logs, discovery, errors, tests. | `leads-read-own`, `admin-all` |
+| `description` | No | Human explanation. | `Admins can read any lead.` |
+| `effect` | Yes | What happens when the policy matches. | `allow`, `deny`, `audit` |
+| `principals` | Yes | Glob patterns matched against the compiled principal set. | `scope:lead.read`, `group:admins`, `user:u_123`, `**` |
+| `actions` | Yes | Glob patterns matched against the action string. | `lead.read`, `lead.*`, `admin.**` |
+| `resources` | Yes | Glob patterns matched against `<type>:<id>`. | `lead:*`, `invoice:inv_123`, `**` |
+| `match` | No | Declarative JSON-safe predicate over `principal`, `resource`, and `context`. | `{ 'resource.ownerId': '@principal.id' }` |
+| `condition` | No | TS function predicate for inline policies. | `({ principal }) => principal.attrs?.tier === 'enterprise'` |
+| `customCondition` | JSON only | Name of a TS condition registered in `customConditions`. | `outsideBusinessHours` |
+
+### Effect examples
+
+Allow own leads:
+
+```ts
+{
+  id: 'lead-read-own',
+  effect: 'allow',
+  principals: ['scope:lead.read'],
+  actions: ['lead.read'],
+  resources: ['lead:*'],
+  match: { 'resource.assignedTo': '@principal.id' },
+}
+```
+
+Deny archived leads, even if another allow matches:
+
+```ts
+{
+  id: 'lead-deny-archived',
+  effect: 'deny',
+  principals: ['**'],
+  actions: ['lead.read'],
+  resources: ['lead:*'],
+  match: { 'resource.status': 'archived' },
+}
+```
+
+Audit a future rule before enforcing it:
+
+```ts
+{
+  id: 'lead-audit-manager-region',
+  effect: 'audit',
+  principals: ['group:managers'],
+  actions: ['lead.update'],
+  resources: ['lead:*'],
+  match: { 'resource.region': '@principal.attrs.region' },
+}
+```
+
+### What the middleware enforces
+
+The interceptor is deliberately thin around the engine:
+
+```txt
+.authz()
+  -> resolve principal
+  -> resolve resource(s)
+  -> engine.evaluate({ principal, action, resource, context? })
+  -> allowed: true  => call handler
+  -> allowed: false => throw PERMISSION_DENIED
+```
+
+`ctx.policyDecision` stores the last gate decision for custom interceptors/logging. `ctx.policy.evaluate()` lets handlers run additional checks for derived behavior such as per-field redaction or per-message stream checks.
 
 ---
 
@@ -663,7 +957,7 @@ For listings, `filterResources` keeps only allowed resources:
 })
 ```
 
-**Dedup**: within one request, `evaluate` and `filterResources` cache decisions by `(action, resource.type:resource.id)`. Calling them multiple times with overlapping resources is cheap.
+**Dedup**: within one request, `evaluate` and `filterResources` cache decisions by `(action, resource.type, resource.id)` when no explicit evaluation context is supplied. Calling them multiple times with overlapping resources is cheap.
 
 ---
 
@@ -829,7 +1123,7 @@ The policy interceptor is **transport-agnostic**. The same `.authz()` declaratio
 | WebSocket RPC | One eval per request frame |
 | gRPC | Same as HTTP RPC |
 | Server stream | One eval at stream open |
-| Streams (server / client / bidi) | Use `ctx.policy.evaluate()` inside the handler loop — see *Per-message authz in streams* below. The declarative `streamMode: 'per-message'` field is reserved for v1.x |
+| Streams (server / client / bidi) | Use `ctx.policy.evaluate()` inside the handler loop — see *Per-message authz in streams* below |
 | TCP / UDP raw | Out of scope — use `ConnectionFilter` for IP/origin gating |
 
 The principal is cached **per request** (HTTP, JSON-RPC, gRPC) or **per connection** (WS). Resource resolvers may be async — they are invoked once per resolved resource id within a single request.
@@ -851,7 +1145,7 @@ server
       const decision = await ctx.policy.evaluate('chat.send', {
         type: 'channel',
         id: msg.channelId,
-        tenantId: ctx.principal.tenantId,
+        tenantId: ctx.principal?.tenantId ?? null,
       })
 
       if (!decision.allowed) {
@@ -864,7 +1158,7 @@ server
   })
 ```
 
-The `evaluate` is dedup'd per `(action, resource.id)` within a single request, so re-evaluating the same channel many times is cheap. The declarative `streamMode: 'per-message'` field is reserved on `ProcedurePolicyConfig` for v1.x — when it lands, the engine will run this exact pattern automatically.
+The `evaluate` is dedup'd per `(action, resource.type, resource.id)` within a single request when no explicit evaluation context is supplied, so re-evaluating the same channel many times is cheap. Per-message stream authorization is explicit: call `ctx.policy.evaluate()` inside the handler loop.
 
 ---
 
@@ -1011,7 +1305,7 @@ Two cases:
 
 - All glob patterns are **pre-compiled to regex at startup**. The hot path is regex tests + a single `condition` / DSL predicate call.
 - The compiled principal set is **cached per request** on `ctx.principal._compiledSet`.
-- Resource resolvers are **deduplicated by `resource.id`** within one request when called through `ctx.policy.evaluate` / `ctx.policy.filterResources`.
+- Helper decisions are **deduplicated by `(action, resource.type, resource.id)`** within one request when called through `ctx.policy.evaluate` / `ctx.policy.filterResources` without explicit evaluation context.
 - **No decision caching** — security-sensitive (a stale decision could grant access after a permission change). The engine is fast enough without it.
 - **No short-circuit eval** — all matching policies are visited so `matchedPolicyIds` and `auditedPolicyIds` are complete.
 

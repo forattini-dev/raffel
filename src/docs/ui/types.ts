@@ -22,6 +22,7 @@ export interface UIConfig {
   navbar?: NavItem[]
   footer?: string
   toc?: TocConfig
+  assets?: UIAssetsConfig
 }
 
 /**
@@ -97,6 +98,17 @@ export interface TocConfig {
   enabled?: boolean
   minLevel?: number
   maxLevel?: number
+}
+
+/**
+ * Docs UI asset delivery mode.
+ */
+export interface UIAssetsConfig {
+  /**
+   * `inline` keeps generated HTML self-contained.
+   * `external` references runtime/style assets served by the docs middleware.
+   */
+  mode?: 'inline' | 'external'
 }
 
 /**

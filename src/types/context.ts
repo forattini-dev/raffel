@@ -6,6 +6,11 @@
  */
 
 import type { ContractContext } from './policies.js'
+import type { PolicyCtxHelpers } from '../middleware/policy/ctx-helpers.js'
+import type {
+  Decision as PolicyDecision,
+  Principal as PolicyPrincipal,
+} from '../middleware/policy/types.js'
 import { getLogger } from '../utils/logger.js'
 import {
   deriveAuthPrincipalId,
@@ -288,6 +293,21 @@ export interface Context {
 
   /** Current contract binding and propagated policy context */
   contract?: ContractContext
+
+  /**
+   * Authorization principal resolved by the Policy interceptor.
+   * Present after a non-public `.authz()` gate runs.
+   */
+  principal?: PolicyPrincipal
+
+  /**
+   * Ad-hoc Policy helpers attached by the Policy interceptor.
+   * Present after a non-public `.authz()` gate runs.
+   */
+  policy?: PolicyCtxHelpers
+
+  /** Last Policy decision produced by the current authorization gate. */
+  policyDecision?: PolicyDecision
 
   /** HTTP-specific request metadata */
   http?: HttpContextCapability

@@ -1,10 +1,10 @@
 /**
  * Per-message authz pattern in streams (Phase 9 — explicit ctx.policy approach)
  *
- * The declarative `streamMode: 'per-message'` is reserved for v1.x. v1 ships
- * the explicit pattern: call `ctx.policy.evaluate(action, resource)` inside
- * the stream handler loop. This test exercises that pattern directly against
- * the engine + ctx-helpers, without booting a real WS server.
+ * Streams use the explicit pattern: call
+ * `ctx.policy.evaluate(action, resource)` inside the stream handler loop. This
+ * test exercises that pattern directly against the engine + ctx-helpers,
+ * without booting a real WS server.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -12,10 +12,10 @@ import { createDefaultEngine } from '../../src/middleware/policy/index.js'
 import { attachPolicyHelpers } from '../../src/middleware/policy/ctx-helpers.js'
 import type {
   Policy,
-  PolicyCtxHelpers,
   Principal,
   Resource,
 } from '../../src/middleware/policy/types.js'
+import type { PolicyCtxHelpers } from '../../src/middleware/policy/index.js'
 
 const principal: Principal = {
   id: 's1',

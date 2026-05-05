@@ -245,7 +245,6 @@ function createProcedureOperation(
         mode: meta.authz.mode ?? 'enforce',
         public: meta.authz.public === true,
         'has-resolver': typeof meta.authz.resource === 'function',
-        ...(meta.authz.streamMode ? { 'stream-mode': meta.authz.streamMode } : {}),
       },
     }),
   }

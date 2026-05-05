@@ -777,6 +777,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         externalDocs: config.externalDocs,
         ui: config.ui,
         documentation: config.documentation,
+        docsDir: config.docsDir,
         includeErrorSchemas: config.includeErrorSchemas,
         includeStreamEventSchemas: config.includeStreamEventSchemas,
         jsonrpc: config.jsonrpc,

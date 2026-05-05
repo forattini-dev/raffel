@@ -22,13 +22,17 @@ import {
   generateTopNavigation,
   mergeHeroConfig,
 } from './html-shell.js'
-import { generateClientScript } from './client-script/index.js'
+import {
+  generateClientDataScript,
+  generateClientRuntimeScript,
+} from './client-script/index.js'
+import { buildDocsSearchIndex } from '../search-index.js'
 
 /**
  * Generate HTML for USD documentation UI
  */
 export function generateUIHTML(options: UIGeneratorOptions): string {
-  const { doc, basePath: _basePath, ui, tagGroups } = options
+  const { doc, basePath, ui, tagGroups } = options
 
   // Get USD documentation config from spec
   const usdDocumentation = doc['x-usd']?.documentation
@@ -41,6 +45,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const version = doc.info.version
   const sidebar = ui?.sidebar
   const docsPages = usdDocumentation?.pages ?? []
+  const searchIndex = buildDocsSearchIndex(docsPages)
   const externalLinks = (usdDocumentation?.externalLinks ?? []) as Array<{
     title: string
     url: string
@@ -52,6 +57,8 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   } satisfies NavItem))
   const footer = ui?.footer ?? usdDocumentation?.footer
   const toc = ui?.toc ?? {}
+  const assetMode = ui?.assets?.mode ?? 'inline'
+  const assetBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
 
   // Merge hero config from USD spec and UI config
   const hero = mergeHeroConfig(usdDocumentation, ui?.hero)
@@ -66,6 +73,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedSidebar = escapeJsonForScript(sidebar ?? {})
   const escapedIntroduction = escapeJsonForScript(introduction ?? null)
   const escapedDocsPages = escapeJsonForScript(docsPages)
+  const escapedSearchIndex = escapeJsonForScript(searchIndex)
   const escapedFooter = escapeJsonForScript(footer ?? null)
   const escapedToc = escapeJsonForScript(toc)
 
@@ -78,6 +86,27 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
 
   // Generate CSS
   const styles = generateStyles({ primaryColor, heroBackgroundCSS })
+  const stylesHtml = assetMode === 'external'
+    ? `<link rel="stylesheet" href="${escapeHtml(assetBasePath)}/-/raffel-docs.css">`
+    : `<style>
+${styles}
+  </style>`
+  const dataScript = generateClientDataScript(
+    escapedSpec,
+    escapedTagGroups,
+    escapedHero,
+    escapedSidebar,
+    escapedIntroduction,
+    escapedDocsPages,
+    escapedSearchIndex,
+    escapedFooter,
+    escapedToc
+  )
+  const runtimeScript = assetMode === 'external'
+    ? `<script type="module" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
+    : `<script>
+${generateClientRuntimeScript()}
+  </script>`
 
   // Generate HTML
   return `<!DOCTYPE html>
@@ -87,9 +116,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
   ${favicon ? `<link rel="icon" href="${escapeHtml(favicon)}">` : ''}
-  <style>
-${styles}
-  </style>
+  ${stylesHtml}
 </head>
 <body>
   ${generateHeroSection(hero, logo, title, version)}
@@ -97,8 +124,33 @@ ${styles}
   ${generateTopNavigation(logo, title, navItems)}
   ${generateAppContainer(logo, title, sidebar, footer)}
   <script>
-${generateClientScript(escapedSpec, escapedTagGroups, escapedHero, escapedSidebar, escapedIntroduction, escapedDocsPages, escapedFooter, escapedToc)}
+${dataScript}
   </script>
+  ${runtimeScript}
 </body>
 </html>`
+}
+
+/**
+ * Generate the reusable docs UI runtime JavaScript.
+ */
+export function generateUIRuntimeJS(): string {
+  return generateClientRuntimeScript()
+}
+
+/**
+ * Generate the docs UI CSS for the given document/options.
+ */
+export function generateUICSS(options: UIGeneratorOptions): string {
+  const { doc, ui } = options
+  const usdDocumentation = doc['x-usd']?.documentation
+  const primaryColor = ui?.primaryColor ?? '#6366f1'
+  const hero = mergeHeroConfig(usdDocumentation, ui?.hero)
+  const heroBackgroundCSS = generateHeroBackgroundCSS(
+    primaryColor,
+    hero?.background,
+    hero?.backgroundImage
+  )
+
+  return generateStyles({ primaryColor, heroBackgroundCSS })
 }

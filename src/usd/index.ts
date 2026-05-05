@@ -106,6 +106,7 @@ export type {
   USDValidationError,
   USDExportOptions,
   USDDocumentation,
+  USDDocumentationPage,
   USDHero,
   USDHeroButton,
   USDQuickLink,
