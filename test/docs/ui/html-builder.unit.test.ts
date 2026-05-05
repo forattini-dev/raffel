@@ -245,13 +245,19 @@ describe('Documentation UI HTML builder', () => {
       new URL('../../../src/docs/ui/runtime/index.ts', import.meta.url),
       'utf8'
     )
+    const protocolConsoleSource = readFileSync(
+      new URL('../../../src/docs/ui/runtime/protocol-console.ts', import.meta.url),
+      'utf8'
+    )
 
     expect(runtimeSource).toContain('function renderTable()')
     expect(runtimeSource).toContain('function renderTabs()')
     expect(runtimeSource).toContain('function getDocsSearchResults()')
     expect(runtimeSource).toContain('highlightSearchExcerpt')
     expect(runtimeSource).toContain("import { renderMarkedMarkdown } from './marked-renderer.js'")
-    expect(runtimeSource).toContain('protocol-try-it')
+    expect(runtimeSource).toContain("import { appendProtocolConsole } from './protocol-console.js'")
+    expect(protocolConsoleSource).toContain('protocol-try-it')
+    expect(protocolConsoleSource).toContain('Live console')
     expect(runtimeSource).toContain('function renderMissingDocsPage')
     expect(runtimeSource).toContain('function resolveDocsAlias')
     expect(runtimeSource).toContain('function resolveDocsAliasTarget')

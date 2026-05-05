@@ -233,6 +233,8 @@ export interface USDDocsHandlers {
   serveUIMarkdownEngine: () => Response
   /** Serve reusable Markdown renderer bridge */
   serveUIMarkdownRenderer: () => Response
+  /** Serve reusable protocol console bridge */
+  serveUIProtocolConsole: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */

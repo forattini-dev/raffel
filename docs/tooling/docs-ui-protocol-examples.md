@@ -177,4 +177,4 @@ docs/
     `-- realtime-flow.svg
 ```
 
-`docs/guides/channels.md` can explain auth and workflows, while `x-usd.websocket.channels` remains the source of channel names, payload schemas, and protocol metadata. For non-HTTP protocols, the generated reference also includes a starter request panel so readers have an immediate command or payload to adapt.
+`docs/guides/channels.md` can explain auth and workflows, while `x-usd.websocket.channels` remains the source of channel names, payload schemas, and protocol metadata. WebSocket, streams, and JSON-RPC references include browser-safe live consoles. gRPC, TCP, and UDP references include starter command panels because browsers do not expose native clients for those transports.

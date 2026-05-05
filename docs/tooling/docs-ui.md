@@ -71,6 +71,7 @@ This exposes:
 | `/docs/-/raffel-docs.js` | Reusable frontend docs runtime |
 | `/docs/-/marked.umd.js` | Packaged Markdown engine used by the external runtime |
 | `/docs/-/marked-renderer.js` | Raffel renderer bridge for Markdown-specific behavior |
+| `/docs/-/protocol-console.js` | Browser-safe live protocol consoles for generated references |
 | `/docs/-/raffel-docs.css` | Reusable frontend docs stylesheet |
 | `/docs/-/assets/*` | Static assets referenced by Markdown pages |
 

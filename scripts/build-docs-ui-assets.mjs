@@ -13,6 +13,7 @@ await mkdir(assetsDir, { recursive: true })
 
 await copyRuntimeAsset()
 await copySupportAsset('dist/docs/ui/runtime/marked-renderer.js', 'marked-renderer.js')
+await copySupportAsset('dist/docs/ui/runtime/protocol-console.js', 'protocol-console.js')
 await copySupportAsset('node_modules/marked/lib/marked.umd.js', 'marked.umd.js')
 
 await writeFile(
