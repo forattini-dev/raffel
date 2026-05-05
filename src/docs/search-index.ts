@@ -20,6 +20,40 @@ export function buildDocsSearchIndex(pages: readonly USDDocumentationPage[] = []
   return pages.flatMap((page, pageIndex) => indexPage(page, pageIndex))
 }
 
+export function getDocsSearchTerms(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+export function scoreDocsSearchEntry(entry: Pick<DocsSearchIndexEntry, 'kind' | 'title' | 'section' | 'excerpt' | 'text'>, query: string | string[]): number {
+  const terms = Array.isArray(query) ? query : getDocsSearchTerms(query)
+  if (terms.length === 0) return 0
+  const phrase = terms.join(' ')
+  const title = String(entry.title ?? '').toLowerCase()
+  const section = String(entry.section ?? '').toLowerCase()
+  const excerpt = String(entry.excerpt ?? '').toLowerCase()
+  const text = String(entry.text ?? '').toLowerCase()
+  const combined = `${title} ${section} ${excerpt} ${text}`
+  let score = scoreSearchField(title, phrase, terms, 140, 80, 52)
+    + scoreSearchField(section, phrase, terms, 60, 32, 18)
+    + scoreSearchField(excerpt, phrase, terms, 42, 18, 10)
+    + scoreSearchField(text, phrase, terms, 16, 8, 4)
+  const allTermsMatch = terms.every(term => combined.includes(term))
+  if (terms.length > 1) score = allTermsMatch ? score + 35 : Math.floor(score * 0.2)
+  if (entry.kind === 'heading' && score > 0) score += 12
+  return score
+}
+
+function scoreSearchField(value: string, phrase: string, terms: string[], phraseScore: number, prefixScore: number, termScore: number): number {
+  if (!value) return 0
+  let score = value === phrase ? phraseScore * 2 : value.includes(phrase) ? phraseScore : 0
+  for (const term of terms) {
+    if (value === term) score += prefixScore * 2
+    else if (value.startsWith(term)) score += prefixScore
+    else if (value.includes(term)) score += termScore
+  }
+  return score
+}
+
 function indexPage(page: USDDocumentationPage, pageIndex: number): DocsSearchIndexEntry[] {
   const parsed = parseFrontmatter(page.markdown)
   const title = parsed.frontmatter.title ?? page.title ?? firstHeading(parsed.body) ?? page.path

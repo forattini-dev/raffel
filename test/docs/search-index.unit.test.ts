@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildDocsSearchIndex } from '../../src/docs/search-index.js'
+import { buildDocsSearchIndex, getDocsSearchTerms, scoreDocsSearchEntry } from '../../src/docs/search-index.js'
 
 describe('Docs search index', () => {
   it('indexes pages and heading sections with stable heading ids and excerpts', () => {
@@ -88,5 +88,36 @@ describe('Docs search index', () => {
       ['Install', 'install-2'],
       ['Install', 'install'],
     ])
+  })
+
+  it('scores exact title and all-term matches above loose body matches', () => {
+    const titleMatch = {
+      kind: 'page' as const,
+      title: 'Install Raffel',
+      path: '/install',
+      excerpt: 'Install the package.',
+      text: 'Install Raffel with pnpm.',
+      rank: 0,
+    }
+    const looseMatch = {
+      kind: 'page' as const,
+      title: 'Operations',
+      path: '/operations',
+      excerpt: 'Package notes.',
+      text: 'Install dependencies, then configure Raffel later.',
+      rank: 1,
+    }
+    const partialMatch = {
+      kind: 'page' as const,
+      title: 'Install',
+      path: '/install-only',
+      excerpt: 'Install dependencies.',
+      text: 'Install packages.',
+      rank: 2,
+    }
+
+    expect(getDocsSearchTerms(' Install   Raffel ')).toEqual(['install', 'raffel'])
+    expect(scoreDocsSearchEntry(titleMatch, 'install raffel')).toBeGreaterThan(scoreDocsSearchEntry(looseMatch, 'install raffel'))
+    expect(scoreDocsSearchEntry(looseMatch, 'install raffel')).toBeGreaterThan(scoreDocsSearchEntry(partialMatch, 'install raffel'))
   })
 })

@@ -1216,7 +1216,7 @@ function getDocsSearchResults(): Array<Required<Pick<SearchIndexEntry, 'title' |
     return applySearchResultsHook(fallbackResults, getPluginContext())
   }
 
-  const terms = query.split(/\s+/).filter(Boolean)
+  const terms = getSearchTerms(query)
   const results = searchIndex
     .map(entry => ({ entry, score: scoreSearchEntry(entry, terms) }))
     .filter(result => result.score > 0 && result.entry.title && result.entry.path)
@@ -1238,23 +1238,25 @@ function getDocsSearchResults(): Array<Required<Pick<SearchIndexEntry, 'title' |
 function scoreSearchEntry(entry: SearchIndexEntry, terms: string[]): number {
   const title = String(entry.title ?? '').toLowerCase()
   const section = String(entry.section ?? '').toLowerCase()
+  const excerpt = String(entry.excerpt ?? '').toLowerCase()
   const text = String(entry.text ?? '').toLowerCase()
-  let score = 0
-  for (const term of terms) {
-    if (title === term) score += 80
-    if (title.includes(term)) score += 40
-    if (section.includes(term)) score += 10
-    if (text.includes(term)) score += 5
-  }
+  const phrase = terms.join(' ')
+  let score = scoreSearchField(title, phrase, terms, 140, 80, 52) + scoreSearchField(section, phrase, terms, 60, 32, 18) + scoreSearchField(excerpt, phrase, terms, 42, 18, 10) + scoreSearchField(text, phrase, terms, 16, 8, 4)
+  if (terms.length > 1) score = terms.every(term => `${title} ${section} ${excerpt} ${text}`.includes(term)) ? score + 35 : Math.floor(score * 0.2)
+  if (entry.kind === 'heading' && score > 0) score += 12
   return score
 }
-
+function scoreSearchField(value: string, phrase: string, terms: string[], phraseScore: number, prefixScore: number, termScore: number): number {
+  if (!value) return 0
+  let score = value === phrase ? phraseScore * 2 : value.includes(phrase) ? phraseScore : 0; for (const term of terms) score += value === term ? prefixScore * 2 : value.startsWith(term) ? prefixScore : value.includes(term) ? termScore : 0
+  return score
+}
+const getSearchTerms = (query: string): string[] => query.trim().toLowerCase().split(/\s+/).filter(Boolean)
 function highlightSearchExcerpt(excerpt: string): string {
   const query = searchQuery.trim()
   if (!query) return esc(excerpt)
   const escaped = esc(excerpt)
-  const terms = query.split(/\s+/).filter(Boolean).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  if (terms.length === 0) return escaped
+  const terms = getSearchTerms(query).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); if (terms.length === 0) return escaped
   return escaped.replace(new RegExp(`(${terms.join('|')})`, 'gi'), '<mark>$1</mark>')
 }
 
