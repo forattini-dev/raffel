@@ -11,7 +11,7 @@ The target is not only to render Markdown. The target is to provide a docs app t
 | npm-published runtime assets | Done | `package.json` runs `prepack` through `build`; `scripts/build-docs-ui-assets.mjs` emits `dist/docs/ui/assets/raffel-docs.js` and `.css`; `pnpm pack --dry-run` includes those assets | None known |
 | Docs directory loader | Done | `src/docs/markdown-loader.ts` loads `README.md`, nested pages, `_sidebar.md`, nested `_sidebar.md`, `_navbar.md`, `_coverpage.md`, and `_404.md` | None known |
 | Route collision boundary | Done | `basePath` mounts the real HTTP docs app; `docsDir.routeBase` scopes in-app Markdown routes; runtime resolves absolute and relative `.md` links under `x-usd.documentation.routeBase` | None known |
-| USD/OpenAPI generated reference | Done | `src/docs/ui/runtime/index.ts` renders HTTP, WebSocket, streams, JSON-RPC, gRPC, TCP, and UDP protocol tabs from `paths` and `x-usd.*`; `docs/tooling/docs-ui-protocol-examples.md` documents first-party examples for each protocol | Richer try-it flows per protocol can still improve |
+| USD/OpenAPI generated reference | Done | `src/docs/ui/runtime/index.ts` renders HTTP, WebSocket, streams, JSON-RPC, gRPC, TCP, and UDP protocol tabs from `paths` and `x-usd.*`; non-HTTP protocols render starter request panels; `docs/tooling/docs-ui-protocol-examples.md` documents first-party examples for each protocol | Live protocol consoles can still improve |
 | Markdown pages alongside API docs | Done | `x-usd.documentation.pages` and `docsDir` pages render in the same UI as generated API/protocol docs | None known |
 | Sidebar and navbar conventions | Done | `_sidebar.md` controls sections/order, nested sidebars are supported, `_navbar.md` supports dropdown children | Sidebar collapse persistence is not implemented |
 | Search | Done | `src/docs/search-index.ts` builds page and heading entries with weighted scoring for exact phrases, title matches, section matches, excerpts, body text, and all-term coverage; browser smoke validates search results and hotkey | Full-text indexing can still evolve if docs become very large |
@@ -37,7 +37,7 @@ The target is not only to render Markdown. The target is to provide a docs app t
 These are the remaining blockers before this can honestly be called a full in-house docs replacement:
 
 1. Replace or significantly harden the Markdown parser.
-2. Expand protocol-specific try-it flows as the generated reference matures.
+2. Replace starter request panels with live protocol consoles where that is safe for each transport.
 
 ## Verification Gates
 
