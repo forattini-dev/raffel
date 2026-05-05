@@ -117,6 +117,8 @@ export interface MarkdownConfig {
   formatUpdated?: string
   /** Disable emoji shorthand conversion, for example `:rocket:`. */
   noEmoji?: boolean
+  /** Raw HTML policy. Defaults to `escape`; `raw` should only be used with trusted Markdown. */
+  html?: 'escape' | 'raw'
   /** Default target for external Markdown links. Defaults to `_blank`. */
   externalLinkTarget?: string
   /** Default rel for external Markdown links opened in a new tab. Defaults to `noopener noreferrer`. */

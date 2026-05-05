@@ -160,6 +160,17 @@ The loader understands these file-backed Markdown files:
 
 Static assets beside Markdown pages are served under `/docs/-/assets/*`. Markdown files themselves are not served as raw assets.
 
+For example:
+
+| File | Served as |
+| --- | --- |
+| `docs/custom.css` | `/docs/-/assets/custom.css` with `text/css` |
+| `docs/custom.js` | `/docs/-/assets/custom.js` with `application/javascript` |
+| `docs/module.mjs` | `/docs/-/assets/module.mjs` with `application/javascript` |
+| `docs/images/logo.svg` | `/docs/-/assets/images/logo.svg` with `image/svg+xml` |
+
+Use the docs asset path for files that belong to the documentation UI. Use the general static-file middleware for public application assets outside the docs tree.
+
 ## Recommended Layout
 
 ```text
@@ -218,6 +229,7 @@ The Markdown runtime supports common file-backed Markdown authoring features:
 - `markdown.externalLinkTarget` and `markdown.externalLinkRel`
 - `markdown.autoHeader`
 - `{raffel-updated}` with `markdown.formatUpdated`
+- raw HTML is escaped by default; set `markdown.html: 'raw'` only for trusted Markdown
 
 ## Theme Preference
 

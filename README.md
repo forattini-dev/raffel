@@ -584,7 +584,7 @@ const server = createServer({ port: 3000 })
     ui: {
       assets: { mode: 'external' },
       sidebar: { search: true, docsPages: true, subMaxLevel: 3 },
-      markdown: { autoHeader: true, formatUpdated: 'YYYY-MM-DD' },
+      markdown: { autoHeader: true, formatUpdated: 'YYYY-MM-DD', html: 'escape' },
     },
   })
 

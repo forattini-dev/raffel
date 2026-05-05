@@ -55,6 +55,8 @@ Ship docs :rocket: :warning: :unknown_emoji:
 
 ~~Removed option~~
 
+<span data-raw-html="yes">Raw HTML</span>
+
 ## Install
 
 | Tool | Command |
@@ -528,6 +530,7 @@ async function run() {
       { label: 'second emoji shorthand rendering', needle: 'class="emoji" aria-label="warning"' },
       { label: 'unknown emoji shorthand stays text', needle: ':unknown_emoji:' },
       { label: 'GFM strikethrough rendering', needle: '<del>Removed option</del>' },
+      { label: 'raw HTML escaped by default', needle: '&lt;span data-raw-html="yes"&gt;Raw HTML&lt;/span&gt;' },
       { label: 'GFM table rendering', needle: 'class="md-table"' },
       { label: 'task list rendering', needle: 'type="checkbox"' },
       { label: 'relative asset path', needle: '/docs/-/assets/images/logo.svg' },
@@ -630,10 +633,31 @@ async function run() {
     assertDomMissing(noEmojiDom, [
       { label: 'noEmoji option suppresses emoji spans', needle: 'class="emoji" aria-label="rocket"' },
     ])
-    console.log('Docs UI browser smoke passed.')
   } finally {
     await close(noEmojiServer)
   }
+
+  const rawHtml = injectBrowserSmoke(generateUIHTML({
+    doc: docs,
+    basePath: '/docs',
+    ui: {
+      assets: { mode: 'external' },
+      sidebar: { search: true, docsPages: true },
+      markdown: { html: 'raw' },
+    },
+  }))
+  const { server: rawHtmlServer, origin: rawHtmlOrigin } = await createFixtureServer(rawHtml)
+  try {
+    const rawHtmlDom = await dumpDom(chrome, `${rawHtmlOrigin}/docs#/quickstart`)
+    assertDom(rawHtmlDom, [
+      { label: 'raw HTML route rendered', needle: 'data-smoke-ready="yes"' },
+      { label: 'raw HTML option renders trusted HTML', needle: '<span data-raw-html="yes">Raw HTML</span>' },
+    ])
+  } finally {
+    await close(rawHtmlServer)
+  }
+
+  console.log('Docs UI browser smoke passed.')
 }
 
 run().catch((error) => {

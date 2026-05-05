@@ -518,6 +518,7 @@ function parseInlineMarkdown(value: unknown, currentPath?: string): string {
     return token
   })
 
+  if (markdownConfig.html === 'raw') text = text.replace(/<!--[\s\S]*?-->|<\/?[A-Za-z][^>]*>/g, protectHtml)
   text = esc(text)
   text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, destination) => {
     const parsed = parseMarkdownDestination(destination)
@@ -548,12 +549,8 @@ function parseInlineMarkdown(value: unknown, currentPath?: string): string {
   text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>')
   text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/_([^_]+)_/g, '<em>$1</em>')
   text = renderEmojiShorthand(text)
-  codeTokens.forEach((html, index) => {
-    text = text.replace(`\u0000C${index}C\u0000`, html)
-  })
-  htmlTokens.forEach((html, index) => {
-    text = text.replace(`\u0000H${index}H\u0000`, html)
-  })
+  codeTokens.forEach((html, index) => { text = text.replace(`\u0000C${index}C\u0000`, html) })
+  htmlTokens.forEach((html, index) => { text = text.replace(`\u0000H${index}H\u0000`, html) })
   return text
 }
 
@@ -656,6 +653,7 @@ function parseMarkdown(markdown: unknown, currentPath?: string): string {
       continue
     }
 
+    if (markdownConfig.html === 'raw' && /^<\/?[A-Za-z][^>]*>$/.test(trimmed)) { html.push(readUntilBlank().join('\n')); continue }
     if (trimmed.startsWith('```')) {
       const lang = trimmed.slice(3).trim() || 'text'
       const code: string[] = []
