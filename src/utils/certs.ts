@@ -279,9 +279,11 @@ export async function generateCertificate(
   const notAfter = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000)
   const sigAlg = algId(SHA256_WITH_RSA)
 
-  // 16-byte random serial, high bit cleared to ensure positive
+  // 16-byte random serial, high bit cleared to ensure positive,
+  // low bit set to avoid a leading zero byte (which would be a non-minimal
+  // INTEGER encoding and rejected by strict DER parsers).
   const serialBytes = Buffer.from(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)))
-  serialBytes[0] = serialBytes[0] & 0x7f
+  serialBytes[0] = (serialBytes[0] & 0x7f) | 0x01
 
   const cert = buildCertificate({
     serialBytes,
