@@ -257,6 +257,15 @@ window.__RAFFEL_DOCS_PLUGINS__ = [{
   unmountComponent(target) {
     document.documentElement.setAttribute('data-component-unmounted', target.getAttribute('data-mounted-component') || '')
   },
+  onImageZoom(src, alt, context) {
+    document.documentElement.setAttribute('data-plugin-image-zoom', String(Boolean(src) && context.activePagePath === '/quickstart'))
+  },
+  onTabChange(title, index, context) {
+    document.documentElement.setAttribute('data-plugin-tab-change', String(title === 'pnpm' && index === 1 && context.activePagePath === '/quickstart'))
+  },
+  onCopyCode(text, context) {
+    document.documentElement.setAttribute('data-plugin-copy-code', String(text.includes('pnpm install raffel') && context.activePagePath === '/quickstart'))
+  },
   afterRender(context) {
     document.documentElement.setAttribute('data-plugin-after-render', 'yes')
     document.documentElement.setAttribute('data-plugin-api-version', String(window.RaffelDocs?.apiVersion || ''))
@@ -286,6 +295,7 @@ window.__runRaffelDocsSmoke = function () {
   secondTab?.click()
   const activePanel = document.querySelector('.md-tab-panel.active')
   document.documentElement.setAttribute('data-active-tab-ok', String(activePanel?.textContent?.includes('pnpm install raffel')))
+  document.querySelector('.md-tab-panel.active .copy-code-btn')?.click()
   if (!window.__themeSmokeRan) {
     window.__themeSmokeRan = true
     document.documentElement.setAttribute('data-theme-persisted-ok', String(document.documentElement.getAttribute('data-theme') === 'dark'))
@@ -520,6 +530,9 @@ async function run() {
       { label: 'runtime completion marker', needle: 'data-smoke-ready="yes"' },
       { label: 'plugin afterRender hook', needle: 'data-plugin-after-render="yes"' },
       { label: 'plugin API version', needle: 'data-plugin-api-version="1"' },
+      { label: 'plugin image zoom hook', needle: 'data-plugin-image-zoom="true"' },
+      { label: 'plugin tab change hook', needle: 'data-plugin-tab-change="true"' },
+      { label: 'plugin copy code hook', needle: 'data-plugin-copy-code="true"' },
       { label: 'regex alias route resolution', needle: 'data-current-hash="#/quickstart?id=install"' },
       { label: 'active page state', needle: 'data-active-page="/quickstart"' },
       { label: 'nested navbar rendering', needle: 'class="top-nav-submenu"' },

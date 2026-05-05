@@ -79,6 +79,17 @@ export const initClientScript = String.raw`    // Render introduction markdown i
         overlay.innerHTML = '<button type="button" class="image-zoom-close" aria-label="Close image preview">&times;</button>' +
           '<img class="image-zoom-img" src="' + escapeAttr(zoomImage.src) + '" alt="' + escapeAttr(zoomImage.alt || '') + '">';
         document.body.appendChild(overlay);
+        docsPlugins.forEach(plugin => plugin.onImageZoom?.(String(zoomImage.src), String(zoomImage.alt || ''), getPluginContext({ pagePath: activePagePath })));
+        return;
+      }
+
+      const tabButton = event.target.closest('.md-tab-button');
+      if (tabButton) {
+        const tabs = tabButton.closest('.md-tabs');
+        const tabIndex = tabButton.getAttribute('data-tab-index');
+        tabs?.querySelectorAll('.md-tab-button').forEach(button => button.classList.toggle('active', button === tabButton));
+        tabs?.querySelectorAll('.md-tab-panel').forEach(panel => panel.classList.toggle('active', panel.getAttribute('data-tab-index') === tabIndex));
+        docsPlugins.forEach(plugin => plugin.onTabChange?.(tabButton.textContent?.trim?.() || '', Number(tabIndex || 0), getPluginContext({ pagePath: activePagePath })));
         return;
       }
 
@@ -108,6 +119,7 @@ export const initClientScript = String.raw`    // Render introduction markdown i
         textarea.remove();
         markCopied();
       }
+      docsPlugins.forEach(plugin => plugin.onCopyCode?.(text, getPluginContext({ pagePath: activePagePath })));
     });
 
     document.addEventListener('keydown', (event) => {

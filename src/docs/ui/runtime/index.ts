@@ -68,6 +68,7 @@ type DocsRuntimePlugin = {
   unmountComponent?: (target: unknown, context: DocsPluginContext) => void
   onRouteChange?: (context: DocsPluginContext) => void
   onSearchResults?: (results: SearchIndexEntry[], context: DocsPluginContext) => SearchIndexEntry[] | undefined
+  onCopyCode?: (text: string, context: DocsPluginContext) => void; onTabChange?: (title: string, index: number, context: DocsPluginContext) => void; onImageZoom?: (src: string, alt: string, context: DocsPluginContext) => void
 }
 const COMMON_EMOJI_ENTITIES: Record<string, string> = {
   '+1': '&#x1F44D;',
@@ -1389,8 +1390,8 @@ function openImageZoom(image: any): void {
   overlay.setAttribute('aria-modal', 'true')
   overlay.innerHTML = `<button type="button" class="image-zoom-close" aria-label="Close image preview">&times;</button><img class="image-zoom-img" src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt ?? '')}">`
   doc.body?.appendChild(overlay)
+  for (const plugin of docsPlugins) plugin.onImageZoom?.(String(image.src), String(image.alt ?? ''), getPluginContext({ pagePath: activePagePath }))
 }
-
 function closeImageZoom(): void {
   doc?.querySelector?.('.image-zoom-overlay')?.remove?.()
 }
@@ -1424,14 +1425,12 @@ function bindEvents(): void {
       closeImageZoom()
       return
     }
-
     const zoomImage = event.target?.closest?.('.markdown-content .md-image')
     if (zoomImage) {
       if (zoomImage.matches?.('[data-no-zoom="true"], .no-zoom')) return
       openImageZoom(zoomImage)
       return
     }
-
     const tabButton = event.target?.closest?.('.md-tab-button')
     if (tabButton) {
       const tabs = tabButton.closest('.md-tabs')
@@ -1442,14 +1441,15 @@ function bindEvents(): void {
       tabs?.querySelectorAll?.('.md-tab-panel')?.forEach((panel: any) => {
         panel.classList.toggle('active', panel.getAttribute('data-tab-index') === tabIndex)
       })
+      for (const plugin of docsPlugins) plugin.onTabChange?.(tabButton.textContent?.trim?.() ?? '', Number(tabIndex ?? 0), getPluginContext({ pagePath: activePagePath }))
       return
     }
-
     const copyButton = event.target?.closest?.('.copy-code-btn')
     if (!copyButton) return
     const code = copyButton.closest('.md-code-wrap')?.querySelector?.('code')
     const text = code?.textContent ?? ''
     win.navigator?.clipboard?.writeText?.(text)
+    for (const plugin of docsPlugins) plugin.onCopyCode?.(text, getPluginContext({ pagePath: activePagePath }))
     copyButton.textContent = 'Copied'
     setTimeout(() => { copyButton.textContent = 'Copy' }, 1500)
   })

@@ -269,7 +269,7 @@ window.__RAFFEL_DOCS_PLUGINS__ = [{
 }]
 ```
 
-Supported hooks in API version 1 are `beforeMarkdown`, `afterMarkdown`, `beforeRender`, `afterRender`, `onRouteChange`, `onSearchResults`, `mountComponent`, and `unmountComponent`.
+Supported hooks in API version 1 are `beforeMarkdown`, `afterMarkdown`, `beforeRender`, `afterRender`, `onRouteChange`, `onSearchResults`, `mountComponent`, `unmountComponent`, `onImageZoom`, `onTabChange`, and `onCopyCode`.
 
 ## Mental Model
 
