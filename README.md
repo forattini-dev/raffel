@@ -845,6 +845,45 @@ Adapters available: `createZodAdapter`, `createYupAdapter`, `createJoiAdapter`, 
 
 ---
 
+## Authorization Policies
+
+Declarative, opt-in authz that replaces scattered `if (user.role !== ...)` checks. Define policies once, gate procedures with `.authz()`, enforce across **every protocol** (HTTP, WS, gRPC, TCP, …) automatically.
+
+```ts
+const server = createServer({
+  port: 3000,
+  policy: {
+    principal: { from: 'session' },
+    policies: [
+      {
+        id: 'allow-active-leads',
+        effect: 'allow',
+        principals: ['scope:lead.read'],
+        actions: ['lead.read'],
+        resources: ['lead:*'],
+        match: { 'resource.status': 'active' },
+      },
+    ],
+  },
+})
+
+server
+  .procedure('lead.read')
+  .authz({ resource: ({ id }, ctx) => ({ type: 'lead', id, tenantId: ctx.principal?.tenantId }) })
+  .handler(async ({ id }) => loadLead(id))
+```
+
+Features:
+- Allow/deny rules with principals, actions, resources, match conditions
+- Match DSL: `eq`, `in`, `regex`, `gt/gte/lt/lte`, `exists`, `and/or/not`
+- Pluggable engine via `policy.engine` (default in-memory, or BYO)
+- Zero bundle/runtime cost when not configured
+- Discoverable via the MCP server for AI-assisted authoring
+
+See [Policies overview](./docs/policies/README.md), [Match DSL](./docs/policies/match-dsl.md), and [Patterns](./docs/policies/patterns.md).
+
+---
+
 ## MCP Server (AI Integration)
 
 Raffel ships an MCP server for AI-assisted development. It gives tools like Claude direct knowledge of your API.
@@ -875,19 +914,39 @@ Express, Fastify, Fetch-first routers, `ws`, and Socket.IO.
 
 ## Documentation
 
+Browse the full site at **[forattini-dev.github.io/raffel](https://forattini-dev.github.io/raffel)** or read the Markdown sources directly under [`docs/`](./docs/).
+
+### Reference
+
 | Topic | Description |
 |-------|-------------|
-| [Quick Start](https://forattini-dev.github.io/raffel/#/quickstart) | 5-minute guide |
-| [HTTP Guide](https://forattini-dev.github.io/raffel/#/protocols/http) | REST, middleware, routing, serve() |
-| [Authentication](https://forattini-dev.github.io/raffel/#/auth/overview) | JWT, API Key, OAuth2, OIDC, Sessions |
-| [Interceptors](https://forattini-dev.github.io/raffel/#/interceptors) | Rate limit, circuit breaker, cache, etc. |
-| [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket) | Real-time, channels, presence |
-| [Proxy Suite](https://forattini-dev.github.io/raffel/#/proxy) | Forward, CONNECT, SOCKS5, transparent |
-| [Metrics & Tracing](https://forattini-dev.github.io/raffel/#/observability) | Prometheus, OpenTelemetry |
+| [Quick Start](./docs/learn/quickstart.md) | 5-minute guide |
+| [Architecture](./docs/learn/architecture.md) | Envelope, Context, Router, runtime model |
+| [HTTP Guide](./docs/protocols/http.md) | REST, middleware, routing, `serve()` |
+| [WebSocket](./docs/protocols/websocket.md) | Real-time, channels, presence |
+| [gRPC / TCP / UDP / JSON-RPC / SMTP](./docs/protocols/) | All other transports |
+| [Authentication](./docs/auth/overview.md) | JWT, API Key, OAuth2, OIDC, Sessions |
+| [Authorization Policies](./docs/policies/README.md) | Declarative authz, match DSL, patterns |
+| [Interceptors](./docs/core/interceptors/overview.md) | Rate limit, circuit breaker, cache, retry, fallback, … |
+| [Proxy Suite](./docs/proxy/overview.md) | Forward, CONNECT, SOCKS5, transparent |
+| [Observability](./docs/observability/) | Prometheus metrics, OpenTelemetry tracing, logging |
+| [File-based Routing](./docs/routing/file-system.md) | Zero-config discovery |
 | [Docs UI](./docs/tooling/docs-ui.md) | USD/OpenAPI reference plus Markdown guides |
-| [Core Model](https://forattini-dev.github.io/raffel/#/core-model) | Envelope, Context, Router, architecture |
-| [File-based Routing](https://forattini-dev.github.io/raffel/#/file-system-discovery) | Zero-config discovery |
-| [Migration Guide](./docs/migration/frameworks.md) | Concept mapping from existing HTTP and realtime stacks |
+| [Migration Guide](./docs/migration/frameworks.md) | Concept mapping from Express, Fastify, ws, Socket.IO |
+
+### Guides (recipe-style)
+
+| Guide | What you build |
+|-------|----------------|
+| [Multi-protocol service](./docs/guides/multi-protocol-service.md) | One server exposing HTTP + WS + gRPC at once |
+| [REST API](./docs/guides/rest-api.md) | Production-ready REST with validation and auth |
+| [Authentication flow](./docs/guides/auth.md) | OAuth2 + sessions wired end-to-end |
+| [Authorization policies](./docs/guides/policies.md) | Replacing imperative checks with declarative rules |
+| [Reverse proxy](./docs/guides/reverse-proxy.md) | Forwarding, CONNECT MITM, cert pinning |
+| [Webhook edge](./docs/guides/webhook-edge.md) | Signed inbound webhooks |
+| [SMTP server / relay](./docs/guides/smtp-server.md) | Custom mail handling |
+| [MCP server](./docs/guides/mcp-server.md) | Exposing your API to AI tools |
+| [Docs MCP](./docs/guides/docs-mcp.md) | Live, AI-readable docs |
 
 ---
 
