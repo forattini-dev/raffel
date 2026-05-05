@@ -46,7 +46,7 @@ interface SidebarManifest {
   entriesByPath: Map<string, SidebarEntry>
 }
 
-const SPECIAL_DOCSIFY_FILES = new Set(['_sidebar.md', '_navbar.md', '_coverpage.md', '_404.md'])
+const SPECIAL_MARKDOWN_FILES = new Set(['_sidebar.md', '_navbar.md', '_coverpage.md', '_404.md'])
 
 export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs {
   const { rootDir, routeBase, excludeDirs } = resolveMarkdownDocsSource(source)
@@ -55,11 +55,11 @@ export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs
   const configuredAliases = normalizeDocsAliases(config.aliases, routeBase, homepage)
   const markdownFiles = listMarkdownFiles(rootDir, excludeDirs)
   const specialFiles = new Map(markdownFiles
-    .filter(file => SPECIAL_DOCSIFY_FILES.has(path.basename(file)))
+    .filter(file => SPECIAL_MARKDOWN_FILES.has(path.basename(file)))
     .map(file => [path.basename(file), file]))
   const sidebars = loadSidebars(markdownFiles, rootDir, routeBase, homepage)
   const pages = markdownFiles
-    .filter(file => !SPECIAL_DOCSIFY_FILES.has(path.basename(file)))
+    .filter(file => !SPECIAL_MARKDOWN_FILES.has(path.basename(file)))
     .map((file, index) => {
       const relativePath = path.relative(rootDir, file)
       const markdown = readFileSync(file, 'utf8')
