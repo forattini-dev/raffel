@@ -14,7 +14,7 @@ The target is not only to render Markdown. The target is to provide a docs app t
 | USD/OpenAPI generated reference | Done | `src/docs/ui/runtime/index.ts` renders HTTP, WebSocket, streams, JSON-RPC, gRPC, TCP, and UDP protocol tabs from `paths` and `x-usd.*` | Richer examples/try-it per protocol can still improve |
 | Markdown pages alongside API docs | Done | `x-usd.documentation.pages` and `docsDir` pages render in the same UI as generated API/protocol docs | None known |
 | Sidebar and navbar conventions | Done | `_sidebar.md` controls sections/order, nested sidebars are supported, `_navbar.md` supports dropdown children | Sidebar collapse persistence is not implemented |
-| Search | Done | `src/docs/search-index.ts` builds page and heading entries; browser smoke validates search results and hotkey | Search ranking can be improved for large docs |
+| Search | Done | `src/docs/search-index.ts` builds page and heading entries with weighted scoring for exact phrases, title matches, section matches, excerpts, body text, and all-term coverage; browser smoke validates search results and hotkey | Full-text indexing can still evolve if docs become very large |
 | Basic GFM rendering | Partial | Tables, task lists, fenced code, inline code, strong/emphasis, links/images, and strikethrough are implemented and smoke-tested | Full GFM edge-case coverage still needs a real Markdown engine or a much larger parser |
 | Heading anchors | Done | Custom `:id=...`, generated slugs, duplicate generated heading IDs, active heading links, TOC, and sidebar subheadings are covered | None known |
 | Markdown attributes | Partial | Link `:ignore`, `:target`, `:disabled`; image `:class`, `:id`, `:size`, `:no-zoom` are implemented | Other plugin-specific attributes are not exhaustively covered |
@@ -39,8 +39,7 @@ These are the remaining blockers before this can honestly be called a full in-ho
 1. Replace or significantly harden the Markdown parser.
 2. Expand plugin hook coverage where new docs features need it.
 3. Improve Markdown docs dark/light visual parity.
-4. Expand search ranking for large docs.
-5. Expand first-party examples as new protocol-specific try-it flows mature.
+4. Expand first-party examples as new protocol-specific try-it flows mature.
 
 ## Verification Gates
 
