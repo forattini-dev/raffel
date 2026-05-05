@@ -55,6 +55,8 @@ Ship docs :rocket: :warning: :unknown_emoji:
 
 ~~Removed option~~
 
+https://example.com/autolink
+
 <span data-raw-html="yes">Raw HTML</span>
 
 ## Install
@@ -334,6 +336,7 @@ window.__runRaffelDocsSmoke = function () {
     targetLink?.getAttribute('href') === '/target' &&
     targetLink?.target === '_self'
   ))
+  document.documentElement.setAttribute('data-marked-renderer-ok', String(Boolean(window.marked) && document.documentElement.getAttribute('data-markdown-engine') === 'marked'))
   const sidebarSubText = Array.from(document.querySelectorAll('.nav-subitem')).map((link) => link.textContent || '').join('|')
   document.documentElement.setAttribute('data-sidebar-sublevel-ok', String(
     sidebarSubText.includes('Install') &&
@@ -411,6 +414,8 @@ async function assertBuildOutputExists() {
   try {
     await access(htmlBuilderPath)
     await access(join(assetsDir, 'raffel-docs.js'))
+    await access(join(assetsDir, 'marked-renderer.js'))
+    await access(join(assetsDir, 'marked.umd.js'))
     await access(join(assetsDir, 'raffel-docs.css'))
   } catch {
     throw new Error('Docs UI dist assets are missing. Run `pnpm run build` before browser verification.')
@@ -432,6 +437,8 @@ function close(server) {
 
 async function createFixtureServer(html) {
   const runtimeJs = await readFile(join(assetsDir, 'raffel-docs.js'))
+  const markedRendererJs = await readFile(join(assetsDir, 'marked-renderer.js'))
+  const markedUmdJs = await readFile(join(assetsDir, 'marked.umd.js'))
   const runtimeCss = await readFile(join(assetsDir, 'raffel-docs.css'))
   const logoSvg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#0f766e"/><text x="8" y="25" fill="white">Raffel</text></svg>')
 
@@ -445,6 +452,16 @@ async function createFixtureServer(html) {
     if (path === '/docs/-/raffel-docs.js') {
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
       response.end(runtimeJs)
+      return
+    }
+    if (path === '/docs/-/marked-renderer.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(markedRendererJs)
+      return
+    }
+    if (path === '/docs/-/marked.umd.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(markedUmdJs)
       return
     }
     if (path === '/docs/-/raffel-docs.css') {
@@ -560,6 +577,7 @@ async function run() {
       { label: 'externalLinkTarget option', needle: 'data-external-target-ok="true"' },
       { label: 'ignore link attribute', needle: 'href="/raw/" title="raw title"' },
       { label: 'target link attribute', needle: 'data-target-link-ok="true"' },
+      { label: 'Markdown engine bridge', needle: 'data-marked-renderer-ok="true"' },
       { label: 'disabled link attribute', needle: 'aria-disabled="true" tabindex="-1" class="markdown-disabled"' },
       { label: 'heading id attribute', needle: 'id="helper-heading"' },
       { label: 'ignored heading still renders', needle: 'Hidden Heading' },

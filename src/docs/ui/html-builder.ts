@@ -113,7 +113,8 @@ ${styles}
     escapedMarkdown
   )
   const runtimeScript = assetMode === 'external'
-    ? `<script type="module" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
+    ? `<script src="${escapeHtml(assetBasePath)}/-/marked.umd.js"></script>
+  <script type="module" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
     : `<script>
 ${generateClientRuntimeScript()}
   </script>`

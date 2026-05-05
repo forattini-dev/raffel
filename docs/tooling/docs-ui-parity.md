@@ -29,15 +29,14 @@ The target is not only to render Markdown. The target is to provide a docs app t
 | Plugin/extensibility model | Done for API v1 | `window.RaffelDocs.apiVersion` exposes API version `1`; runtime hooks exist for `beforeMarkdown`, `afterMarkdown`, render hooks, route changes, search results, Svelte-friendly component mounts, image zoom, tab changes, and copy-code events | Add API v2 hooks only when new docs features need them |
 | Svelte integration | Done | `svelte-component` fences create mount targets; host code mounts via plugin hooks; no Vue dependency is embedded | A first-party Svelte adapter package is not implemented |
 | Raw HTML handling | Done | Markdown HTML is escaped by default; `markdown.html: 'raw'` opts into trusted raw HTML rendering and browser smoke covers both modes | Sanitization is intentionally not implemented; use raw mode only for trusted Markdown |
-| Markdown engine foundation | Missing | `marked` is present as an optional dependency, but the browser runtime still uses the in-house parser | Need a bundled/browser-safe renderer plan or server/build-time pre-rendering |
+| Markdown engine foundation | Done | The external runtime loads the packaged `marked.umd.js` asset and uses a Raffel renderer bridge for headings, links, assets, code blocks, tabs, Mermaid, components, callouts, and raw HTML policy, with the in-house parser retained as fallback | Keep expanding renderer coverage as new Markdown cases appear |
 | Browser regression coverage | Done for current surface | `scripts/verify-docs-ui-browser.mjs` opens real generated docs with Chrome and validates routing, search, Markdown features, protocols, Svelte mounts, Mermaid, tabs, zoom, and routeBase links | Add fixtures as new parity rows move from partial/missing to done |
 
 ## Current Not-Done Items
 
 These are the remaining blockers before this can honestly be called a full in-house docs replacement:
 
-1. Replace or significantly harden the Markdown parser.
-2. Replace starter request panels with live protocol consoles where that is safe for each transport.
+1. Replace starter request panels with live protocol consoles where that is safe for each transport.
 
 ## Verification Gates
 

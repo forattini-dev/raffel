@@ -67,6 +67,8 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
       { method: 'GET', path: `${docsBasePath}/usd.yaml`, handler: state.usdDocsHandlers.value.serveUSDYaml },
       { method: 'GET', path: `${docsBasePath}/openapi.json`, handler: state.usdDocsHandlers.value.serveOpenAPI },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.js`, handler: state.usdDocsHandlers.value.serveUIRuntime },
+      { method: 'GET', path: `${docsBasePath}/-/marked.umd.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownEngine },
+      { method: 'GET', path: `${docsBasePath}/-/marked-renderer.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownRenderer },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.css`, handler: state.usdDocsHandlers.value.serveUIStyles },
       { method: 'GET', path: `${docsBasePath}/-/assets`, prefix: true, handler: state.usdDocsHandlers.value.serveDocsAsset },
     ]))

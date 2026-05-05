@@ -142,6 +142,7 @@ describe('Documentation UI HTML builder', () => {
     })
 
     expect(html).toContain('<link rel="stylesheet" href="/docs/-/raffel-docs.css">')
+    expect(html).toContain('<script src="/docs/-/marked.umd.js"></script>')
     expect(html).toContain('<script type="module" src="/docs/-/raffel-docs.js"></script>')
     expect(html).toContain('<details class="top-nav-menu"')
     expect(html).toContain('<div class="top-nav-submenu"><a class="top-nav-link" href="#/api">API</a></div>')
@@ -249,6 +250,7 @@ describe('Documentation UI HTML builder', () => {
     expect(runtimeSource).toContain('function renderTabs()')
     expect(runtimeSource).toContain('function getDocsSearchResults()')
     expect(runtimeSource).toContain('highlightSearchExcerpt')
+    expect(runtimeSource).toContain("import { renderMarkedMarkdown } from './marked-renderer.js'")
     expect(runtimeSource).toContain('protocol-try-it')
     expect(runtimeSource).toContain('function renderMissingDocsPage')
     expect(runtimeSource).toContain('function resolveDocsAlias')

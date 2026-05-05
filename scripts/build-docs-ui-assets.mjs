@@ -12,6 +12,8 @@ const assetsDir = join(root, 'dist/docs/ui/assets')
 await mkdir(assetsDir, { recursive: true })
 
 await copyRuntimeAsset()
+await copySupportAsset('dist/docs/ui/runtime/marked-renderer.js', 'marked-renderer.js')
+await copySupportAsset('node_modules/marked/lib/marked.umd.js', 'marked.umd.js')
 
 await writeFile(
   join(assetsDir, 'raffel-docs.css'),
@@ -31,4 +33,12 @@ async function copyRuntimeAsset() {
   const assetPath = join(assetsDir, 'raffel-docs.js')
   await copyFile(runtimePath, assetPath)
   return ''
+}
+
+async function copySupportAsset(source, target) {
+  try {
+    await copyFile(join(root, source), join(assetsDir, target))
+  } catch {
+    await writeFile(join(assetsDir, target), '', 'utf8')
+  }
 }

@@ -1,3 +1,5 @@
+import { renderMarkedMarkdown } from './marked-renderer.js'
+
 type DocsPage = {
   title?: string
   path?: string
@@ -86,16 +88,11 @@ const COMMON_EMOJI_ENTITIES: Record<string, string> = {
   zap: '&#x26A1;',
 }
 const win = globalThis as unknown as {
-  document?: any
-  location?: any
-  history?: any
+  document?: any; location?: any; history?: any
   scrollTo?: (options: unknown) => void
   addEventListener?: (...args: unknown[]) => void
-  navigator?: any; localStorage?: any
-  mermaid?: any
-  __RAFFEL_DOCS__?: any
-  __RAFFEL_DOCS_PLUGINS__?: unknown[]
-  RaffelDocs?: any
+  navigator?: any; localStorage?: any; mermaid?: any; marked?: any
+  __RAFFEL_DOCS__?: any; __RAFFEL_DOCS_PLUGINS__?: unknown[]; RaffelDocs?: any
 }
 const doc = win.document
 const data = win.__RAFFEL_DOCS__ ?? {}
@@ -122,9 +119,7 @@ let activePagePath = resolveDocsAlias(routeState.pagePath)
 let activeHeadingId = routeState.headingId
 const docsPlugins: DocsRuntimePlugin[] = [], themeStorageKey = 'raffel-docs-theme'
 
-function getDocsRuntimeState(): DocsRuntimeState {
-  return { activePagePath, activeHeadingId, activeProtocol, searchQuery }
-}
+function getDocsRuntimeState(): DocsRuntimeState { return { activePagePath, activeHeadingId, activeProtocol, searchQuery } }
 
 function getPluginContext(extra: Partial<DocsPluginContext> = {}): DocsPluginContext {
   return { ...getDocsRuntimeState(), ...extra }
@@ -541,6 +536,13 @@ function parseInlineMarkdown(value: unknown, currentPath?: string): string {
 function parseMarkdown(markdown: unknown, currentPath?: string): string {
   const context = getPluginContext({ pagePath: currentPath })
   const source = applyStringHook('beforeMarkdown', String(markdown ?? ''), context).replace(/\r\n?/g, '\n')
+  const markedHtml = renderMarkedMarkdown(source, currentPath, {
+    win, markdownConfig, activePagePath: () => activePagePath, esc, escapeAttr, renderEmojiShorthand,
+    parseMarkdown, parseMarkdownAttributes, parseMarkdownDestination, renderMarkdownAttributeString,
+    resolveMarkdownHref, resolveMarkdownAssetHref, getExternalLinkTarget, getExternalLinkRel,
+    isNoCompileLink, parseHeadingTitle, uniqueHeadingId, routeToHash, parseComponentFence, renderAlert,
+  })
+  if (markedHtml !== null) return applyStringHook('afterMarkdown', markedHtml, context)
   const lines = source.split('\n')
   const html: string[] = []
   const seenHeadingIds = new Map<string, number>()
