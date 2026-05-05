@@ -6,10 +6,10 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws'
-import type { IncomingMessage, Server } from 'node:http'
+import type { IncomingMessage } from 'node:http'
 import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
-import type { Context, Envelope, ContextSeed, Interceptor } from '../types/index.js'
+import type { Context, Envelope, ContextSeed } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
 import { composeTransportInterceptors, dispatchEnvelope } from './shared/dispatch.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
@@ -33,14 +33,11 @@ import {
   type BatchSubscribeMessage,
   type BatchPublishMessage,
   type TypingMessage,
-  type WebSocketAuthConfig,
-  type BackpressureConfig,
 } from '../channels/index.js'
 import {
   createMemoryRecoveryStore,
   generateRecoveryToken,
   type ConnectionRecoveryPort,
-  type RecoverableSession,
 } from '../channels/recovery.js'
 import { createMemoryTicketStore } from '../channels/ticket-store.js'
 import {
@@ -51,234 +48,29 @@ import {
   handleCancelMessage as sharedHandleCancelMessage,
   cleanupClientConnections,
 } from './utils/cancel-handler.js'
+import type {
+  ClientConnection,
+  WebSocketAdapter,
+  WebSocketAdapterOptions,
+  WebSocketClientInfo,
+} from './websocket-types.js'
+import {
+  recoverWebSocketClient,
+  saveWebSocketRecoverySession,
+} from './websocket-recovery.js'
+import { buildWebSocketSeed, toWebSocketClientInfo } from './websocket-context.js'
+
+export type {
+  WebSocketAdapter,
+  WebSocketAdapterOptions,
+  WebSocketClientInfo,
+} from './websocket-types.js'
 
 const logger = createLogger('ws-adapter')
 const AUTH_SEED_SYMBOL = Symbol('raffel.ws.authSeed')
 
-/**
- * WebSocket adapter configuration
- */
-export interface WebSocketAdapterOptions {
-  /** Port to listen on (required if no server is provided) */
-  port?: number
-
-  /** Existing HTTP server to attach to */
-  server?: Server
-
-  /** Host to bind to (default: '0.0.0.0') */
-  host?: string
-
-  /** Path for WebSocket endpoint (default: '/') */
-  path?: string
-
-  /** Maximum message size in bytes (default: 1MB) */
-  maxPayloadSize?: number
-
-  /** Heartbeat interval in ms (default: 30000, 0 to disable) */
-  heartbeatInterval?: number
-
-  /** Context factory for creating request context */
-  contextFactory?: (ws: WebSocket, req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
-
-  /** Interceptors applied only to Raffel envelopes arriving over WebSocket */
-  interceptors?: Interceptor[]
-
-  /**
-   * Channel configuration for Pusher-like real-time channels.
-   *
-   * When enabled, clients can send subscribe/unsubscribe/publish messages
-   * to join channels and broadcast events.
-   *
-   * @example
-   * ```typescript
-   * channels: {
-   *   authorize: async (socketId, channel, ctx) => {
-   *     // Allow private/presence channels only for authenticated users
-   *     if (channel.startsWith('private-') || channel.startsWith('presence-')) {
-   *       return ctx.auth?.authenticated ?? false
-   *     }
-   *     return true
-   *   },
-   *   presenceData: (socketId, channel, ctx) => ({
-   *     userId: ctx.auth?.principal,
-   *     name: ctx.auth?.claims?.name,
-   *   }),
-   * }
-   * ```
-   */
-  channels?: ChannelOptions
-
-  /** Inbound connection filter — controls which source IPs/origins may connect */
-  filter?: WebSocketConnectionFilter
-
-  /** WebSocket authentication (ticket, bearer, or custom) */
-  auth?: WebSocketAuthConfig
-
-  /** Backpressure handling for slow consumers */
-  backpressure?: BackpressureConfig
-
-  /** Enable per-message compression (default: false) */
-  compression?: boolean | {
-    /** Minimum payload size in bytes to compress (default: 1024) */
-    threshold?: number
-    /** zlib compression level 1-9 (default: 1) */
-    level?: number
-  }
-
-  /** Connection state recovery (requires channels to be enabled) */
-  recovery?: {
-    /** Enable connection recovery (default: false) */
-    enabled: boolean
-    /** TTL in ms for recovery sessions (default: 120000 = 2 minutes) */
-    ttl?: number
-    /** Custom recovery store (default: in-memory) */
-    store?: ConnectionRecoveryPort
-  }
-
-  // ─── Custom Protocol Hooks ──────────────────────────────────────
-
-  /**
-   * Raw message handler — called BEFORE any Raffel processing.
-   * Return `true` to indicate the message was handled (skip default processing).
-   * Return `false` to let Raffel process it normally.
-   *
-   * Use this to implement your own protocol on top of WebSocket,
-   * or to intercept/modify messages before they reach the router.
-   *
-   * @example
-   * ```typescript
-   * onMessage: (socketId, raw, send) => {
-   *   const msg = JSON.parse(raw)
-   *   if (msg.type === 'my-custom-type') {
-   *     send({ type: 'my-response', data: 'handled' })
-   *     return true // Handled, skip Raffel
-   *   }
-   *   return false // Let Raffel handle it
-   * }
-   * ```
-   */
-  onMessage?: (
-    socketId: string,
-    raw: string | Buffer,
-    send: (message: unknown) => void
-  ) => boolean | Promise<boolean>
-
-  /**
-   * Called when a new client connects (after auth + filter).
-   * Receives the socket ID and a send function for the connection.
-   *
-   * @example
-   * ```typescript
-   * onConnection: (socketId, send, req) => {
-   *   send({ type: 'welcome', socketId })
-   * }
-   * ```
-   */
-  onConnection?: (
-    socketId: string,
-    send: (message: unknown) => void,
-    req: IncomingMessage
-  ) => void | Promise<void>
-
-  /**
-   * Called when a client disconnects.
-   */
-  onClose?: (
-    socketId: string,
-    code: number,
-    reason: string
-  ) => void | Promise<void>
-}
-
-/**
- * Client connection state
- */
-interface ClientConnection {
-  id: string
-  ws: WebSocket
-  alive: boolean
-  request: IncomingMessage
-  connectionMetadata: Record<string, string>
-  activeStreams: Map<string, AbortController>
-  activeRequests: Map<string, AbortController>
-  /** Auth context seed from ticket/bearer auth (merged into every request context) */
-  authSeed?: ContextSeed
-  /** When the client connected */
-  connectedAt: number
-}
-
 interface HandshakeAuthenticatedRequest extends IncomingMessage {
   [AUTH_SEED_SYMBOL]?: ContextSeed
-}
-
-/**
- * Minimal client info exposed by the adapter
- */
-export interface WebSocketClientInfo {
-  /** Unique socket ID */
-  id: string
-  /** Remote IP address */
-  remoteAddress?: string
-  /** Connection metadata (headers) */
-  metadata: Record<string, string>
-  /** Auth context seed (if authenticated) */
-  authSeed?: ContextSeed
-  /** When the client connected */
-  connectedAt: number
-}
-
-/**
- * WebSocket Adapter
- */
-export interface WebSocketAdapter {
-  /** Start the server */
-  start(): Promise<void>
-
-  /** Stop the server */
-  stop(): Promise<void>
-
-  /** Get connected client count */
-  readonly clientCount: number
-
-  /**
-   * Channel manager for Pusher-like channels.
-   * Only available when `channels` option is provided.
-   */
-  readonly channels: ChannelManager | null
-
-  // ─── Low-Level API (Custom Protocol) ──────────────────────────
-
-  /**
-   * Send a raw message to a specific client by socket ID.
-   * Works regardless of channel subscriptions.
-   */
-  send(socketId: string, message: unknown): void
-
-  /**
-   * Send raw data (string or Buffer) to a specific client.
-   * Bypasses JSON serialization — use for binary or custom protocols.
-   */
-  sendRaw(socketId: string, data: string | Buffer): void
-
-  /**
-   * Broadcast a message to ALL connected clients.
-   */
-  broadcast(message: unknown, except?: string): void
-
-  /**
-   * Get info about a specific connected client.
-   */
-  getClient(socketId: string): WebSocketClientInfo | undefined
-
-  /**
-   * Get all connected clients.
-   */
-  getClients(): WebSocketClientInfo[]
-
-  /**
-   * Disconnect a specific client.
-   */
-  disconnect(socketId: string, code?: number, reason?: string): void
 }
 
 /**
@@ -358,28 +150,6 @@ export function createWebSocketAdapter(
         }
       })
     : null
-
-  function buildWebSocketSeed(
-    client: ClientConnection,
-    metadata: Record<string, string>,
-    body?: unknown
-  ): ContextSeed {
-    const url = new URL(client.request.url || '/', 'http://localhost')
-    return {
-      protocol: 'websocket',
-      input: {
-        body,
-        metadata,
-      },
-      ws: {
-        kind: 'websocket',
-        connectionId: client.id,
-        path: url.pathname,
-        subprotocol: client.ws.protocol || undefined,
-      },
-    }
-  }
-
 
   /**
    * Check backpressure before sending
@@ -598,54 +368,6 @@ export function createWebSocketAdapter(
     }
   }
 
-  /**
-   * Handle incoming message from client
-   */
-  async function handleRecoveryMessage(
-    client: ClientConnection,
-    recoveryToken: string,
-  ): Promise<void> {
-    if (!recoveryStore || !channelManager) return
-    const session = recoveryStore.get(recoveryToken)
-    if (!session) {
-      sendRawMessage(client, {
-        type: 'error',
-        code: 'RECOVERY_FAILED',
-        status: 404,
-        message: 'Recovery token not found or expired',
-      })
-      return
-    }
-
-    recoveryStore.delete(recoveryToken)
-
-    // Re-register with previous user info if not already known
-    if (!channelManager.getClient(client.id)) {
-      channelManager.registerClient(client.id, {
-        userId: session.userId,
-        data: session.metadata,
-      })
-    }
-
-    channelManager.recoverClient(session.socketId, client.id, session.channels)
-
-    for (const groupName of session.groups) {
-      channelManager.joinGroup(groupName, client.id)
-    }
-
-    const newToken = generateRecoveryToken()
-    clientRecoveryTokens.set(client.id, newToken)
-
-    sendRawMessage(client, {
-      type: 'connection:recovered',
-      socketId: client.id,
-      recoveryToken: newToken,
-      channels: session.channels.map((c) => c.name),
-      groups: session.groups,
-    })
-    logger.info({ clientId: client.id, oldSocketId: session.socketId }, 'Client recovered')
-  }
-
   async function handleMessage(
     client: ClientConnection,
     data: Buffer | string
@@ -680,7 +402,15 @@ export function createWebSocketAdapter(
 
       // Handle recovery message
       if (recoveryStore && channelManager && isRecoverMessage(parsed)) {
-        await handleRecoveryMessage(client, parsed.recoveryToken)
+        await recoverWebSocketClient({
+          client,
+          recoveryToken: parsed.recoveryToken,
+          recoveryStore,
+          channelManager,
+          clientRecoveryTokens,
+          sendRawMessage,
+          logRecovered: (details) => logger.info(details, 'Client recovered'),
+        })
         return
       }
 
@@ -1041,33 +771,13 @@ export function createWebSocketAdapter(
 
       // Save recovery session before removing client
       if (recoveryStore && channelManager) {
-        const token = clientRecoveryTokens.get(clientId)
-        if (token) {
-          const subs = channelManager.getSubscriptions(clientId)
-          const clientInfo = channelManager.getClient(clientId)
-          const groups = channelManager.getClientGroups(clientId).map((g) => g.name)
-
-          // Build channel list with last seen seq (from channel state)
-          const channelSeqs = subs.map((name) => {
-            // We can't access internal channel state from outside, so we use 0
-            // The channel manager's recoverClient will replay from the stored seq
-            return { name, lastSeq: 0 }
-          })
-
-          const ttl = options.recovery?.ttl ?? 120_000
-          const session: RecoverableSession = {
-            recoveryToken: token,
-            socketId: clientId,
-            userId: clientInfo?.userId,
-            channels: channelSeqs,
-            groups,
-            metadata: clientInfo?.data ?? {},
-            expiresAt: Date.now() + ttl,
-          }
-
-          recoveryStore.save(session)
-          clientRecoveryTokens.delete(clientId)
-        }
+        saveWebSocketRecoverySession({
+          client,
+          recoveryStore,
+          channelManager,
+          clientRecoveryTokens,
+          ttl: options.recovery?.ttl ?? 120_000,
+        })
       }
 
       // Remove client from inventory (also unsubscribes, cleans rooms/groups)
@@ -1263,25 +973,13 @@ export function createWebSocketAdapter(
     getClient(socketId: string): WebSocketClientInfo | undefined {
       const client = clients.get(socketId)
       if (!client) return undefined
-      return {
-        id: client.id,
-        remoteAddress: client.request.socket.remoteAddress,
-        metadata: { ...client.connectionMetadata },
-        authSeed: client.authSeed,
-        connectedAt: client.connectedAt,
-      }
+      return toWebSocketClientInfo(client)
     },
 
     getClients(): WebSocketClientInfo[] {
       const result: WebSocketClientInfo[] = []
       for (const client of clients.values()) {
-        result.push({
-          id: client.id,
-          remoteAddress: client.request.socket.remoteAddress,
-          metadata: { ...client.connectionMetadata },
-          authSeed: client.authSeed,
-          connectedAt: Date.now(),
-        })
+        result.push(toWebSocketClientInfo(client, Date.now()))
       }
       return result
     },

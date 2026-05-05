@@ -147,6 +147,42 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
     },
+    "./testing/http": {
+      "types": "./dist/testing/http/index.d.ts",
+      "import": "./dist/testing/http/index.js"
+    },
+    "./testing/tcp": {
+      "types": "./dist/testing/tcp/index.d.ts",
+      "import": "./dist/testing/tcp/index.js"
+    },
+    "./testing/udp": {
+      "types": "./dist/testing/udp/index.d.ts",
+      "import": "./dist/testing/udp/index.js"
+    },
+    "./testing/ws": {
+      "types": "./dist/testing/ws/index.d.ts",
+      "import": "./dist/testing/ws/index.js"
+    },
+    "./testing/sse": {
+      "types": "./dist/testing/sse/index.d.ts",
+      "import": "./dist/testing/sse/index.js"
+    },
+    "./testing/dns": {
+      "types": "./dist/testing/dns/index.d.ts",
+      "import": "./dist/testing/dns/index.js"
+    },
+    "./testing/proxy": {
+      "types": "./dist/testing/proxy/index.d.ts",
+      "import": "./dist/testing/proxy/index.js"
+    },
+    "./testing/suite": {
+      "types": "./dist/testing/suite/index.d.ts",
+      "import": "./dist/testing/suite/index.js"
+    },
+    "./testing/hls": {
+      "types": "./dist/testing/hls/index.d.ts",
+      "import": "./dist/testing/hls/index.js"
+    },
     "./http/failban": {
       "types": "./dist/http/failban.d.ts",
       "import": "./dist/http/failban.js"

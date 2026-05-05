@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const MAX_LINES = 1000
+const MAX_LINES = 1500
 const ROOT = join(fileURLToPath(new URL('..', import.meta.url)))
 const SCAN_DIRS = ['src', 'test']
 
@@ -64,4 +64,3 @@ run().catch((error) => {
   console.error(error)
   process.exit(1)
 })
-

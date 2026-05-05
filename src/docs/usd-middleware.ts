@@ -124,7 +124,15 @@ export interface USDMiddlewareConfig {
       expandAll?: boolean
       /** Show endpoint count badges */
       showCounts?: boolean
+      /** Show Markdown documentation pages in the sidebar */
+      docsPages?: boolean
     }
+    /** Top navigation links */
+    navbar?: Array<{ title: string; href: string; external?: boolean }>
+    /** Footer markdown/text */
+    footer?: string
+    /** In-page table of contents */
+    toc?: { enabled?: boolean; minLevel?: number; maxLevel?: number }
   }
 
   /** Include standard error schemas */

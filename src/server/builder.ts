@@ -19,8 +19,6 @@ import { createSchemaRegistry } from '../validation/index.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
 import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
-import { createEnvelopeInterceptor, createStandardEnvelopeInterceptor } from '../middleware/interceptors/envelope.js'
-import type { EnvelopeConfig } from '../middleware/types.js'
 import type {
   ServerOptions,
   WebSocketOptions,
@@ -91,12 +89,8 @@ import {
   type TelemetryState,
 } from './telemetry-bootstrap.js'
 import type { ContractPolicies } from '../types/index.js'
-import { mergeContractPolicies } from '../types/policies.js'
 import {
-  type RuntimeInspectionContribution,
-  type RuntimeInspectionGraph,
   type RuntimeInspectionOperationRegistration,
-  type RuntimeInspectionSource,
 } from '../inspect/index.js'
 import { adaptPinoLogger } from '../adapters/outbound/logger/pino.js'
 import { createServerPlanner } from './planner.js'
@@ -113,38 +107,16 @@ import {
 } from './builder/protocol-namespaces.js'
 import { applyExtendedProtocolConfig } from './builder/with-protocols.js'
 import { applyResourceMap } from './builder/resources.js'
+import {
+  createEnvelopeInterceptorFromOptions,
+  policyMetadataFromRouteMeta,
+  programmaticSource,
+} from './builder/metadata.js'
+import { createServerPluginRuntime } from './builder/plugin-runtime.js'
+import { createProcedureOperationRegistrar } from './builder/operation-registrar.js'
 
 const logger = createLogger('server')
 const loggerPort = adaptPinoLogger(logger)
-
-function policyMetadataFromRouteMeta(
-  meta: {
-    auth?: 'required' | 'optional' | 'none'
-    roles?: string[]
-    rateLimit?: { limit: number; window: number }
-  } | undefined
-): ContractPolicies | undefined {
-  if (!meta) return undefined
-
-  return mergeContractPolicies(
-    meta.auth && meta.auth !== 'none'
-      ? {
-          auth: {
-            mode: meta.auth,
-            ...(meta.roles && meta.roles.length > 0 && { roles: meta.roles }),
-          },
-        }
-      : undefined,
-    meta.rateLimit
-      ? {
-          rateLimit: {
-            maxRequests: meta.rateLimit.limit,
-            windowMs: meta.rateLimit.window,
-          },
-        }
-      : undefined
-  )
-}
 
 /**
  * Create a unified Raffel server
@@ -275,18 +247,6 @@ export function createServer(options: ServerOptions): RaffelServer {
   const noPolicyDeclaredFactory: ((procedureName: string) => Interceptor) | undefined =
     policyBootstrap?.noPolicyDeclaredFactory
 
-  function createEnvelopeInterceptorFromOptions(config?: boolean | EnvelopeConfig): Interceptor | undefined {
-    if (config === undefined || config === false) {
-      return undefined
-    }
-
-    if (config === true) {
-      return createStandardEnvelopeInterceptor()
-    }
-
-    return createEnvelopeInterceptor(config)
-  }
-
   function normalizeInterceptors(interceptors: Interceptor[], schema?: HandlerSchema): Interceptor[] {
     return normalizeInterceptorsShared(interceptors, {
       envelopeInterceptor,
@@ -342,6 +302,11 @@ export function createServer(options: ServerOptions): RaffelServer {
   const providerDefinitions = new Map<string, ProviderDefinition>()
   const resolvedProviders: ResolvedProviders = {}
   const registeredPlugins = new Map<string, ServerPlugin>()
+  const pluginRuntime = createServerPluginRuntime({
+    registeredPlugins,
+    resolvedProviders,
+    getServer: () => server,
+  })
 
   // Initialize provider definitions from options
   if (initialProviders) {
@@ -387,128 +352,16 @@ export function createServer(options: ServerOptions): RaffelServer {
     operationRegistrations.set(name, registration)
   }
 
-  function getPluginProviders(): Readonly<ResolvedProviders> {
-    return Object.freeze({ ...resolvedProviders })
-  }
+  const registerProcedureOperation = createProcedureOperationRegistrar({
+    globalInterceptors,
+    registry,
+    schemaRegistry,
+    normalizeInterceptors,
+    recordOperationRegistration,
+    programmaticSource,
+  })
 
-  function getPluginsInStartOrder(): ServerPlugin[] {
-    return [...registeredPlugins.values()]
-  }
-
-  function getPluginsInStopOrder(): ServerPlugin[] {
-    return getPluginsInStartOrder().reverse()
-  }
-
-  async function runPluginRuntimeHooks(
-    hookName: 'beforeStart' | 'afterStart' | 'beforeStop' | 'afterStop',
-    plugins: ServerPlugin[],
-    signal: AbortSignal
-  ): Promise<void> {
-    for (const plugin of plugins) {
-      const hook = plugin[hookName]
-      if (!hook) continue
-
-      await hook({
-        server,
-        providers: getPluginProviders(),
-        signal,
-      })
-    }
-  }
-
-  function getInspectionExtensions(
-    preview: RuntimeInspectionGraph
-  ): RuntimeInspectionContribution[] {
-    const contributions: RuntimeInspectionContribution[] = []
-
-    for (const plugin of registeredPlugins.values()) {
-      if (!plugin.inspect) continue
-
-      const result = plugin.inspect({
-        server,
-        providers: getPluginProviders(),
-        preview,
-      })
-
-      if (!result) continue
-
-      if (Array.isArray(result)) {
-        contributions.push(...result)
-      } else {
-        contributions.push(result)
-      }
-    }
-
-    return contributions
-  }
-
-  function programmaticSource(kind: RuntimeInspectionSource['kind'] = 'programmatic'): RuntimeInspectionSource {
-    return { kind, location: '<programmatic>' }
-  }
-
-  function registerProcedureOperation(
-    input: {
-      name: string
-      handler: ProcedureHandler
-      inputSchema?: z.ZodType
-      outputSchema?: z.ZodType
-      summary?: string
-      description?: string
-      tags?: string[]
-      graphql?: AddProcedureInput['graphql']
-      httpPath?: AddProcedureInput['httpPath']
-      httpMethod?: AddProcedureInput['httpMethod']
-      jsonrpc?: AddProcedureInput['jsonrpc']
-      grpc?: AddProcedureInput['grpc']
-      policies?: ContractPolicies
-      interceptors?: Interceptor[]
-      registration?: RuntimeInspectionOperationRegistration
-    }
-  ): void {
-    const {
-      name,
-      handler,
-      inputSchema,
-      outputSchema,
-      summary,
-      description,
-      tags,
-      graphql,
-      httpPath,
-      httpMethod,
-      jsonrpc,
-      grpc,
-      policies,
-      interceptors = [],
-      registration = { source: programmaticSource() },
-    } = input
-
-    let normalizedInterceptors = normalizeInterceptors([...globalInterceptors, ...interceptors])
-
-    if (inputSchema || outputSchema) {
-      const schema: HandlerSchema = {}
-      if (inputSchema) schema.input = inputSchema
-      if (outputSchema) schema.output = outputSchema
-      schemaRegistry.register(name, schema)
-      normalizedInterceptors = normalizeInterceptors(normalizedInterceptors, schema)
-    }
-
-    registry.procedure(name, handler, {
-      summary,
-      description,
-      tags,
-      graphql,
-      httpPath,
-      httpMethod,
-      jsonrpc,
-      grpc,
-      policies,
-      interceptors: normalizedInterceptors.length > 0 ? normalizedInterceptors : undefined,
-    })
-    recordOperationRegistration(name, registration)
-  }
-
-  // Registration service (extracted to application/registration.ts)
+  // Registration service (owned by server/orchestration/registration.ts)
   const registrationService = createRegistrationService({
     registry,
     schemaRegistry,
@@ -588,7 +441,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     udpHandlers,
     operationRegistrations,
     getRuntimePlan,
-    getInspectionExtensions,
+    getInspectionExtensions: pluginRuntime.getInspectionExtensions,
     logger: loggerPort,
   })
 
@@ -1437,22 +1290,22 @@ export function createServer(options: ServerOptions): RaffelServer {
         throw new Error('Server is already running')
       }
 
-      const startPlugins = getPluginsInStartOrder()
+      const startPlugins = pluginRuntime.getPluginsInStartOrder()
       const startController = new AbortController()
 
       try {
-        await runPluginRuntimeHooks('beforeStart', startPlugins, startController.signal)
+        await pluginRuntime.runPluginRuntimeHooks('beforeStart', startPlugins, startController.signal)
         await serverLifecycle.start()
-        await runPluginRuntimeHooks('afterStart', startPlugins, startController.signal)
+        await pluginRuntime.runPluginRuntimeHooks('afterStart', startPlugins, startController.signal)
       } catch (error) {
         startController.abort()
 
         if (serverState.running.value) {
-          const stopPlugins = getPluginsInStopOrder()
+          const stopPlugins = pluginRuntime.getPluginsInStopOrder()
           const rollbackController = new AbortController()
 
           try {
-            await runPluginRuntimeHooks('beforeStop', stopPlugins, rollbackController.signal)
+            await pluginRuntime.runPluginRuntimeHooks('beforeStop', stopPlugins, rollbackController.signal)
           } catch (rollbackError) {
             logger.error({ err: rollbackError }, 'Plugin rollback beforeStop hook failed')
           }
@@ -1461,7 +1314,7 @@ export function createServer(options: ServerOptions): RaffelServer {
             await serverLifecycle.stop()
           } finally {
             try {
-              await runPluginRuntimeHooks('afterStop', stopPlugins, rollbackController.signal)
+              await pluginRuntime.runPluginRuntimeHooks('afterStop', stopPlugins, rollbackController.signal)
             } catch (rollbackError) {
               logger.error({ err: rollbackError }, 'Plugin rollback afterStop hook failed')
             }
@@ -1480,13 +1333,13 @@ export function createServer(options: ServerOptions): RaffelServer {
         return
       }
 
-      const stopPlugins = getPluginsInStopOrder()
+      const stopPlugins = pluginRuntime.getPluginsInStopOrder()
       const stopController = new AbortController()
 
       try {
-        await runPluginRuntimeHooks('beforeStop', stopPlugins, stopController.signal)
+        await pluginRuntime.runPluginRuntimeHooks('beforeStop', stopPlugins, stopController.signal)
         await serverLifecycle.stop()
-        await runPluginRuntimeHooks('afterStop', stopPlugins, stopController.signal)
+        await pluginRuntime.runPluginRuntimeHooks('afterStop', stopPlugins, stopController.signal)
       } finally {
         stopController.abort()
       }

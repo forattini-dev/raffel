@@ -28,288 +28,41 @@ import type { ContextSeed, Envelope } from '../types/index.js'
 import { mergeContextSeeds } from '../types/index.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
-import { checkConnectionFilter, type ConnectionFilter } from './utils/connection-filter.js'
+import { checkConnectionFilter } from './utils/connection-filter.js'
+import { resolveTlsOptions } from '../utils/tls.js'
+import type {
+  SmtpAdapter,
+  SmtpAdapterOptions,
+  SmtpConnectionHandler,
+  SmtpSession,
+} from './smtp-types.js'
+import {
+  CRLF,
+  DEFAULT_MAX_AUTH_ATTEMPTS,
+  DEFAULT_MAX_MESSAGE_SIZE,
+  DEFAULT_MAX_RECIPIENTS,
+  DEFAULT_TIMEOUTS,
+  MAX_LINE_LENGTH,
+  parseAddress,
+  parseMessageHeaders,
+  undotStuff,
+} from './smtp-protocol.js'
+
+export type {
+  ParsedAddress,
+  SmtpAdapter,
+  SmtpAdapterOptions,
+  SmtpAuthVerifier,
+  SmtpConnectionHandler,
+  SmtpContextCapability,
+  SmtpRecipientValidator,
+  SmtpSession,
+  SmtpState,
+  SmtpTimeouts,
+  SmtpTlsOptions,
+} from './smtp-types.js'
 
 const logger = createLogger('smtp-adapter')
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const CRLF = '\r\n'
-const MAX_LINE_LENGTH = 998 // RFC 5321 §4.5.3.1.6
-const DEFAULT_MAX_MESSAGE_SIZE = 50 * 1024 * 1024 // 50 MB
-const DEFAULT_MAX_RECIPIENTS = 100
-const DEFAULT_MAX_AUTH_ATTEMPTS = 5
-
-/** SMTP timeouts per RFC 5321 §4.5.3.2 */
-const DEFAULT_TIMEOUTS = {
-  /** Client must send initial command after greeting */
-  greeting: 30_000,
-  /** Per-command timeout */
-  command: 30_000,
-  /** DATA content (allow slow uploads) */
-  data: 600_000,
-  /** Close connection after QUIT */
-  quit: 5_000,
-  /** TLS handshake */
-  tls: 30_000,
-} as const
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type SmtpState =
-  | 'greeting'
-  | 'ready'
-  | 'mail'
-  | 'rcpt'
-  | 'data'
-  | 'bdat'
-  | 'starttls'
-  | 'auth_login_user'
-  | 'auth_login_pass'
-  | 'closing'
-
-export interface SmtpContextCapability {
-  readonly kind: 'smtp'
-  readonly remoteAddress?: string
-  readonly remotePort?: number
-  readonly sender?: string
-  readonly recipients?: readonly string[]
-  readonly authenticated?: boolean
-  readonly authenticatedUser?: string
-  readonly tlsActive?: boolean
-  readonly ehloHostname?: string
-}
-
-import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
-
-export interface SmtpTlsOptions extends TlsOptions {
-  /** Minimum TLS version (default: TLSv1.2) */
-  minVersion?: tls.SecureVersion
-}
-
-export interface SmtpTimeouts {
-  greeting?: number
-  command?: number
-  data?: number
-  quit?: number
-  tls?: number
-}
-
-/** Auth verifier: return true to accept, false to reject */
-export type SmtpAuthVerifier = (
-  username: string,
-  password: string,
-  info: { remoteAddress: string; remotePort: number; tlsActive: boolean }
-) => boolean | Promise<boolean>
-
-/** Recipient validator: return true to accept, false → 550 */
-export type SmtpRecipientValidator = (
-  recipient: string,
-  sender: string,
-  info: { remoteAddress: string; authenticated: boolean; authenticatedUser?: string }
-) => boolean | Promise<boolean>
-
-/**
- * SMTP adapter configuration
- */
-export interface SmtpAdapterOptions {
-  /** Port to listen on (25 = relay, 587 = submission, 465 = SMTPS) */
-  port: number
-
-  /** Host to bind to (default: '0.0.0.0') */
-  host?: string
-
-  /** Server hostname for EHLO greeting */
-  hostname?: string
-
-  /** Maximum message size in bytes (default: 50MB) */
-  maxMessageSize?: number
-
-  /** Maximum recipients per message (default: 100) */
-  maxRecipients?: number
-
-  /** Maximum failed AUTH attempts per connection (default: 5) */
-  maxAuthAttempts?: number
-
-  /** SMTP-specific timeouts */
-  timeouts?: SmtpTimeouts
-
-  /**
-   * TLS config for STARTTLS.
-   * - `true`: auto-generates a self-signed certificate
-   * - `SmtpTlsOptions`: inline PEM, file paths, or env vars
-   * - omit to disable STARTTLS
-   */
-  tls?: boolean | SmtpTlsOptions
-
-  /** Implicit TLS (port 465 / SMTPS) — wraps socket in TLS immediately */
-  implicitTls?: boolean
-
-  /** Require TLS before accepting mail (default: false) */
-  requireTls?: boolean
-
-  /** Require AUTH before accepting mail (default: false) */
-  requireAuth?: boolean
-
-  /** Only allow AUTH over TLS (default: true — RFC 4954 compliance) */
-  authRequiresTls?: boolean
-
-  /** AUTH credential verifier */
-  authVerifier?: SmtpAuthVerifier
-
-  /** Recipient validator (called on each RCPT TO) */
-  recipientValidator?: SmtpRecipientValidator
-
-  /** Procedure name for mail delivery (default: 'mail.receive') */
-  deliverProcedure?: string
-
-  /** Procedure name for auth (default: 'mail.authenticate') */
-  authProcedure?: string
-
-  /** Procedure name for VRFY (default: 'mail.verify') */
-  verifyProcedure?: string
-
-  /** SMTP banner text (after 220 hostname) */
-  banner?: string
-
-  /** Context factory for creating request context */
-  contextFactory?: (socket: Socket) => ContextSeed | Promise<ContextSeed>
-
-  /** Inbound connection filter */
-  filter?: ConnectionFilter
-}
-
-/**
- * Parsed email address from angle brackets
- */
-interface ParsedAddress {
-  /** Full address as provided */
-  raw: string
-  /** Extracted email (without <>) */
-  address: string
-  /** ESMTP parameters (SIZE=xxx, BODY=8BITMIME, etc.) */
-  params: Record<string, string>
-}
-
-/**
- * Per-connection session state
- */
-interface SmtpSession {
-  id: string
-  socket: Socket
-  state: SmtpState
-  ehloHostname?: string
-  sender?: ParsedAddress
-  recipients: ParsedAddress[]
-  dataBuffer: string[]
-  dataSize: number
-  tlsActive: boolean
-  authenticated: boolean
-  authenticatedUser?: string
-  authAttempts: number
-  authMechanism?: string
-  authPartialUser?: string // For LOGIN multi-step
-  /** BDAT state */
-  bdatRemaining: number
-  bdatChunks: Buffer[]
-  bdatTotal: number
-  bdatLast: boolean
-  /** Client-declared extensions */
-  smtpUtf8: boolean
-  bodyType: '7BIT' | '8BITMIME'
-  declaredSize: number
-  /** Timeout handle */
-  timeout: ReturnType<typeof setTimeout> | null
-  /** Line buffer for CRLF framing */
-  lineBuffer: string
-  /** Active abort controller */
-  abortController: AbortController
-  /** Quit grace-period timer */
-  quitTimer?: ReturnType<typeof setTimeout>
-}
-
-/**
- * SMTP connection handler for established sockets
- */
-export interface SmtpConnectionHandler {
-  handleConnection(socket: Socket): void
-  closeAllConnections(): void
-  setResolvedTls(creds: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: import('node:tls').SecureVersion }): void
-  readonly clientCount: number
-}
-
-/**
- * SMTP Adapter interface
- */
-export interface SmtpAdapter {
-  start(): Promise<void>
-  stop(): Promise<void>
-  readonly clientCount: number
-  readonly server: Server | null
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function parseAddress(raw: string): ParsedAddress | null {
-  // Match: <user@domain> or <> (null sender) with optional params
-  const match = raw.match(/^<([^>]*)>\s*(.*)$/)
-  if (!match) {
-    // Try without angle brackets (lenient)
-    const lenientMatch = raw.match(/^(\S+@\S+)\s*(.*)$/)
-    if (!lenientMatch) return null
-    return {
-      raw,
-      address: lenientMatch[1]!,
-      params: parseEsmtpParams(lenientMatch[2] ?? ''),
-    }
-  }
-
-  return {
-    raw,
-    address: match[1]!,
-    params: parseEsmtpParams(match[2] ?? ''),
-  }
-}
-
-function parseEsmtpParams(str: string): Record<string, string> {
-  const params: Record<string, string> = {}
-  if (!str.trim()) return params
-
-  for (const part of str.trim().split(/\s+/)) {
-    const eq = part.indexOf('=')
-    if (eq > 0) {
-      params[part.slice(0, eq).toUpperCase()] = part.slice(eq + 1)
-    } else {
-      params[part.toUpperCase()] = ''
-    }
-  }
-  return params
-}
-
-function undotStuff(lines: string[]): string {
-  return lines
-    .map((line) => (line.startsWith('..') ? line.slice(1) : line))
-    .join(CRLF)
-}
-
-function parseMessageHeaders(raw: string): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const headerEnd = raw.indexOf(CRLF + CRLF)
-  const headerSection = headerEnd >= 0 ? raw.slice(0, headerEnd) : raw
-
-  // Unfold multi-line headers
-  const unfolded = headerSection.replace(/\r\n([ \t])/g, ' ')
-
-  for (const line of unfolded.split(CRLF)) {
-    const colon = line.indexOf(':')
-    if (colon > 0) {
-      const name = line.slice(0, colon).trim().toLowerCase()
-      const value = line.slice(colon + 1).trim()
-      headers[name] = value
-    }
-  }
-  return headers
-}
 
 // ─── Connection Handler ──────────────────────────────────────────────────────
 

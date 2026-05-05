@@ -11,12 +11,9 @@ const rules = [
     forbidden: [path.join(srcRoot, 'adapters'), path.join(srcRoot, 'bootstrap')],
     label: 'core',
   },
-  // Note: src/application/config-preview.ts genuinely depends on types
-  // defined in src/server/types.ts (FrontDoorTransport, ProtocolFusionMode,
-  // etc.). Forbidding application→server flagged a real, working import as
-  // a violation with no path forward short of duplicating the types.
-  // Rule dropped pending the rename of application/ to server/orchestration/
-  // (PRD #6 / issue #11) which will eliminate the layer entirely.
+  // Server orchestration lives under src/server/orchestration because it is
+  // builder-internal orchestration, not a separate use-case/application layer.
+  // There is intentionally no application→server boundary rule anymore.
   {
     scope: path.join(srcRoot, 'ports'),
     forbidden: [path.join(srcRoot, 'adapters'), path.join(srcRoot, 'bootstrap'), path.join(srcRoot, 'server')],

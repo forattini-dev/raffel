@@ -16,4 +16,8 @@
 
 export type * from './types/config-types.js'
 export type * from './types/handler-types.js'
+export type * from './types/lifecycle-docs-types.js'
 export type * from './types/lifecycle-types.js'
+export type * from './types/protocol-namespace-types.js'
+export type * from './types/protocol-lifecycle-types.js'
+export type * from './types/runtime-protocol-types.js'

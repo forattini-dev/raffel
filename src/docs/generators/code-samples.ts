@@ -6,7 +6,9 @@
  */
 
 import type { USDCodeSample, USDSchema, USDParameter } from '../../usd/index.js'
-import { generateSchemaExample, type SchemaExampleOptions } from '../../utils/schema-examples.js'
+import { generateExampleFromSchema } from '../corpus/index.js'
+
+export { generateExampleFromSchema } from '../corpus/index.js'
 
 // =============================================================================
 // Types
@@ -27,23 +29,6 @@ export interface CodeSampleContext {
   hasSecurity: boolean
   /** Content-Type override (default: 'application/json') */
   contentType?: string
-}
-
-// =============================================================================
-// Example Value Generation (delegates to shared schema-examples)
-// =============================================================================
-
-const CODE_SAMPLE_DEFAULTS: SchemaExampleOptions = {
-  maxOptionalProperties: 3,
-  uniqueValues: false,
-}
-
-/**
- * Generate a realistic example value from a JSON Schema
- */
-export function generateExampleFromSchema(schema: USDSchema | undefined): unknown {
-  if (!schema) return {}
-  return generateSchemaExample(schema as Record<string, unknown>, CODE_SAMPLE_DEFAULTS)
 }
 
 // =============================================================================

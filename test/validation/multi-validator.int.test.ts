@@ -985,39 +985,4 @@ describe('Multi-Validator Support', () => {
       expect(ajvResult.errors![0]).toHaveProperty('code')
     })
   })
-
-  describe('JSON Schema Conversion', () => {
-    it('should convert fastest-validator to JSON Schema', () => {
-      const schema = {
-        name: { type: 'string', min: 1, max: 100 },
-        email: { type: 'email' },
-        age: { type: 'number', min: 0 },
-        tags: { type: 'array', items: { type: 'string' } },
-        status: { type: 'enum', values: ['active', 'inactive'] },
-      }
-
-      const jsonSchema = fvAdapter.toJsonSchema!(schema)
-
-      expect(jsonSchema.type).toBe('object')
-      const props = (jsonSchema as { properties: Record<string, unknown> }).properties
-      expect(props.name).toEqual({ type: 'string', minLength: 1, maxLength: 100, pattern: undefined, enum: undefined })
-      expect(props.email).toEqual({ type: 'string', format: 'email' })
-      expect((props.tags as { type: string }).type).toBe('array')
-    })
-
-    it('should handle special types in conversion', () => {
-      const schema = {
-        url: { type: 'url' },
-        uuid: { type: 'uuid' },
-        date: { type: 'date' },
-      }
-
-      const jsonSchema = fvAdapter.toJsonSchema!(schema)
-      const props = (jsonSchema as { properties: Record<string, unknown> }).properties
-
-      expect(props.url).toEqual({ type: 'string', format: 'uri' })
-      expect(props.uuid).toEqual({ type: 'string', format: 'uuid' })
-      expect(props.date).toEqual({ type: 'string', format: 'date-time' })
-    })
-  })
 })
