@@ -245,18 +245,29 @@ export function logRestMiddlewareRegistered(count: number): void {
  * Create a middleware for serving documentation routes
  */
 export function createDocsRouteMiddleware(
-  routes: Array<{ method: string; path: string; handler: () => Response | null }>
+  routes: Array<{
+    method: string
+    path: string
+    prefix?: boolean
+    handler: (pathname: string) => Response | null
+  }>
 ): (req: any, res: any) => Promise<boolean> {
   return async (req: any, res: any) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
     for (const route of routes) {
-      if (req.method === route.method && (url.pathname === route.path || url.pathname === route.path + '/')) {
-        const response = route.handler()
+      const matches = route.prefix
+        ? url.pathname.startsWith(route.path.endsWith('/') ? route.path : `${route.path}/`)
+        : url.pathname === route.path || url.pathname === route.path + '/'
+      if (req.method === route.method && matches) {
+        const response = route.handler(url.pathname)
         if (response) {
           const contentType = response.headers.get('Content-Type') || 'application/octet-stream'
-          res.writeHead(response.status, { 'Content-Type': contentType })
-          res.end(await response.text())
+          const headers: Record<string, string> = { 'Content-Type': contentType }
+          const cacheControl = response.headers.get('Cache-Control')
+          if (cacheControl) headers['Cache-Control'] = cacheControl
+          res.writeHead(response.status, headers)
+          res.end(Buffer.from(await response.arrayBuffer()))
           return true
         }
       }

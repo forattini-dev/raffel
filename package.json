@@ -231,6 +231,7 @@
     "test:watch": "vitest -c vitest.config.unit.ts",
     "test:unit": "vitest run -c vitest.config.unit.ts",
     "test:int": "vitest run -c vitest.config.int.ts",
+    "test:docs-ui-browser": "pnpm run build && node scripts/verify-docs-ui-browser.mjs",
     "test:full": "vitest run -c vitest.config.ts",
     "test:coverage": "vitest run -c vitest.config.unit.ts --coverage",
     "test:coverage:full": "vitest run -c vitest.config.ts --coverage",

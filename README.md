@@ -261,7 +261,7 @@ server
 | **Proxy Suite** | HTTP forward, CONNECT tunnel (MITM), SOCKS5, transparent |
 | **Metrics** | Prometheus-style counters, gauges, histograms with exporters |
 | **Tracing** | OpenTelemetry spans with Jaeger / Zipkin exporters |
-| **OpenAPI** | Generate spec from schemas + serve ReDoc / Swagger UI |
+| **Docs UI** | Generate USD/OpenAPI reference and render file-backed Markdown Markdown guides |
 | **Channels** | Pusher-like pub/sub with presence and authorization |
 | **MCP Server** | Model Context Protocol for AI-assisted development |
 | **Testing** | Full mock suite: HTTP, WS, TCP, UDP, DNS, SSE, Proxy |
@@ -571,25 +571,58 @@ Drivers: `createMemorySessionDriver()`, `createRedisSessionDriver({ client })`.
 
 ---
 
-## OpenAPI + Docs UI
+## USD/OpenAPI + Markdown Docs UI
 
 ```typescript
-import { mountOpenApiDocs } from 'raffel'
+import { createServer } from 'raffel'
 
+const server = createServer({ port: 3000 })
+  .enableUSD({
+    basePath: '/docs',
+    info: { title: 'My API', version: '1.0.0' },
+    docsDir: true,
+    ui: {
+      assets: { mode: 'external' },
+      sidebar: { search: true, docsPages: true, subMaxLevel: 3 },
+      markdown: { autoHeader: true, formatUpdated: 'YYYY-MM-DD' },
+    },
+  })
+
+await server.start()
+```
+
+This gives you one documentation surface:
+
+- `/docs` renders generated USD/OpenAPI API reference plus Markdown guides.
+- `/docs/usd.json` and `/docs/usd.yaml` expose the full USD contract.
+- `/docs/openapi.json` exposes pure OpenAPI 3.1 for Swagger/OpenAPI tooling.
+- `docsDir: true` automatically loads the project `./docs` directory with
+  file-backed Markdown `README.md`, `_sidebar.md`, `_navbar.md`, `_coverpage.md`, and
+  `_404.md` conventions.
+
+`basePath` is the real HTTP mount path, so use it to avoid API route
+collisions. `docsDir.routeBase` is only the in-app Markdown route prefix:
+
+```typescript
 server.enableUSD({
+  basePath: '/internal-docs',
   info: { title: 'My API', version: '1.0.0' },
-})
-
-const spec = server.getOpenAPIDocument()
-if (!spec) throw new Error('OpenAPI document is not available')
-
-// Mount /openapi.json + /docs (ReDoc or Swagger UI)
-mountOpenApiDocs(app, {
-  spec,
-  ui: 'redoc',       // or 'swagger'
-  path: '/docs',
+  docsDir: {
+    dir: './docs',
+    routeBase: '/guides',
+  },
 })
 ```
+
+Here the docs UI lives at `/internal-docs`, while `docs/quickstart.md` renders
+inside the UI as `#/guides/quickstart`. It does not create a real API route at
+`/guides/quickstart`.
+
+Use USD/OpenAPI docs for API truth, schemas, routes, auth, and protocols. Use
+Markdown docs for free-form guides, tutorials, runbooks, architecture notes, and
+product documentation. The UI supports light, dark, and auto theme modes, and
+the theme toggle persists the user's preference locally. See
+[Docs UI](./docs/tooling/docs-ui.md) for the full setup.
 
 ---
 
@@ -851,6 +884,7 @@ Express, Fastify, Fetch-first routers, `ws`, and Socket.IO.
 | [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket) | Real-time, channels, presence |
 | [Proxy Suite](https://forattini-dev.github.io/raffel/#/proxy) | Forward, CONNECT, SOCKS5, transparent |
 | [Metrics & Tracing](https://forattini-dev.github.io/raffel/#/observability) | Prometheus, OpenTelemetry |
+| [Docs UI](./docs/tooling/docs-ui.md) | USD/OpenAPI reference plus Markdown guides |
 | [Core Model](https://forattini-dev.github.io/raffel/#/core-model) | Envelope, Context, Router, architecture |
 | [File-based Routing](https://forattini-dev.github.io/raffel/#/file-system-discovery) | Zero-config discovery |
 | [Migration Guide](./docs/migration/frameworks.md) | Concept mapping from existing HTTP and realtime stacks |

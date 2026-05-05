@@ -72,6 +72,9 @@
 - **Tooling**
   - [Validation](/tooling/validation.md)
   - [OpenAPI](/tooling/openapi.md)
+  - [Docs UI](/tooling/docs-ui.md)
+  - [Docs UI Complete Example](/tooling/docs-ui-complete-example.md)
+  - [Docs UI Parity](/tooling/docs-ui-parity.md)
   - [Providers (DI)](/tooling/providers.md)
   - [Framework Plugins](/tooling/framework-plugins.md)
   - [Cache Drivers](/core/interceptors/cache.md)

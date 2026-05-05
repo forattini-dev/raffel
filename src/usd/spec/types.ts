@@ -172,7 +172,7 @@ export interface USDAuthzCatalog {
  * This allows the spec to define hero section, introduction markdown, and other UI elements
  */
 export interface USDDocumentation {
-  /** Hero section configuration (Docsify-inspired cover page) */
+  /** Hero section configuration (built-in cover page) */
   hero?: USDHero
 
   /** Introduction markdown content (displayed after hero, before endpoints) */
@@ -180,6 +180,12 @@ export interface USDDocumentation {
 
   /** Markdown documentation pages rendered alongside generated API docs */
   pages?: USDDocumentationPage[]
+
+  /** Route aliases for preserving old docs links, for example { '/old': '/new' } */
+  aliases?: Record<string, string>
+
+  /** In-app route prefix used by file-backed Markdown docs, for example `/guides` */
+  routeBase?: string
 
   /** External documentation links */
   externalLinks?: USDExternalLink[]
@@ -195,7 +201,7 @@ export interface USDDocumentation {
 }
 
 /**
- * Hero section configuration (Docsify-style cover page)
+ * Hero section configuration (file-backed Markdown cover page)
  */
 export interface USDHero {
   /** Override title from info.title */
@@ -283,6 +289,8 @@ export interface USDDocumentationPage {
   section?: string
   /** Optional section ordering hint */
   order?: number
+  /** Last updated timestamp for file-backed Markdown pages */
+  updatedAt?: string
 }
 
 // =============================================================================

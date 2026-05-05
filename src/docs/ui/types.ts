@@ -23,10 +23,12 @@ export interface UIConfig {
   footer?: string
   toc?: TocConfig
   assets?: UIAssetsConfig
+  markdown?: MarkdownConfig
+  skipLink?: boolean | string
 }
 
 /**
- * Hero section configuration (Docsify-inspired cover page)
+ * Hero section configuration (built-in cover page)
  */
 export interface HeroConfig {
   /** Override title from spec.info.title */
@@ -68,6 +70,9 @@ export interface SidebarConfig {
   expandAll?: boolean
   showCounts?: boolean
   docsPages?: boolean
+  hide?: boolean
+  /** file-backed Markdown heading depth to include under the active docs page. */
+  subMaxLevel?: number
 }
 
 /**
@@ -75,12 +80,13 @@ export interface SidebarConfig {
  */
 export interface NavItem {
   title: string
-  href: string
+  href?: string
   external?: boolean
+  children?: NavItem[]
 }
 
 /**
- * Markdown documentation page rendered by the Docsify-like UI.
+ * Markdown documentation page rendered by the file-backed Markdown UI.
  */
 export interface DocsPage {
   title: string
@@ -89,6 +95,7 @@ export interface DocsPage {
   description?: string
   section?: string
   order?: number
+  updatedAt?: string
 }
 
 /**
@@ -98,6 +105,24 @@ export interface TocConfig {
   enabled?: boolean
   minLevel?: number
   maxLevel?: number
+}
+
+/**
+ * Markdown rendering behavior.
+ */
+export interface MarkdownConfig {
+  /** Add the page title as an H1 when a docs page has no top-level heading. */
+  autoHeader?: boolean
+  /** Format for `{raffel-updated}` markers. Supports YYYY, MM, DD, HH, mm, ss. */
+  formatUpdated?: string
+  /** Disable emoji shorthand conversion, for example `:rocket:`. */
+  noEmoji?: boolean
+  /** Default target for external Markdown links. Defaults to `_blank`. */
+  externalLinkTarget?: string
+  /** Default rel for external Markdown links opened in a new tab. Defaults to `noopener noreferrer`. */
+  externalLinkRel?: string
+  /** file-backed Markdown patterns for links that should not be compiled into docs routes. */
+  noCompileLinks?: string[]
 }
 
 /**

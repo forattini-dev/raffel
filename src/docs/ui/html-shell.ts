@@ -27,6 +27,15 @@ export function mergeHeroConfig(
 }
 
 /**
+ * Generate a skip navigation link.
+ */
+export function generateSkipLink(skipLink: UIConfig['skipLink']): string {
+  if (skipLink === false) return ''
+  const label = typeof skipLink === 'string' ? skipLink : 'Skip to main content'
+  return `<a class="skip-link" href="#mainContent">${escapeHtml(label)}</a>`
+}
+
+/**
  * Generate introduction section HTML. Markdown is rendered by the client script.
  */
 export function generateIntroductionSection(introduction: string | undefined): string {
@@ -42,7 +51,7 @@ export function generateIntroductionSection(introduction: string | undefined): s
 }
 
 /**
- * Generate GitHub corner SVG (Docsify-style).
+ * Generate GitHub corner SVG (file-backed Markdown).
  */
 function generateGitHubCorner(url: string): string {
   return `
@@ -124,10 +133,7 @@ export function generateTopNavigation(
   title: string,
   navItems: NavItem[]
 ): string {
-  const links = navItems.map(item => {
-    const target = item.external ? ' target="_blank" rel="noopener noreferrer"' : ''
-    return `<a href="${escapeHtml(item.href)}"${target}>${escapeHtml(item.title)}</a>`
-  }).join('')
+  const links = navItems.map(renderTopNavItem).join('')
 
   return `
   <nav class="top-nav" aria-label="Documentation navigation">
@@ -143,6 +149,19 @@ export function generateTopNavigation(
   `
 }
 
+function renderTopNavItem(item: NavItem): string {
+  const children = item.children ?? []
+  if (children.length > 0) {
+    const childLinks = children.map(renderTopNavItem).join('')
+    const fallbackHref = item.href ? ` data-href="${escapeHtml(item.href)}"` : ''
+    return `<details class="top-nav-menu"${fallbackHref}><summary>${escapeHtml(item.title)}</summary><div class="top-nav-submenu">${childLinks}</div></details>`
+  }
+
+  const href = item.href ?? '#/'
+  const target = item.external ? ' target="_blank" rel="noopener noreferrer"' : ''
+  return `<a class="top-nav-link" href="${escapeHtml(href)}"${target}>${escapeHtml(item.title)}</a>`
+}
+
 /**
  * Generate app container HTML.
  */
@@ -152,10 +171,11 @@ export function generateAppContainer(
   sidebar: UIConfig['sidebar'],
   footer: string | undefined
 ): string {
+  const sidebarHidden = sidebar?.hide === true
   return `
   <div class="reading-progress" id="readingProgress"></div>
-  <div class="app-container" id="docs">
-    <aside class="sidebar">
+  <div class="app-container${sidebarHidden ? ' app-container-no-sidebar' : ''}" id="docs" data-sidebar-hidden="${sidebarHidden ? 'true' : 'false'}">
+    <aside class="sidebar${sidebarHidden ? ' sidebar-hidden' : ''}"${sidebarHidden ? ' hidden' : ''}>
       <div class="sidebar-header">
         <div class="sidebar-logo">
           ${logo ? `<img src="${escapeHtml(logo)}" alt="Logo">` : ''}

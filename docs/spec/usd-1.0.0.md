@@ -1246,7 +1246,7 @@ The Documentation Object allows customizing the generated documentation UI, incl
 
 | Field Name | Type | Description |
 |------------|------|-------------|
-| hero | [Hero Object](#hero-object) | Hero section configuration (Docsify-style cover page). |
+| hero | [Hero Object](#hero-object) | Hero section configuration (file-backed Markdown cover page). |
 | introduction | `string` | Markdown content displayed after the hero, before API endpoints. |
 | logo | `string` | Custom logo URL. |
 | favicon | `string` | Custom favicon URL. |
@@ -1254,7 +1254,7 @@ The Documentation Object allows customizing the generated documentation UI, incl
 
 ### Hero Object
 
-The hero section creates a Docsify-inspired cover page with branding, features, and call-to-action buttons.
+The hero section creates a built-in cover page with branding, features, and call-to-action buttons.
 
 | Field Name | Type | Description |
 |------------|------|-------------|

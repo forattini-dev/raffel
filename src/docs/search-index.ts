@@ -42,7 +42,7 @@ function indexPage(page: USDDocumentationPage, pageIndex: number): DocsSearchInd
       title: heading.title,
       path: normalizeDocsPath(page.path),
       section,
-      headingId: slugifyHeading(heading.title),
+      headingId: heading.id,
       excerpt: firstExcerpt(markdownToText(heading.markdown)),
       text: [title, section, heading.title, markdownToText(heading.markdown)].filter(Boolean).join(' '),
       rank: pageIndex * 100 + headingIndex + 1,
@@ -68,32 +68,56 @@ function parseFrontmatter(markdown: string): ParsedMarkdownPage {
   return { frontmatter, body: source.slice(end + 4).replace(/^\n/, '') }
 }
 
-function extractHeadingSections(markdown: string): Array<{ title: string, markdown: string }> {
+function extractHeadingSections(markdown: string): Array<{ title: string, id: string, markdown: string }> {
   const lines = markdown.split(/\r?\n/)
-  const sections: Array<{ title: string, markdown: string[] }> = []
-  let current: { title: string, markdown: string[] } | null = null
+  const sections: Array<{ title: string, id: string, markdown: string[] }> = []
+  let current: { title: string, id: string, markdown: string[] } | null = null
+  const seenHeadingIds = new Map<string, number>()
+  let sawHeading = false
 
   for (const line of lines) {
     const heading = /^#{2,3}\s+(.+)$/.exec(line.trim())
     if (heading) {
+      sawHeading = true
       if (current) sections.push(current)
-      current = { title: heading[1].replace(/\s+#+$/, '').trim(), markdown: [] }
+      const parsedHeading = parseHeadingTitle(heading[1])
+      const id = uniqueHeadingId(parsedHeading.id, parsedHeading.customId, seenHeadingIds)
+      if (parsedHeading.ignoreAll) return []
+      if (parsedHeading.ignore) {
+        current = null
+        continue
+      }
+      current = { ...parsedHeading, id, markdown: [] }
       continue
+    }
+    const topHeading = /^#\s+(.+)$/.exec(line.trim())
+    if (!sawHeading && topHeading) {
+      const parsedHeading = parseHeadingTitle(topHeading[1])
+      uniqueHeadingId(parsedHeading.id, parsedHeading.customId, seenHeadingIds)
+      if (parsedHeading.ignoreAll) return []
     }
     current?.markdown.push(line)
   }
 
   if (current) sections.push(current)
-  return sections.map(section => ({ title: section.title, markdown: section.markdown.join('\n') }))
+  return sections.map(section => ({
+    title: section.title,
+    id: section.id,
+    markdown: section.markdown.join('\n'),
+  }))
 }
 
 function firstHeading(markdown: string): string | undefined {
-  return /^#\s+(.+)$/m.exec(markdown)?.[1]?.replace(/\s+#+$/, '').trim()
+  const heading = /^#\s+(.+)$/m.exec(markdown)?.[1]
+  return heading ? parseHeadingTitle(heading).title : undefined
 }
 
 function markdownToText(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\s+:id=[A-Za-z0-9_-]+/g, ' ')
+    .replace(/<!--\s*\{raffel-ignore(?:-all)?\}\s*-->/ig, ' ')
+    .replace(/\{raffel-ignore(?:-all)?\}/ig, ' ')
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/[#>*_`~|[\]()-]/g, ' ')
@@ -121,4 +145,32 @@ function slugifyHeading(value: string): string {
     .trim()
     .replace(/[\s_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
+}
+
+function parseHeadingTitle(value: string): { title: string, id: string, customId: boolean, ignore: boolean, ignoreAll: boolean } {
+  const withoutClosingHashes = value.replace(/\s+#+$/, '').trim()
+  const ignoreAll = /\{raffel-ignore-all\}/i.test(withoutClosingHashes)
+  const ignore = ignoreAll || /\{raffel-ignore\}/i.test(withoutClosingHashes)
+  const withoutIgnore = withoutClosingHashes
+    .replace(/<!--\s*\{raffel-ignore(?:-all)?\}\s*-->/ig, '')
+    .replace(/\{raffel-ignore(?:-all)?\}/ig, '')
+    .trim()
+  const idMatch = withoutIgnore.match(/\s+:id=([A-Za-z0-9_-]+)\s*$/)
+  const title = idMatch
+    ? withoutIgnore.slice(0, idMatch.index).trim()
+    : withoutIgnore
+  return {
+    title,
+    id: idMatch?.[1] ?? slugifyHeading(title),
+    customId: Boolean(idMatch),
+    ignore,
+    ignoreAll,
+  }
+}
+
+function uniqueHeadingId(id: string, customId: boolean, seen: Map<string, number>): string {
+  if (customId) return id
+  const count = seen.get(id) ?? 0
+  seen.set(id, count + 1)
+  return count ? `${id}-${count}` : id
 }

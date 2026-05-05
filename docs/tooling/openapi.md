@@ -531,7 +531,7 @@ await server.start()
 // GET /docs/openapi.json → OpenAPI 3.1
 ```
 
-See [Developer Experience](/tooling/dx.md) for full USD UI configuration options.
+See [Docs UI](/tooling/docs-ui.md) for the full setup that combines generated USD/OpenAPI reference with file-backed Markdown Markdown pages.
 
 ## TypeScript Types
 

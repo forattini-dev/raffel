@@ -50,7 +50,108 @@ export function generateShellStyles(
       line-height: 1.6;
     }
 
-    /* ========== HERO SECTION (Docsify-inspired) ========== */
+    /* ========== TOP NAVIGATION ========== */
+    .top-nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      min-height: 56px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border-color);
+      background: color-mix(in srgb, var(--bg-color) 92%, transparent);
+      backdrop-filter: blur(10px);
+    }
+
+    .top-nav-brand,
+    .top-nav-link,
+    .top-nav-menu summary {
+      color: var(--text-color);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .top-nav-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: auto;
+      font-weight: 650;
+    }
+
+    .top-nav-brand img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+    }
+
+    .top-nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .top-nav-link:hover,
+    .top-nav-menu summary:hover {
+      color: var(--primary-color);
+    }
+
+    .top-nav-menu {
+      position: relative;
+    }
+
+    .top-nav-menu summary {
+      list-style: none;
+      cursor: pointer;
+    }
+
+    .top-nav-menu summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .top-nav-menu summary::after {
+      content: '▾';
+      margin-left: 6px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .top-nav-submenu {
+      position: absolute;
+      top: calc(100% + 12px);
+      right: 0;
+      min-width: 180px;
+      display: grid;
+      gap: 4px;
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-color);
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
+    }
+
+    .top-nav-submenu .top-nav-link,
+    .top-nav-submenu .top-nav-menu summary {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 6px;
+    }
+
+    .top-nav-submenu .top-nav-link:hover,
+    .top-nav-submenu .top-nav-menu summary:hover {
+      background: var(--hover-bg);
+    }
+
+    .top-nav-actions {
+      display: flex;
+      align-items: center;
+    }
+
+    /* ========== HERO SECTION (built-in) ========== */
     .hero {
       ${heroBackgroundCSS}
       color: white;
