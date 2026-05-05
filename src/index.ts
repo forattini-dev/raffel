@@ -400,88 +400,7 @@ export type {
 } from './rate-limit/index.js'
 
 // === Server (Unified API) ===
-export {
-  createServer,
-  createRouterModule,
-  loadRouterModule,
-  pathToRouteName,
-  loadDiscovery,
-  createDiscoveryWatcher,
-  createRouteInterceptors,
-  createChannelAuthorizer,
-  isDevelopment,
-  loadRestResources,
-  loadResources,
-  generateResourceRoutes,
-  loadTcpHandlers,
-  createTcpServer,
-  loadUdpHandlers,
-  createUdpServer,
-  detectSinglePortProtocolFromChunk,
-  detectSinglePortProtocolFromStream,
-  normalizeSinglePortDefaults,
-  getSinglePortConcurrencyState,
-  SinglePortRegistry,
-} from './server/index.js'
-export type {
-  ServerOptions,
-  HttpOptions,
-  CorsOptions,
-  RaffelServer,
-  ServerAddresses,
-  AddressInfo,
-  WebSocketOptions,
-  JsonRpcOptions,
-  TcpOptions,
-  GrpcOptions,
-  // GrpcTlsOptions is exported from adapters/index.js
-  ProtocolAdapterContext,
-  ProtocolAdapter,
-  ProtocolAdapterFactory,
-  ProtocolExtensionConfig,
-  ProtocolAddress,
-  ProtocolSniffer,
-  ProtocolDecisionPayload,
-  ProtocolFusionDecision,
-  ProtocolFusionState,
-  ProtocolFusionMode,
-  ProtocolFusionLayer,
-  ProtocolFusionOutcome,
-  ProtocolSnifferContext,
-  SinglePortProtocolKind,
-  SinglePortDecisionReason,
-  SinglePortConfig,
-  SinglePortDetectorOptions,
-  SinglePortStreamDetectInput,
-  SinglePortChunkDetectInput,
-  SinglePortDefaults,
-  ProcedureBuilder,
-  StreamBuilder,
-  EventBuilder,
-  GroupBuilder,
-  RouterModule,
-  MountOptions,
-  RouteKind,
-  RouteDefinition,
-  ProcedureRouteDefinition,
-  StreamRouteDefinition,
-  EventRouteDefinition,
-  RouteLoaderOptions,
-  // Providers (Dependency Injection)
-  ProviderFactory,
-  ProviderDefinition,
-  ProvidersConfig,
-  ResolvedProviders,
-  ServerPlugin,
-  ServerPluginRegisterContext,
-  ServerPluginRuntimeContext,
-  ServerPluginInspectContext,
-  // Procedure Hooks
-  BeforeHook,
-  AfterHook,
-  ErrorHook,
-  GlobalHooksConfig,
-} from './server/index.js'
+export * from './server/index.js'
 
 // === Errors ===
 export {
@@ -857,105 +776,10 @@ export type {
 } from './middleware/session/index.js'
 
 // === Proxy ===
-export {
-  createHttpForwardProxy,
-  createConnectTunnel,
-  createSocks5Proxy,
-  createTransparentProxy,
-  createExplicitProxy,
-  createProxySuite,
-  createReverseProxy,
-  loadReverseProxyConfig,
-  parseReverseProxyConfig,
-  DEFAULT_PROXY_PERCENTILES,
-  runProxyMiddleware,
-} from './proxy/index.js'
-export type {
-  ProxyAuth,
-  ProxyCredentials,
-  ProxyStats,
-  ProxyServer,
-  ProxyMiddleware,
-  ProxyMiddlewareKind,
-  ProxyMiddlewareContext,
-  ProxyMiddlewareBlock,
-  ProxyMiddlewareTarget,
-  ProxyMiddlewareRequest,
-  ProxyMiddlewareResponse,
-  ConnectMode,
-  ConnectTunnelOptions,
-  ConnectTunnel,
-  TunnelInfo,
-  MitmRequest,
-  MitmResponse,
-  HttpForwardProxyOptions,
-  HttpForwardProxy,
-  ForwardProxyRequest,
-  ForwardProxyResponse,
-  ProxyValidateOptions,
-  ExplicitProxyOptions,
-  ExplicitProxy,
-  ExplicitProxyUpgradeOptions,
-  ExplicitProxyTelemetryOptions,
-  ProxyNodeResolutionContext,
-  UpgradeProxyRequest,
-  UpgradeConnectionInfo,
-  ProxyFlowProtocol,
-  ProxyGraphNode,
-  ProxyGraphEdge,
-  ProxyGraphLatency,
-  ProxyGraphRates,
-  ProxyGraphSnapshot,
-  ProxyTelemetryEvent,
-  ProxyTelemetryListener,
-  ProxyTelemetryCollector,
-  ProxyFlowHandle,
-  ProxyFlowFinishInput,
-  Socks5Options,
-  Socks5TelemetryOptions,
-  Socks5Proxy,
-  Socks5ConnectionInfo,
-  ProxySuite,
-  ProxySuiteOptions,
-  ProxySuiteTelemetryOptions,
-  ProxyTelemetryPercentile,
-  ReverseProxy,
-  ReverseProxyConfig,
-  ReverseProxyServerConfig,
-  ReverseProxyServerTlsConfig,
-  ReverseProxyNoMatchConfig,
-  ReverseProxyProxyOptions,
-  ReverseProxyMatchCriteria,
-  ReverseProxyRouteConfig,
-  TransparentProxyMode,
-  TransparentOriginalDestination,
-  TransparentOriginalDestinationResolverContext,
-  TransparentConnectionInfo,
-  TransparentProxyOptions,
-  TransparentTelemetryOptions,
-  TransparentProxy,
-  ProxyFilter,
-} from './proxy/index.js'
+export * from './proxy/index.js'
 
 // === SMTP (Client + Relay) ===
-export {
-  createSmtpClientConnection,
-  buildRawMessage,
-  createSmtpRelay,
-} from './smtp/index.js'
-export type {
-  MailAddress,
-  MailMessage,
-  SmtpClientConfig,
-  SmtpClientConnection,
-  SmtpResponse,
-  SmtpSendResult,
-  SmtpRelayConfig,
-  SmtpRelay,
-  SmtpRelayStats,
-  RelayQueueEntry,
-  DkimSignConfig,
-} from './smtp/index.js'
+export * from './smtp/index.js'
 
 // === Testing Mocks ===
 export * from './testing/index.js'
@@ -1111,12 +935,9 @@ export type {
 } from './mock-server/index.js'
 export { runMockCommand, mockParser } from './mock-server/cli.js'
 
-// === Server Orchestration (formerly application/) ===
-// Renamed from application/ to server/orchestration/ in slice 8 of the
-// architecture-deepening initiative (PRD #6 / issue #11). The previous
-// application/ folder name overpromised a use-case layer; in practice
-// these helpers are builder-internal. application/ kept as a compat
-// re-export shim for one release.
+// === Server Orchestration ===
+// Builder-internal registration and preview helpers live under
+// server/orchestration because this is not a separate application layer.
 export { createRegistrationService } from './server/orchestration/index.js'
 export type { RegistrationService, RegistrationContext } from './server/orchestration/index.js'
 export { createRuntimePreviewService } from './server/orchestration/index.js'

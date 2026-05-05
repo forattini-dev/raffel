@@ -10,40 +10,29 @@
 import { createServer as createHttpServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
 import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
-import { sid } from '../utils/id/index.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context, ContextSeed } from '../types/index.js'
-import { mergeContextSeeds } from '../types/index.js'
-import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import { applyRateLimitHeaders } from '../http/rate-limit-headers.js'
-import { mergeMetadata } from '../utils/header-metadata.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
 import {
-  jsonCodec,
   resolveCodecs,
-  selectCodecForAccept,
-  selectCodecForContentType,
   type Codec,
 } from '../utils/content-codecs.js'
-import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
+import type { TrustedProxyConfig } from '../utils/client-ip.js'
 import type { ClosableHttpServer } from '../types/server.js'
 import { getStatusForCode } from '../errors/codes.js'
+import {
+  createHttpRequestContext,
+  dispatchHttpEnvelope,
+  resolveHttpRequestBody,
+  resolveHttpResponseCodec,
+  searchParamsToQuery,
+  sendErrorResponse,
+} from '../server/http-lifecycle/index.js'
 
 const logger = createLogger('http-adapter')
-
-// Rate limit header helpers moved to src/http/rate-limit-headers.ts —
-// shared with src/server/rest-middleware.ts.
-
-class BodyParseError extends Error {
-  code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR' | 'INVALID_ARGUMENT'
-
-  constructor(code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR' | 'INVALID_ARGUMENT', message: string) {
-    super(message)
-    this.code = code
-  }
-}
 
 /**
  * HTTP middleware function.
@@ -125,116 +114,6 @@ export interface HttpAdapter {
   /** Get the underlying HTTP server (for testing or custom routing) */
   readonly server: Server | null
 }
-
-/**
- * Parse request body using a codec
- */
-function parseBody(
-  req: IncomingMessage,
-  maxSize: number,
-  codec: Codec
-): Promise<{ payload: unknown; size: number }> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let size = 0
-
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > maxSize) {
-        req.destroy()
-        reject(new BodyParseError('PAYLOAD_TOO_LARGE', 'Request body too large'))
-        return
-      }
-      chunks.push(chunk)
-    })
-
-    req.on('end', () => {
-      if (size === 0) {
-        resolve({ payload: {}, size })
-        return
-      }
-
-      try {
-        const body = Buffer.concat(chunks).toString('utf-8')
-        resolve({ payload: codec.decode(body), size })
-      } catch {
-        reject(new BodyParseError('PARSE_ERROR', 'Invalid request body'))
-      }
-    })
-
-    req.on('error', reject)
-  })
-}
-
-function searchParamsToQuery(params: URLSearchParams): Record<string, unknown> {
-  const query: Record<string, unknown> = {}
-  for (const [key, value] of params.entries()) {
-    const existing = query[key]
-    if (existing === undefined) {
-      query[key] = value
-      continue
-    }
-    if (Array.isArray(existing)) {
-      existing.push(value)
-      continue
-    }
-    query[key] = [existing, value]
-  }
-  return query
-}
-
-/**
- * Send response using a codec
- */
-function sendEncoded(res: ServerResponse, status: number, data: unknown, codec: Codec): void {
-  const body = codec.encode(data)
-  res.writeHead(status, {
-    'Content-Type': codec.contentTypes[0] ?? 'application/json',
-    'Content-Length': Buffer.byteLength(body),
-  })
-  res.end(body)
-}
-
-/**
- * Send error response
- */
-function sendError(
-  res: ServerResponse,
-  status: number,
-  code: string,
-  message: string,
-  details?: unknown
-): void {
-  sendEncoded(
-    res,
-    status,
-    { error: { code, message, ...(details !== undefined && { details }) } },
-    jsonCodec
-  )
-}
-
-function getHeaderValue(value: string | string[] | undefined): string | undefined {
-  if (!value) return undefined
-  return Array.isArray(value) ? value.join(',') : value
-}
-
-function requestHasBody(req: IncomingMessage): boolean {
-  const lengthHeader = getHeaderValue(req.headers['content-length'])
-  if (lengthHeader) {
-    const length = Number.parseInt(lengthHeader, 10)
-    if (Number.isFinite(length)) {
-      return length > 0
-    }
-  }
-
-  const transferEncoding = getHeaderValue(req.headers['transfer-encoding'])
-  if (transferEncoding && transferEncoding.toLowerCase() !== 'identity') {
-    return true
-  }
-
-  return false
-}
-
 
 /**
  * Map Raffel error codes to HTTP status codes.
@@ -364,19 +243,6 @@ export function createHttpAdapter(
       }
     }
 
-    const abortController = new AbortController()
-    const abort = (reason: string) => {
-      if (!abortController.signal.aborted) {
-        abortController.abort(reason)
-      }
-    }
-    req.on('aborted', () => abort('Client aborted request'))
-    res.on('close', () => {
-      if (!res.writableEnded) {
-        abort('Response closed early')
-      }
-    })
-
     const { procedure, isEvent, isStream } = extractProcedure(url.pathname)
 
     logger.debug({ method: req.method, path: url.pathname, procedure }, 'Request received')
@@ -384,45 +250,17 @@ export function createHttpAdapter(
     let ctx: Context | null = null
 
     try {
-      // Build context
-      const requestId = (req.headers['x-request-id'] as string) || sid()
-      const client = resolveClientIp({
-        headers: req.headers,
-        remoteAddress: req.socket?.remoteAddress,
-        remotePort: req.socket?.remotePort,
-        trustedProxies,
-      })
-      const metadata = mergeMetadata(
-        extractMetadataFromHeaders(req.headers),
-        client.ip ? { 'x-client-ip': client.ip } : undefined
-      )
-      const adapterSeed: ContextSeed = {
-        protocol: 'http',
+      ctx = (await createHttpRequestContext({
+        req,
+        res,
+        method: req.method ?? 'GET',
+        url,
         input: {
           query: searchParamsToQuery(url.searchParams),
-          metadata,
         },
-        http: {
-          kind: 'http',
-          method: req.method ?? 'GET',
-          path: url.pathname,
-          url: url.toString(),
-          headers: metadata,
-          clientIp: client.ip,
-          remoteAddress: client.remoteAddress,
-          remotePort: client.remotePort,
-        },
-      }
-      ctx = await createAbortableContextAsync(
-        requestId,
-        mergeContextSeeds(adapterSeed, await options.contextFactory?.(req)),
-        abortController
-      )
-      const deadlineHeader = req.headers['x-deadline']
-      const deadline = typeof deadlineHeader === 'string' ? Number.parseInt(deadlineHeader, 10) : NaN
-      if (Number.isFinite(deadline)) {
-        ctx.deadline = ctx.deadline ? Math.min(ctx.deadline, deadline) : deadline
-      }
+        trustedProxies,
+        contextFactory: options.contextFactory,
+      })).ctx
 
       // Handle based on type
       if (isStream && req.method === 'GET') {
@@ -435,7 +273,7 @@ export function createHttpAdapter(
         // Regular procedure call
         await handleProcedure(req, res, procedure, ctx)
       } else {
-        sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method ${req.method} not allowed`)
+        sendErrorResponse(res, 405, 'METHOD_NOT_ALLOWED', `Method ${req.method} not allowed`)
       }
     } catch (err) {
       const error = err as Error
@@ -443,73 +281,10 @@ export function createHttpAdapter(
       if (ctx) {
         applyRateLimitHeaders(res, ctx)
       }
-      sendError(res, 500, 'INTERNAL_ERROR', error.message)
+      sendErrorResponse(res, 500, 'INTERNAL_ERROR', error.message)
     } finally {
       logger.debug({ procedure, duration: Date.now() - startTime }, 'Request completed')
     }
-  }
-
-  /**
-   * Resolve request codec and parse body.
-   * Returns parsed payload on success, or null if an error response was already sent.
-   */
-  async function resolveRequestBody(
-    req: IncomingMessage,
-    res: ServerResponse
-  ): Promise<{ payload: unknown } | null> {
-    const contentType = getHeaderValue(req.headers['content-type'])
-    let requestCodec = jsonCodec
-    if (contentType) {
-      const selected = selectCodecForContentType(contentType, codecs)
-      if (!selected) {
-        sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-        return null
-      }
-      requestCodec = selected
-    } else if (requestHasBody(req)) {
-      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-      return null
-    }
-
-    let payload: unknown
-    let bodySize = 0
-    try {
-      const parsed = await parseBody(req, maxBodySize, requestCodec)
-      payload = parsed.payload
-      bodySize = parsed.size
-    } catch (err) {
-      const error = err as Error
-      if (error instanceof BodyParseError) {
-        const status = mapErrorCodeToStatus(error.code)
-        sendError(res, status, error.code, error.message)
-        return null
-      }
-      sendError(res, 400, 'INVALID_ARGUMENT', error.message)
-      return null
-    }
-
-    if (!contentType && bodySize > 0) {
-      sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-      return null
-    }
-
-    return { payload }
-  }
-
-  /**
-   * Handle procedure request (POST /procedure.name)
-   */
-  function resolveResponseCodec(
-    req: IncomingMessage,
-    res: ServerResponse
-  ): Codec | null {
-    const accept = getHeaderValue(req.headers.accept)
-    const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
-    if (!responseCodec) {
-      sendError(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
-      return null
-    }
-    return responseCodec
   }
 
   async function handleProcedure(
@@ -518,10 +293,10 @@ export function createHttpAdapter(
     procedure: string,
     ctx: Context
   ): Promise<void> {
-    const responseCodec = resolveResponseCodec(req, res)
+    const responseCodec = resolveHttpResponseCodec(req, res, codecs)
     if (!responseCodec) return
 
-    const bodyResult = await resolveRequestBody(req, res)
+    const bodyResult = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
     if (!bodyResult) return
     const { payload } = bodyResult
     ctx.input = {
@@ -529,34 +304,16 @@ export function createHttpAdapter(
       body: payload,
     }
 
-    // Build envelope
-    const envelope: Envelope = {
-      id: ctx.requestId,
+    await dispatchHttpEnvelope({
+      res,
+      router,
       procedure,
-      type: 'request',
       payload,
-      metadata: extractMetadataFromHeaders(req.headers),
-      context: ctx,
-    }
-
-    // Route
-    const result = await router.handle(envelope)
-
-    // Check if error
-    if (result && typeof result === 'object' && 'type' in result) {
-      const resultEnvelope = result as Envelope
-      if (resultEnvelope.type === 'error') {
-        const errorPayload = resultEnvelope.payload as { code: string; message: string; details?: unknown }
-        const status = mapErrorCodeToStatus(errorPayload.code)
-        applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
-        sendError(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
-        return
-      }
-
-      // Success response
-      applyRateLimitHeaders(res, ctx)
-      sendEncoded(res, 200, resultEnvelope.payload, responseCodec)
-    }
+      metadata: ctx.input.metadata as Record<string, string>,
+      ctx,
+      responseCodec,
+      method: req.method ?? 'POST',
+    })
   }
 
   /**
@@ -606,13 +363,13 @@ export function createHttpAdapter(
     if (result && typeof result === 'object' && 'type' in result && (result as Envelope).type === 'error') {
       const errorPayload = (result as Envelope).payload as { code: string; message: string; details?: unknown }
       const status = mapErrorCodeToStatus(errorPayload.code)
-      sendError(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
+      sendErrorResponse(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
       return
     }
 
     // Check if stream
     if (!isAsyncIterable(result)) {
-      sendError(res, 500, 'INTERNAL_ERROR', 'Handler did not return a stream')
+      sendErrorResponse(res, 500, 'INTERNAL_ERROR', 'Handler did not return a stream')
       return
     }
 
@@ -665,11 +422,11 @@ export function createHttpAdapter(
     procedure: string,
     ctx: Context
   ): Promise<void> {
-    if (!resolveResponseCodec(req, res)) {
+    if (!resolveHttpResponseCodec(req, res, codecs)) {
       return
     }
 
-    const bodyResult = await resolveRequestBody(req, res)
+    const bodyResult = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
     if (!bodyResult) return
     const { payload } = bodyResult
     ctx.input = {
@@ -683,7 +440,7 @@ export function createHttpAdapter(
       procedure,
       type: 'event',
       payload,
-      metadata: extractMetadataFromHeaders(req.headers),
+      metadata: ctx.input.metadata as Record<string, string>,
       context: ctx,
     }
 
@@ -697,7 +454,7 @@ export function createHttpAdapter(
         const errorPayload = resultEnvelope.payload as { code: string; message: string; details?: unknown }
         const status = mapErrorCodeToStatus(errorPayload.code)
         applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
-        sendError(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
+        sendErrorResponse(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
         return
       }
     }

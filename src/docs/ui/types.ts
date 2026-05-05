@@ -19,6 +19,9 @@ export interface UIConfig {
   }
   hero?: HeroConfig
   sidebar?: SidebarConfig
+  navbar?: NavItem[]
+  footer?: string
+  toc?: TocConfig
 }
 
 /**
@@ -63,6 +66,37 @@ export interface SidebarConfig {
   search?: boolean
   expandAll?: boolean
   showCounts?: boolean
+  docsPages?: boolean
+}
+
+/**
+ * Top navigation item.
+ */
+export interface NavItem {
+  title: string
+  href: string
+  external?: boolean
+}
+
+/**
+ * Markdown documentation page rendered by the Docsify-like UI.
+ */
+export interface DocsPage {
+  title: string
+  path: string
+  markdown: string
+  description?: string
+  section?: string
+  order?: number
+}
+
+/**
+ * In-page table of contents configuration.
+ */
+export interface TocConfig {
+  enabled?: boolean
+  minLevel?: number
+  maxLevel?: number
 }
 
 /**

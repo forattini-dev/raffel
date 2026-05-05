@@ -18,122 +18,17 @@ import type {
   ClientInfo,
   RoomInfo,
   GroupInfo,
-  ChannelRateLimits,
 } from './types.js'
 import { getChannelType } from './types.js'
 import type { ChannelHistoryPort } from './history.js'
 import { createMemoryHistoryStore } from './history.js'
-
-// ─── Rate Limiter (sliding window per socket) ────────────────────────────────
-
-interface RateBucket {
-  count: number
-  windowStart: number
-}
-
-function createRateLimiter(limits: ChannelRateLimits) {
-  const buckets = new Map<string, RateBucket>()
-
-  function checkLimit(key: string, maxPerSecond: number): boolean {
-    const now = Date.now()
-    const bucket = buckets.get(key)
-
-    if (!bucket || now - bucket.windowStart >= 1000) {
-      buckets.set(key, { count: 1, windowStart: now })
-      return true
-    }
-
-    if (bucket.count >= maxPerSecond) {
-      return false
-    }
-
-    bucket.count++
-    return true
-  }
-
-  function checkSubscribe(socketId: string): boolean {
-    if (!limits.maxSubscribesPerSecond) return true
-    return checkLimit(`${socketId}:sub`, limits.maxSubscribesPerSecond)
-  }
-
-  function checkPublish(socketId: string): boolean {
-    if (!limits.maxPublishesPerSecond) return true
-    return checkLimit(`${socketId}:pub`, limits.maxPublishesPerSecond)
-  }
-
-  function checkMessage(socketId: string): boolean {
-    if (!limits.maxMessagesPerSecond) return true
-    return checkLimit(`${socketId}:msg`, limits.maxMessagesPerSecond)
-  }
-
-  function isChannelLimitReached(socketId: string, currentCount: number): boolean {
-    if (!limits.maxChannelsPerClient) return false
-    return currentCount >= limits.maxChannelsPerClient
-  }
-
-  function removeSocket(socketId: string): void {
-    for (const key of buckets.keys()) {
-      if (key.startsWith(socketId + ':')) {
-        buckets.delete(key)
-      }
-    }
-  }
-
-  return {
-    limits,
-    checkLimit,
-    checkSubscribe,
-    checkPublish,
-    checkMessage,
-    isChannelLimitReached,
-    removeSocket,
-  }
-}
+import { createInMemoryChannelPresencePort } from './memory-presence.js'
+import { createRateLimiter } from './rate-limiter.js'
 
 /**
  * Function to send a message to a socket
  */
 export type SendToSocketFn = (socketId: string, message: unknown) => void
-
-function createInMemoryChannelPresencePort(): ChannelPresencePort {
-  const membersByChannel = new Map<string, Map<string, ChannelMember>>()
-
-  function getOrCreateMembers(channel: string): Map<string, ChannelMember> {
-    let members = membersByChannel.get(channel)
-    if (!members) {
-      members = new Map()
-      membersByChannel.set(channel, members)
-    }
-    return members
-  }
-
-  return {
-    getMembers(channel: string): ChannelMember[] {
-      const members = membersByChannel.get(channel)
-      return members ? Array.from(members.values()) : []
-    },
-    getMember(channel: string, socketId: string): ChannelMember | undefined {
-      return membersByChannel.get(channel)?.get(socketId)
-    },
-    getMemberCount(channel: string): number {
-      return membersByChannel.get(channel)?.size ?? 0
-    },
-    addMember(channel: string, member: ChannelMember): void {
-      getOrCreateMembers(channel).set(member.id, member)
-    },
-    removeMember(channel: string, socketId: string): void {
-      const members = membersByChannel.get(channel)
-      if (!members) return
-      members.delete(socketId)
-      if (members.size === 0) {
-        membersByChannel.delete(channel)
-      }
-    },
-    hasMember(channel: string, socketId: string): boolean {
-      return membersByChannel.get(channel)?.has(socketId) ?? false
-    },
-  }
-}
 
 /**
  * Create a channel manager instance

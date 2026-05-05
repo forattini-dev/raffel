@@ -322,7 +322,7 @@ Goal: smallest possible vertical slice that proves the architecture. One HTTP pr
 ## Phase 8 — Discovery (runtime-preview + MCP)
 
 ### T8.1 — runtime-preview includes policy info
-**Files**: `src/inspect/runtime-graph.ts`, `src/inspect/types.ts`, `src/application/runtime-preview.ts`
+**Files**: `src/inspect/runtime-graph.ts`, `src/inspect/types.ts`, `src/server/orchestration/runtime-preview.ts`
 **Deps**: T7.4
 **Out**: Each procedure node gains `policy?: { action, mode, public, hasResolver }`. No DSL details — just metadata.
 **AC**: Calling runtime-preview on a server with policies shows the metadata.

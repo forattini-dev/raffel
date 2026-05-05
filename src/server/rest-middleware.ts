@@ -8,163 +8,24 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { LoadedRestResource } from './fs-routes/index.js'
 import type { Router } from '../core/router.js'
 import type { Registry } from '../core/registry.js'
-import type { Context, Envelope, ContextSeed } from '../types/index.js'
-import { mergeContextSeeds } from '../types/index.js'
-import { createAbortableContextAsync } from '../utils/context-utils.js'
-import { getStatusForCode } from '../errors/codes.js'
-import { sid } from '../utils/id/index.js'
+import type { ContextSeed } from '../types/index.js'
 import { createLogger } from '../utils/logger.js'
-import { applyRateLimitHeaders } from '../http/rate-limit-headers.js'
-import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import {
-  jsonCodec,
   resolveCodecs,
-  selectCodecForAccept,
-  selectCodecForContentType,
   type Codec,
 } from '../utils/content-codecs.js'
 import { joinBasePath } from './path-utils.js'
-import { mergeMetadata } from '../utils/header-metadata.js'
-import { resolveClientIp, type TrustedProxyConfig } from '../utils/client-ip.js'
+import type { TrustedProxyConfig } from '../utils/client-ip.js'
+import {
+  createHttpRequestContext,
+  dispatchHttpEnvelope,
+  parseJsonQueryParams,
+  resolveHttpRequestBody,
+  resolveHttpResponseCodec,
+  sendErrorResponse,
+} from './http-lifecycle/index.js'
 
 const logger = createLogger('server')
-
-// Rate limit header helpers moved to src/http/rate-limit-headers.ts —
-// shared with src/adapters/http.ts.
-
-class BodyParseError extends Error {
-  code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR'
-
-  constructor(code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR', message: string) {
-    super(message)
-    this.code = code
-  }
-}
-
-
-
-async function parseRequestBody(
-  req: IncomingMessage,
-  maxSize: number,
-  codec: Codec
-): Promise<{ payload: unknown; size: number }> {
-  const chunks: Buffer[] = []
-  let size = 0
-
-  for await (const chunk of req) {
-    size += chunk.length
-    if (size > maxSize) {
-      throw new BodyParseError('PAYLOAD_TOO_LARGE', 'Request body too large')
-    }
-    chunks.push(chunk)
-  }
-
-  if (size === 0) {
-    return { payload: {}, size }
-  }
-
-  try {
-    const body = Buffer.concat(chunks).toString('utf-8')
-    return { payload: codec.decode(body), size }
-  } catch {
-    throw new BodyParseError('PARSE_ERROR', 'Invalid request body')
-  }
-}
-
-function sendEncodedResponse(
-  res: ServerResponse,
-  status: number,
-  data: unknown,
-  codec: Codec,
-  includeBody = true
-): void {
-  const body = codec.encode(data)
-  res.writeHead(status, {
-    'Content-Type': codec.contentTypes[0] ?? 'application/json',
-    'Content-Length': includeBody ? Buffer.byteLength(body) : 0,
-  })
-  if (includeBody) {
-    res.end(body)
-  } else {
-    res.end()
-  }
-}
-
-function sendErrorResponse(
-  res: ServerResponse,
-  status: number,
-  code: string,
-  message: string,
-  details?: unknown
-): void {
-  sendEncodedResponse(
-    res,
-    status,
-    { error: { code, message, ...(details !== undefined && { details }) } },
-    jsonCodec
-  )
-}
-
-/**
- * Build an envelope, dispatch through the router, and write the matching
- * REST response (success or error). Shared by the REST resource handler
- * and the procedure-via-HTTP handler — both have identical envelope-build
- * + dispatch + response-mapping shape.
- */
-async function dispatchRestEnvelope(args: {
-  res: ServerResponse
-  router: Router
-  procedure: string
-  payload: unknown
-  requestId: string
-  metadata: Record<string, string>
-  ctx: Context
-  responseCodec: Codec
-  method: string
-}): Promise<void> {
-  const { res, router, procedure, payload, requestId, metadata, ctx, responseCodec, method } = args
-  const envelope: Envelope = {
-    id: requestId,
-    procedure,
-    type: 'request',
-    payload,
-    metadata,
-    context: ctx,
-  }
-  const result = await router.handle(envelope)
-  if (result && typeof result === 'object' && 'type' in result) {
-    const resultEnvelope = result as Envelope
-    if (resultEnvelope.type === 'error') {
-      const errorPayload = resultEnvelope.payload as {
-        code: string
-        message: string
-        details?: unknown
-        status?: number
-      }
-      const status = errorPayload.status ?? getStatusForCode(errorPayload.code)
-      applyRateLimitHeaders(res, ctx, errorPayload.details, errorPayload.code === 'RATE_LIMITED')
-      sendErrorResponse(res, status, errorPayload.code, errorPayload.message, errorPayload.details)
-      return
-    }
-    applyRateLimitHeaders(res, ctx)
-    sendEncodedResponse(res, 200, resultEnvelope.payload, responseCodec, method !== 'HEAD')
-    return
-  }
-  applyRateLimitHeaders(res, ctx)
-  sendEncodedResponse(res, 200, result, responseCodec, method !== 'HEAD')
-}
-
-function parseQueryParams(params: URLSearchParams): Record<string, unknown> {
-  const payload: Record<string, unknown> = {}
-  for (const [key, value] of params) {
-    try {
-      payload[key] = JSON.parse(value)
-    } catch {
-      payload[key] = value
-    }
-  }
-  return payload
-}
 
 /**
  * Create a middleware function that handles REST resource routing
@@ -187,54 +48,6 @@ export interface HttpOverrideMiddlewareOptions {
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
   trustedProxies?: TrustedProxyConfig
-}
-
-function buildHttpContextSeed(options: {
-  req: IncomingMessage
-  requestId: string
-  method: string
-  url: URL
-  input: {
-    body?: unknown
-    params?: Record<string, string>
-    query?: Record<string, unknown>
-  }
-  trustedProxies?: TrustedProxyConfig
-}): { metadata: Record<string, string>; seed: ContextSeed } {
-  const { req, method, url, input, trustedProxies } = options
-  const client = resolveClientIp({
-    headers: req.headers,
-    remoteAddress: req.socket?.remoteAddress,
-    remotePort: req.socket?.remotePort,
-    trustedProxies,
-  })
-  const metadata = mergeMetadata(
-    extractMetadataFromHeaders(req.headers),
-    client.ip ? { 'x-client-ip': client.ip } : undefined
-  )
-
-  return {
-    metadata,
-    seed: {
-      protocol: 'http',
-      input: {
-        body: input.body,
-        params: input.params,
-        query: input.query,
-        metadata,
-      },
-      http: {
-        kind: 'http',
-        method,
-        path: url.pathname,
-        url: url.toString(),
-        headers: metadata,
-        clientIp: client.ip,
-        remoteAddress: client.remoteAddress,
-        remotePort: client.remotePort,
-      },
-    },
-  }
 }
 
 export function createRestMiddleware(
@@ -283,53 +96,23 @@ export function createRestMiddleware(
             }
           }
 
-          const accept = typeof req.headers.accept === 'string' ? req.headers.accept : undefined
-          const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
+          const responseCodec = resolveHttpResponseCodec(req, res, codecs)
           if (!responseCodec) {
-            sendErrorResponse(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
             return true
-          }
-
-          const contentType = typeof req.headers['content-type'] === 'string'
-            ? req.headers['content-type']
-            : undefined
-          let requestCodec = jsonCodec
-          if (contentType) {
-            const selected = selectCodecForContentType(contentType, codecs)
-            if (!selected) {
-              sendErrorResponse(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-              return true
-            }
-            requestCodec = selected
           }
 
           let body: unknown = {}
-          let bodySize = 0
           if (['POST', 'PUT', 'PATCH'].includes(method)) {
-            try {
-              const parsed = await parseRequestBody(req, maxBodySize, requestCodec)
-              body = parsed.payload
-              bodySize = parsed.size
-            } catch (err) {
-              if (err instanceof BodyParseError) {
-                sendErrorResponse(res, getStatusForCode(err.code), err.code, err.message)
-                return true
-              }
-              sendErrorResponse(res, 400, 'INVALID_ARGUMENT', (err as Error).message)
+            const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
+            if (!parsed) {
               return true
             }
+            body = parsed.payload
           }
 
-          if (!contentType && bodySize > 0) {
-            sendErrorResponse(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-            return true
-          }
-
-          const abortController = new AbortController()
-          const requestId = (req.headers['x-request-id'] as string) || sid()
-          const httpContext = buildHttpContextSeed({
+          const httpContext = await createHttpRequestContext({
             req,
-            requestId,
+            res,
             method,
             url,
             input: {
@@ -338,34 +121,21 @@ export function createRestMiddleware(
               query,
             },
             trustedProxies,
+            contextFactory,
           })
           const metadata = httpContext.metadata
-          const ctx = await createAbortableContextAsync(
-            requestId,
-            mergeContextSeeds(
-              httpContext.seed,
-              await contextFactory?.(req)
-            ),
-            abortController
-          ) as any
+          const ctx = httpContext.ctx as any
           ctx.params = params
           ctx.query = query
           ctx.operation = route.operation
           ctx.resource = resource.name
 
-          req.on('aborted', () => abortController.abort('Client aborted request'))
-          res.on('close', () => {
-            if (!res.writableEnded) {
-              abortController.abort('Response closed early')
-            }
-          })
-
           try {
-            await dispatchRestEnvelope({
+            await dispatchHttpEnvelope({
               res, router,
               procedure: `${resource.name}.${route.operation}`,
               payload: body,
-              requestId, metadata, ctx, responseCodec, method,
+              metadata, ctx, responseCodec, method,
             })
             return true
           } catch (err: any) {
@@ -414,56 +184,26 @@ export function createHttpOverrideMiddleware(
 
       if (url.pathname !== fullPath && url.pathname !== `${fullPath}/`) continue
 
-      const accept = typeof req.headers.accept === 'string' ? req.headers.accept : undefined
-      const responseCodec = selectCodecForAccept(accept, codecs, jsonCodec)
+      const responseCodec = resolveHttpResponseCodec(req, res, codecs)
       if (!responseCodec) {
-        sendErrorResponse(res, 406, 'NOT_ACCEPTABLE', 'Not acceptable')
         return true
-      }
-
-      const contentType = typeof req.headers['content-type'] === 'string'
-        ? req.headers['content-type']
-        : undefined
-      let requestCodec = jsonCodec
-      if (contentType) {
-        const selected = selectCodecForContentType(contentType, codecs)
-        if (!selected) {
-          sendErrorResponse(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-          return true
-        }
-        requestCodec = selected
       }
 
       let payload: unknown = {}
-      let bodySize = 0
       if (method === 'GET' || method === 'HEAD') {
-        payload = parseQueryParams(url.searchParams)
+        payload = parseJsonQueryParams(url.searchParams)
       } else {
-        try {
-          const parsed = await parseRequestBody(req, maxBodySize, requestCodec)
-          payload = parsed.payload
-          bodySize = parsed.size
-        } catch (err) {
-          if (err instanceof BodyParseError) {
-            sendErrorResponse(res, getStatusForCode(err.code), err.code, err.message)
-            return true
-          }
-          sendErrorResponse(res, 400, 'INVALID_ARGUMENT', (err as Error).message)
+        const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
+        if (!parsed) {
           return true
         }
+        payload = parsed.payload
       }
 
-      if (!contentType && bodySize > 0) {
-        sendErrorResponse(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported media type')
-        return true
-      }
-
-      const abortController = new AbortController()
-      const requestId = (req.headers['x-request-id'] as string) || sid()
-      const query = parseQueryParams(url.searchParams)
-      const httpContext = buildHttpContextSeed({
+      const query = parseJsonQueryParams(url.searchParams)
+      const httpContext = await createHttpRequestContext({
         req,
-        requestId,
+        res,
         method,
         url,
         input: {
@@ -471,30 +211,16 @@ export function createHttpOverrideMiddleware(
           query,
         },
         trustedProxies,
+        contextFactory,
       })
       const metadata = httpContext.metadata
-      const ctx = await createAbortableContextAsync(
-        requestId,
-        mergeContextSeeds(
-          httpContext.seed,
-          await contextFactory?.(req)
-        ),
-        abortController
-      )
-
-      req.on('aborted', () => abortController.abort('Client aborted request'))
-      res.on('close', () => {
-        if (!res.writableEnded) {
-          abortController.abort('Response closed early')
-        }
-      })
+      const ctx = httpContext.ctx
 
       try {
-        await dispatchRestEnvelope({
+        await dispatchHttpEnvelope({
           res, router,
           procedure: meta.name,
-          payload,
-          requestId, metadata, ctx, responseCodec, method,
+          payload, metadata, ctx, responseCodec, method,
         })
         return true
       } catch (err: any) {

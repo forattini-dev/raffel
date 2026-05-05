@@ -1,23 +1,29 @@
 import type {
   MockHttpServer,
   MockHttpServerOptions,
-  MockTcpServer,
-  MockTcpServerOptions,
-  MockWebSocketServer,
-  MockWebSocketServerOptions,
-  MockWhoisOptions,
-  MockWhoisServer,
+} from './http/index.js'
+import type {
   MockFtpServer,
   MockFtpServerOptions,
-  MockTelnetServer,
-  MockTelnetServerOptions,
-  MockUdpServer,
-  MockUdpServerOptions,
-  MockPingServer,
-  MockPingServerOptions,
   MockIcmpServer,
   MockIcmpServerOptions,
-} from './index.js'
+  MockPingServer,
+  MockPingServerOptions,
+  MockTcpServer,
+  MockTcpServerOptions,
+  MockTelnetServer,
+  MockTelnetServerOptions,
+  MockWhoisOptions,
+  MockWhoisServer,
+} from './tcp/index.js'
+import type {
+  MockUdpServer,
+  MockUdpServerOptions,
+} from './udp/index.js'
+import type {
+  MockWebSocketServer,
+  MockWebSocketServerOptions,
+} from './ws/index.js'
 
 import type { MockDnsServer, MockDnsServerOptions } from './mock-dns-server.js'
 import type { MockSSEServer, MockSSEServerOptions } from './mock-sse-server.js'

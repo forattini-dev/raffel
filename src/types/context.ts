@@ -7,6 +7,19 @@
 
 import type { ContractContext } from './policies.js'
 import { getLogger } from '../utils/logger.js'
+import {
+  deriveAuthPrincipalId,
+  deriveAuthTenantId,
+  getAuthRoles,
+  getAuthScopes,
+} from '../auth/principal.js'
+
+export {
+  getAuthRoles,
+  getAuthScopes,
+  getPrincipalId,
+  isTypedPrincipal,
+} from '../auth/principal.js'
 
 export type ProtocolKind =
   | 'http'
@@ -328,62 +341,13 @@ export interface Context {
   callingLevel?: number
 }
 
-function normalizeStringList(value: unknown): readonly string[] | undefined {
-  if (Array.isArray(value)) {
-    return Object.freeze(value.filter((item): item is string => typeof item === 'string'))
-  }
-
-  if (typeof value === 'string' && value.length > 0) {
-    return Object.freeze(value.split(/\s+/).filter(Boolean))
-  }
-
-  return undefined
-}
-
-export function isTypedPrincipal(principal: AuthPrincipal | undefined): principal is Principal {
-  return principal !== undefined && typeof principal === 'object' && principal !== null
-}
-
-export function getPrincipalId(principal: AuthPrincipal | undefined): string | undefined {
-  if (!principal) return undefined
-  return typeof principal === 'string' ? principal : principal.id
-}
-
-export function getAuthRoles(auth: Pick<AuthContext, 'roles' | 'claims' | 'principal'> | undefined): readonly string[] {
-  if (!auth) return []
-  if (auth.roles && auth.roles.length > 0) {
-    return auth.roles
-  }
-
-  if (isTypedPrincipal(auth.principal) && auth.principal.roles && auth.principal.roles.length > 0) {
-    return auth.principal.roles
-  }
-
-  return normalizeStringList(auth.claims?.roles) ?? []
-}
-
-export function getAuthScopes(auth: Pick<AuthContext, 'scopes' | 'claims' | 'principal'> | undefined): readonly string[] {
-  if (!auth) return []
-  if (auth.scopes && auth.scopes.length > 0) {
-    return auth.scopes
-  }
-
-  if (isTypedPrincipal(auth.principal) && auth.principal.scopes && auth.principal.scopes.length > 0) {
-    return auth.principal.scopes
-  }
-
-  return normalizeStringList(auth.claims?.scopes ?? auth.claims?.scope) ?? []
-}
-
 export function createAuthContext(input?: Partial<AuthContext> | null): AuthContext {
   const principal = input?.principal
-  const principalId = input?.principalId ?? getPrincipalId(principal)
   const claims = input?.claims ? { ...input.claims } : undefined
+  const principalId = deriveAuthPrincipalId({ principalId: input?.principalId, principal, claims })
   const roles = input?.roles ?? getAuthRoles({ roles: undefined, claims, principal })
   const scopes = input?.scopes ?? getAuthScopes({ scopes: undefined, claims, principal })
-  const tenantId = input?.tenantId
-    ?? (isTypedPrincipal(principal) ? principal.tenantId : undefined)
-    ?? (typeof claims?.tenantId === 'string' ? claims.tenantId : undefined)
+  const tenantId = deriveAuthTenantId({ tenantId: input?.tenantId, principal, claims })
   const authenticated = input?.authenticated ?? Boolean(principalId)
 
   const authContext: AuthContext = {

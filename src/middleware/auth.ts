@@ -10,7 +10,7 @@
 import crypto from 'node:crypto'
 import { RaffelError } from '../core/index.js'
 import type { Interceptor, Envelope, Context, AuthContext } from '../types/index.js'
-import { createAuthContext } from '../types/index.js'
+import { createAuthContext, getAuthRoles, getAuthScopes } from '../types/index.js'
 import type { OAuth2StrategyWithFlow, OAuth2Tokens } from './auth/oauth2.js'
 
 /**
@@ -721,54 +721,6 @@ export interface AuthzRule {
 }
 
 /**
- * Get roles from auth context
- */
-function getRoles(auth: AuthContext | undefined): string[] {
-  if (!auth?.claims?.roles) return []
-  if (Array.isArray(auth.claims.roles)) return auth.claims.roles
-  return []
-}
-
-/**
- * Get scopes from auth context
- */
-function getScopes(auth: AuthContext | undefined): string[] {
-  if (!auth?.claims) return []
-
-  const claims = auth.claims
-  const values: string[] = []
-
-  const normalizeValues = (input: unknown): string[] => {
-    if (!input) return []
-
-    if (typeof input === 'string') {
-      return input
-        .split(/[\s,]+/)
-        .map((scope) => scope.trim())
-        .filter(Boolean)
-    }
-
-    if (Array.isArray(input)) {
-      const out: string[] = []
-      for (const entry of input) {
-        if (typeof entry === 'string') {
-          out.push(...entry.split(/[\s,]+/).map((scope) => scope.trim()).filter(Boolean))
-        }
-      }
-      return out
-    }
-
-    return []
-  }
-
-  values.push(...normalizeValues(claims.scope))
-  values.push(...normalizeValues(claims.scopes))
-  values.push(...normalizeValues(claims.permissions))
-
-  return [...new Set(values)]
-}
-
-/**
  * Get a value from metadata using case-insensitive key matching.
  */
 function getMetadataValue(metadata: Record<string, string>, key: string): string | undefined {
@@ -893,13 +845,13 @@ export function createAuthzMiddleware(options: AuthzMiddlewareOptions): Intercep
 
       // Check roles
       if (hasRolesRule) {
-        const userRoles = getRoles(auth)
+        const userRoles = [...getAuthRoles(auth)]
         allowed = rule.roles!.some((role) => userRoles.includes(role))
       }
 
       // Check scopes
       if (hasScopesRule) {
-        const userScopes = getScopes(auth)
+        const userScopes = [...getAuthScopes(auth)]
         const scopeAllowed = rule.scopes!.some((scope) => userScopes.includes(scope))
 
         // If both roles and scopes are set, require both.
@@ -940,7 +892,7 @@ export function requireAuth(ctx: Context): AuthContext {
  */
 export function hasRole(ctx: Context, role: string): boolean {
   const auth = ctx.auth
-  return getRoles(auth).includes(role)
+  return getAuthRoles(auth).includes(role)
 }
 
 /**
@@ -948,7 +900,7 @@ export function hasRole(ctx: Context, role: string): boolean {
  */
 export function hasAnyRole(ctx: Context, roles: string[]): boolean {
   const auth = ctx.auth
-  const userRoles = getRoles(auth)
+  const userRoles = getAuthRoles(auth)
   return roles.some((role) => userRoles.includes(role))
 }
 
@@ -957,7 +909,7 @@ export function hasAnyRole(ctx: Context, roles: string[]): boolean {
  */
 export function hasScope(ctx: Context, scope: string): boolean {
   const auth = ctx.auth
-  const userScopes = getScopes(auth)
+  const userScopes = getAuthScopes(auth)
   return userScopes.includes(scope)
 }
 
@@ -966,7 +918,7 @@ export function hasScope(ctx: Context, scope: string): boolean {
  */
 export function hasAnyScope(ctx: Context, scopes: string[]): boolean {
   const auth = ctx.auth
-  const userScopes = getScopes(auth)
+  const userScopes = getAuthScopes(auth)
   return scopes.some((scope) => userScopes.includes(scope))
 }
 
@@ -975,7 +927,7 @@ export function hasAnyScope(ctx: Context, scopes: string[]): boolean {
  */
 export function hasAllRoles(ctx: Context, roles: string[]): boolean {
   const auth = ctx.auth
-  const userRoles = getRoles(auth)
+  const userRoles = getAuthRoles(auth)
   return roles.every((role) => userRoles.includes(role))
 }
 

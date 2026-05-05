@@ -14,6 +14,7 @@
  */
 
 import type { Context, AuthContext } from '../../../types/context.js'
+import { derivePolicyPrincipalFromAuth } from '../../../auth/principal.js'
 import type { Principal, PrincipalConfig } from '../types.js'
 import type { PrincipalResolver } from './index.js'
 
@@ -26,38 +27,11 @@ function defaultMap(ctx: Context): Principal {
     )
   }
 
-  const claims = (auth.claims ?? {}) as Record<string, unknown>
-
-  const id =
-    (typeof claims.sub === 'string' ? claims.sub : undefined) ??
-    auth.principalId ??
-    (typeof auth.principal === 'string' ? auth.principal : undefined)
-
-  if (!id) {
+  try {
+    return derivePolicyPrincipalFromAuth(auth, { preferClaimsSub: true })
+  } catch {
     throw new Error("policy.principal.from === 'oidc': could not derive principal id (sub).")
   }
-
-  const tenantId =
-    (auth.tenantId as string | undefined) ??
-    (typeof claims.tid === 'string' ? (claims.tid as string) : undefined) ??
-    (typeof claims.org_id === 'string' ? (claims.org_id as string) : undefined) ??
-    null
-
-  const scopes: string[] = Array.isArray(auth.scopes)
-    ? [...auth.scopes]
-    : typeof claims.scope === 'string'
-      ? (claims.scope as string).split(/\s+/).filter(Boolean)
-      : []
-
-  const groups: string[] = Array.isArray(claims.groups)
-    ? (claims.groups as string[])
-    : Array.isArray(claims.roles)
-      ? (claims.roles as string[])
-      : Array.isArray(auth.roles)
-        ? [...auth.roles]
-        : []
-
-  return { id, tenantId, scopes, groups, attrs: claims }
 }
 
 export function createOidcPrincipalResolver(config: PrincipalConfig): PrincipalResolver {

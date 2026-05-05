@@ -527,9 +527,9 @@ Raffel follows a pragmatic hexagonal (ports & adapters) architecture. The codeba
                     │   protocol-wiring                            │
                     │                                              │
                     │  ┌───────────────────────────────────────┐  │
-                    │  │           application/                 │  │
-                    │  │   registration · lifecycle             │  │
-                    │  │   discovery · runtime-preview          │  │
+                    │  │      server/orchestration/             │  │
+                    │  │   registration · config-preview        │  │
+                    │  │   runtime-preview                      │  │
                     │  │                                        │  │
                     │  │  ┌─────────────────────────────────┐  │  │
                     │  │  │            core/                 │  │  │
@@ -563,18 +563,18 @@ Raffel follows a pragmatic hexagonal (ports & adapters) architecture. The codeba
 |:------|:----------|:--------|
 | **Core** | `src/core/` | Domain logic — Registry, Router, EventDelivery. Zero external deps. |
 | **Ports** | `src/ports/outbound/` | Interfaces (contracts) for infrastructure dependencies. |
-| **Application** | `src/application/` | Orchestration — registration, lifecycle, discovery, preview. |
+| **Server Orchestration** | `src/server/orchestration/` | Builder-internal orchestration — registration, config preview, runtime preview. |
 | **Bootstrap** | `src/bootstrap/` | Composition root — creates server, normalizes config, wires adapters. |
-| **Inbound Adapters** | `src/adapters/inbound/` | Protocol → Envelope translation (HTTP, WS, gRPC, TCP, UDP, JSON-RPC). |
+| **Adapters** | `src/adapters/` | Protocol → Envelope translation (HTTP, WS, gRPC, TCP, UDP, JSON-RPC). |
 | **Outbound Adapters** | `src/adapters/outbound/` | Concrete port implementations (session, rate-limit, cache, logger drivers). |
 
 ### Boundary Rules
 
-1. **core/** has zero imports from adapters/, bootstrap/, or application/
-2. **application/** depends on core/ and ports/ — never on concrete outbound adapters
+1. **core/** has zero imports from adapters/ or bootstrap/
+2. **server/orchestration/** owns builder-internal registration and preview orchestration
 3. **ports/** defines interfaces only — no implementation logic
 4. **bootstrap/** is the composition root — it wires everything together
-5. **adapters/inbound/** translate protocols to Envelopes
+5. **adapters/** translate protocols to Envelopes
 6. **adapters/outbound/** implement port interfaces with concrete infrastructure
 
 ### Key Ports
@@ -597,9 +597,9 @@ The server builder is composed of independent modules:
 
 | Module | Responsibility |
 |:-------|:---------------|
-| `application/registration.ts` | Handler, channel, and resource registration orchestration |
-| `application/config-preview.ts` | Pure config preview and warning derivation |
-| `application/runtime-preview.ts` | Config preview and runtime inspection graph |
+| `server/orchestration/registration.ts` | Handler, channel, and resource registration orchestration |
+| `server/orchestration/config-preview.ts` | Pure config preview and warning derivation |
+| `server/orchestration/runtime-preview.ts` | Config preview and runtime inspection graph |
 | `bootstrap/config-normalization.ts` | Protocol option normalization |
 | `bootstrap/create-server.ts` | Canonical bootstrap entrypoint for `createServer()` |
 | `bootstrap/protocol-wiring.ts` | Protocol lifecycle wiring façade |
