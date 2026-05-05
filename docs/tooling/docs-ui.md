@@ -58,7 +58,7 @@ const server = createServer({ port: 3000 })
 await server.start()
 ```
 
-See [Docs UI Complete Project Example](./docs-ui-complete-example.md) for a full project layout with generated API/protocol reference and Markdown guides in one UI.
+See [Docs UI Complete Project Example](./docs-ui-complete-example.md) for a full project layout with generated API/protocol reference and Markdown guides in one UI. See [Docs UI Protocol Examples](./docs-ui-protocol-examples.md) for HTTP, WebSocket, streams, JSON-RPC, gRPC, TCP, and UDP examples.
 
 This exposes:
 
