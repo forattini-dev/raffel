@@ -229,6 +229,10 @@ export interface USDDocsHandlers {
   serveOpenAPI: () => Response
   /** Serve reusable docs UI JavaScript runtime */
   serveUIRuntime: () => Response
+  /** Serve reusable Markdown engine support asset */
+  serveUIMarkdownEngine: () => Response
+  /** Serve reusable Markdown renderer bridge */
+  serveUIMarkdownRenderer: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */

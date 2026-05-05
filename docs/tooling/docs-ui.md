@@ -69,6 +69,8 @@ This exposes:
 | `/docs/usd.yaml` | Full USD document as YAML |
 | `/docs/openapi.json` | OpenAPI 3.1 export for Swagger/OpenAPI tooling |
 | `/docs/-/raffel-docs.js` | Reusable frontend docs runtime |
+| `/docs/-/marked.umd.js` | Packaged Markdown engine used by the external runtime |
+| `/docs/-/marked-renderer.js` | Raffel renderer bridge for Markdown-specific behavior |
 | `/docs/-/raffel-docs.css` | Reusable frontend docs stylesheet |
 | `/docs/-/assets/*` | Static assets referenced by Markdown pages |
 
@@ -230,6 +232,8 @@ The Markdown runtime supports common file-backed Markdown authoring features:
 - `markdown.autoHeader`
 - `{raffel-updated}` with `markdown.formatUpdated`
 - raw HTML is escaped by default; set `markdown.html: 'raw'` only for trusted Markdown
+
+When `ui.assets.mode` is `external`, Raffel serves the Markdown engine and renderer bridge from the same docs mount as the UI runtime. There is no CDN requirement. If the engine asset is unavailable, the runtime falls back to the built-in parser.
 
 ## Theme Preference
 

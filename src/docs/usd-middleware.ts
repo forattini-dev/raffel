@@ -36,7 +36,11 @@ import { dump as yamlStringify } from 'js-yaml'
 import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from './ui/index.js'
 
 function readBuiltDocsRuntime(): string | null {
-  const assetUrl = new URL('./ui/assets/raffel-docs.js', import.meta.url)
+  return readBuiltDocsUIAsset('raffel-docs.js')
+}
+
+function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'marked.umd.js'): string | null {
+  const assetUrl = new URL(`./ui/assets/${fileName}`, import.meta.url)
   if (!existsSync(assetUrl)) return null
   return readFileSync(assetUrl, 'utf8')
 }
@@ -212,6 +216,7 @@ export interface USDMiddlewareConfig {
       autoHeader?: boolean
       formatUpdated?: string
       noEmoji?: boolean
+      html?: 'escape' | 'raw'
       externalLinkTarget?: string
       externalLinkRel?: string
       noCompileLinks?: string[]
@@ -281,6 +286,10 @@ export interface USDHandlers {
   serveOpenAPI: () => Response
   /** Serve reusable docs UI JavaScript runtime */
   serveUIRuntime: () => Response
+  /** Serve reusable Markdown engine support asset */
+  serveUIMarkdownEngine: () => Response
+  /** Serve reusable Markdown renderer bridge */
+  serveUIMarkdownRenderer: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
@@ -482,6 +491,20 @@ export function createUSDHandlers(
         },
       })
     },
+
+    serveUIMarkdownEngine: () => new Response(readBuiltDocsUIAsset('marked.umd.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
+    serveUIMarkdownRenderer: () => new Response(readBuiltDocsUIAsset('marked-renderer.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
 
     serveUIStyles: () => {
       const css = generateUICSS({
