@@ -376,3 +376,46 @@ Compression negotiates `Accept-Encoding` (br/gzip/deflate), sets
    const result = await interceptor(envelope, ctx, mockNext)
    expect(mockNext).toHaveBeenCalled()
    ```
+
+## HTTP-aware interceptors (Hono migration)
+
+When you need raw access to the underlying Node.js `IncomingMessage` /
+`ServerResponse` — for cookie parsing, response-header injection, or
+streaming — read them off `ctx.http?.req` and `ctx.http?.res`. They are
+populated only on the HTTP transport; non-HTTP transports leave them
+`undefined` (the optional chain is mandatory).
+
+```ts
+// Before — Hono `(c, next)` middleware
+app.use(async (c, next) => {
+  const cookie = c.req.header('cookie') ?? ''
+  if (!cookie.includes('session=')) return c.text('Unauthorized', 401)
+  await next()
+  c.res.headers.set('X-Powered-By', 'my-api')
+})
+
+// After — Raffel `(envelope, ctx, next)` interceptor
+server.use(async (envelope, ctx, next) => {
+  const cookie = ctx.http?.req?.headers.cookie ?? ''
+  if (!cookie.includes('session=')) {
+    throw Object.assign(new Error('UNAUTHENTICATED'), { code: 'UNAUTHENTICATED', status: 401 })
+  }
+  await next()
+  ctx.http?.res?.setHeader('X-Powered-By', 'my-api')
+})
+```
+
+The Raffel interceptor signature is unified across protocols: the same
+function runs on HTTP, WebSocket, gRPC, JSON-RPC, and TCP (subject to
+each transport's lifecycle). Reach into `ctx.http?.req` only when the
+abstracted accessors (`ctx.http?.headers`, `ctx.http?.rawBody`,
+`ctx.input.body`) don't cover your case — using `req` directly couples
+the code to Node.js HTTP.
+
+| Need | Prefer | Fall back to |
+|---|---|---|
+| Read a header | `ctx.http?.headers['name']` | `ctx.http?.req?.headers['name']` |
+| Read raw body for HMAC | `ctx.http?.rawBody` | — |
+| Read a cookie | `ctx.http?.req?.headers.cookie` | — (no abstracted accessor yet) |
+| Set a response header | `ctx.http?.res?.setHeader(...)` | — |
+| Stream a response from inside the interceptor | `ctx.http?.res?.write(...)` | — |

@@ -199,6 +199,7 @@ export async function resolveHttpRequestBody(args: {
 
 export function buildHttpContextSeed(options: {
   req: IncomingMessage
+  res?: ServerResponse
   method: string
   url: URL
   input: {
@@ -209,7 +210,7 @@ export function buildHttpContextSeed(options: {
   rawBody?: Buffer
   trustedProxies?: TrustedProxyConfig
 }): { metadata: Record<string, string>; seed: ContextSeed } {
-  const { req, method, url, input, rawBody, trustedProxies } = options
+  const { req, res, method, url, input, rawBody, trustedProxies } = options
   const client = resolveClientIp({
     headers: req.headers,
     remoteAddress: req.socket?.remoteAddress,
@@ -241,6 +242,8 @@ export function buildHttpContextSeed(options: {
         remoteAddress: client.remoteAddress,
         remotePort: client.remotePort,
         rawBody,
+        req,
+        res,
       },
     },
   }
@@ -290,6 +293,7 @@ export async function createHttpRequestContext(args: {
   const requestId = getHeaderValue(args.req.headers['x-request-id']) ?? sid()
   const httpContext = buildHttpContextSeed({
     req: args.req,
+    res: args.res,
     method: args.method,
     url: args.url,
     input: args.input,
