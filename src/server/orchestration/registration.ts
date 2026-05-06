@@ -28,11 +28,13 @@ export interface LoadedRestResourceLike {
   name: string
   filePath: string
   routes: LoadedRestRouteLike[]
+  coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
 }
 
 export interface LoadedResourceLike {
   name: string
   filePath: string
+  coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
 }
 
 export interface GeneratedResourceRouteLike {
@@ -90,6 +92,16 @@ export interface RegistrationContext<
     globalInterceptors: Interceptor[],
     onRegistered?: (entry: RegisterDiscoveredHandlersEntry) => void
   ) => void
+  /**
+   * Optional hook for synthesising authz interceptors for REST/resource
+   * operations from co-located policies attached to the loaded resource.
+   * Returns the interceptors to splice in alongside global interceptors.
+   */
+  buildAuthzInterceptorsForOperation?: (
+    operationName: string,
+    coLocatedPolicies: readonly import('../../middleware/policy/types.js').Policy[] | undefined,
+    diagnosticsFilePath?: string,
+  ) => Interceptor[]
 }
 
 export function createRegistrationService<
@@ -108,7 +120,20 @@ export function createRegistrationService<
     recordOperationRegistration,
     generateResourceRoutes,
     registerDiscoveredHandlers,
+    buildAuthzInterceptorsForOperation,
   } = ctx
+
+  function combineInterceptors(
+    operationName: string,
+    coLocatedPolicies: readonly import('../../middleware/policy/types.js').Policy[] | undefined,
+    diagnosticsFilePath?: string,
+  ): Interceptor[] | undefined {
+    const authz = buildAuthzInterceptorsForOperation
+      ? buildAuthzInterceptorsForOperation(operationName, coLocatedPolicies, diagnosticsFilePath)
+      : []
+    const combined = [...globalInterceptors, ...authz]
+    return combined.length > 0 ? combined : undefined
+  }
 
   function registerChannel(
     channelRegistry: Map<string, TChannel>,
@@ -140,7 +165,7 @@ export function createRegistrationService<
       }
 
       registry.procedure(name, route.handler as never, {
-        interceptors: globalInterceptors.length > 0 ? [...globalInterceptors] : undefined,
+        interceptors: combineInterceptors(name, resource.coLocatedPolicies, resource.filePath),
       })
       recordOperationRegistration(name, {
         source: {
@@ -166,7 +191,7 @@ export function createRegistrationService<
             : undefined
 
       registry.procedure(name, route.handler as never, {
-        interceptors: globalInterceptors.length > 0 ? [...globalInterceptors] : undefined,
+        interceptors: combineInterceptors(name, resource.coLocatedPolicies, resource.filePath),
         httpPath: route.path,
         httpMethod: route.method as never,
         httpSuccessStatus,

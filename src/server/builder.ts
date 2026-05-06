@@ -74,7 +74,7 @@ import {
   joinHandlerName,
 } from './handler-builders.js'
 import { createResourceBuilder } from './resource-builder.js'
-import { registerDiscoveredHandlers, resolveHooksForProcedure } from './discovery-utils.js'
+import { buildCoLocatedAuthzInterceptorsForName, registerDiscoveredHandlers, resolveHooksForProcedure } from './discovery-utils.js'
 import { createRegistrationService } from './orchestration/registration.js'
 import { createRuntimePreviewService } from './orchestration/runtime-preview.js'
 import { normalizeInterceptors as normalizeInterceptorsShared } from './interceptor-utils.js'
@@ -389,6 +389,13 @@ export function createServer(options: ServerOptions): RaffelServer {
         policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
       )
     },
+    buildAuthzInterceptorsForOperation: (operationName, coLocatedPolicies, diagnosticsFilePath) =>
+      buildCoLocatedAuthzInterceptorsForName(
+        operationName,
+        coLocatedPolicies,
+        policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
+        diagnosticsFilePath,
+      ),
   })
 
   function registerChannel(channel: LoadedChannel): void {

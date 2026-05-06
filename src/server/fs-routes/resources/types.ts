@@ -314,6 +314,12 @@ export interface LoadedResource {
 
   /** Resource exports */
   handlers: ResourceExports
+
+  /**
+   * Co-located policies discovered next to the resource file or via folder
+   * cascade. Applied to every operation registered from this resource.
+   */
+  coLocatedPolicies?: import('../../../middleware/policy/types.js').Policy[]
 }
 
 export interface ResolvedResourceConfig {
