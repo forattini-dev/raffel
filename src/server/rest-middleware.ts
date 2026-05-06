@@ -182,7 +182,16 @@ export function createHttpOverrideMiddleware(
         ? joinBasePath(basePath, normalized)
         : normalized
 
-      if (url.pathname !== fullPath && url.pathname !== `${fullPath}/`) continue
+      const pathPattern = fullPath.replace(/:(\w+)/g, '([^/]+)')
+      const regex = new RegExp(`^${pathPattern}/?$`)
+      const pathMatch = url.pathname.match(regex)
+      if (!pathMatch) continue
+
+      const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
+      const params: Record<string, string> = {}
+      paramNames.forEach((name: string, i: number) => {
+        params[name] = pathMatch[i + 1]
+      })
 
       const responseCodec = resolveHttpResponseCodec(req, res, codecs)
       if (!responseCodec) {
@@ -208,13 +217,16 @@ export function createHttpOverrideMiddleware(
         url,
         input: {
           body: payload,
+          params,
           query,
         },
         trustedProxies,
         contextFactory,
       })
       const metadata = httpContext.metadata
-      const ctx = httpContext.ctx
+      const ctx = httpContext.ctx as any
+      ctx.params = params
+      ctx.query = query
 
       try {
         await dispatchHttpEnvelope({
