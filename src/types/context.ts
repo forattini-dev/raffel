@@ -133,6 +133,60 @@ export interface HttpContextCapability {
    * ```
    */
   readonly rawBody?: Buffer
+
+  /**
+   * Raw Node.js `IncomingMessage` for this request. Populated only when
+   * the request arrives over HTTP — undefined under WS/gRPC/JSON-RPC/TCP/
+   * UDP, even if those transports populate `ctx.http.method`/`path` for
+   * documentation purposes.
+   *
+   * Exposed for Hono-style middleware migration (#102): an interceptor
+   * that needs to read cookies, peek at trailers, or inspect the raw
+   * connection can do so without dropping out of the standard Interceptor
+   * pipeline. Prefer the abstracted accessors (`ctx.http.headers`,
+   * `ctx.http.rawBody`) when they cover your case — using `req` directly
+   * couples your code to Node.js HTTP and cannot be reused on
+   * non-HTTP transports.
+   *
+   * @example
+   * ```ts
+   * import type { Interceptor } from 'raffel'
+   *
+   * export const cookieAuth: Interceptor = async (envelope, ctx, next) => {
+   *   const req = ctx.http?.req
+   *   if (!req) return next() // not an HTTP request
+   *   const cookie = req.headers.cookie ?? ''
+   *   if (!cookie.includes('session=')) {
+   *     throw new Error('UNAUTHENTICATED')
+   *   }
+   *   return next()
+   * }
+   * ```
+   */
+  readonly req?: import('node:http').IncomingMessage
+
+  /**
+   * Raw Node.js `ServerResponse` for this request. Populated only when
+   * the request arrives over HTTP. Use to set response headers, manage
+   * cookies, or stream a response from inside an interceptor.
+   *
+   * Setting headers via `res.setHeader(...)` BEFORE calling `next()` lets
+   * the handler still override them on the way out; setting them AFTER
+   * `next()` resolves but before the response is flushed lets the
+   * interceptor have the final say.
+   *
+   * @example
+   * ```ts
+   * import type { Interceptor } from 'raffel'
+   *
+   * export const securityHeaders: Interceptor = async (envelope, ctx, next) => {
+   *   ctx.http?.res?.setHeader('X-Content-Type-Options', 'nosniff')
+   *   ctx.http?.res?.setHeader('Strict-Transport-Security', 'max-age=31536000')
+   *   return next()
+   * }
+   * ```
+   */
+  readonly res?: import('node:http').ServerResponse
 }
 
 export interface WebSocketContextCapability {
