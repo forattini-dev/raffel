@@ -7,8 +7,15 @@
 import type { Context } from '../types/index.js'
 import type { ChannelOptions } from '../channels/index.js'
 import type { LoadedChannel } from './fs-routes/index.js'
+import type { Policy } from '../middleware/policy/types.js'
 import { createChannelAuthorizer } from './fs-routes/index.js'
 import { createLogger } from '../utils/logger.js'
+
+export type ChannelCoLocatedPolicyEnforcer = (
+  channelName: string,
+  policies: readonly Policy[],
+  ctx: Context,
+) => Promise<boolean> | boolean
 
 const logger = createLogger('channel-utils')
 
@@ -94,7 +101,8 @@ function findChannelDefinition(
 export function buildChannelOptions(
   channelRegistry: Map<string, LoadedChannel>,
   baseOptions?: ChannelOptions,
-  runtimeHandlers?: ChannelRuntimeHandlers
+  runtimeHandlers?: ChannelRuntimeHandlers,
+  coLocatedPolicyEnforcer?: ChannelCoLocatedPolicyEnforcer,
 ): ChannelOptions | undefined {
   const hasRuntimeHandlers = Boolean(
     runtimeHandlers?.getSubscribeHandler?.()
@@ -118,6 +126,11 @@ export function buildChannelOptions(
       }
       if (requirement === 'required' && !ctx.auth?.authenticated) {
         return false
+      }
+
+      if (entry.coLocatedPolicies && entry.coLocatedPolicies.length > 0 && coLocatedPolicyEnforcer) {
+        const allowed = await coLocatedPolicyEnforcer(channel, entry.coLocatedPolicies, ctx)
+        if (!allowed) return false
       }
     }
 

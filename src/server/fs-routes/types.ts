@@ -573,6 +573,12 @@ export interface LoadedChannel {
 
   /** Tags for documentation grouping */
   tags?: string[]
+
+  /**
+   * Co-located policies discovered next to the channel definition or via
+   * folder cascade. Applied as an authz interceptor at channel join time.
+   */
+  coLocatedPolicies?: import('../../middleware/policy/types.js').Policy[]
 }
 
 // === Internal ===

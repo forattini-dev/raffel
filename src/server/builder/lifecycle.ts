@@ -99,6 +99,7 @@ export interface ServerLifecycleContext {
   getWsSubscribeHandler: () => WebSocketSubscribeHandler | null | undefined
   getWsMessageHandler: () => WebSocketMessageHandler | null | undefined
   getWsUnsubscribeHandler: () => WebSocketUnsubscribeHandler | null | undefined
+  channelCoLocatedPolicyEnforcer?: import('../channel-utils.js').ChannelCoLocatedPolicyEnforcer
 }
 
 export function createServerLifecycle(context: ServerLifecycleContext) {
@@ -132,6 +133,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     getWsSubscribeHandler,
     getWsMessageHandler,
     getWsUnsubscribeHandler,
+    channelCoLocatedPolicyEnforcer,
     router,
   } = context
   const lifecycleLogger = logger as unknown as Logger
@@ -166,6 +168,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       getWsSubscribeHandler,
       getWsMessageHandler,
       getWsUnsubscribeHandler,
+      channelCoLocatedPolicyEnforcer,
     },
     routing: {
       getSinglePortAliasMode,

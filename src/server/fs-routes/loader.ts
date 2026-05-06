@@ -231,6 +231,9 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     const dir = resolveDir(baseDir, config.channels, DEFAULTS.channels)
     if (dir && await source.exists(dir)) {
       const loaded = await loadChannels(source, dir, extensions)
+      if (coLocatedEnabled) {
+        await attachCoLocatedPoliciesToFileItems(source, loaded.channels, coLocatedCustomConditions, dir)
+      }
       channels.push(...loaded.channels)
       stats.channels = loaded.channels.length
       stats.middlewares += loaded.middlewareCount

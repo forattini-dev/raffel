@@ -516,6 +516,20 @@ export function createServer(options: ServerOptions): RaffelServer {
     getWsSubscribeHandler: () => wsSubscribeHandler,
     getWsMessageHandler: () => wsMessageHandler,
     getWsUnsubscribeHandler: () => wsUnsubscribeHandler,
+    channelCoLocatedPolicyEnforcer: policyBootstrap
+      ? async (channelName, policies, ctx) => {
+          if (typeof policyBootstrap.engine.addPolicies === 'function') {
+            policyBootstrap.engine.addPolicies(policies)
+          }
+          const principal = await policyBootstrap.resolvePrincipal(ctx)
+          const decision = await policyBootstrap.engine.evaluate({
+            principal,
+            action: channelName,
+            resource: { type: 'channel', id: channelName, tenantId: principal.tenantId },
+          })
+          return decision.allowed
+        }
+      : undefined,
   })
 
   /**

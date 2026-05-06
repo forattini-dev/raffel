@@ -10,14 +10,14 @@
  */
 
 import type { LoggerPort } from '../../ports/outbound/logger.js'
-import type { Interceptor } from '../../types/index.js'
+import type { Context, Interceptor } from '../../types/index.js'
 import type { PolicyEnginePort } from '../../ports/outbound/policy-engine.js'
 import { createDefaultEngine } from './engine/index.js'
 import { createPolicyInterceptor, createNoPolicyDeclaredInterceptor } from './interceptor.js'
 import { loadPoliciesFromDir, mergePolicies } from './loader.js'
 import { createPrincipalResolver } from './principal/index.js'
 import { setPolicyProvider } from '../../mcp/resources/index.js'
-import type { PolicyConfig, ProcedurePolicyConfig } from './types.js'
+import type { PolicyConfig, Principal, ProcedurePolicyConfig } from './types.js'
 
 export interface PolicyBootstrap {
   /** The resolved engine (user-supplied or createDefaultEngine). */
@@ -28,6 +28,12 @@ export interface PolicyBootstrap {
   interceptorFactory: (procedureName: string, config: ProcedurePolicyConfig) => Interceptor
   /** Build the "no policy declared" interceptor for a procedure. */
   noPolicyDeclaredFactory: (procedureName: string) => Interceptor
+  /**
+   * Resolve the current principal from a request context. Exposed for
+   * non-procedure code paths (channels, custom integrations) that need to
+   * evaluate the engine outside of the procedure interceptor pipeline.
+   */
+  resolvePrincipal: (ctx: Context) => Promise<Principal>
 }
 
 export interface CreatePolicyBootstrapOptions {
@@ -104,5 +110,11 @@ export function createPolicyBootstrap(
     )
   }
 
-  return { engine, defaultMode, interceptorFactory, noPolicyDeclaredFactory }
+  return {
+    engine,
+    defaultMode,
+    interceptorFactory,
+    noPolicyDeclaredFactory,
+    resolvePrincipal: async (ctx) => principalResolver(ctx),
+  }
 }

@@ -92,6 +92,7 @@ export interface ServerLifecycleExecutionHttpContext {
   getWsSubscribeHandler: () => WebSocketSubscribeHandler | null | undefined
   getWsMessageHandler: () => WebSocketMessageHandler | null | undefined
   getWsUnsubscribeHandler: () => WebSocketUnsubscribeHandler | null | undefined
+  channelCoLocatedPolicyEnforcer?: import('../channel-utils.js').ChannelCoLocatedPolicyEnforcer
 }
 
 export interface ServerLifecycleExecutionRoutingContext {

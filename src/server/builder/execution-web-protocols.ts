@@ -34,6 +34,7 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
     getWsSubscribeHandler,
     getWsMessageHandler,
     getWsUnsubscribeHandler,
+    channelCoLocatedPolicyEnforcer,
   } = context.http
 
   async function executePostPortBindingWebProtocolStep(
@@ -59,7 +60,8 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
             getSubscribeHandler: getWsSubscribeHandler,
             getMessageHandler: getWsMessageHandler,
             getUnsubscribeHandler: getWsUnsubscribeHandler,
-          }
+          },
+          channelCoLocatedPolicyEnforcer,
         )
 
         await startAssignedManagedAdapter({
