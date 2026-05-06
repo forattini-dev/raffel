@@ -177,6 +177,12 @@ export interface HandlerMeta {
   /** HTTP method override for procedures */
   httpMethod?: HttpMethod
 
+  /**
+   * HTTP success status applied by REST/HTTP-override middlewares when the
+   * handler completes without error. Defaults to `200`.
+   */
+  httpSuccessStatus?: number
+
   /** JSON-RPC metadata */
   jsonrpc?: JsonRpcMeta
 

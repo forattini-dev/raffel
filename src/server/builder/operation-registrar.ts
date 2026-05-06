@@ -19,6 +19,7 @@ export interface ProcedureOperationInput {
   graphql?: AddProcedureInput['graphql']
   httpPath?: AddProcedureInput['httpPath']
   httpMethod?: AddProcedureInput['httpMethod']
+  httpSuccessStatus?: number
   jsonrpc?: AddProcedureInput['jsonrpc']
   grpc?: AddProcedureInput['grpc']
   policies?: ContractPolicies
@@ -58,6 +59,7 @@ export function createProcedureOperationRegistrar(input: {
       graphql,
       httpPath,
       httpMethod,
+      httpSuccessStatus,
       jsonrpc,
       grpc,
       policies,
@@ -82,6 +84,7 @@ export function createProcedureOperationRegistrar(input: {
       graphql,
       httpPath,
       httpMethod,
+      httpSuccessStatus,
       jsonrpc,
       grpc,
       policies,

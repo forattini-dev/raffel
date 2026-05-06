@@ -33,11 +33,23 @@ const logger = createLogger('server')
 export interface RestMiddlewareOptions {
   restResources: LoadedRestResource[]
   router: Router
+  registry?: Registry
   basePath: string
   maxBodySize: number
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
   trustedProxies?: TrustedProxyConfig
+}
+
+/**
+ * Default HTTP success status for REST resource operations following common
+ * REST conventions. Used when no explicit `httpSuccessStatus` is configured
+ * on the procedure.
+ */
+function defaultRestSuccessStatus(operation: string): number | undefined {
+  if (operation === 'create') return 201
+  if (operation === 'delete') return 204
+  return undefined
 }
 
 export interface HttpOverrideMiddlewareOptions {
@@ -56,6 +68,7 @@ export function createRestMiddleware(
   const {
     restResources,
     router,
+    registry,
     basePath,
     maxBodySize,
     contextFactory,
@@ -131,11 +144,16 @@ export function createRestMiddleware(
           ctx.resource = resource.name
 
           try {
+            const procedureName = `${resource.name}.${route.operation}`
+            const successStatus =
+              registry?.getProcedure(procedureName)?.meta.httpSuccessStatus ??
+              defaultRestSuccessStatus(route.operation)
             await dispatchHttpEnvelope({
               res, router,
-              procedure: `${resource.name}.${route.operation}`,
+              procedure: procedureName,
               payload: body,
               metadata, ctx, responseCodec, method,
+              successStatus,
             })
             return true
           } catch (err: any) {
@@ -209,6 +227,16 @@ export function createHttpOverrideMiddleware(
         payload = parsed.payload
       }
 
+      // Merge URL params into the dispatched payload so resource-style
+      // handlers that read `input.id` keep working alongside `ctx.params`.
+      if (paramNames.length > 0) {
+        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+          payload = { ...params, ...(payload as Record<string, unknown>) }
+        } else if (payload === undefined || payload === null || (typeof payload === 'object' && Object.keys(payload as object).length === 0)) {
+          payload = { ...params }
+        }
+      }
+
       const query = parseJsonQueryParams(url.searchParams)
       const httpContext = await createHttpRequestContext({
         req,
@@ -233,6 +261,7 @@ export function createHttpOverrideMiddleware(
           res, router,
           procedure: meta.name,
           payload, metadata, ctx, responseCodec, method,
+          successStatus: meta.httpSuccessStatus,
         })
         return true
       } catch (err: any) {

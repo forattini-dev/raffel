@@ -29,6 +29,12 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
   tags?: string[]
   /** Middleware interceptors */
   use?: Interceptor[]
+  /**
+   * HTTP status code returned on a successful response. Defaults to `200`.
+   * Resource auto-CRUD applies REST conventions when this is unset:
+   * `POST` create → `201`, `DELETE` delete → `204`, everything else → `200`.
+   */
+  successStatus?: number
 }
 
 

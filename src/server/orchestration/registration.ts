@@ -38,6 +38,8 @@ export interface LoadedResourceLike {
 export interface GeneratedResourceRouteLike {
   operation: string
   handler: unknown
+  method?: string
+  path?: string
 }
 
 export interface LoadedTransportHandlerLike {
@@ -156,9 +158,18 @@ export function createRegistrationService<
 
     for (const route of routes) {
       const name = `${resource.name}.${route.operation}`
+      const httpSuccessStatus =
+        route.operation === 'create'
+          ? 201
+          : route.operation === 'delete'
+            ? 204
+            : undefined
 
       registry.procedure(name, route.handler as never, {
         interceptors: globalInterceptors.length > 0 ? [...globalInterceptors] : undefined,
+        httpPath: route.path,
+        httpMethod: route.method as never,
+        httpSuccessStatus,
       })
       recordOperationRegistration(name, {
         source: {
