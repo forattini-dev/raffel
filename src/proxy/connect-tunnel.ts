@@ -20,6 +20,8 @@ import type { ProxyAuth, ProxyStats } from './types.js'
 import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { pipeBidirectional } from './utils/pipe.js'
 import { stripHopByHopHeaders } from './utils/hop-headers.js'
+import { sanitiseOutboundHeaders } from './utils/sanitize-headers.js'
+import { SanitisationError } from '../security/sanitize/index.js'
 import { generateCertificate, getDefaultCA } from '../utils/certs.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
@@ -681,6 +683,22 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
           return
         }
 
+        // Trust-boundary sanitisation (#105): every header about to leave
+        // the proxy gets validated/cleaned. Catches CRLF / NUL / control-byte
+        // injection from a malicious client *and* from any user-supplied
+        // onRequest hook that mutated the bag.
+        let upstreamHeaders: Record<string, string>
+        try {
+          upstreamHeaders = sanitiseOutboundHeaders({ ...mitmReq!.headers, host })
+        } catch (err) {
+          if (err instanceof SanitisationError) {
+            res.writeHead(400, { 'Content-Type': 'text/plain' })
+            res.end('Bad Request')
+            return
+          }
+          throw err
+        }
+
         // Forward to real upstream via HTTPS
         let mitmRes: MitmResponse
         try {
@@ -690,7 +708,7 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
                 ...upstreamTlsBase,
                 path: mitmReq!.path,
                 method: mitmReq!.method,
-                headers: { ...mitmReq!.headers, host },
+                headers: upstreamHeaders,
                 timeout: connectTimeout,
               },
               (upRes) => {
@@ -797,7 +815,20 @@ export function createConnectTunnel(options: ConnectTunnelOptions = {}): Connect
 
         mutable.bytesToClient += finalRes.body.length
 
-        const outHeaders = stripHopByHopHeaders(finalRes.headers)
+        // Trust-boundary sanitisation (#105) on the response direction.
+        // Catches CRLF/NUL injected by a malicious upstream OR by a user
+        // onResponse / middleware hook that mutated the bag.
+        let outHeaders: Record<string, string>
+        try {
+          outHeaders = sanitiseOutboundHeaders(stripHopByHopHeaders(finalRes.headers))
+        } catch (err) {
+          if (err instanceof SanitisationError) {
+            res.writeHead(502, { 'Content-Type': 'text/plain' })
+            res.end('Bad Gateway')
+            return
+          }
+          throw err
+        }
         outHeaders['content-length'] = String(finalRes.body.length)
         res.writeHead(finalRes.statusCode, finalRes.statusMessage, outHeaders)
         res.end(finalRes.body)
