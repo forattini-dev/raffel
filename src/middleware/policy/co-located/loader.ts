@@ -21,6 +21,8 @@ import type {
 } from '../types.js'
 import type { DiscoverySource } from '../../../server/fs-routes/discovery-source.js'
 import {
+  ancestorDirs,
+  folderPolicyCandidates,
   type PolicyFileDescriptor,
   siblingPolicyCandidates,
 } from './resolver.js'
@@ -49,6 +51,11 @@ export interface CoLocatedLoadOptions {
   source: DiscoverySource
   handlerFilePaths: readonly string[]
   customConditions?: Record<string, PolicyCondition>
+  /**
+   * Discovery root. When provided, folder-cascade scanning stops here so we
+   * never read `_policy.*` files outside the discovered tree.
+   */
+  rootDir?: string
 }
 
 export interface CoLocatedLoadResult {
@@ -110,7 +117,7 @@ function materializePolicy(
 export async function loadCoLocatedPolicies(
   options: CoLocatedLoadOptions,
 ): Promise<CoLocatedLoadResult> {
-  const { source, handlerFilePaths } = options
+  const { source, handlerFilePaths, rootDir } = options
   const customConditions = options.customConditions ?? {}
   const files: PolicyFileDescriptor[] = []
 
@@ -124,8 +131,28 @@ export async function loadCoLocatedPolicies(
         materializePolicy(candidate, i, item, customConditions),
       )
       files.push({ filePath: candidate, policies, kind: 'sibling' })
-      // Sibling convention is one policy file per handler; once we've found
-      // one, stop trying further extensions for the same handler.
+      break
+    }
+  }
+
+  const dirs = new Set<string>()
+  for (const handlerPath of handlerFilePaths) {
+    for (const dir of ancestorDirs(handlerPath, rootDir)) {
+      if (rootDir !== undefined && dir !== rootDir && !dir.startsWith(`${rootDir}/`)) continue
+      dirs.add(dir)
+    }
+  }
+
+  for (const dir of dirs) {
+    for (const candidate of folderPolicyCandidates(dir)) {
+      if (!(await source.exists(candidate))) continue
+      const text = await source.readText(candidate)
+      const parsed = parsePolicyText(candidate, text)
+      const items = Array.isArray(parsed) ? parsed : [parsed]
+      const policies: Policy[] = items.map((item, i) =>
+        materializePolicy(candidate, i, item, customConditions),
+      )
+      files.push({ filePath: candidate, policies, kind: 'folder', dir })
       break
     }
   }

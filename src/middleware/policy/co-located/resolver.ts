@@ -11,7 +11,7 @@
  * this resolver.
  */
 
-import { extname } from 'node:path'
+import { dirname, extname } from 'node:path'
 import type { Policy } from '../types.js'
 
 export interface RouteDescriptor {
@@ -21,7 +21,7 @@ export interface RouteDescriptor {
   filePath: string
 }
 
-export type PolicyFileKind = 'sibling'
+export type PolicyFileKind = 'sibling' | 'folder'
 
 export interface PolicyFileDescriptor {
   /** Absolute path of the policy file. */
@@ -30,6 +30,11 @@ export interface PolicyFileDescriptor {
   policies: readonly Policy[]
   /** Source kind for diagnostics and precedence. */
   kind: PolicyFileKind
+  /**
+   * For `folder` kind: the directory whose handlers (recursively) the file
+   * covers. Sibling files leave this undefined.
+   */
+  dir?: string
 }
 
 export interface PolicySource {
@@ -50,6 +55,7 @@ export interface RoutePolicyDescriptor {
 
 const POLICY_EXTENSIONS: readonly string[] = ['.yaml', '.yml', '.json']
 const POLICY_INFIX = '.policy'
+const FOLDER_POLICY_BASENAME = '_policy'
 
 /**
  * Strip a `.policy.{yaml,yml,json}` suffix from a path. Returns null when the
@@ -75,32 +81,69 @@ export function handlerBaseKey(handlerPath: string): string {
 }
 
 /**
- * Match policy files to routes by sibling file convention. Pure function —
- * accepts pre-loaded descriptors so unit tests can drive it from in-memory
- * fixtures.
+ * Walk ancestor directories from a handler file up to (and including) the
+ * provided root, returning the chain in broader→closer order. The handler's
+ * own directory is the last entry. When `rootDir` is omitted the walk stops
+ * at the filesystem root (loop guard via `parent === cur`).
+ */
+export function ancestorDirs(handlerPath: string, rootDir?: string): string[] {
+  const chain: string[] = []
+  let cur = dirname(handlerPath)
+  while (true) {
+    chain.unshift(cur)
+    if (rootDir !== undefined && cur === rootDir) break
+    const parent = dirname(cur)
+    if (parent === cur) break
+    cur = parent
+  }
+  return chain
+}
+
+/**
+ * Match policy files to routes. Resolves both sibling files (`<handler>.policy.*`)
+ * and folder cascades (`_policy.*` in any ancestor directory). Apply order
+ * inside each route descriptor is broader→closer, with the sibling (when
+ * present) appended last so deny semantics in the engine still bite.
  */
 export function resolveCoLocatedPolicies(
   routes: readonly RouteDescriptor[],
   policyFiles: readonly PolicyFileDescriptor[],
 ): RoutePolicyDescriptor[] {
-  const byKey = new Map<string, PolicyFileDescriptor>()
+  const siblingByKey = new Map<string, PolicyFileDescriptor>()
+  const folderByDir = new Map<string, PolicyFileDescriptor>()
   for (const file of policyFiles) {
-    if (file.kind !== 'sibling') continue
-    const key = policyFileBaseKey(file.filePath)
-    if (!key) continue
-    byKey.set(key, file)
+    if (file.kind === 'sibling') {
+      const key = policyFileBaseKey(file.filePath)
+      if (key) siblingByKey.set(key, file)
+    } else if (file.kind === 'folder' && file.dir) {
+      folderByDir.set(file.dir, file)
+    }
   }
 
   const out: RoutePolicyDescriptor[] = []
   for (const route of routes) {
-    const key = handlerBaseKey(route.filePath)
-    const file = byKey.get(key)
-    if (!file) continue
+    const policies: Policy[] = []
+    const sources: PolicySource[] = []
+
+    for (const dir of ancestorDirs(route.filePath)) {
+      const folder = folderByDir.get(dir)
+      if (!folder) continue
+      policies.push(...folder.policies)
+      sources.push({ filePath: folder.filePath, kind: 'folder' })
+    }
+
+    const sibling = siblingByKey.get(handlerBaseKey(route.filePath))
+    if (sibling) {
+      policies.push(...sibling.policies)
+      sources.push({ filePath: sibling.filePath, kind: 'sibling' })
+    }
+
+    if (sources.length === 0) continue
     out.push({
       name: route.name,
       filePath: route.filePath,
-      policies: [...file.policies],
-      sources: [{ filePath: file.filePath, kind: file.kind }],
+      policies,
+      sources,
     })
   }
   return out
@@ -113,4 +156,12 @@ export function resolveCoLocatedPolicies(
 export function siblingPolicyCandidates(handlerPath: string): string[] {
   const key = handlerBaseKey(handlerPath)
   return POLICY_EXTENSIONS.map((ext) => `${key}${POLICY_INFIX}${ext}`)
+}
+
+/**
+ * Helper for the loader: list every supported `_policy.*` filename inside a
+ * directory. Caller checks each candidate against its discovery source.
+ */
+export function folderPolicyCandidates(dir: string): string[] {
+  return POLICY_EXTENSIONS.map((ext) => `${dir}/${FOLDER_POLICY_BASENAME}${ext}`)
 }

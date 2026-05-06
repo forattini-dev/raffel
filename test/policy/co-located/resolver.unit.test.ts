@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
+  ancestorDirs,
+  folderPolicyCandidates,
   handlerBaseKey,
   policyFileBaseKey,
   resolveCoLocatedPolicies,
@@ -133,19 +135,94 @@ describe('resolveCoLocatedPolicies', () => {
     expect(result).toEqual([])
   })
 
-  it('ignores non-sibling policy file kinds (placeholder for future cascades)', () => {
+  it('ignores folder descriptors without a `dir` field', () => {
     const routes: RouteDescriptor[] = [
       { name: 'users.get', filePath: '/abs/users/get.ts' },
     ]
-    const files = [
+    const files: PolicyFileDescriptor[] = [
       {
-        filePath: '/abs/users/get.policy.yaml',
+        filePath: '/abs/_policy.yaml',
         policies: [dummyPolicy('skip')],
-        // Cast to mimic a future kind without polluting the type
-        kind: 'folder' as 'sibling',
+        kind: 'folder',
       },
     ]
     const result = resolveCoLocatedPolicies(routes, files)
     expect(result).toEqual([])
+  })
+
+  it('cascades folder _policy from ancestor directories (broader → closer)', () => {
+    const routes: RouteDescriptor[] = [
+      { name: 'admin.reset', filePath: '/abs/admin/reset.ts' },
+    ]
+    const files: PolicyFileDescriptor[] = [
+      {
+        filePath: '/abs/_policy.yaml',
+        policies: [dummyPolicy('root')],
+        kind: 'folder',
+        dir: '/abs',
+      },
+      {
+        filePath: '/abs/admin/_policy.yaml',
+        policies: [dummyPolicy('admin')],
+        kind: 'folder',
+        dir: '/abs/admin',
+      },
+    ]
+    const result = resolveCoLocatedPolicies(routes, files)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.policies.map((p) => p.id)).toEqual(['root', 'admin'])
+    expect(result[0]?.sources.map((s) => s.kind)).toEqual(['folder', 'folder'])
+  })
+
+  it('appends sibling after folder cascades so it is highest precedence in apply order', () => {
+    const routes: RouteDescriptor[] = [
+      { name: 'orders.list', filePath: '/abs/orders/list.ts' },
+    ]
+    const files: PolicyFileDescriptor[] = [
+      {
+        filePath: '/abs/_policy.yaml',
+        policies: [dummyPolicy('cascade')],
+        kind: 'folder',
+        dir: '/abs',
+      },
+      {
+        filePath: '/abs/orders/list.policy.yaml',
+        policies: [dummyPolicy('sibling')],
+        kind: 'sibling',
+      },
+    ]
+    const result = resolveCoLocatedPolicies(routes, files)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.policies.map((p) => p.id)).toEqual(['cascade', 'sibling'])
+    expect(result[0]?.sources.map((s) => s.kind)).toEqual(['folder', 'sibling'])
+  })
+})
+
+describe('ancestorDirs', () => {
+  it('walks from handler dir up to filesystem root by default', () => {
+    const chain = ancestorDirs('/a/b/c/get.ts')
+    // broader → closer
+    expect(chain[0]).toBe('/')
+    expect(chain[chain.length - 1]).toBe('/a/b/c')
+  })
+
+  it('stops at provided rootDir', () => {
+    const chain = ancestorDirs('/abs/feature/sub/get.ts', '/abs')
+    expect(chain).toEqual(['/abs', '/abs/feature', '/abs/feature/sub'])
+  })
+
+  it('returns just the handler dir when handler lives directly under rootDir', () => {
+    const chain = ancestorDirs('/abs/get.ts', '/abs')
+    expect(chain).toEqual(['/abs'])
+  })
+})
+
+describe('folderPolicyCandidates', () => {
+  it('lists every supported _policy filename for a directory', () => {
+    expect(folderPolicyCandidates('/abs/feature')).toEqual([
+      '/abs/feature/_policy.yaml',
+      '/abs/feature/_policy.yml',
+      '/abs/feature/_policy.json',
+    ])
   })
 })
