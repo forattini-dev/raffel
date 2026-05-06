@@ -182,6 +182,9 @@ export function createPolicyInterceptor(
     // Attach ctx.policy.{evaluate,filterResources} helpers (idempotent).
     attachPolicyHelpers(ctx, engine, principal)
 
+    const protocol = (ctx as { protocol?: unknown }).protocol
+    const protocolValue = typeof protocol === 'string' ? protocol : undefined
+
     const resources = await resolveResources(config, envelope, ctx)
 
     if (!resources) {
@@ -196,6 +199,7 @@ export function createPolicyInterceptor(
         principal,
         action,
         resource: placeholderResource,
+        ...(protocolValue ? { protocol: protocolValue } : {}),
       } satisfies AuthzInput)
       attachDecision(ctx, decision)
       logDecision(logger, decision, action, principal, placeholderResource)
@@ -214,7 +218,10 @@ export function createPolicyInterceptor(
       let lastResource: Resource | undefined
       let allowed = false
       for (const resource of resources) {
-        const decision = await engine.evaluate({ principal, action, resource })
+        const decision = await engine.evaluate({
+          principal, action, resource,
+          ...(protocolValue ? { protocol: protocolValue } : {}),
+        })
         lastDecision = decision
         lastResource = resource
         logDecision(logger, decision, action, principal, resource)
@@ -237,7 +244,10 @@ export function createPolicyInterceptor(
 
     // enforce — every resource must pass
     for (const resource of resources) {
-      const decision = await engine.evaluate({ principal, action, resource })
+      const decision = await engine.evaluate({
+        principal, action, resource,
+        ...(protocolValue ? { protocol: protocolValue } : {}),
+      })
       attachDecision(ctx, decision)
       logDecision(logger, decision, action, principal, resource)
       if (!decision.allowed) {

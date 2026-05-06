@@ -31,6 +31,27 @@ function checkPolicyPatterns(policy: Policy, input: AuthzInput): PolicyMatchResu
   compilePolicyPatterns(policy)
   const compiled = policy._compiled!
 
+  // Scope filter (protocol/route/channel). When any scope facet is set the
+  // policy is short-circuited if the input does not match — this keeps the
+  // policy out of `candidatePolicies` diagnostics so reports stay quiet for
+  // non-applicable transports.
+  if (compiled.scopeProtocols && compiled.scopeProtocols.length > 0) {
+    const protocol = input.protocol ?? ''
+    if (!matchAnyCompiled(protocol, compiled.scopeProtocols)) {
+      return { fullMatch: false, missing: ['scope.protocols'] }
+    }
+  }
+  if (compiled.scopeRoutes && compiled.scopeRoutes.length > 0) {
+    if (!matchAnyCompiled(input.action, compiled.scopeRoutes)) {
+      return { fullMatch: false, missing: ['scope.routes'] }
+    }
+  }
+  if (compiled.scopeChannels && compiled.scopeChannels.length > 0) {
+    if (!matchAnyCompiled(input.action, compiled.scopeChannels)) {
+      return { fullMatch: false, missing: ['scope.channels'] }
+    }
+  }
+
   const principalSet = compilePrincipalSet(input.principal)
   const resourceTag = `${input.resource.type}:${input.resource.id}`
 

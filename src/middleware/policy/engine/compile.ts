@@ -22,6 +22,15 @@ export function compilePolicyPatterns(policy: Policy): Policy {
       actions: policy.actions.map(compileGlob),
       resources: policy.resources.map(compileGlob),
     }
+    if (policy.scope?.routes && policy.scope.routes.length > 0) {
+      compiled.scopeRoutes = policy.scope.routes.map(compileGlob)
+    }
+    if (policy.scope?.channels && policy.scope.channels.length > 0) {
+      compiled.scopeChannels = policy.scope.channels.map(compileGlob)
+    }
+    if (policy.scope?.protocols && policy.scope.protocols.length > 0) {
+      compiled.scopeProtocols = policy.scope.protocols.map(compileGlob)
+    }
     policy._compiled = compiled
   }
   if (policy.match && !policy._compiledMatch) {
