@@ -8,9 +8,9 @@ export default defineConfig({
     setupFiles: ['test/setup-test-logger.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
-    // Run test files sequentially to avoid port conflicts
-    fileParallelism: false,
-    // Ensure clean isolation between tests
+    // Test files use ephemeral ports (`port: 0`) so they can run in parallel
+    // safely. Workers default to ~half of CPU cores.
+    fileParallelism: true,
     isolate: true,
     coverage: {
       provider: 'v8',
