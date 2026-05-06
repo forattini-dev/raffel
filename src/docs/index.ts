@@ -122,6 +122,8 @@ export {
 
 export {
   createUSDHandlers,
+  mountUSDDocs,
+  type USDDocsApp,
   type USDMiddlewareConfig,
   type USDHandlers,
   type USDMiddlewareContext,
