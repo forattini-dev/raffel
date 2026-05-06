@@ -115,12 +115,14 @@ export function createRestMiddleware(
           }
 
           let body: unknown = {}
+          let rawBody: Buffer | undefined
           if (['POST', 'PUT', 'PATCH'].includes(method)) {
             const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
             if (!parsed) {
               return true
             }
             body = parsed.payload
+            rawBody = parsed.raw
           }
 
           const httpContext = await createHttpRequestContext({
@@ -133,6 +135,7 @@ export function createRestMiddleware(
               params,
               query,
             },
+            rawBody,
             trustedProxies,
             contextFactory,
           })
@@ -217,6 +220,7 @@ export function createHttpOverrideMiddleware(
       }
 
       let payload: unknown = {}
+      let rawBody: Buffer | undefined
       if (method === 'GET' || method === 'HEAD') {
         payload = parseJsonQueryParams(url.searchParams)
       } else {
@@ -225,6 +229,7 @@ export function createHttpOverrideMiddleware(
           return true
         }
         payload = parsed.payload
+        rawBody = parsed.raw
       }
 
       // Merge URL params into the dispatched payload so resource-style
@@ -248,6 +253,7 @@ export function createHttpOverrideMiddleware(
           params,
           query,
         },
+        rawBody,
         trustedProxies,
         contextFactory,
       })

@@ -359,16 +359,23 @@ function createResourceContext(
   resource: string,
   operation: ResourceOperation | string,
   params: Record<string, string>,
-  query: ResourceQuery
+  query: ResourceQuery,
+  baseCtx?: ResourceContext | Record<string, unknown>
 ): ResourceContext {
-  const baseCtx = createContext(sid())
+  // When the router dispatches a resource action over HTTP, it already
+  // built a request context with transport capabilities (`http`, `auth`,
+  // `tracing`, `signal`, etc.). Spreading it first lets resource handlers
+  // see `ctx.http.rawBody` for HMAC verification (issue #114) and keeps
+  // signals/aborts/auth flowing through. We overlay the resource fields
+  // on top so `resource`, `operation`, `params`, `query` always win.
+  const fallbackCtx = baseCtx ?? createContext(sid())
   return {
-    ...baseCtx,
+    ...(fallbackCtx as Record<string, unknown>),
     resource,
     operation: operation as ResourceOperation,
     params,
     query,
-  }
+  } as ResourceContext
 }
 
 function parseQuery(input: unknown): ResourceQuery {
@@ -423,9 +430,9 @@ function createListRoute(
   handler: ListHandler,
   _config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const query = parseQuery(input)
-    const ctx = createResourceContext(resource, 'list', {}, query)
+    const ctx = createResourceContext(resource, 'list', {}, query, baseCtx)
     return handler(query, ctx)
   }
 }
@@ -435,10 +442,10 @@ function createGetRoute(
   handler: GetHandler,
   _config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const params = (input as { id?: string }) ?? {}
     const id = params.id ?? ''
-    const ctx = createResourceContext(resource, 'get', { id }, {})
+    const ctx = createResourceContext(resource, 'get', { id }, {}, baseCtx)
     return handler(id, ctx)
   }
 }
@@ -449,7 +456,7 @@ function createCreateRoute(
   inputSchema: ResourceExports['inputSchema'],
   config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     // Validate input if schema provided
     let data = input
     if (inputSchema) {
@@ -464,7 +471,7 @@ function createCreateRoute(
       (data as Record<string, unknown>)[config.timestamps.updatedAt] = new Date()
     }
 
-    const ctx = createResourceContext(resource, 'create', {}, {})
+    const ctx = createResourceContext(resource, 'create', {}, {}, baseCtx)
     return handler(data, ctx)
   }
 }
@@ -475,7 +482,7 @@ function createUpdateRoute(
   inputSchema: ResourceExports['inputSchema'],
   config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const raw = input as { id?: string; data?: unknown }
     const id = raw.id ?? ''
     let data: Record<string, unknown> = (raw.data ?? raw) as Record<string, unknown>
@@ -490,7 +497,7 @@ function createUpdateRoute(
       data[config.timestamps.updatedAt] = new Date()
     }
 
-    const ctx = createResourceContext(resource, 'update', { id }, {})
+    const ctx = createResourceContext(resource, 'update', { id }, {}, baseCtx)
     return handler(id, data, ctx)
   }
 }
@@ -501,7 +508,7 @@ function createPatchRoute(
   patchSchema: ResourceExports['patchSchema'],
   config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const raw = input as { id?: string; data?: unknown }
     const id = raw.id ?? ''
     let data = raw.data ?? raw
@@ -516,7 +523,7 @@ function createPatchRoute(
       (data as Record<string, unknown>)[config.timestamps.updatedAt] = new Date()
     }
 
-    const ctx = createResourceContext(resource, 'patch', { id }, {})
+    const ctx = createResourceContext(resource, 'patch', { id }, {}, baseCtx)
     return handler(id, data as Record<string, unknown>, ctx)
   }
 }
@@ -526,11 +533,11 @@ function createDeleteRoute(
   handler: DeleteHandler,
   config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const params = (input as { id?: string }) ?? {}
     const id = params.id ?? ''
 
-    const ctx = createResourceContext(resource, 'delete', { id }, {})
+    const ctx = createResourceContext(resource, 'delete', { id }, {}, baseCtx)
 
     // Soft delete: update deletedAt instead of actual delete
     if (config.softDelete && config.timestamps.deletedAt) {
@@ -547,10 +554,10 @@ function createHeadRoute(
   handler: HeadHandler,
   _config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const params = (input as { id?: string }) ?? {}
     const id = params.id ?? ''
-    const ctx = createResourceContext(resource, 'head', { id }, {})
+    const ctx = createResourceContext(resource, 'head', { id }, {}, baseCtx)
     const exists = await handler(id, ctx)
     return { exists }
   }
@@ -562,8 +569,8 @@ function createOptionsRoute(
   _handlers: ResourceExports,
   _config: ResolvedResourceConfig
 ) {
-  return async (_input: unknown, _baseCtx: ResourceContext) => {
-    const ctx = createResourceContext(resource, 'options', {}, {})
+  return async (_input: unknown, baseCtx: ResourceContext) => {
+    const ctx = createResourceContext(resource, 'options', {}, {}, baseCtx)
     return handler(ctx)
   }
 }
@@ -597,7 +604,7 @@ function createActionRoute(
   action: NonNullable<ResourceExports['actions']>[string],
   _config: ResolvedResourceConfig
 ) {
-  return async (input: unknown, _baseCtx: ResourceContext) => {
+  return async (input: unknown, baseCtx: ResourceContext) => {
     const raw = input as { id?: string; data?: unknown }
     const id = action.collection ? null : (raw.id ?? '')
     let data: unknown = raw.data ?? raw
@@ -607,7 +614,7 @@ function createActionRoute(
       data = action.input.parse(data)
     }
 
-    const ctx = createResourceContext(resource, actionName, id ? { id } : {}, {})
+    const ctx = createResourceContext(resource, actionName, id ? { id } : {}, {}, baseCtx)
     return action.handler(data, id, ctx)
   }
 }
