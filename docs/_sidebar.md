@@ -50,6 +50,7 @@
   - [OAuth2](/auth/oauth2.md)
   - [OIDC](/auth/oidc.md)
   - [Session Store](/auth/sessions.md)
+  - [Trust Boundaries](/auth/trust-boundaries.md)
 
 - **Authorization (Policies)** _(opt-in)_
   - [Overview](/policies/README.md)
