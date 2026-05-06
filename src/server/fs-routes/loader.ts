@@ -187,7 +187,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'procedure', extensions)
       if (coLocatedEnabled) {
-        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions)
+        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
       }
       routes.push(...loaded.routes)
       stats.http = loaded.routes.length
@@ -202,7 +202,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'procedure', extensions)
       if (coLocatedEnabled) {
-        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions)
+        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
       }
       routes.push(...loaded.routes)
       stats.rpc = loaded.routes.length
@@ -217,7 +217,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'stream', extensions)
       if (coLocatedEnabled) {
-        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions)
+        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
       }
       routes.push(...loaded.routes)
       stats.streams = loaded.routes.length
@@ -718,12 +718,14 @@ async function attachCoLocatedPolicies(
   source: DiscoverySource,
   routes: LoadedRoute[],
   customConditions: Record<string, PolicyCondition> | undefined,
+  rootDir: string,
 ): Promise<void> {
   if (routes.length === 0) return
   const { files } = await loadCoLocatedPolicies({
     source,
     handlerFilePaths: routes.map((r) => r.filePath),
     customConditions,
+    rootDir,
   })
   if (files.length === 0) return
 
