@@ -243,6 +243,9 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     const dir = resolveDir(baseDir, config.rest, DEFAULTS.rest)
     if (dir && await source.exists(dir)) {
       const loaded = await loadRestResources({ baseDir, restDir: dir, extensions, source })
+      if (coLocatedEnabled) {
+        await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, dir)
+      }
       restResources.push(...loaded.resources)
       stats.rest = loaded.stats.resources
       logger.info({ count: stats.rest, dir }, 'Loaded REST resources')
@@ -254,6 +257,9 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     const dir = resolveDir(baseDir, config.resources, DEFAULTS.resources)
     if (dir && await source.exists(dir)) {
       const loaded = await loadResources({ baseDir, resourcesDir: dir, extensions, source })
+      if (coLocatedEnabled) {
+        await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, dir)
+      }
       resources.push(...loaded.resources)
       stats.resources = loaded.stats.resources
       logger.info({ count: stats.resources, dir }, 'Loaded resources')
@@ -706,6 +712,43 @@ function parseRoutePath(relativePath: string): ParsedRoute {
     segments,
     params,
     name: routeName,
+  }
+}
+
+/**
+ * Generic co-located policy attach: works for any item that has `name` and
+ * `filePath`. The resolver pairs by handler base path, so REST resources
+ * (one file per resource) and the resources tree (one file per resource)
+ * are paired exactly the same way as procedure handlers.
+ */
+async function attachCoLocatedPoliciesToFileItems<T extends { name: string; filePath: string; coLocatedPolicies?: import('../../middleware/policy/types.js').Policy[] }>(
+  source: DiscoverySource,
+  items: T[],
+  customConditions: Record<string, PolicyCondition> | undefined,
+  rootDir: string,
+): Promise<void> {
+  if (items.length === 0) return
+  const { files } = await loadCoLocatedPolicies({
+    source,
+    handlerFilePaths: items.map((i) => i.filePath),
+    customConditions,
+    rootDir,
+  })
+  if (files.length === 0) return
+
+  const descriptors = resolveCoLocatedPolicies(
+    items.map((i) => ({ name: i.name, filePath: i.filePath })),
+    files,
+  )
+  const byPath = new Map(descriptors.map((d) => [d.filePath, d]))
+  for (const item of items) {
+    const desc = byPath.get(item.filePath)
+    if (!desc || desc.policies.length === 0) continue
+    item.coLocatedPolicies = desc.policies
+    logger.debug(
+      { name: item.name, count: desc.policies.length, sources: desc.sources.map((s) => s.filePath) },
+      'Attached co-located policies',
+    )
   }
 }
 

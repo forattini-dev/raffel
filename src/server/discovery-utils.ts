@@ -19,23 +19,41 @@ export interface DiscoveryRegistrationPolicyHook {
   bootstrap: PolicyBootstrap
 }
 
-function buildCoLocatedAuthzInterceptors(
-  route: LoadedRoute,
+/**
+ * Synthesise authz interceptors for a named operation given a set of
+ * co-located policies. Reused by both procedure-style discovery and
+ * REST/resource registration paths.
+ */
+export function buildCoLocatedAuthzInterceptorsForName(
+  name: string,
+  policies: readonly import('../middleware/policy/types.js').Policy[] | undefined,
   policyHook: DiscoveryRegistrationPolicyHook | undefined,
+  diagnosticsFilePath?: string,
 ): Interceptor[] {
   if (!policyHook) return []
-  if (!route.coLocatedPolicies || route.coLocatedPolicies.length === 0) return []
-
+  if (!policies || policies.length === 0) return []
   const engine = policyHook.bootstrap.engine
   if (typeof engine.addPolicies !== 'function') {
     logger.warn(
-      { name: route.name, filePath: route.filePath },
+      { name, filePath: diagnosticsFilePath },
       'Co-located policies present but engine driver does not support addPolicies(); skipping bridge',
     )
     return []
   }
-  engine.addPolicies(route.coLocatedPolicies)
-  return [policyHook.bootstrap.interceptorFactory(route.name, { action: route.name })]
+  engine.addPolicies(policies)
+  return [policyHook.bootstrap.interceptorFactory(name, { action: name })]
+}
+
+function buildCoLocatedAuthzInterceptors(
+  route: LoadedRoute,
+  policyHook: DiscoveryRegistrationPolicyHook | undefined,
+): Interceptor[] {
+  return buildCoLocatedAuthzInterceptorsForName(
+    route.name,
+    route.coLocatedPolicies,
+    policyHook,
+    route.filePath,
+  )
 }
 
 /**
