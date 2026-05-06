@@ -11,8 +11,15 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { Ajv } from 'ajv'
-import type { ErrorObject } from 'ajv'
+// `ajv` is a CommonJS package without an ESM wrapper. Node 22's strict
+// loader rejects `import { Ajv } from 'ajv'`, and `import Ajv from 'ajv'`
+// trips TS NodeNext typings. Pull the constructor via createRequire — it
+// works under both ESM and CJS.
+import { createRequire } from 'node:module'
+import type { Ajv as AjvInstance, Options as AjvOptions, ErrorObject } from 'ajv'
+
+const requireAjv = createRequire(import.meta.url)
+const Ajv = requireAjv('ajv') as new (options?: AjvOptions) => AjvInstance
 import type {
   JsonPolicy,
   Policy,
