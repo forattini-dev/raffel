@@ -27,6 +27,7 @@ export function generateClientDataScript(
   escapedDocsPages: string,
   escapedDocsAliases: string,
   escapedSearchIndex: string,
+  escapedDocsSidebar: string,
   escapedDocsAssetBasePath: string,
   escapedFooter: string,
   escapedToc: string,
@@ -42,6 +43,7 @@ export function generateClientDataScript(
       docsPages: ${escapedDocsPages},
       docsAliases: ${escapedDocsAliases},
       searchIndex: ${escapedSearchIndex},
+      docsSidebar: ${escapedDocsSidebar},
       docsAssetBasePath: ${escapedDocsAssetBasePath},
       footerMarkdown: ${escapedFooter},
       tocConfig: ${escapedToc},
@@ -67,13 +69,14 @@ export function generateClientRuntimeScript(): string {
     const docsPages = docsData.docsPages || [];
     const docsAliases = docsData.docsAliases || {};
     const searchIndex = docsData.searchIndex || [];
+    const docsSidebar = Array.isArray(docsData.docsSidebar) ? docsData.docsSidebar : [];
     const docsAssetBasePath = docsData.docsAssetBasePath || '';
     const footerMarkdown = docsData.footerMarkdown || null;
     const tocConfig = docsData.tocConfig || {};
     const markdownConfig = docsData.markdownConfig || {};
     const docsPlugins = [];
     function getDocsRuntimeState() {
-      return { activePagePath, activeProtocol, searchQuery };
+      return { activePagePath, activeHeadingId, activeProtocol, searchQuery };
     }
     function getPluginContext(extra = {}) {
       return Object.assign({}, getDocsRuntimeState(), extra);
@@ -146,6 +149,7 @@ export function generateClientScript(
   escapedDocsPages: string,
   escapedDocsAliases: string,
   escapedSearchIndex: string,
+  escapedDocsSidebar: string,
   escapedDocsAssetBasePath: string,
   escapedFooter: string,
   escapedToc: string,
@@ -160,6 +164,7 @@ export function generateClientScript(
     escapedDocsPages,
     escapedDocsAliases,
     escapedSearchIndex,
+    escapedDocsSidebar,
     escapedDocsAssetBasePath,
     escapedFooter,
     escapedToc,

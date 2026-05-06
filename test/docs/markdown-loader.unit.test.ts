@@ -59,6 +59,16 @@ describe('Markdown docs loader', () => {
       '/docs/old-start': '/docs/guides/quickstart',
       '/docs/legacy/(.*)': '/docs/guides/$1',
     })
+    expect(loaded.documentation.sidebar).toEqual([
+      {
+        title: 'Intro',
+        children: [{ title: 'Home', path: '/docs' }],
+      },
+      {
+        title: 'Guides',
+        children: [{ title: 'Start here', path: '/docs/guides/quickstart' }],
+      },
+    ])
     expect(loaded.navbar).toEqual([
       { title: 'Home', href: '#/docs', external: false },
       {

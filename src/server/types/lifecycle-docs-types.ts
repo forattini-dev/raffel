@@ -61,13 +61,15 @@ export interface USDDocsConfig {
   /** UI configuration */
   ui?: {
     /** Theme preference */
-    theme?: 'light' | 'dark' | 'auto'
+    theme?: 'light' | 'dark' | 'custom' | 'auto'
     /** Primary color for UI */
     primaryColor?: string
     /** Logo URL */
     logo?: string
     /** Favicon URL */
     favicon?: string
+    /** External CSS files loaded after the built-in stylesheet */
+    customCss?: string | string[]
     /** Enable "Try It Out" feature */
     tryItOut?: boolean
     /** Code generation options */
@@ -105,6 +107,7 @@ export interface USDDocsConfig {
       showCounts?: boolean
       docsPages?: boolean
       hide?: boolean
+      items?: Array<{ title: string; path?: string; href?: string; children?: Array<{ title: string; path?: string; href?: string; children?: any[] }> }>
       subMaxLevel?: number
     }
     /** Top navigation links */
@@ -154,6 +157,8 @@ export interface USDDocsConfig {
       section?: string
       order?: number
     }>
+    /** Declarative sidebar tree. Order and hierarchy are preserved as declared. */
+    sidebar?: Array<{ title: string; path?: string; href?: string; children?: Array<{ title: string; path?: string; href?: string; children?: any[] }> }>
     /** Route aliases for preserving old docs links, for example { '/old': '/new' } */
     aliases?: Record<string, string>
     /** In-app route prefix used by file-backed Markdown docs, for example `/guides` */
@@ -231,10 +236,14 @@ export interface USDDocsHandlers {
   serveUIRuntime: () => Response
   /** Serve reusable Markdown engine support asset */
   serveUIMarkdownEngine: () => Response
+  /** Serve reusable Prism.js syntax highlighter asset */
+  serveUISyntaxHighlighter: () => Response
   /** Serve reusable Markdown renderer bridge */
   serveUIMarkdownRenderer: () => Response
   /** Serve reusable protocol console bridge */
   serveUIProtocolConsole: () => Response
+  /** Serve reusable declarative sidebar runtime bridge */
+  serveUISidebarTree: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */

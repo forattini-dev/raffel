@@ -43,10 +43,20 @@ const server = createServer({ port: 3000 })
     docsDir: true,
     ui: {
       assets: { mode: 'external' },
+      customCss: '/docs/-/assets/custom.css',
       sidebar: {
         search: true,
         docsPages: true,
         subMaxLevel: 3,
+        items: [
+          {
+            title: 'Guides',
+            children: [
+              { title: 'Quickstart', path: '/quickstart' },
+              { title: 'Deployment', path: '/guides/deployment' },
+            ],
+          },
+        ],
       },
       markdown: {
         autoHeader: true,
@@ -70,8 +80,10 @@ This exposes:
 | `/docs/openapi.json` | OpenAPI 3.1 export for Swagger/OpenAPI tooling |
 | `/docs/-/raffel-docs.js` | Reusable frontend docs runtime |
 | `/docs/-/marked.umd.js` | Packaged Markdown engine used by the external runtime |
+| `/docs/-/prism.js` | Packaged Prism.js syntax highlighter used by the external runtime |
 | `/docs/-/marked-renderer.js` | Raffel renderer bridge for Markdown-specific behavior |
 | `/docs/-/protocol-console.js` | Browser-safe live protocol consoles for generated references |
+| `/docs/-/sidebar-tree.js` | Declarative sidebar tree renderer used by the external runtime |
 | `/docs/-/raffel-docs.css` | Reusable frontend docs stylesheet |
 | `/docs/-/assets/*` | Static assets referenced by Markdown pages |
 
@@ -200,6 +212,29 @@ Example `_sidebar.md`:
   - [Deployment](/guides/deployment.md)
 ```
 
+Sidebar order and hierarchy are declarative. The runtime preserves the declared order exactly, supports nested groups, starts groups collapsed by default, and opens only the ancestor chain for the current hash route. You can also bypass `_sidebar.md` and declare the same tree in `ui.sidebar.items` or `x-usd.documentation.sidebar`:
+
+```ts
+ui: {
+  sidebar: {
+    items: [
+      {
+        title: 'Guides',
+        children: [
+          { title: 'Quickstart', path: '/quickstart' },
+          {
+            title: 'Operations',
+            children: [
+              { title: 'Deployment', path: '/guides/deployment' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+}
+```
+
 Example `_navbar.md`:
 
 ```md
@@ -216,7 +251,7 @@ The Markdown runtime supports common file-backed Markdown authoring features:
 
 - GFM-style tables and task lists
 - GFM-style strikethrough with `~~removed~~`
-- fenced code blocks with copy buttons
+- fenced code blocks with copy buttons and Prism.js highlighting when the Prism asset is loaded
 - relative Markdown links and relative asset links
 - heading anchors and `:id=custom-heading`
 - `raffel-ignore` and `raffel-ignore-all`
@@ -234,11 +269,22 @@ The Markdown runtime supports common file-backed Markdown authoring features:
 - `{raffel-updated}` with `markdown.formatUpdated`
 - raw HTML is escaped by default; set `markdown.html: 'raw'` only for trusted Markdown
 
-When `ui.assets.mode` is `external`, Raffel serves the Markdown engine and renderer bridge from the same docs mount as the UI runtime. There is no CDN requirement. If the engine asset is unavailable, the runtime falls back to the built-in parser.
+When `ui.assets.mode` is `external`, Raffel serves the Markdown engine, Prism.js, and renderer bridge from the same docs mount as the UI runtime. There is no CDN requirement. If the Markdown engine asset is unavailable, the runtime falls back to the built-in parser.
 
 ## Theme Preference
 
-The UI supports `ui.theme: 'light' | 'dark' | 'auto'`. The theme toggle cycles through `auto`, `dark`, and `light`, and stores the user's choice in `localStorage` under `raffel-docs-theme`. A stored preference overrides the configured default on the next page load.
+The UI supports `ui.theme: 'light' | 'dark' | 'custom' | 'auto'`. The theme toggle cycles through `auto`, `dark`, `light`, and `custom`, and stores the user's choice in `localStorage` under `raffel-docs-theme`. A stored preference overrides the configured default on the next page load.
+
+Use `ui.customCss` to load one or more project CSS files after the built-in stylesheet:
+
+```ts
+ui: {
+  theme: 'custom',
+  customCss: ['/docs/-/assets/custom.css'],
+}
+```
+
+Custom CSS can override component styles directly or set custom theme tokens such as `--raffel-bg-color`, `--raffel-text-color`, `--raffel-primary-color`, `--raffel-sidebar-bg`, and `--raffel-code-bg`.
 
 ## Svelte Mounts
 

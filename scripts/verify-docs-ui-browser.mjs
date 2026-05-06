@@ -37,6 +37,26 @@ const docs = {
   'x-usd': {
     documentation: {
       aliases: { '/start': '/quickstart', '/legacy/(.*)': '/$1' },
+      sidebar: [
+        {
+          title: 'Guides',
+          children: [
+            {
+              title: 'Getting Started',
+              children: [
+                { title: 'Quickstart', path: '/quickstart' },
+                { title: 'Guide', path: '/guide' },
+              ],
+            },
+          ],
+        },
+        {
+          title: 'Reference',
+          children: [
+            { title: 'No Header', path: '/no-header' },
+          ],
+        },
+      ],
       pages: [
         {
           title: 'Quickstart',
@@ -337,6 +357,13 @@ window.__runRaffelDocsSmoke = function () {
     targetLink?.target === '_self'
   ))
   document.documentElement.setAttribute('data-marked-renderer-ok', String(Boolean(window.marked) && document.documentElement.getAttribute('data-markdown-engine') === 'marked'))
+  document.documentElement.setAttribute('data-prism-ok', String(Boolean(window.Prism) && Boolean(document.querySelector('pre code[data-prism-highlighted="true"]')) && document.documentElement.getAttribute('data-syntax-highlight') === 'prism'))
+  document.documentElement.setAttribute('data-custom-css-ok', String(getComputedStyle(document.documentElement).getPropertyValue('--custom-smoke-token').trim() === 'loaded'))
+  const openSidebarGroups = Array.from(document.querySelectorAll('.docs-sidebar-group:not(.collapsed) > .tag-group-header')).map((item) => item.textContent || '').join('|')
+  const collapsedSidebarGroups = Array.from(document.querySelectorAll('.docs-sidebar-group.collapsed > .tag-group-header')).map((item) => item.textContent || '').join('|')
+  document.documentElement.setAttribute('data-sidebar-ancestor-open-ok', String(openSidebarGroups.includes('Guides') && openSidebarGroups.includes('Getting Started')))
+  document.documentElement.setAttribute('data-sidebar-collapsed-default-ok', String(collapsedSidebarGroups.includes('Reference')))
+  document.documentElement.setAttribute('data-sidebar-active-page-ok', String(Boolean(document.querySelector('.docs-sidebar-page.active')?.textContent?.includes('Quickstart'))))
   const sidebarSubText = Array.from(document.querySelectorAll('.nav-subitem')).map((link) => link.textContent || '').join('|')
   document.documentElement.setAttribute('data-sidebar-sublevel-ok', String(
     sidebarSubText.includes('Install') &&
@@ -417,7 +444,9 @@ async function assertBuildOutputExists() {
     await access(join(assetsDir, 'raffel-docs.js'))
     await access(join(assetsDir, 'marked-renderer.js'))
     await access(join(assetsDir, 'protocol-console.js'))
+    await access(join(assetsDir, 'sidebar-tree.js'))
     await access(join(assetsDir, 'marked.umd.js'))
+    await access(join(assetsDir, 'prism.js'))
     await access(join(assetsDir, 'raffel-docs.css'))
   } catch {
     throw new Error('Docs UI dist assets are missing. Run `pnpm run build` before browser verification.')
@@ -441,8 +470,11 @@ async function createFixtureServer(html) {
   const runtimeJs = await readFile(join(assetsDir, 'raffel-docs.js'))
   const markedRendererJs = await readFile(join(assetsDir, 'marked-renderer.js'))
   const protocolConsoleJs = await readFile(join(assetsDir, 'protocol-console.js'))
+  const sidebarTreeJs = await readFile(join(assetsDir, 'sidebar-tree.js'))
   const markedUmdJs = await readFile(join(assetsDir, 'marked.umd.js'))
+  const prismJs = await readFile(join(assetsDir, 'prism.js'))
   const runtimeCss = await readFile(join(assetsDir, 'raffel-docs.css'))
+  const customCss = Buffer.from(':root { --custom-smoke-token: loaded; } [data-theme="custom"] { --raffel-bg-color: rgb(1, 2, 3); }')
   const logoSvg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#0f766e"/><text x="8" y="25" fill="white">Raffel</text></svg>')
 
   const server = createServer((request, response) => {
@@ -467,14 +499,29 @@ async function createFixtureServer(html) {
       response.end(protocolConsoleJs)
       return
     }
+    if (path === '/docs/-/sidebar-tree.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(sidebarTreeJs)
+      return
+    }
     if (path === '/docs/-/marked.umd.js') {
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
       response.end(markedUmdJs)
       return
     }
+    if (path === '/docs/-/prism.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(prismJs)
+      return
+    }
     if (path === '/docs/-/raffel-docs.css') {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' })
       response.end(runtimeCss)
+      return
+    }
+    if (path === '/docs/-/assets/custom.css') {
+      response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' })
+      response.end(customCss)
       return
     }
     if (path === '/docs/-/assets/images/logo.svg') {
@@ -539,6 +586,7 @@ async function run() {
     basePath: '/docs',
       ui: {
       assets: { mode: 'external' },
+      customCss: '/docs/-/assets/custom.css',
       skipLink: 'Jump to content',
       navbar: [
         { title: 'Guide', href: '#/quickstart' },
@@ -586,6 +634,10 @@ async function run() {
       { label: 'ignore link attribute', needle: 'href="/raw/" title="raw title"' },
       { label: 'target link attribute', needle: 'data-target-link-ok="true"' },
       { label: 'Markdown engine bridge', needle: 'data-marked-renderer-ok="true"' },
+      { label: 'Prism syntax highlight', needle: 'data-prism-ok="true"' },
+      { label: 'declarative sidebar opens active ancestors', needle: 'data-sidebar-ancestor-open-ok="true"' },
+      { label: 'declarative sidebar collapsed by default', needle: 'data-sidebar-collapsed-default-ok="true"' },
+      { label: 'active declarative sidebar page', needle: 'data-sidebar-active-page-ok="true"' },
       { label: 'disabled link attribute', needle: 'aria-disabled="true" tabindex="-1" class="markdown-disabled"' },
       { label: 'heading id attribute', needle: 'id="helper-heading"' },
       { label: 'ignored heading still renders', needle: 'Hidden Heading' },
@@ -607,6 +659,7 @@ async function run() {
       { label: 'stored theme applies on load', needle: 'data-theme-persisted-ok="true"' },
       { label: 'dark Markdown CSS variables', needle: 'data-dark-markdown-vars-ok="true"' },
       { label: 'theme toggle persists user choice', needle: 'data-theme-toggle-persisted-ok="true"' },
+      { label: 'custom CSS asset overrides variables', needle: 'data-custom-css-ok="true"' },
       { label: 'admonition rendering', needle: 'class="md-alert md-alert-note"' },
       { label: 'important callout rendering', needle: 'class="md-alert md-alert-important"' },
       { label: 'legacy callout rendering', needle: 'Legacy important callout.' },

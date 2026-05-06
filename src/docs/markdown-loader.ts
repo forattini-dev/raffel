@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
-import type { USDDocumentation, USDDocumentationPage } from '../usd/index.js'
+import type { USDDocumentation, USDDocumentationPage, USDDocumentationSidebarItem } from '../usd/index.js'
 import type { NavItem } from './ui/types.js'
 
 export interface MarkdownDocsDirConfig {
@@ -44,6 +44,12 @@ interface SidebarEntry {
 interface SidebarManifest {
   routePrefix: string
   entriesByPath: Map<string, SidebarEntry>
+  items: USDDocumentationSidebarItem[]
+}
+
+interface SidebarParseResult {
+  entries: SidebarEntry[]
+  items: USDDocumentationSidebarItem[]
 }
 
 const SPECIAL_MARKDOWN_FILES = new Set(['_sidebar.md', '_navbar.md', '_coverpage.md', '_404.md'])
@@ -71,6 +77,10 @@ export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs
     .sort(comparePages)
 
   const documentation: USDDocumentation = { pages }
+  const rootSidebar = findRootSidebar(sidebars, routeBase)
+  if (rootSidebar && rootSidebar.items.length > 0) {
+    documentation.sidebar = rootSidebar.items
+  }
   if (routeBase) documentation.routeBase = routeBase
   if (Object.keys(configuredAliases).length > 0) {
     documentation.aliases = configuredAliases
@@ -132,6 +142,7 @@ export function mergeMarkdownDocumentation(
     ...explicit,
     hero: { ...loaded.hero, ...explicit.hero },
     aliases: { ...(loaded.aliases ?? {}), ...(explicit.aliases ?? {}) },
+    sidebar: explicit.sidebar ?? loaded.sidebar,
     pages: Array.from(pagesByPath.values()).sort(comparePages),
     externalLinks: [
       ...(loaded.externalLinks ?? []),
@@ -208,13 +219,20 @@ function loadSidebars(markdownFiles: string[], rootDir: string, routeBase: strin
     .map(file => {
       const relativeDir = path.dirname(path.relative(rootDir, file))
       const localRouteBase = normalizeRoutePath(relativeDir === '.' ? '/' : markdownFileToRoute(`${relativeDir}/README.md`, homepage), routeBase)
-      const entries = parseSidebar(readFileSync(file, 'utf8'), localRouteBase, routeBase, homepage)
+      const parsed = parseSidebar(readFileSync(file, 'utf8'), localRouteBase, routeBase, homepage)
       return {
         routePrefix: localRouteBase,
-        entriesByPath: new Map(entries.map(entry => [entry.path, entry])),
+        entriesByPath: new Map(parsed.entries.map(entry => [entry.path, entry])),
+        items: parsed.items,
       }
     })
     .sort((a, b) => b.routePrefix.length - a.routePrefix.length)
+}
+
+function findRootSidebar(sidebars: SidebarManifest[], routeBase: string): SidebarManifest | undefined {
+  const rootPrefix = routeBase || '/'
+  return sidebars.find(sidebar => sidebar.routePrefix === rootPrefix)
+    ?? sidebars[sidebars.length - 1]
 }
 
 function findNearestSidebar(routePath: string, sidebars: SidebarManifest[]): Map<string, SidebarEntry> {
@@ -223,30 +241,58 @@ function findNearestSidebar(routePath: string, sidebars: SidebarManifest[]): Map
   )?.entriesByPath ?? new Map()
 }
 
-function parseSidebar(markdown: string, routeBase: string, rootRouteBase = routeBase, homepage = 'README.md'): SidebarEntry[] {
-  const entries: SidebarEntry[] = []
-  let section: string | undefined
-  let order = 0
+function parseSidebar(markdown: string, routeBase: string, rootRouteBase = routeBase, homepage = 'README.md'): SidebarParseResult {
+  const items: USDDocumentationSidebarItem[] = []
+  const stack: Array<{ indent: number, item: USDDocumentationSidebarItem }> = []
 
   for (const line of markdown.split(/\r?\n/)) {
     const match = /^(\s*)[-*]\s+(?:\[([^\]]+)\]\(([^)]+)\)|(.+))\s*$/.exec(line)
     if (!match) continue
     const indent = match[1].length
     const linkTitle = match[2]
-    const href = match[3]
-    const label = (match[4] ?? '').trim()
-    if (!href) {
-      if (indent === 0 && label) section = label
-      continue
+    const href = match[3]?.trim()
+    const title = stripSidebarLabel((linkTitle ?? match[4] ?? '').trim())
+    if (!title) continue
+
+    const item: USDDocumentationSidebarItem = { title }
+    if (href) {
+      if (isExternalHref(href)) item.href = href
+      else item.path = normalizeDocsHref(href, routeBase, rootRouteBase, homepage)
     }
-    entries.push({
-      title: linkTitle.trim(),
-      path: normalizeDocsHref(href, routeBase, rootRouteBase, homepage),
-      section,
-      order: order++,
-    })
+
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) stack.pop()
+    const parent = stack[stack.length - 1]?.item
+    if (parent) {
+      parent.children ??= []
+      parent.children.push(item)
+    } else {
+      items.push(item)
+    }
+    stack.push({ indent, item })
   }
 
+  return {
+    items,
+    entries: flattenSidebarEntries(items),
+  }
+}
+
+function flattenSidebarEntries(items: USDDocumentationSidebarItem[], section?: string): SidebarEntry[] {
+  const entries: SidebarEntry[] = []
+  let order = 0
+  const visit = (item: USDDocumentationSidebarItem, currentSection?: string) => {
+    const nextSection = currentSection ?? (item.path ? undefined : item.title)
+    if (item.path && !isExternalHref(item.path)) {
+      entries.push({
+        title: item.title,
+        path: item.path,
+        section: currentSection,
+        order: order++,
+      })
+    }
+    for (const child of item.children ?? []) visit(child, nextSection)
+  }
+  for (const item of items) visit(item, section)
   return entries
 }
 
@@ -351,6 +397,14 @@ function titleFromSlug(slug: string): string {
 
 function stripYamlString(value: string): string {
   return value.trim().replace(/^['"]|['"]$/g, '')
+}
+
+function stripSidebarLabel(value: string): string {
+  return value
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/[_*`]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function parseNumericOrder(value: string | undefined): number | undefined {

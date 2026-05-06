@@ -1,6 +1,6 @@
 import { renderMarkedMarkdown } from './marked-renderer.js'
 import { appendProtocolConsole } from './protocol-console.js'
-
+import { appendDeclarativeSidebar, type RuntimeSidebarItem } from './sidebar-tree.js'
 type DocsPage = {
   title?: string
   path?: string
@@ -57,42 +57,22 @@ type DocsRuntimePlugin = {
   onCopyCode?: (text: string, context: DocsPluginContext) => void; onTabChange?: (title: string, index: number, context: DocsPluginContext) => void; onImageZoom?: (src: string, alt: string, context: DocsPluginContext) => void
 }
 const COMMON_EMOJI_ENTITIES: Record<string, string> = {
-  '+1': '&#x1F44D;',
-  '-1': '&#x1F44E;',
-  '100': '&#x1F4AF;',
-  bug: '&#x1F41B;',
-  book: '&#x1F4D6;',
-  books: '&#x1F4DA;',
-  bulb: '&#x1F4A1;',
-  check: '&#x2705;',
-  fire: '&#x1F525;',
-  gear: '&#x2699;&#xFE0F;',
-  grinning: '&#x1F600;',
-  heart: '&#x2764;&#xFE0F;',
-  info: '&#x2139;&#xFE0F;',
-  joy: '&#x1F602;',
-  link: '&#x1F517;',
-  lock: '&#x1F512;',
-  memo: '&#x1F4DD;',
-  package: '&#x1F4E6;',
-  pushpin: '&#x1F4CC;',
-  rocket: '&#x1F680;',
-  smile: '&#x1F604;',
-  sparkles: '&#x2728;',
-  star: '&#x2B50;',
-  tada: '&#x1F389;',
-  unlock: '&#x1F513;',
-  warning: '&#x26A0;&#xFE0F;',
-  white_check_mark: '&#x2705;',
-  wrench: '&#x1F527;',
-  x: '&#x274C;',
-  zap: '&#x26A1;',
+  '+1': '&#x1F44D;', '-1': '&#x1F44E;', '100': '&#x1F4AF;',
+  bug: '&#x1F41B;', book: '&#x1F4D6;', books: '&#x1F4DA;',
+  bulb: '&#x1F4A1;', check: '&#x2705;', fire: '&#x1F525;',
+  gear: '&#x2699;&#xFE0F;', grinning: '&#x1F600;', heart: '&#x2764;&#xFE0F;',
+  info: '&#x2139;&#xFE0F;', joy: '&#x1F602;', link: '&#x1F517;',
+  lock: '&#x1F512;', memo: '&#x1F4DD;', package: '&#x1F4E6;',
+  pushpin: '&#x1F4CC;', rocket: '&#x1F680;', smile: '&#x1F604;',
+  sparkles: '&#x2728;', star: '&#x2B50;', tada: '&#x1F389;',
+  unlock: '&#x1F513;', warning: '&#x26A0;&#xFE0F;', white_check_mark: '&#x2705;',
+  wrench: '&#x1F527;', x: '&#x274C;', zap: '&#x26A1;',
 }
 const win = globalThis as unknown as {
   document?: any; location?: any; history?: any
   scrollTo?: (options: unknown) => void
   addEventListener?: (...args: unknown[]) => void
-  navigator?: any; localStorage?: any; mermaid?: any; marked?: any
+  navigator?: any; localStorage?: any; mermaid?: any; marked?: any; Prism?: any
   __RAFFEL_DOCS__?: any; __RAFFEL_DOCS_PLUGINS__?: unknown[]; RaffelDocs?: any
 }
 const doc = win.document
@@ -104,6 +84,7 @@ const introductionMarkdown = data.introductionMarkdown ?? null
 const docsPages = Array.isArray(data.docsPages) ? data.docsPages as DocsPage[] : []
 const docsAliases = normalizeDocsAliases(data.docsAliases)
 const searchIndex = Array.isArray(data.searchIndex) ? data.searchIndex as SearchIndexEntry[] : []
+const docsSidebar = Array.isArray(data.docsSidebar) ? data.docsSidebar as RuntimeSidebarItem[] : []
 const docsAssetBasePath = String(data.docsAssetBasePath ?? '')
 const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
@@ -119,7 +100,6 @@ let routeState = parseRouteHash()
 let activePagePath = resolveDocsAlias(routeState.pagePath)
 let activeHeadingId = routeState.headingId
 const docsPlugins: DocsRuntimePlugin[] = [], themeStorageKey = 'raffel-docs-theme'
-
 function getDocsRuntimeState(): DocsRuntimeState { return { activePagePath, activeHeadingId, activeProtocol, searchQuery } }
 
 function getPluginContext(extra: Partial<DocsPluginContext> = {}): DocsPluginContext {
@@ -896,6 +876,7 @@ function renderProtocolTabs(): void {
     button.onclick = () => {
       activeProtocol = protocol
       activePagePath = ''
+      activeHeadingId = ''
       render()
     }
     container.appendChild(button)
@@ -947,6 +928,10 @@ function renderSidebar(): void {
 
 function renderDocsPagesNav(nav: any): void {
   if (sidebarConfig.docsPages === false) return
+  if (docsSidebar.length > 0 && !searchQuery) {
+    renderDeclarativeDocsSidebar(nav)
+    return
+  }
   const pages = getDocsPageViews().filter(page =>
     !searchQuery ||
     page.title.toLowerCase().includes(searchQuery) ||
@@ -966,6 +951,23 @@ function renderDocsPagesNav(nav: any): void {
       onClick: () => setDocsPage(page.path),
     })))
   }
+}
+
+function renderDeclarativeDocsSidebar(nav: any): void {
+  appendDeclarativeSidebar(nav, docsSidebar, {
+    doc,
+    win,
+    sidebarConfig,
+    activePagePath,
+    activeHeadingId,
+    searchQuery,
+    esc,
+    resolveDocsAlias,
+    normalizeDocsPath,
+    setDocsPage,
+    getDocsPageViews,
+    extractSidebarHeadings,
+  })
 }
 
 function appendSidebarGroup(
@@ -1391,7 +1393,7 @@ function bindEvents(): void {
   byId('themeToggle')?.addEventListener('click', () => {
     const root = doc.documentElement
     const current = root.getAttribute('data-theme') || 'auto'
-    const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : 'auto'
+    const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : current === 'light' ? 'custom' : 'auto'
     root.setAttribute('data-theme', next)
     win.localStorage?.setItem?.(themeStorageKey, next)
   })
@@ -1461,6 +1463,7 @@ function render(): void {
   renderProtocolTabs()
   renderSidebar()
   renderContent()
+  highlightCodeBlocks(byId('mainContent'))
   renderMermaidDiagrams()
   mountDocsComponents(byId('mainContent'))
   runVoidHook('afterRender', getPluginContext())
@@ -1469,7 +1472,7 @@ function render(): void {
 function init(): void {
   if (!doc) return
   const storedTheme = win.localStorage?.getItem?.(themeStorageKey)
-  if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light') doc.documentElement.setAttribute('data-theme', storedTheme)
+  if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light' || storedTheme === 'custom') doc.documentElement.setAttribute('data-theme', storedTheme)
   installDocsPluginApi()
   if (activePagePath && activePagePath !== routeState.pagePath) {
     win.history?.replaceState?.(null, '', routeToHash(activePagePath, activeHeadingId))
@@ -1481,6 +1484,15 @@ function init(): void {
   render()
 }
 
-init()
+function highlightCodeBlocks(root: any = doc): void {
+  const prism = win.Prism
+  if (!prism?.highlightElement) return
+  const blocks = Array.from(root?.querySelectorAll?.('pre code[class*="language-"]:not([data-prism-highlighted])') ?? []) as any[]
+  for (const block of blocks) {
+    prism.highlightElement(block)
+    block.dataset.prismHighlighted = 'true'
+  }
+  doc?.documentElement?.setAttribute?.('data-syntax-highlight', 'prism')
+}
 
-export {}
+init()

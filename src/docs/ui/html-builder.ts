@@ -60,6 +60,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const footer = ui?.footer ?? usdDocumentation?.footer
   const toc = ui?.toc ?? {}
   const markdown = ui?.markdown ?? {}
+  const docsSidebar = ui?.sidebar?.items ?? usdDocumentation?.sidebar ?? []
   const assetMode = ui?.assets?.mode ?? 'inline'
   const assetBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
   const docsAssetBasePath = `${assetBasePath}/-/assets`
@@ -79,6 +80,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedDocsPages = escapeJsonForScript(docsPages)
   const escapedDocsAliases = escapeJsonForScript(docsAliases)
   const escapedSearchIndex = escapeJsonForScript(searchIndex)
+  const escapedDocsSidebar = escapeJsonForScript(docsSidebar)
   const escapedDocsAssetBasePath = escapeJsonForScript(docsAssetBasePath)
   const escapedFooter = escapeJsonForScript(footer ?? null)
   const escapedToc = escapeJsonForScript(toc)
@@ -98,6 +100,9 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
     : `<style>
 ${styles}
   </style>`
+  const customCssHtml = normalizeCustomCss(ui?.customCss)
+    .map(href => `<link rel="stylesheet" href="${escapeHtml(href)}" data-raffel-custom-css>`)
+    .join('\n  ')
   const dataScript = generateClientDataScript(
     escapedSpec,
     escapedTagGroups,
@@ -107,6 +112,7 @@ ${styles}
     escapedDocsPages,
     escapedDocsAliases,
     escapedSearchIndex,
+    escapedDocsSidebar,
     escapedDocsAssetBasePath,
     escapedFooter,
     escapedToc,
@@ -114,6 +120,7 @@ ${styles}
   )
   const runtimeScript = assetMode === 'external'
     ? `<script src="${escapeHtml(assetBasePath)}/-/marked.umd.js"></script>
+  <script src="${escapeHtml(assetBasePath)}/-/prism.js"></script>
   <script type="module" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
     : `<script>
 ${generateClientRuntimeScript()}
@@ -128,6 +135,7 @@ ${generateClientRuntimeScript()}
   <title>${escapeHtml(title)}</title>
   ${favicon ? `<link rel="icon" href="${escapeHtml(favicon)}">` : ''}
   ${stylesHtml}
+  ${customCssHtml}
 </head>
 <body>
   ${generateSkipLink(ui?.skipLink)}
@@ -141,6 +149,12 @@ ${dataScript}
   ${runtimeScript}
 </body>
 </html>`
+}
+
+function normalizeCustomCss(customCss: string | string[] | undefined): string[] {
+  return (Array.isArray(customCss) ? customCss : customCss ? [customCss] : [])
+    .map(href => href.trim())
+    .filter(Boolean)
 }
 
 /**
