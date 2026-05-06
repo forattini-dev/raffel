@@ -356,10 +356,22 @@ export async function dispatchHttpEnvelope(args: {
     }
 
     applyRateLimitHeaders(res, ctx)
-    sendEncodedResponse(res, successStatus, resultEnvelope.payload, responseCodec, method !== 'HEAD')
+    sendEncodedResponse(
+      res,
+      successStatus,
+      resultEnvelope.payload,
+      responseCodec,
+      method !== 'HEAD' && successStatus !== 204 && successStatus !== 304
+    )
     return
   }
 
   applyRateLimitHeaders(res, ctx)
-  sendEncodedResponse(res, successStatus, result, responseCodec, method !== 'HEAD')
+  sendEncodedResponse(
+    res,
+    successStatus,
+    result,
+    responseCodec,
+    method !== 'HEAD' && successStatus !== 204 && successStatus !== 304
+  )
 }

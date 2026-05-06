@@ -154,9 +154,20 @@ export function createServer(options: ServerOptions): RaffelServer {
   const schemaRegistry = createSchemaRegistry()
   const telemetryState: TelemetryState = createTelemetryState()
 
+  // === Policy engine bootstrap (opt-in) ===
+  // Constructed up-front so the discovery bootstrap can wire co-located
+  // policy loading with the engine's `customConditions` registry.
+  const policyBootstrap = createPolicyBootstrap(options.policy, { logger: loggerPort })
+
   const discoveryBootstrap = createDiscoveryBootstrap({
     discovery,
     hotReload,
+    coLocatedPolicies: policyBootstrap
+      ? {
+          enabled: options.policy?.coLocated !== false,
+          customConditions: options.policy?.customConditions,
+        }
+      : { enabled: false },
     onLoad: (stats) => {
       logger.info(
         {
@@ -237,8 +248,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     globalInterceptors.push(envelopeInterceptor)
   }
 
-  // === Policy engine bootstrap (opt-in) ===
-  const policyBootstrap = createPolicyBootstrap(options.policy, { logger: loggerPort })
+  // === Policy engine bootstrap derived references ===
   const policyEngine: PolicyEnginePort | undefined = policyBootstrap?.engine
   const policyInterceptorFactory:
     | ((procedureName: string, config: ProcedurePolicyConfig) => Interceptor)
@@ -376,6 +386,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         targetSchemaRegistry,
         interceptors,
         onRegistered,
+        policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
       )
     },
   })
@@ -534,6 +545,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       tags: options.tags,
       httpPath: path,
       httpMethod: method,
+      httpSuccessStatus: options.successStatus,
       interceptors: [...httpInterceptors, ...(options.use ?? [])],
       registration: { source: programmaticSource('http-namespace') },
     })

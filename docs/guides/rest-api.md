@@ -79,6 +79,37 @@ server.http.delete('/users/:id', async (req, ctx) => {
 await server.start()
 ```
 
+> `:param` segments resolve at runtime — `ctx.params.id` matches `/users/123`.
+> Multi-param paths (`/orgs/:orgId/tokens/:tokenId`) and `basePath` are also
+> supported.
+
+---
+
+## Custom success status
+
+By default a successful response returns `200`. Override per route via
+`successStatus`:
+
+```typescript
+server.http.post(
+  '/users',
+  { successStatus: 201 },
+  async (input, ctx) => {
+    const user = await db.users.create({ data: input })
+    return user
+  }
+)
+
+server.http.put(
+  '/jobs/:id',
+  { successStatus: 202 },
+  async (_input, ctx) => ({ id: ctx.params.id, queued: true })
+)
+```
+
+Resource files (`src/resources/*.ts`) follow REST conventions automatically:
+`create` → `201`, `delete` → `204` (empty body), everything else → `200`.
+
 ---
 
 ## Input validation

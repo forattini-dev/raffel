@@ -223,8 +223,12 @@ for (const handler of udp.handlers) {
 }
 ```
 
-`addRest`/`addResource` register procedures using `resourceName.operation`.
-You can also use the generated `routes` metadata to build custom routing.
+`addRest`/`addResource` register procedures using `resourceName.operation` and
+expose them on the HTTP plane automatically: each operation is wired with the
+generated method/path (e.g. `users.get` → `GET /users/:id`) and follows REST
+conventions for success status codes (`POST` create → `201`, `DELETE` →
+`204`). You can still consume the generated `routes` metadata if you need
+custom routing.
 
 ## Hot reload
 

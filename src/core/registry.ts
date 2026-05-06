@@ -39,6 +39,11 @@ export interface ProcedureOptions {
   graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: HttpMethod
+  /**
+   * HTTP success status applied by REST/HTTP-override middlewares when the
+   * handler completes without error. Defaults to `200`.
+   */
+  httpSuccessStatus?: number
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies
@@ -176,6 +181,7 @@ export function createRegistry(): Registry {
           graphql: options.graphql,
           httpPath: options.httpPath,
           httpMethod: options.httpMethod,
+          httpSuccessStatus: options.httpSuccessStatus,
           jsonrpc: options.jsonrpc,
           grpc: options.grpc,
           policies,

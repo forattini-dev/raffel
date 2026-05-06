@@ -42,6 +42,7 @@ export function createExecutionHttpResources(context: ServerLifecycleExecutionCo
           createRestMiddleware({
             restResources: restResourceRegistry,
             router,
+            registry,
             basePath,
             maxBodySize: step.feature.maxBodySize,
             contextFactory: step.feature.contextFactory,

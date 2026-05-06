@@ -2,6 +2,11 @@
 
 Schema-first REST API generation from `src/rest/*.ts` files.
 
+> Looking for the simpler handler-based variant? Resource files in
+> `src/resources/*.ts` (no schema required) reach the HTTP plane the same
+> way and follow REST status conventions: `POST` create → `201`,
+> `DELETE` → `204`. See [`routing/file-system.md`](./file-system.md).
+
 ---
 
 ## Basic Resource
