@@ -14,6 +14,8 @@ import type { HandlerSchema } from '../../validation/types.js'
 
 export interface LoadedChannelLike {
   name: string
+  filePath?: string
+  coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
 }
 
 export interface LoadedRestRouteLike {
@@ -139,6 +141,12 @@ export function createRegistrationService<
     channelRegistry: Map<string, TChannel>,
     channel: TChannel
   ): void {
+    if (channel.coLocatedPolicies && channel.coLocatedPolicies.length > 0) {
+      // Build the synth interceptors solely for the side-effect of pushing
+      // the channel's co-located policies into the engine — channel-utils
+      // evaluates them at subscribe time, not via interceptor.
+      buildAuthzInterceptorsForOperation?.(`channel:${channel.name}`, channel.coLocatedPolicies, channel.filePath)
+    }
     channelRegistry.set(channel.name, channel)
   }
 
