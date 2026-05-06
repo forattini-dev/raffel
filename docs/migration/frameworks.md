@@ -158,6 +158,26 @@ const server = serve({
 process.on('SIGTERM', () => server.shutdown()) // waits for in-flight requests
 ```
 
+#### WebSocket / HTTP upgrade requests (`onUpgrade`)
+
+`serve()` only registers a `'request'` listener on the underlying Node `http.Server`. Node has no default `'upgrade'` listener, so `Connection: Upgrade` requests (e.g. WebSocket handshakes, Next.js `/_next/webpack-hmr`) are silently dropped unless you opt in. Pass `onUpgrade(req, socket, head)` to wire the upgrade event — the handler owns the socket and is responsible for writing the `101 Switching Protocols` response (or tunnelling to an upstream). This is the same kind of escape hatch `raffel/proxy`'s `createReverseProxy` already uses internally for upgrade routing.
+
+```ts
+import { serve } from 'raffel/http'
+import { WebSocketServer } from 'ws'
+
+const wss = new WebSocketServer({ noServer: true })
+wss.on('connection', (ws) => ws.on('message', (m) => ws.send(`echo:${m}`)))
+
+serve({
+  fetch: app.fetch,
+  port: 3000,
+  onUpgrade: (req, socket, head) => {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
+  },
+})
+```
+
 ### Package equivalents
 
 | Express ecosystem | Raffel |
