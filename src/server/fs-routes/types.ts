@@ -253,6 +253,9 @@ export interface HandlerMeta {
   /** HTTP method override for procedures */
   httpMethod?: HttpMethod
 
+  /** HTTP success status override for procedures (e.g. 201 on create). */
+  httpSuccessStatus?: number
+
   /** JSON-RPC metadata (for USD generation) */
   jsonrpc?: JsonRpcMeta
 

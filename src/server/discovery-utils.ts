@@ -101,6 +101,11 @@ export function registerDiscoveredHandlers(
       registry.procedure(route.name, route.handler as ProcedureHandler, {
         description: route.meta?.description,
         graphql: route.meta?.graphql,
+        httpPath: route.meta?.httpPath,
+        httpMethod: route.meta?.httpMethod,
+        httpSuccessStatus: route.meta?.httpSuccessStatus,
+        jsonrpc: route.meta?.jsonrpc,
+        grpc: route.meta?.grpc,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
       onRegistered?.({ name: route.name, kind: 'procedure', filePath: route.filePath })
