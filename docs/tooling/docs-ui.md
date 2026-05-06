@@ -165,11 +165,12 @@ The loader understands these file-backed Markdown files:
 
 | File | Behavior |
 | --- | --- |
-| `README.md` | Homepage, unless `homepage` is configured |
+| `index.md` | Homepage when present (preferred over `README.md`) |
+| `README.md` | Homepage fallback, unless `homepage` is configured |
 | `_sidebar.md` | Sidebar sections and page ordering |
 | nested `_sidebar.md` | Local sidebar for nested docs folders |
 | `_navbar.md` | Top navigation, including nested dropdowns |
-| `_coverpage.md` | Intro/cover Markdown above the app content |
+| `_coverpage.md` | Hero (cover) section — see [Coverpage hero](#coverpage-hero) |
 | `_404.md` | Custom missing-page content |
 | other `.md` files | Rendered as routable documentation pages |
 
@@ -244,6 +245,49 @@ Example `_navbar.md`:
   - [Deployment](/guides/deployment.md)
 - [Repository](https://github.com/acme/api)
 ```
+
+## Coverpage Hero
+
+`_coverpage.md` is parsed into the docs hero (cover page) shown above the app content — same idea as Docsify. Lines map as follows:
+
+| Markdown | Hero field |
+| --- | --- |
+| `# Title <small>v1.0</small>` | `title` + `version` |
+| `> tagline` | `tagline` |
+| `- item` | `features[]` |
+| Line with only `[text](href)` links | `buttons[]` (last button becomes `primary`) |
+| `![alt](src)` | Ignored (logo comes from `ui.logo` / `x-usd.documentation.logo`) |
+
+Optional YAML frontmatter overrides individual fields and adds the bits Markdown can't express:
+
+```md
+---
+background: gradient        # gradient | solid | pattern | image
+backgroundColor: "#0f172a"  # for background: solid
+backgroundImage: /hero.jpg  # for background: image
+github: https://github.com/acme/api
+---
+
+# Raffel <small>1.2</small>
+
+> One server. Every protocol.
+
+- HTTP, WebSocket, gRPC, JSON-RPC, TCP, UDP
+- File-backed Markdown docs
+- USD/OpenAPI auto-generated reference
+
+[GitHub](https://github.com/acme/api)
+[Get Started](#/quickstart)
+```
+
+The example above produces:
+
+- `title: "Raffel"`, `version: "1.2"`, `tagline: "One server. Every protocol."`
+- `features`: the three list items
+- `buttons`: GitHub (secondary), Get Started (primary — last button wins)
+- `background: gradient`, `github: https://...` (renders the corner Octocat)
+
+If you'd rather configure the hero programmatically, set `ui.hero` on the docs middleware or `x-usd.documentation.hero` in the spec — both override fields parsed from `_coverpage.md`.
 
 ## Markdown Features
 
