@@ -58,6 +58,7 @@
   - [Patterns & Recipes](/policies/patterns.md)
   - [Co-located policies](/policies/co-located.md)
   - [API Reference](/reference/policies-api.md)
+  - [ADR 0001 — Co-located policies](/adr/0001-co-located-policies.md)
 
 - **Routing & Discovery**
   - [Route Discovery](/routing/discovery.md)
