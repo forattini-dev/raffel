@@ -23,7 +23,8 @@ export interface CreateDefaultEngineOptions {
 export function createDefaultEngine(
   options: CreateDefaultEngineOptions = {},
 ): PolicyEnginePort {
-  const policies = Object.freeze([...compileAllPolicies(options.policies ?? [])])
+  const policies: Policy[] = [...compileAllPolicies(options.policies ?? [])]
+  const seenIds = new Set(policies.map((p) => p.id))
   const onConditionError = options.onConditionError
 
   return {
@@ -31,7 +32,21 @@ export function createDefaultEngine(
       return evaluate(input, policies, { onConditionError })
     },
     list(): readonly Policy[] {
-      return policies
+      return Object.freeze([...policies])
+    },
+    addPolicies(extras: readonly Policy[]): void {
+      if (extras.length === 0) return
+      const compiled = compileAllPolicies(extras)
+      for (const p of compiled) {
+        if (seenIds.has(p.id)) {
+          // Replace in-place to preserve list order semantics for duplicates.
+          const idx = policies.findIndex((existing) => existing.id === p.id)
+          if (idx >= 0) policies[idx] = p
+          continue
+        }
+        seenIds.add(p.id)
+        policies.push(p)
+      }
     },
   }
 }

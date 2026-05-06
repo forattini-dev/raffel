@@ -115,6 +115,20 @@ export interface DiscoveryLoaderOptions {
 
   /** Called on hot reload error */
   onError?: (error: Error) => void
+
+  /**
+   * Co-located policy discovery. Sibling `<handler>.policy.{yaml,yml,json}`
+   * files attach automatically to discovered HTTP/RPC procedures. Defaults
+   * to enabled whenever discovery itself is enabled and the server has a
+   * policy bootstrap; opt-out by passing `{ enabled: false }`.
+   */
+  coLocatedPolicies?: {
+    enabled?: boolean
+    customConditions?: Record<
+      string,
+      import('../../middleware/policy/types.js').PolicyCondition
+    >
+  }
 }
 
 export interface DiscoveryStats {
@@ -528,6 +542,14 @@ export interface LoadedRoute {
    * Loaded from _meta.ts or _meta.md in the handler's directory.
    */
   directoryMeta?: DirectoryMeta
+
+  /**
+   * Authorization policies discovered from co-located files
+   * (`<handler>.policy.{yaml,yml,json}` siblings, future folder cascades, etc).
+   * The server bridge appends these to the policy engine and synthesises an
+   * equivalent `.authz()` interceptor for this route at registration time.
+   */
+  coLocatedPolicies?: import('../../middleware/policy/types.js').Policy[]
 }
 
 export interface LoadedChannel {

@@ -56,6 +56,7 @@
   - [Guide](/guides/policies.md)
   - [Match DSL Reference](/policies/match-dsl.md)
   - [Patterns & Recipes](/policies/patterns.md)
+  - [Co-located policies](/policies/co-located.md)
   - [API Reference](/reference/policies-api.md)
 
 - **Routing & Discovery**

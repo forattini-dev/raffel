@@ -8,11 +8,35 @@ import type { Registry } from '../core/registry.js'
 import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from '../types/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
 import type { GlobalHooksConfig, BeforeHook, AfterHook, ErrorHook } from './types.js'
-import type { DiscoveryResult } from './fs-routes/index.js'
+import type { DiscoveryResult, LoadedRoute } from './fs-routes/index.js'
 import { createRouteInterceptors } from './fs-routes/index.js'
 import { createLogger } from '../utils/logger.js'
+import type { PolicyBootstrap } from '../middleware/policy/bootstrap.js'
 
 const logger = createLogger('server')
+
+export interface DiscoveryRegistrationPolicyHook {
+  bootstrap: PolicyBootstrap
+}
+
+function buildCoLocatedAuthzInterceptors(
+  route: LoadedRoute,
+  policyHook: DiscoveryRegistrationPolicyHook | undefined,
+): Interceptor[] {
+  if (!policyHook) return []
+  if (!route.coLocatedPolicies || route.coLocatedPolicies.length === 0) return []
+
+  const engine = policyHook.bootstrap.engine
+  if (typeof engine.addPolicies !== 'function') {
+    logger.warn(
+      { name: route.name, filePath: route.filePath },
+      'Co-located policies present but engine driver does not support addPolicies(); skipping bridge',
+    )
+    return []
+  }
+  engine.addPolicies(route.coLocatedPolicies)
+  return [policyHook.bootstrap.interceptorFactory(route.name, { action: route.name })]
+}
 
 /**
  * Register discovered handlers from file-system
@@ -26,12 +50,25 @@ export function registerDiscoveredHandlers(
     name: string
     kind: 'procedure' | 'stream' | 'event'
     filePath: string
-  }) => void
+  }) => void,
+  policyHook?: DiscoveryRegistrationPolicyHook,
 ): void {
   for (const route of result.routes) {
+    // Skip handlers already registered programmatically — explicit builder
+    // calls (`server.procedure('x').authz(...)`) take precedence over any
+    // co-located policy from discovery (issue #92 AC: explicit-wins).
+    if (registry.has(route.name)) {
+      logger.debug(
+        { name: route.name, filePath: route.filePath },
+        'Skipping discovered handler — name already registered programmatically',
+      )
+      continue
+    }
+
     // Create interceptors from route config
     const routeInterceptors = createRouteInterceptors(route)
-    const interceptors = [...globalInterceptors, ...routeInterceptors]
+    const authzInterceptors = buildCoLocatedAuthzInterceptors(route, policyHook)
+    const interceptors = [...globalInterceptors, ...routeInterceptors, ...authzInterceptors]
 
     // Register schema if defined
     if (route.inputSchema || route.outputSchema) {

@@ -244,6 +244,13 @@ export interface PolicyConfig {
   engine?: PolicyEnginePortLike
   /** Logger override (defaults to the server's `LoggerPort`). */
   logger?: LoggerPort
+  /**
+   * Toggle co-located policy loading (`<handler>.policy.{yaml,yml,json}`,
+   * future folder cascades). Defaults to `true` whenever FS discovery is
+   * enabled, `false` otherwise. Pass `true` here to opt-in even without
+   * discovery (e.g. resolved manually) or `false` to disable globally.
+   */
+  coLocated?: boolean
 }
 
 /**
