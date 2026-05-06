@@ -37,17 +37,19 @@ describe('server runtime plan', () => {
       port: 5100,
       source: 'frontDoor',
     })
-    expect(runtimePlan.bindings.http).toEqual({
+    const query = runtimePlan.query
+
+    expect(query.getProtocolBinding('http')).toEqual({
       host: '0.0.0.0',
       port: 5100,
     })
-    expect(runtimePlan.entrypoint.portBinding).toEqual({
+    expect(query.getEntrypoint().portBinding).toEqual({
       host: '0.0.0.0',
       port: 5100,
       attachTcpHandler: false,
       attachGrpcHandler: false,
     })
-    expect(runtimePlan.entrypoint.httpAdapter).toMatchObject({
+    expect(query.getEntrypoint().httpAdapter).toMatchObject({
       host: '0.0.0.0',
       port: 5100,
       basePath: '/api',
@@ -60,13 +62,13 @@ describe('server runtime plan', () => {
         entrypoint: runtimePlan.entrypoint,
       },
     ])
-    expect(runtimePlan.execution.httpMiddleware.map((step) => step.kind)).toEqual([
+    expect(query.getHttpMiddlewareKinds()).toEqual([
       'front-door-decision',
       'override',
       'jsonrpc',
       'graphql',
     ])
-    expect(runtimePlan.execution.startup).toEqual([
+    expect(query.getStartupOrder()).toEqual([
       'providers',
       'telemetry',
       'discovery',
@@ -75,7 +77,7 @@ describe('server runtime plan', () => {
       'entrypoint',
       'post-port-binding',
     ])
-    expect(runtimePlan.execution.shutdown).toEqual([
+    expect(query.getShutdownOrder()).toEqual([
       'post-port-binding',
       'entrypoint',
       'pre-port-binding',
@@ -84,20 +86,20 @@ describe('server runtime plan', () => {
       'telemetry',
       'providers',
     ])
-    expect(runtimePlan.addresses.http).toMatchObject({
+    expect(query.getProtocolAddress('http')).toMatchObject({
       host: '0.0.0.0',
       port: 5100,
       frontDoor: true,
       strategy: 'shared',
     })
     expect(runtimePlan.previewConfig.protocols.websocket?.path).toBe('/ws')
-    expect(runtimePlan.bindings.websocket).toMatchObject({
+    expect(query.getProtocolBinding('websocket')).toMatchObject({
       mode: 'shared',
       host: '0.0.0.0',
       port: 5100,
       path: '/ws',
     })
-    expect(runtimePlan.addresses.websocket).toMatchObject({
+    expect(query.getProtocolAddress('websocket')).toMatchObject({
       host: '0.0.0.0',
       port: 5100,
       path: '/ws',
@@ -105,13 +107,13 @@ describe('server runtime plan', () => {
       frontDoor: true,
     })
     expect(runtimePlan.previewConfig.protocols.jsonrpc?.path).toBe('/rpc')
-    expect(runtimePlan.bindings.jsonrpc).toMatchObject({
+    expect(query.getProtocolBinding('jsonrpc')).toMatchObject({
       mode: 'shared',
       host: '0.0.0.0',
       port: 5100,
       path: '/api/rpc',
     })
-    expect(runtimePlan.addresses.jsonrpc).toMatchObject({
+    expect(query.getProtocolAddress('jsonrpc')).toMatchObject({
       host: '0.0.0.0',
       port: 5100,
       path: '/api/rpc',
@@ -119,13 +121,13 @@ describe('server runtime plan', () => {
       frontDoor: true,
     })
     expect(runtimePlan.previewConfig.protocols.graphql?.path).toBe('/graphql')
-    expect(runtimePlan.bindings.graphql).toMatchObject({
+    expect(query.getProtocolBinding('graphql')).toMatchObject({
       mode: 'shared',
       host: '0.0.0.0',
       port: 5100,
       path: '/api/graphql',
     })
-    expect(runtimePlan.addresses.graphql).toMatchObject({
+    expect(query.getProtocolAddress('graphql')).toMatchObject({
       host: '0.0.0.0',
       port: 5100,
       path: '/api/graphql',
@@ -156,7 +158,7 @@ describe('server runtime plan', () => {
 
     let runtimePlan = runtimePlanBuilder.build()
     expect(runtimePlan.previewConfig.singlePort.enabled).toBe(false)
-    expect(runtimePlan.execution.startup).toEqual([
+    expect(runtimePlan.query.getStartupOrder()).toEqual([
       'providers',
       'telemetry',
       'discovery',
@@ -165,7 +167,7 @@ describe('server runtime plan', () => {
       'entrypoint',
       'post-port-binding',
     ])
-    expect(runtimePlan.execution.shutdown).toEqual([
+    expect(runtimePlan.query.getShutdownOrder()).toEqual([
       'post-port-binding',
       'entrypoint',
       'pre-port-binding',
@@ -180,7 +182,7 @@ describe('server runtime plan', () => {
         entrypoint: runtimePlan.entrypoint,
       },
     ])
-    expect(runtimePlan.entrypoint.portBinding).toEqual({
+    expect(runtimePlan.query.getEntrypoint().portBinding).toEqual({
       host: '127.0.0.1',
       port: 3200,
       attachTcpHandler: false,
@@ -190,22 +192,22 @@ describe('server runtime plan', () => {
       tcp: 'dedicated',
       grpc: 'dedicated',
     })
-    expect(runtimePlan.bindings.tcp).toMatchObject({
+    expect(runtimePlan.query.getProtocolBinding('tcp')).toMatchObject({
       mode: 'dedicated',
       host: '127.0.0.1',
       port: 3200,
     })
-    expect(runtimePlan.bindings.grpc).toMatchObject({
+    expect(runtimePlan.query.getProtocolBinding('grpc')).toMatchObject({
       mode: 'dedicated',
       host: '127.0.0.1',
       port: 3200,
     })
-    expect(runtimePlan.addresses.tcp).toMatchObject({
+    expect(runtimePlan.query.getProtocolAddress('tcp')).toMatchObject({
       host: '127.0.0.1',
       port: 3200,
       source: 'native',
     })
-    expect(runtimePlan.addresses.grpc).toMatchObject({
+    expect(runtimePlan.query.getProtocolAddress('grpc')).toMatchObject({
       host: '127.0.0.1',
       port: 3200,
       source: 'native',
@@ -219,7 +221,7 @@ describe('server runtime plan', () => {
 
     runtimePlan = runtimePlanBuilder.build()
     expect(runtimePlan.previewConfig.singlePort.enabled).toBe(true)
-    expect(runtimePlan.entrypoint.portBinding).toMatchObject({
+    expect(runtimePlan.query.getEntrypoint().portBinding).toMatchObject({
       host: '127.0.0.1',
       port: 3200,
       attachTcpHandler: true,
@@ -234,22 +236,22 @@ describe('server runtime plan', () => {
       tcp: 'single-port',
       grpc: 'single-port',
     })
-    expect(runtimePlan.bindings.tcp).toMatchObject({
+    expect(runtimePlan.query.getProtocolBinding('tcp')).toMatchObject({
       mode: 'single-port',
       host: '127.0.0.1',
       port: 3200,
     })
-    expect(runtimePlan.bindings.grpc).toMatchObject({
+    expect(runtimePlan.query.getProtocolBinding('grpc')).toMatchObject({
       mode: 'single-port',
       host: '127.0.0.1',
       port: 3200,
     })
-    expect(runtimePlan.addresses.tcp).toMatchObject({
+    expect(runtimePlan.query.getProtocolAddress('tcp')).toMatchObject({
       host: '127.0.0.1',
       port: 3200,
       source: 'singlePort',
     })
-    expect(runtimePlan.addresses.grpc).toMatchObject({
+    expect(runtimePlan.query.getProtocolAddress('grpc')).toMatchObject({
       host: '127.0.0.1',
       port: 3200,
       source: 'singlePort',
@@ -297,7 +299,7 @@ describe('server runtime plan', () => {
     })
 
     let runtimePlan = runtimePlanBuilder.build()
-    expect(runtimePlan.execution.startup).toEqual([
+    expect(runtimePlan.query.getStartupOrder()).toEqual([
       'providers',
       'telemetry',
       'discovery',
@@ -306,7 +308,7 @@ describe('server runtime plan', () => {
       'entrypoint',
       'post-port-binding',
     ])
-    expect(runtimePlan.execution.shutdown).toEqual([
+    expect(runtimePlan.query.getShutdownOrder()).toEqual([
       'post-port-binding',
       'entrypoint',
       'pre-port-binding',
@@ -315,7 +317,7 @@ describe('server runtime plan', () => {
       'telemetry',
       'providers',
     ])
-    expect(runtimePlan.entrypoint.portBinding).toEqual({
+    expect(runtimePlan.query.getEntrypoint().portBinding).toEqual({
       host: '127.0.0.1',
       port: 3300,
       attachTcpHandler: false,
@@ -327,7 +329,7 @@ describe('server runtime plan', () => {
         entrypoint: runtimePlan.entrypoint,
       },
     ])
-    expect(runtimePlan.entrypoint.httpAdapter).toMatchObject({
+    expect(runtimePlan.query.getEntrypoint().httpAdapter).toMatchObject({
       host: '127.0.0.1',
       port: 3300,
       basePath: '/api',
@@ -344,12 +346,13 @@ describe('server runtime plan', () => {
       maxBodySize: 2048,
       trustedProxies: ['127.0.0.1'],
     })
-    expect(runtimePlan.execution.httpMiddleware.map((step) => step.kind)).toEqual([
+    expect(runtimePlan.query.getHttpMiddlewareKinds()).toEqual([
       'custom',
       'override',
       'graphql',
       'mcp',
     ])
+    expect(runtimePlan.query.hasHttpMiddleware('docs')).toBe(false)
     expect(runtimePlan.httpSharedFeatures.rest).toBeUndefined()
     expect(runtimePlan.httpSharedFeatures.docs).toBeUndefined()
     expect(runtimePlan.httpSharedFeatures.graphql).toMatchObject({
@@ -363,7 +366,7 @@ describe('server runtime plan', () => {
     hasRestResources = true
 
     runtimePlan = runtimePlanBuilder.build()
-    expect(runtimePlan.execution.httpMiddleware.map((step) => step.kind)).toEqual([
+    expect(runtimePlan.query.getHttpMiddlewareKinds()).toEqual([
       'custom',
       'docs',
       'override',
@@ -371,6 +374,13 @@ describe('server runtime plan', () => {
       'graphql',
       'mcp',
     ])
+    expect(runtimePlan.query.hasHttpMiddleware('docs')).toBe(true)
+    expect(runtimePlan.query.getHttpMiddlewarePipeline().find((step) => step.kind === 'docs')).toMatchObject({
+      kind: 'docs',
+      feature: {
+        basePath: '/docs',
+      },
+    })
     expect(runtimePlan.httpSharedFeatures.rest).toMatchObject({
       maxBodySize: 2048,
       trustedProxies: ['127.0.0.1'],
@@ -414,7 +424,7 @@ describe('server runtime plan', () => {
     expect(runtimePlan.execution.providers.map((step) => step.kind)).toEqual(['providers'])
     expect(runtimePlan.execution.telemetry.map((step) => step.kind)).toEqual(['telemetry'])
     expect(runtimePlan.execution.discovery.map((step) => step.kind)).toEqual(['discovery'])
-    expect(runtimePlan.execution.startup).toEqual([
+    expect(runtimePlan.query.getStartupOrder()).toEqual([
       'providers',
       'telemetry',
       'discovery',

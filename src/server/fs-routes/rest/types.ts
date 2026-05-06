@@ -423,6 +423,9 @@ export interface RestLoaderOptions {
   /** File extensions to load */
   extensions?: string[]
 
+  /** Discovery source adapter (defaults to real filesystem) */
+  source?: import('../discovery-source.js').DiscoverySource
+
   /** Default adapter type */
   defaultAdapter?: 'prisma' | 'drizzle' | 'custom'
 
@@ -432,6 +435,8 @@ export interface RestLoaderOptions {
 
 export interface RestLoaderResult {
   resources: LoadedRestResource[]
+  sourceStats: import('../discovery-source.js').DiscoverySourceStats
+  failures: import('../discovery-source.js').DiscoverySourceFailure[]
   stats: {
     resources: number
     routes: number

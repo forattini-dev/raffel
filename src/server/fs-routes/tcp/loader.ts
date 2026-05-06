@@ -5,12 +5,11 @@
  */
 
 import { createServer as createNetServer, Socket, Server as NetServer } from 'node:net'
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join, parse as parsePath } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { parse as parsePath } from 'node:path'
 import { createLogger } from '../../../utils/logger.js'
 import { sid } from '../../../utils/id/index.js'
 import { createContext } from '../../../types/context.js'
+import { createFileSystemDiscoverySource } from '../discovery-source.js'
 import type {
   TcpConfig,
   TcpHandlerExports,
@@ -47,34 +46,31 @@ const DEFAULT_CONFIG: ResolvedTcpConfig = {
 export async function loadTcpHandlers(options: TcpLoaderOptions): Promise<TcpLoaderResult> {
   const startTime = Date.now()
   const extensions = options.extensions ?? ['.ts', '.js']
+  const source = options.source ?? createFileSystemDiscoverySource()
   const handlers: LoadedTcpHandler[] = []
 
-  if (!existsSync(options.tcpDir)) {
+  if (!await source.exists(options.tcpDir)) {
     logger.debug({ dir: options.tcpDir }, 'TCP directory not found')
     return {
       handlers: [],
+      sourceStats: source.snapshotStats(),
+      failures: source.snapshotFailures(),
       stats: { handlers: 0, duration: Date.now() - startTime },
     }
   }
 
-  const entries = readdirSync(options.tcpDir)
-
-  for (const entry of entries) {
-    const fullPath = join(options.tcpDir, entry)
-    const stat = statSync(fullPath)
-
-    if (!stat.isFile()) continue
-
-    const { name, ext } = parsePath(entry)
+  const walk = await source.walkFiles(options.tcpDir, { extensions, recursive: false })
+  for (const { filePath } of walk.files) {
+    const { name, ext } = parsePath(filePath)
     if (!extensions.includes(ext)) continue
     if (name.startsWith('_')) continue
 
     try {
-      const exports = await importFile<TcpHandlerExports>(fullPath)
+      const exports = await source.importModule<TcpHandlerExports>(filePath)
 
       // Must have at least one handler
       if (!exports.onConnect && !exports.onData && !exports.onMessage) {
-        logger.warn({ filePath: fullPath }, 'TCP file missing handler exports')
+        logger.warn({ filePath }, 'TCP file missing handler exports')
         continue
       }
 
@@ -82,19 +78,21 @@ export async function loadTcpHandlers(options: TcpLoaderOptions): Promise<TcpLoa
 
       handlers.push({
         name,
-        filePath: fullPath,
+        filePath,
         config,
         handlers: exports,
       })
 
       logger.info({ name, port: config.port }, 'Loaded TCP handler')
     } catch (err) {
-      logger.error({ err, filePath: fullPath }, 'Failed to load TCP handler')
+      logger.error({ err, filePath }, 'Failed to load TCP handler')
     }
   }
 
   return {
     handlers,
+    sourceStats: source.snapshotStats(),
+    failures: source.snapshotFailures(),
     stats: {
       handlers: handlers.length,
       duration: Date.now() - startTime,
@@ -455,12 +453,4 @@ function frameMessage(data: Buffer, framing: ResolvedTcpFramingConfig): Buffer {
     return Buffer.concat([data, framing.delimiter])
   }
   return data
-}
-
-// === File Import ===
-
-async function importFile<T>(filePath: string): Promise<T> {
-  const fileUrl = pathToFileURL(filePath).href
-  const urlWithCacheBust = `${fileUrl}?t=${Date.now()}`
-  return import(urlWithCacheBust) as Promise<T>
 }

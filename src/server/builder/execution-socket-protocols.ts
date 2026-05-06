@@ -18,6 +18,8 @@ type SocketProtocolPostPortBindingStep = Extract<
 export function createExecutionSocketProtocols(context: ServerLifecycleExecutionContext) {
   const { state } = context
   const { router } = context.core
+  const createTcp = context.factories?.createTcpAdapter ?? createTcpAdapter
+  const createGrpc = context.factories?.createGrpcAdapter ?? createGrpcAdapter
 
   async function executePostPortBindingSocketProtocolStep(
     runtimePlan: ServerRuntimePlan,
@@ -29,7 +31,7 @@ export function createExecutionSocketProtocols(context: ServerLifecycleExecution
         const tcpOpts = step.binding.options
         await startAssignedManagedAdapter({
           ref: state.tcpAdapter,
-          adapter: createTcpAdapter(router, {
+          adapter: createTcp(router, {
             port: step.binding.port,
             host: step.binding.host,
             maxMessageSize: tcpOpts.maxMessageSize,
@@ -43,7 +45,7 @@ export function createExecutionSocketProtocols(context: ServerLifecycleExecution
 
       case 'grpc': {
         const grpcOpts = step.binding.options
-        const grpcAdapter = createGrpcAdapter(router, {
+        const grpcAdapter = createGrpc(router, {
           host: step.binding.host,
           port: step.binding.port,
           protoPath: grpcOpts.protoPath,

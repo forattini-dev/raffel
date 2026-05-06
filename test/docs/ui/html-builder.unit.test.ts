@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-
 import { generateClientScript } from '../../../src/docs/ui/client-script/index.js'
 import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from '../../../src/docs/ui/html-builder.js'
 import { mergeHeroConfig } from '../../../src/docs/ui/html-shell.js'
@@ -84,34 +82,34 @@ describe('Documentation UI HTML builder', () => {
 
     expect(script).toContain('window.__RAFFEL_DOCS__ = {')
     expect(script).toContain('spec: {"info":{"title":"API","version":"1.0.0"},"paths":{}},')
-    expect(script).toContain('const spec = docsData.spec')
+    expect(script).toContain('const data = win.__RAFFEL_DOCS__ ?? {}')
     expect(script).toContain('function installDocsPluginApi()')
-    expect(script).toContain('function applyStringHook(hookName, value, context)')
-    expect(script).toContain('function applySearchResultsHook(results, context)')
-    expect(script).toContain('function unmountDocsComponents(root = document)')
-    expect(script).toContain('function parseMarkdownAttributes(text)')
-    expect(script).toContain('function parseMarkdownDestination(value)')
-    expect(script).toContain('function parseComponentFence(lang, body)')
-    expect(script).toContain('function parseHeadingTitle(value)')
-    expect(script).toContain('function renderEmojiShorthand(value)')
+    expect(script).toContain('function renderMarkedMarkdown(')
+    expect(script).toContain('function appendDeclarativeSidebar(')
+    expect(script).toContain('function applyStringHook(')
+    expect(script).toContain('function applySearchResultsHook(')
+    expect(script).toContain('function unmountDocsComponents(root = doc)')
+    expect(script).toContain('function parseMarkdownAttributes(')
+    expect(script).toContain('function parseMarkdownDestination(')
+    expect(script).toContain('function parseComponentFence(')
+    expect(script).toContain('function parseHeadingTitle(')
+    expect(script).toContain('function renderEmojiShorthand(')
     expect(script).toContain('function getExternalLinkTarget()')
-    expect(script).toContain('function isNoCompileLink(href)')
-    expect(script).toContain('function resolveDocsAlias(path)')
-    expect(script).toContain('function parseMarkdown(md)')
+    expect(script).toContain('function isNoCompileLink(')
+    expect(script).toContain('function resolveDocsAlias(')
+    expect(script).toContain('function parseMarkdown(')
     expect(script).toContain('docsAliases: {"/old":"/new"},')
     expect(script).toContain('searchIndex: [],')
     expect(script).toContain('docsSidebar: [],')
     expect(script).toContain('docsAssetBasePath: "/docs/-/assets",')
     expect(script).toContain('markdownConfig: {}')
-    expect(script).toContain('function getEndpointsForProtocol(protocol)')
+    expect(script).toContain('function getEndpointsForProtocol(')
     expect(script).toContain('function renderSidebar()')
-    expect(script).toContain('function parsePageFrontmatter(markdown)')
-    expect(script).toContain('function renderDocsPagination(main, page)')
-    expect(script).toContain('function renderTryItOut(ep)')
-    expect(script).toContain('function renderSchemaType(schema, showFormat)')
-    expect(script).toContain('function renderEndpointDetails(ep)')
+    expect(script).toContain('function parsePageFrontmatter(')
+    expect(script).toContain('function renderDocsPagination(')
+    expect(script).toContain('function renderEndpointDetails(')
     expect(script).toContain('wantsCommandSearch')
-    expect(script).toContain('renderIntroduction();')
+    expect(script).toContain('function init()')
   })
 
   it('can reference reusable frontend runtime and stylesheet assets', () => {
@@ -148,7 +146,7 @@ describe('Documentation UI HTML builder', () => {
     expect(html).toContain('<link rel="stylesheet" href="/docs/-/assets/custom.css" data-raffel-custom-css>')
     expect(html).toContain('<script src="/docs/-/marked.umd.js"></script>')
     expect(html).toContain('<script src="/docs/-/prism.js"></script>')
-    expect(html).toContain('<script type="module" src="/docs/-/raffel-docs.js"></script>')
+    expect(html).toContain('<script type="module" data-raffel-runtime="external" src="/docs/-/raffel-docs.js"></script>')
     expect(html).toContain('<details class="top-nav-menu"')
     expect(html).toContain('<div class="top-nav-submenu"><a class="top-nav-link" href="#/api">API</a></div>')
     expect(html).toContain('window.__RAFFEL_DOCS__')
@@ -173,24 +171,24 @@ describe('Documentation UI HTML builder', () => {
       ui: { primaryColor: '#336699' },
     })
 
-    expect(runtime).toContain('const docsData = window.__RAFFEL_DOCS__ || {};')
+    expect(runtime).toContain('const data = win.__RAFFEL_DOCS__ ?? {}')
     expect(runtime).toContain('function getDocsPageView(page)')
     expect(runtime).toContain('function getDocsPageMarkdown(page)')
     expect(runtime).toContain('function getEndpointsForProtocol(protocol')
     expect(runtime).toContain("protocol === 'websocket'")
     expect(runtime).toContain("protocol === 'udp'")
     expect(runtime).toContain('function getGrpcMethodType(method')
-    expect(runtime).toContain('function renderEndpointDetails(ep')
-    expect(runtime).toContain('function renderDocsPageSearchResults(main)')
-    expect(runtime).toContain('function renderDocsPagination(main, page)')
+    expect(runtime).toContain('function renderEndpointDetails(')
+    expect(runtime).toContain('function renderDocsSearch(')
+    expect(runtime).toContain('function renderDocsPagination(')
     expect(runtime).toContain('function extractSidebarHeadings(markdown)')
-    expect(runtime).toContain('function renderMermaidDiagrams(root = document)')
-    expect(runtime).toContain('function highlightCodeBlocks(root = document)')
-    expect(runtime).toContain('function appendDeclarativeSidebarItem')
+    expect(runtime).toContain('function renderMermaidDiagrams(root = doc)')
+    expect(runtime).toContain('function highlightCodeBlocks(root = doc)')
+    expect(runtime).toContain('function appendDeclarativeSidebar(')
     expect(runtime).toContain('docsSidebar')
     expect(runtime).toContain('function installDocsPluginApi()')
-    expect(runtime).toContain('window.RaffelDocs')
-    expect(runtime).toContain('navigator.clipboard')
+    expect(runtime).toContain('win.RaffelDocs')
+    expect(runtime).toContain('win.navigator?.clipboard')
     expect(runtime).toContain('image-zoom-overlay')
     expect(css).toContain('.docs-pagination')
     expect(css).toContain('.md-tabs')
@@ -250,72 +248,23 @@ describe('Documentation UI HTML builder', () => {
     expect(hidden).not.toContain('class="skip-link"')
   })
 
-  it('keeps the external runtime aligned with file-backed Markdown markdown features', () => {
-    const runtimeSource = readFileSync(
-      new URL('../../../src/docs/ui/runtime/index.ts', import.meta.url),
-      'utf8'
-    )
-    const protocolConsoleSource = readFileSync(
-      new URL('../../../src/docs/ui/runtime/protocol-console.ts', import.meta.url),
-      'utf8'
-    )
-    const sidebarTreeSource = readFileSync(
-      new URL('../../../src/docs/ui/runtime/sidebar-tree.ts', import.meta.url),
-      'utf8'
-    )
+  it('uses the shared docs runtime source for inline delivery', () => {
+    const html = generateUIHTML({
+      basePath: '/docs',
+      doc: {
+        info: { title: 'API', version: '1.0.0' },
+        paths: {},
+      },
+      ui: { assets: { mode: 'inline' } },
+    })
 
-    expect(runtimeSource).toContain('function renderTable()')
-    expect(runtimeSource).toContain('function renderTabs()')
-    expect(runtimeSource).toContain('function getDocsSearchResults()')
-    expect(runtimeSource).toContain('highlightSearchExcerpt')
-    expect(runtimeSource).toContain("import { renderMarkedMarkdown } from './marked-renderer.js'")
-    expect(runtimeSource).toContain("import { appendProtocolConsole } from './protocol-console.js'")
-    expect(protocolConsoleSource).toContain('protocol-try-it')
-    expect(protocolConsoleSource).toContain('Live console')
-    expect(runtimeSource).toContain('function renderMissingDocsPage')
-    expect(runtimeSource).toContain('function resolveDocsAlias')
-    expect(runtimeSource).toContain('function resolveDocsAliasTarget')
-    expect(runtimeSource).toContain('new RegExp(pattern.startsWith')
-    expect(runtimeSource).toContain('type DocsRuntimePlugin')
-    expect(runtimeSource).toContain('apiVersion: 1')
-    expect(runtimeSource).toContain('function applySearchResultsHook')
-    expect(runtimeSource).toContain('function openImageZoom')
-    expect(runtimeSource).toContain('function renderMermaidDiagrams')
-    expect(runtimeSource).toContain('mountComponent?')
-    expect(runtimeSource).toContain('function mountDocsComponents')
-    expect(runtimeSource).toContain('onCopyCode?')
-    expect(runtimeSource).toContain('onTabChange?')
-    expect(runtimeSource).toContain('onImageZoom?')
-    expect(runtimeSource).toContain('function parseComponentFence')
-    expect(runtimeSource).toContain('svelte-component')
-    expect(runtimeSource).toContain('function parseMarkdownAttributes')
-    expect(runtimeSource).toContain('function parseHeadingTitle')
-    expect(runtimeSource).toContain('function extractSidebarHeadings')
-    expect(runtimeSource).toContain('sidebarConfig.subMaxLevel')
-    expect(runtimeSource).toContain('COMMON_EMOJI_ENTITIES')
-    expect(runtimeSource).toContain('function renderEmojiShorthand')
-    expect(runtimeSource).toContain('markdownConfig.noEmoji')
-    expect(runtimeSource).toContain("markdownConfig.html === 'raw'")
-    expect(runtimeSource).toContain('markdownConfig.autoHeader')
-    expect(runtimeSource).toContain('themeStorageKey')
-    expect(runtimeSource).toContain("win.localStorage?.setItem?.(themeStorageKey, next)")
-    expect(runtimeSource).toContain('const docsSidebar = Array.isArray(data.docsSidebar)')
-    expect(runtimeSource).toContain("import { appendDeclarativeSidebar")
-    expect(sidebarTreeSource).toContain('function appendSidebarItem')
-    expect(sidebarTreeSource).toContain("group.className = `tag-group docs-sidebar-group")
-    expect(runtimeSource).toContain('function highlightCodeBlocks')
-    expect(runtimeSource).toContain('data-syntax-highlight')
-    expect(runtimeSource).toContain('function getExternalLinkTarget')
-    expect(runtimeSource).toContain('function isNoCompileLink')
-    expect(runtimeSource).toContain('IMPORTANT|CAUTION')
-    expect(runtimeSource).toContain('data-no-zoom="true"')
-    expect(runtimeSource).toContain('data-mermaid-source')
-    expect(runtimeSource).toContain('function resolveMarkdownHref')
-    expect(runtimeSource).toContain('function resolveMarkdownAssetHref')
-    expect(runtimeSource).toContain('type="checkbox" disabled')
-    expect(runtimeSource).toContain('class="md-image"')
-    expect(runtimeSource).toContain('.md-tab-button')
-    expect(runtimeSource).toContain('routeToHash(activePagePath')
+    expect(html).toContain('data-raffel-runtime="inline"')
+    expect(html).toContain('data-raffel-inline-dependency="marked"')
+    expect(html).toContain('data-raffel-inline-dependency="prism"')
+    expect(html).toContain('function renderMarkedMarkdown(')
+    expect(html).toContain('function appendDeclarativeSidebar(')
+    expect(html).toContain('function installDocsPluginApi()')
+    expect(html).not.toContain('const docsData = window.__RAFFEL_DOCS__ || {};')
   })
 
   it('lets UI hero config override spec documentation hero config', () => {

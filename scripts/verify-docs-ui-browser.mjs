@@ -261,8 +261,10 @@ const routeBaseDocs = {
   },
 }
 
-function injectBrowserSmoke(html) {
-  const runtimeTag = '<script type="module" src="/docs/-/raffel-docs.js"></script>'
+function injectBrowserSmoke(html, assetMode = 'external') {
+  const runtimeTag = assetMode === 'external'
+    ? '<script type="module" data-raffel-runtime="external" src="/docs/-/raffel-docs.js"></script>'
+    : '<script type="module" data-raffel-runtime="inline">'
   const smoke = `<script>
 try { localStorage.setItem('raffel-docs-theme', 'dark') } catch {}
 window.__RAFFEL_DOCS_PLUGINS__ = [{
@@ -420,7 +422,7 @@ window.__runRaffelDocsSmoke = function () {
 ${runtimeTag}`
 
   if (!html.includes(runtimeTag)) {
-    throw new Error('Generated HTML did not include the expected external runtime script tag')
+    throw new Error(`Generated HTML did not include the expected ${assetMode} runtime script tag`)
   }
   return html.replace(runtimeTag, smoke)
 }
@@ -702,6 +704,57 @@ async function run() {
     ])
   } finally {
     await close(server)
+  }
+
+  const inlineHtml = injectBrowserSmoke(generateUIHTML({
+    doc: docs,
+    basePath: '/docs',
+    ui: {
+      assets: { mode: 'inline' },
+      customCss: '/docs/-/assets/custom.css',
+      skipLink: 'Jump to content',
+      navbar: [
+        { title: 'Guide', href: '#/quickstart' },
+        { title: 'More', children: [{ title: 'API', href: '#/api' }] },
+      ],
+      sidebar: { search: true, docsPages: true, subMaxLevel: 3 },
+      toc: { enabled: true, minLevel: 2, maxLevel: 3 },
+      markdown: {
+        externalLinkTarget: '_self',
+        externalLinkRel: '',
+        noCompileLinks: ['^\\./plain\\.md$'],
+        autoHeader: true,
+        formatUpdated: 'YYYY/MM/DD HH:mm',
+      },
+    },
+  }), 'inline')
+  const { server: inlineServer, origin: inlineOrigin } = await createFixtureServer(inlineHtml)
+  try {
+    const inlineDom = await dumpDom(chrome, `${inlineOrigin}/docs#/legacy/quickstart?id=install`)
+    assertDom(inlineDom, [
+      { label: 'inline runtime completion marker', needle: 'data-smoke-ready="yes"' },
+      { label: 'inline plugin afterRender hook', needle: 'data-plugin-after-render="yes"' },
+      { label: 'inline plugin API version', needle: 'data-plugin-api-version="1"' },
+      { label: 'inline regex alias route resolution', needle: 'data-current-hash="#/quickstart?id=install"' },
+      { label: 'inline active page state', needle: 'data-active-page="/quickstart"' },
+      { label: 'inline plugin beforeMarkdown hook', needle: 'Plugin changed' },
+      { label: 'inline Markdown engine bridge', needle: 'data-marked-renderer-ok="true"' },
+      { label: 'inline Prism syntax highlight', needle: 'data-prism-ok="true"' },
+      { label: 'inline declarative sidebar opens active ancestors', needle: 'data-sidebar-ancestor-open-ok="true"' },
+      { label: 'inline active declarative sidebar page', needle: 'data-sidebar-active-page-ok="true"' },
+      { label: 'inline subMaxLevel headings in sidebar', needle: 'data-sidebar-sublevel-ok="true"' },
+      { label: 'inline active sidebar heading', needle: 'data-sidebar-subactive-ok="true"' },
+      { label: 'inline relative markdown link', needle: 'href="#/guide"' },
+      { label: 'inline externalLinkTarget option', needle: 'data-external-target-ok="true"' },
+      { label: 'inline custom CSS asset overrides variables', needle: 'data-custom-css-ok="true"' },
+      { label: 'inline stored theme applies on load', needle: 'data-theme-persisted-ok="true"' },
+      { label: 'inline theme toggle persists user choice', needle: 'data-theme-toggle-persisted-ok="true"' },
+      { label: 'inline plugin image zoom hook', needle: 'data-plugin-image-zoom="true"' },
+      { label: 'inline tab interaction', needle: 'data-active-tab-ok="true"' },
+      { label: 'inline plugin copy code hook', needle: 'data-plugin-copy-code="true"' },
+    ])
+  } finally {
+    await close(inlineServer)
   }
 
   const routeBaseHtml = injectBrowserSmoke(generateUIHTML({

@@ -23,6 +23,14 @@ export {
   type USDGeneratorProtocolConfig,
 } from './usd-generator.js'
 
+export {
+  createUSDAssemblyContext,
+  type USDAssemblyContext,
+  type USDAssemblyContextOptions,
+  type USDAssemblyResult,
+  type USDProtocolBlockName,
+} from './usd-assembly-context.js'
+
 // HTTP generator (procedures → paths)
 export {
   generateHttpPaths,

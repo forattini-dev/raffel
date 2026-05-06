@@ -32,8 +32,8 @@ import {
   runActiveShutdownPlan,
 } from './lifecycle-utils.js'
 import {
-  createServerLifecycleExecution,
-} from './execution.js'
+  createServerLifecycleExecutor,
+} from './lifecycle-executor.js'
 import type { ServerLifecycleExecutionContext } from './execution-types.js'
 import type { Logger } from 'pino'
 import type {
@@ -173,7 +173,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       createFrontDoorDecisionMiddleware,
     },
   }
-  const { executeStartupPhase, resetRuntimeState } = createServerLifecycleExecution(executionContext)
+  const { startRuntimePlan, resetRuntimeState } = createServerLifecycleExecutor(executionContext)
 
   function clonePlannedAddresses(addresses: ServerAddresses): ServerAddresses {
     return addresses.protocols
@@ -210,9 +210,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       state.addresses.value = clonePlannedAddresses(runtimePlan.addresses)
 
       const httpMiddleware: HttpMiddleware[] = []
-      for (const phase of runtimePlan.execution.startup) {
-        await executeStartupPhase(runtimePlan, phase, httpMiddleware, registerStopTask)
-      }
+      await startRuntimePlan(runtimePlan, httpMiddleware, registerStopTask)
 
       state.activeShutdownPlan.value = taskRegistry.snapshot(runtimePlan.execution.shutdown)
       state.running.value = true

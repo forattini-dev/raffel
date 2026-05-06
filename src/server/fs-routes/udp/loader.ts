@@ -5,12 +5,11 @@
  */
 
 import { createSocket, RemoteInfo } from 'node:dgram'
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join, parse as parsePath } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { parse as parsePath } from 'node:path'
 import { createLogger } from '../../../utils/logger.js'
 import { sid } from '../../../utils/id/index.js'
 import { createContext } from '../../../types/context.js'
+import { createFileSystemDiscoverySource } from '../discovery-source.js'
 import type {
   UdpConfig,
   UdpHandlerExports,
@@ -46,33 +45,30 @@ const DEFAULT_CONFIG: ResolvedUdpConfig = {
 export async function loadUdpHandlers(options: UdpLoaderOptions): Promise<UdpLoaderResult> {
   const startTime = Date.now()
   const extensions = options.extensions ?? ['.ts', '.js']
+  const source = options.source ?? createFileSystemDiscoverySource()
   const handlers: LoadedUdpHandler[] = []
 
-  if (!existsSync(options.udpDir)) {
+  if (!await source.exists(options.udpDir)) {
     logger.debug({ dir: options.udpDir }, 'UDP directory not found')
     return {
       handlers: [],
+      sourceStats: source.snapshotStats(),
+      failures: source.snapshotFailures(),
       stats: { handlers: 0, duration: Date.now() - startTime },
     }
   }
 
-  const entries = readdirSync(options.udpDir)
-
-  for (const entry of entries) {
-    const fullPath = join(options.udpDir, entry)
-    const stat = statSync(fullPath)
-
-    if (!stat.isFile()) continue
-
-    const { name, ext } = parsePath(entry)
+  const walk = await source.walkFiles(options.udpDir, { extensions, recursive: false })
+  for (const { filePath } of walk.files) {
+    const { name, ext } = parsePath(filePath)
     if (!extensions.includes(ext)) continue
     if (name.startsWith('_')) continue
 
     try {
-      const exports = await importFile<UdpHandlerExports>(fullPath)
+      const exports = await source.importModule<UdpHandlerExports>(filePath)
 
       if (!exports.onMessage) {
-        logger.warn({ filePath: fullPath }, 'UDP file missing onMessage export')
+        logger.warn({ filePath }, 'UDP file missing onMessage export')
         continue
       }
 
@@ -80,19 +76,21 @@ export async function loadUdpHandlers(options: UdpLoaderOptions): Promise<UdpLoa
 
       handlers.push({
         name,
-        filePath: fullPath,
+        filePath,
         config,
         handlers: exports,
       })
 
       logger.info({ name, port: config.port }, 'Loaded UDP handler')
     } catch (err) {
-      logger.error({ err, filePath: fullPath }, 'Failed to load UDP handler')
+      logger.error({ err, filePath }, 'Failed to load UDP handler')
     }
   }
 
   return {
     handlers,
+    sourceStats: source.snapshotStats(),
+    failures: source.snapshotFailures(),
     stats: {
       handlers: handlers.length,
       duration: Date.now() - startTime,
@@ -315,12 +313,4 @@ export function createUdpServer(handler: LoadedUdpHandler): UdpServerInstance {
     send: sendDatagram,
     broadcast: broadcastDatagram,
   }
-}
-
-// === File Import ===
-
-async function importFile<T>(filePath: string): Promise<T> {
-  const fileUrl = pathToFileURL(filePath).href
-  const urlWithCacheBust = `${fileUrl}?t=${Date.now()}`
-  return import(urlWithCacheBust) as Promise<T>
 }

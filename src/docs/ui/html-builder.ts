@@ -25,6 +25,7 @@ import {
 } from './html-shell.js'
 import {
   generateClientDataScript,
+  generateInlineRuntimeDependencyScripts,
   generateClientRuntimeScript,
 } from './client-script/index.js'
 import { buildDocsSearchIndex } from '../search-index.js'
@@ -121,8 +122,9 @@ ${styles}
   const runtimeScript = assetMode === 'external'
     ? `<script src="${escapeHtml(assetBasePath)}/-/marked.umd.js"></script>
   <script src="${escapeHtml(assetBasePath)}/-/prism.js"></script>
-  <script type="module" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
-    : `<script>
+  <script type="module" data-raffel-runtime="external" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
+    : `${generateInlineRuntimeDependencyScripts()}
+  <script type="module" data-raffel-runtime="inline">
 ${generateClientRuntimeScript()}
   </script>`
 

@@ -268,12 +268,17 @@ export interface TcpLoaderOptions {
   /** File extensions to load */
   extensions?: string[]
 
+  /** Discovery source adapter (defaults to real filesystem) */
+  source?: import('../discovery-source.js').DiscoverySource
+
   /** Default port if not specified in handler */
   defaultPort?: number
 }
 
 export interface TcpLoaderResult {
   handlers: LoadedTcpHandler[]
+  sourceStats: import('../discovery-source.js').DiscoverySourceStats
+  failures: import('../discovery-source.js').DiscoverySourceFailure[]
   stats: {
     handlers: number
     duration: number

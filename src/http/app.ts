@@ -11,6 +11,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { HttpContext, type HttpContextInterface } from './context.js'
+import { HttpRouteTable, type HttpMethod } from './route-table.js'
 import type { BodyInit } from './web-types.js'
 import { attachRequestSocketInfo } from '../utils/client-ip.js'
 import { createLogger } from '../utils/logger.js'
@@ -21,8 +22,7 @@ const logger = createLogger('http-app')
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** HTTP methods */
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD'
+export type { HttpMethod } from './route-table.js'
 
 /** Handler function for routes */
 export type HttpHandler<E extends Record<string, unknown> = Record<string, unknown>> = (
@@ -45,142 +45,6 @@ export type HttpErrorHandler<E extends Record<string, unknown> = Record<string, 
 export type HttpNotFoundHandler<E extends Record<string, unknown> = Record<string, unknown>> = (
   c: HttpContextInterface<E>
 ) => Response | Promise<Response>
-
-/** Route definition */
-interface Route<E extends Record<string, unknown> = Record<string, unknown>> {
-  method: HttpMethod | '*'
-  matcher: CompiledPattern
-  handler: HttpHandler<E>
-  middlewares: HttpMiddleware<E>[]
-  order: number
-  path: string // Original path for debugging
-}
-
-/** Pattern compilation result */
-interface ExactCompiledPattern {
-  kind: 'exact'
-  exactPath: string
-}
-
-interface DynamicCompiledPattern {
-  kind: 'dynamic'
-  pattern: RegExp
-  paramNames: string[]
-}
-
-type CompiledPattern = ExactCompiledPattern | DynamicCompiledPattern
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Path Pattern Compilation
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Compile a path pattern into Raffel's native matcher contract.
- *
- * Supports:
- * - Static paths: /users
- * - Parameters: /users/:id
- * - Optional segments: /users/:id?
- * - Wildcards: /assets/* (matches /assets and /assets/app.js)
- *
- * Exact routes are indexed separately from dynamic routes so their lookup cost
- * does not depend on registration order. Dynamic routes retain insertion order.
- *
- * @example
- * compilePath('/users/:id') → { kind: 'dynamic', pattern: /^\/users\/([^/]+)$/, paramNames: ['id'] }
- * compilePath('/assets/*') → { kind: 'dynamic', pattern: /^\/assets(?:\/(.*))?$/, paramNames: ['*'] }
- */
-function compilePath(path: string): CompiledPattern {
-  if (path.length === 0 || path === '/') {
-    return {
-      kind: 'exact',
-      exactPath: '/',
-    }
-  }
-
-  if (!path.includes(':') && !path.includes('*')) {
-    return {
-      kind: 'exact',
-      exactPath: path,
-    }
-  }
-
-  const paramNames: string[] = []
-  const escapedSegments = path.split('/')
-  let pattern = ''
-
-  if (path === '*' || path === '/*') {
-    return {
-      kind: 'dynamic',
-      pattern: /^\/?(.*)$/,
-      paramNames: ['*'],
-    }
-  }
-
-  for (let index = 0; index < escapedSegments.length; index += 1) {
-    const segment = escapedSegments[index]
-    if (index === 0) {
-      if (segment.length > 0) {
-        pattern += segment.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      }
-      continue
-    }
-
-    if (segment === '') {
-      pattern += '/'
-      continue
-    }
-
-    if (segment === '*') {
-      paramNames.push('*')
-      pattern += index === escapedSegments.length - 1 ? '(?:/(.*))?' : '/([^/]+)'
-      continue
-    }
-
-    const paramMatch = segment.match(/^:([a-zA-Z_][a-zA-Z0-9_]*)(\?)?$/)
-    if (paramMatch) {
-      paramNames.push(paramMatch[1])
-      pattern += paramMatch[2] ? '(?:/([^/]+))?' : '/([^/]+)'
-      continue
-    }
-
-    pattern += `/${segment.replace(/[.+^${}()|[\]\\]/g, '\\$&')}`
-  }
-
-  return {
-    kind: 'dynamic',
-    pattern: new RegExp(`^${pattern}$`),
-    paramNames,
-  }
-}
-
-/**
- * Match a path against a pattern and extract params
- */
-function matchPath(
-  pathname: string,
-  compiled: CompiledPattern
-): Record<string, string> | null {
-  if (compiled.kind === 'exact') {
-    return pathname === compiled.exactPath ? {} : null
-  }
-
-  const match = pathname.match(compiled.pattern)
-  if (!match) return null
-
-  const params: Record<string, string> = {}
-  for (let i = 0; i < compiled.paramNames.length; i++) {
-    const value = match[i + 1]
-    if (value !== undefined) {
-      params[compiled.paramNames[i]] = decodeURIComponent(value)
-    }
-  }
-  return params
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HttpApp Class
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * HttpApp - Native HTTP Router for Raffel
@@ -207,14 +71,10 @@ function matchPath(
  * serve({ fetch: app.fetch, port: 3000 })
  */
 export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>> {
-  private routes: Route<E>[] = []
-  private exactRoutes: Map<HttpMethod | '*', Map<string, Route<E>>> = new Map()
-  private dynamicRoutes: Route<E>[] = []
-  private globalMiddlewares: { path: string; pattern: RegExp; middleware: HttpMiddleware<E> }[] = []
+  private routeTable = new HttpRouteTable<HttpHandler<E>, HttpMiddleware<E>>()
   private notFoundHandler: HttpNotFoundHandler<E> | null = null
   private errorHandler: HttpErrorHandler<E> | null = null
   private basePath = ''
-  private routeOrder = { value: 0 }
 
   /**
    * Create a new HttpApp instance
@@ -297,79 +157,18 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
     }
 
     const fullPath = this.basePath + path
-    const matcher = compilePath(fullPath)
-
     // Last handler is the route handler, rest are middlewares
     const handler = handlers.pop() as HttpHandler<E>
     const middlewares = handlers as HttpMiddleware<E>[]
 
-    this.registerRoute({
+    this.routeTable.register({
       method,
-      matcher,
       handler,
       middlewares,
       path: fullPath,
     })
 
     return this
-  }
-
-  private registerRoute(route: Omit<Route<E>, 'order'>): void {
-    const indexedRoute: Route<E> = {
-      ...route,
-      order: this.routeOrder.value++,
-    }
-
-    this.routes.push(indexedRoute)
-
-    if (indexedRoute.matcher.kind === 'exact') {
-      const bucket = this.exactRoutes.get(indexedRoute.method) ?? new Map<string, Route<E>>()
-      if (!this.exactRoutes.has(indexedRoute.method)) {
-        this.exactRoutes.set(indexedRoute.method, bucket)
-      }
-
-      if (!bucket.has(indexedRoute.matcher.exactPath)) {
-        bucket.set(indexedRoute.matcher.exactPath, indexedRoute)
-      }
-      return
-    }
-
-    this.dynamicRoutes.push(indexedRoute)
-  }
-
-  private findRoute(
-    method: HttpMethod,
-    pathname: string
-  ): { route: Route<E> | null; params: Record<string, string> } {
-    const exactForMethod = this.exactRoutes.get(method)?.get(pathname) ?? null
-    const exactForAnyMethod = this.exactRoutes.get('*')?.get(pathname) ?? null
-    const exactRoute = exactForMethod && exactForAnyMethod
-      ? (exactForMethod.order <= exactForAnyMethod.order ? exactForMethod : exactForAnyMethod)
-      : (exactForMethod ?? exactForAnyMethod)
-
-    if (exactRoute) {
-      return {
-        route: exactRoute,
-        params: {},
-      }
-    }
-
-    for (const route of this.dynamicRoutes) {
-      if (route.method !== '*' && route.method !== method) continue
-
-      const matchedParams = matchPath(pathname, route.matcher)
-      if (matchedParams) {
-        return {
-          route,
-          params: matchedParams,
-        }
-      }
-    }
-
-    return {
-      route: null,
-      params: {},
-    }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -390,16 +189,7 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
     const middleware = typeof pathOrMiddleware === 'function' ? pathOrMiddleware : maybeMiddleware!
 
     const fullPath = this.basePath + path
-    // For middleware patterns, convert * to match any path
-    const patternStr = fullPath
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-
-    this.globalMiddlewares.push({
-      path: fullPath,
-      pattern: new RegExp(`^${patternStr}`),
-      middleware,
-    })
+    this.routeTable.use(fullPath, middleware)
 
     return this
   }
@@ -419,32 +209,7 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
    * // Request to /admin/health routes to admin's /health handler
    */
   route(path: string, app: HttpApp<E>): this {
-    // Copy routes with updated paths
-    for (const route of app.routes) {
-      const { order: _order, ...routeWithoutOrder } = route
-      const fullPath = this.basePath + path + route.path.replace(app.basePath, '')
-
-      this.registerRoute({
-        ...routeWithoutOrder,
-        matcher: compilePath(fullPath),
-        path: fullPath,
-      })
-    }
-
-    // Copy middlewares with updated paths
-    for (const mw of app.globalMiddlewares) {
-      const fullPath = this.basePath + path + mw.path.replace(app.basePath, '')
-      const patternStr = fullPath
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*')
-
-      this.globalMiddlewares.push({
-        path: fullPath,
-        pattern: new RegExp(`^${patternStr}`),
-        middleware: mw.middleware,
-      })
-    }
-
+    this.routeTable.mount(this.basePath + path, app.routeTable, { sourceBasePath: app.basePath })
     return this
   }
 
@@ -459,11 +224,7 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
   basePathApp(prefix: string): HttpApp<E> {
     const subApp = new HttpApp<E>({ basePath: this.basePath + prefix })
     // Share the same internal state
-    subApp.routes = this.routes
-    subApp.exactRoutes = this.exactRoutes
-    subApp.dynamicRoutes = this.dynamicRoutes
-    subApp.globalMiddlewares = this.globalMiddlewares
-    subApp.routeOrder = this.routeOrder
+    subApp.routeTable = this.routeTable
     return subApp
   }
 
@@ -504,20 +265,16 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
     const method = request.method.toUpperCase() as HttpMethod
     const pathname = url.pathname
 
-    const { route: matchedRoute, params } = this.findRoute(method, pathname)
+    const match = this.routeTable.match(method, pathname)
+    const { route: matchedRoute, params } = match
 
     // Create context
     const ctx = new HttpContext<E>(request, params) as HttpContextInterface<E>
 
     try {
-      // Collect matching global middlewares
-      const matchingMiddlewares = this.globalMiddlewares
-        .filter((mw) => mw.pattern.test(pathname))
-        .map((mw) => mw.middleware)
-
       // If route found, add route-specific middlewares
       const routeMiddlewares = matchedRoute ? matchedRoute.middlewares : []
-      const allMiddlewares = [...matchingMiddlewares, ...routeMiddlewares]
+      const allMiddlewares = [...match.middlewares, ...routeMiddlewares]
 
       // Execute middleware chain
       let index = 0
@@ -644,7 +401,7 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
    * Get all registered routes (for debugging/documentation)
    */
   getRoutes(): { method: string; path: string }[] {
-    return this.routes.map((r) => ({
+    return this.routeTable.listRoutes().map((r) => ({
       method: r.method,
       path: r.path,
     }))

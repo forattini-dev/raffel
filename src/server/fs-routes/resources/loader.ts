@@ -5,12 +5,11 @@
  * Middle-level abstraction: 1 file = 1 resource with explicit handlers.
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join, parse as parsePath } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { parse as parsePath } from 'node:path'
 import { createLogger } from '../../../utils/logger.js'
 import { createContext } from '../../../types/context.js'
 import { sid } from '../../../utils/id/index.js'
+import { createFileSystemDiscoverySource } from '../discovery-source.js'
 import type {
   ResourceConfig,
   ResourceExports,
@@ -54,30 +53,27 @@ const DEFAULT_CONFIG: ResolvedResourceConfig = {
 export async function loadResources(options: ResourceLoaderOptions): Promise<ResourceLoaderResult> {
   const startTime = Date.now()
   const extensions = options.extensions ?? ['.ts', '.js']
+  const source = options.source ?? createFileSystemDiscoverySource()
   const resources: LoadedResource[] = []
 
-  if (!existsSync(options.resourcesDir)) {
+  if (!await source.exists(options.resourcesDir)) {
     logger.debug({ dir: options.resourcesDir }, 'Resources directory not found')
     return {
       resources: [],
+      sourceStats: source.snapshotStats(),
+      failures: source.snapshotFailures(),
       stats: { resources: 0, operations: 0, actions: 0, duration: Date.now() - startTime },
     }
   }
 
-  const entries = readdirSync(options.resourcesDir)
-
-  for (const entry of entries) {
-    const fullPath = join(options.resourcesDir, entry)
-    const stat = statSync(fullPath)
-
-    if (!stat.isFile()) continue
-
-    const { name, ext } = parsePath(entry)
+  const walk = await source.walkFiles(options.resourcesDir, { extensions, recursive: false })
+  for (const { filePath } of walk.files) {
+    const { name, ext } = parsePath(filePath)
     if (!extensions.includes(ext)) continue
     if (name.startsWith('_')) continue
 
     try {
-      const exports = await importFile<ResourceExports>(fullPath)
+      const exports = await source.importModule<ResourceExports>(filePath)
 
       // Must have at least one handler
       const hasHandler = exports.list || exports.get || exports.create ||
@@ -85,7 +81,7 @@ export async function loadResources(options: ResourceLoaderOptions): Promise<Res
         exports.head || exports.options || exports.actions
 
       if (!hasHandler) {
-        logger.warn({ filePath: fullPath }, 'Resource file has no handlers')
+        logger.warn({ filePath }, 'Resource file has no handlers')
         continue
       }
 
@@ -93,14 +89,14 @@ export async function loadResources(options: ResourceLoaderOptions): Promise<Res
 
       resources.push({
         name,
-        filePath: fullPath,
+        filePath,
         config,
         handlers: exports,
       })
 
       logger.info({ name, basePath: config.basePath }, 'Loaded resource')
     } catch (err) {
-      logger.error({ err, filePath: fullPath }, 'Failed to load resource')
+      logger.error({ err, filePath }, 'Failed to load resource')
     }
   }
 
@@ -122,6 +118,8 @@ export async function loadResources(options: ResourceLoaderOptions): Promise<Res
 
   return {
     resources,
+    sourceStats: source.snapshotStats(),
+    failures: source.snapshotFailures(),
     stats: {
       resources: resources.length,
       operations: totalOperations,
@@ -543,12 +541,4 @@ function createActionRoute(
     const ctx = createResourceContext(resource, actionName, id ? { id } : {}, {})
     return action.handler(data, id, ctx)
   }
-}
-
-// === File Import ===
-
-async function importFile<T>(filePath: string): Promise<T> {
-  const fileUrl = pathToFileURL(filePath).href
-  const urlWithCacheBust = `${fileUrl}?t=${Date.now()}`
-  return import(urlWithCacheBust) as Promise<T>
 }

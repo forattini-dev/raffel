@@ -15,13 +15,14 @@ type GraphQLHttpMiddlewareStep = Extract<
 export function createExecutionHttpGraphQL(context: ServerLifecycleExecutionContext) {
   const { state } = context
   const { registry, schemaRegistry, router } = context.core
+  const createMiddleware = context.factories?.createGraphQLMiddleware ?? createGraphQLMiddleware
 
   function executeHttpGraphQLStep(
     runtimePlan: ServerRuntimePlan,
     step: GraphQLHttpMiddlewareStep,
     httpMiddleware: HttpMiddleware[]
   ) {
-    state.graphqlMiddleware.value = createGraphQLMiddleware({
+    state.graphqlMiddleware.value = createMiddleware({
       router,
       registry,
       schemaRegistry,

@@ -19,12 +19,12 @@ import type { McpAdapterOptions } from '../protocols/mcp/types.js'
 
 type SinglePortRouteMode = 'disabled' | 'dedicated' | 'single-port'
 
-interface PlannedHttpBinding {
+export interface PlannedHttpBinding {
   host: string
   port: number
 }
 
-interface PlannedPortBindingConfig {
+export interface PlannedPortBindingConfig {
   host: string
   port: number
   attachTcpHandler: boolean
@@ -32,19 +32,19 @@ interface PlannedPortBindingConfig {
   singlePortConfig?: SinglePortConfig
 }
 
-type PlannedHttpAdapterConfig = Omit<HttpAdapterOptions, 'middleware'> & {
+export type PlannedHttpAdapterConfig = Omit<HttpAdapterOptions, 'middleware'> & {
   host: string
   port: number
   basePath: string
   listenOnStart: false
 }
 
-interface PlannedServerEntrypoint {
+export interface PlannedServerEntrypoint {
   portBinding: PlannedPortBindingConfig
   httpAdapter: PlannedHttpAdapterConfig
 }
 
-interface PlannedProtocolBinding<TOptions, TMode extends string> {
+export interface PlannedProtocolBinding<TOptions, TMode extends string> {
   mode: TMode
   host: string
   port: number
@@ -73,29 +73,29 @@ type PlannedGrpcBinding = PlannedProtocolBinding<
   'single-port' | 'dedicated'
 >
 
-interface PlannedHttpSharedMiddleware {
+export interface PlannedHttpSharedMiddleware {
   maxBodySize: number
   contextFactory?: HttpOptions['contextFactory']
   codecs?: HttpOptions['codecs']
   trustedProxies?: HttpOptions['trustedProxies']
 }
 
-interface PlannedUsdDocsFeature {
+export interface PlannedUsdDocsFeature {
   basePath: string
   config: USDDocsConfig
 }
 
-interface PlannedSharedJsonRpcFeature {
+export interface PlannedSharedJsonRpcFeature {
   path: string
   options: NonNullable<ProtocolConfig['jsonrpc']>['options']
 }
 
-interface PlannedSharedGraphQLFeature {
+export interface PlannedSharedGraphQLFeature {
   path: string
   options: NonNullable<ProtocolConfig['graphql']>['options']
 }
 
-interface PlannedMcpFeature {
+export interface PlannedMcpFeature {
   path: string
   options: McpAdapterOptions
 }
@@ -216,7 +216,7 @@ export type ServerRuntimePostPortBindingStep =
       handler: LoadedUdpHandler
     }
 
-interface ServerRuntimeExecutionPlan {
+export interface ServerRuntimeExecutionPlan {
   providers: ServerRuntimeProviderStep[]
   telemetry: ServerRuntimeTelemetryStep[]
   discovery: ServerRuntimeDiscoveryStep[]
@@ -226,6 +226,40 @@ interface ServerRuntimeExecutionPlan {
   postPortBinding: ServerRuntimePostPortBindingStep[]
   startup: ServerRuntimeStartupPhase[]
   shutdown: ServerRuntimeShutdownPhase[]
+}
+
+export interface ServerRuntimeProtocolBindings {
+  http: PlannedHttpBinding
+  websocket?: PlannedWebSocketBinding
+  jsonrpc?: PlannedJsonRpcBinding
+  graphql?: PlannedGraphQLBinding
+  tcp?: PlannedTcpBinding
+  grpc?: PlannedGrpcBinding
+}
+
+export type ServerRuntimeProtocolName = keyof ServerRuntimeProtocolBindings
+export type ServerRuntimeHttpMiddlewareKind = ServerRuntimeHttpMiddlewareStep['kind']
+
+export interface ServerRuntimePlanQuery {
+  getEntrypoint(): PlannedServerEntrypoint
+  getProtocolBinding<TProtocol extends ServerRuntimeProtocolName>(
+    protocol: TProtocol
+  ): ServerRuntimeProtocolBindings[TProtocol]
+  getProtocolAddress<TProtocol extends keyof ServerAddresses>(
+    protocol: TProtocol
+  ): ServerAddresses[TProtocol]
+  getHttpMiddlewarePipeline(): readonly ServerRuntimeHttpMiddlewareStep[]
+  getHttpMiddlewareKinds(): readonly ServerRuntimeHttpMiddlewareKind[]
+  hasHttpMiddleware(kind: ServerRuntimeHttpMiddlewareKind): boolean
+  getStartupOrder(): readonly ServerRuntimeStartupPhase[]
+  getShutdownOrder(): readonly ServerRuntimeShutdownPhase[]
+}
+
+interface ServerRuntimePlanQueryInput {
+  entrypoint: PlannedServerEntrypoint
+  execution: ServerRuntimeExecutionPlan
+  bindings: ServerRuntimeProtocolBindings
+  addresses: ServerAddresses
 }
 
 export interface ServerRuntimePlan {
@@ -254,20 +288,45 @@ export interface ServerRuntimePlan {
     mcp?: PlannedMcpFeature
   }
   execution: ServerRuntimeExecutionPlan
-  bindings: {
-    http: PlannedHttpBinding
-    websocket?: PlannedWebSocketBinding
-    jsonrpc?: PlannedJsonRpcBinding
-    graphql?: PlannedGraphQLBinding
-    tcp?: PlannedTcpBinding
-    grpc?: PlannedGrpcBinding
-  }
+  bindings: ServerRuntimeProtocolBindings
   addresses: ServerAddresses
+  query: ServerRuntimePlanQuery
   describeUdpAddress(input: {
     handler: LoadedUdpHandler
     host: string
     port: number
   }): FrontDoorProtocolAddress
+}
+
+export function createServerRuntimePlanQuery(
+  plan: ServerRuntimePlanQueryInput
+): ServerRuntimePlanQuery {
+  return {
+    getEntrypoint() {
+      return plan.entrypoint
+    },
+    getProtocolBinding(protocol) {
+      return plan.bindings[protocol]
+    },
+    getProtocolAddress(protocol) {
+      return plan.addresses[protocol]
+    },
+    getHttpMiddlewarePipeline() {
+      return plan.execution.httpMiddleware
+    },
+    getHttpMiddlewareKinds() {
+      return plan.execution.httpMiddleware.map((step) => step.kind)
+    },
+    hasHttpMiddleware(kind) {
+      return plan.execution.httpMiddleware.some((step) => step.kind === kind)
+    },
+    getStartupOrder() {
+      return plan.execution.startup
+    },
+    getShutdownOrder() {
+      return plan.execution.shutdown
+    },
+  }
 }
 
 export interface CreateServerRuntimePlanBuilderOptions {
@@ -825,8 +884,9 @@ export function createServerRuntimePlanBuilder(
     const entrypoint = buildEntrypoint(routeModes, singlePortConfig)
     const httpSharedFeatures = buildHttpSharedFeatures(bindings)
     const execution = buildExecutionPlan(entrypoint, bindings, httpSharedFeatures)
+    const addresses = buildAddresses(singlePortConfig, singlePortSource, bindings)
 
-    return {
+    const planWithoutQuery: Omit<ServerRuntimePlan, 'query'> = {
       previewContext,
       previewConfig,
       protocols,
@@ -843,7 +903,7 @@ export function createServerRuntimePlanBuilder(
       httpSharedFeatures,
       execution,
       bindings,
-      addresses: buildAddresses(singlePortConfig, singlePortSource, bindings),
+      addresses,
       describeUdpAddress({ handler, host: udpHost, port: udpPort }) {
         const isUdpOffload = previewContext.frontDoorEnabled
           && !!previewContext.frontDoorProtocols?.includes('udp')
@@ -857,6 +917,11 @@ export function createServerRuntimePlanBuilder(
           source: isUdpSinglePort ? 'singlePort' : isUdpOffload ? 'offload' : 'native',
         }
       },
+    }
+
+    return {
+      ...planWithoutQuery,
+      query: createServerRuntimePlanQuery(planWithoutQuery),
     }
   }
 

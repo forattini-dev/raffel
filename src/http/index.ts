@@ -20,6 +20,17 @@ export type {
   HttpErrorHandler,
   HttpNotFoundHandler,
 } from './app.js'
+export {
+  HttpRouteTable,
+  compilePath,
+} from './route-table.js'
+export type {
+  HttpRoute,
+  HttpRouteDefinition,
+  HttpRouteMatch,
+  HttpRouteMethod,
+  HttpMiddlewareRoute,
+} from './route-table.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HttpContext - Request/Response Helpers

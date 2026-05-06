@@ -25,6 +25,9 @@ type WebProtocolPostPortBindingStep = Extract<
 export function createExecutionWebProtocols(context: ServerLifecycleExecutionContext) {
   const { state } = context
   const { registry, schemaRegistry, router } = context.core
+  const createWsAdapter = context.factories?.createWebSocketAdapter ?? createWebSocketAdapter
+  const createRpcAdapter = context.factories?.createJsonRpcAdapter ?? createJsonRpcAdapter
+  const createGqlAdapter = context.factories?.createGraphQLAdapter ?? createGraphQLAdapter
   const {
     channelRegistry,
     wsInterceptors,
@@ -61,7 +64,7 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
 
         await startAssignedManagedAdapter({
           ref: state.wsAdapter,
-          adapter: createWebSocketAdapter(router, step.binding.mode === 'shared'
+          adapter: createWsAdapter(router, step.binding.mode === 'shared'
             ? {
                 host: step.binding.host,
                 port: step.binding.port,
@@ -93,7 +96,7 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
         const rpcOpts = step.binding.options
         await startAssignedManagedAdapter({
           ref: state.jsonRpcAdapter,
-          adapter: createJsonRpcAdapter(router, {
+          adapter: createRpcAdapter(router, {
             port: step.binding.port,
             host: step.binding.host,
             path: step.binding.path!,
@@ -109,7 +112,7 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
       case 'graphql': {
         await startAssignedManagedAdapter({
           ref: state.graphqlAdapter,
-          adapter: createGraphQLAdapter({
+          adapter: createGqlAdapter({
             router,
             registry,
             schemaRegistry,

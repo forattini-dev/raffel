@@ -53,6 +53,27 @@
 // === Loader ===
 export { loadDiscovery, clearModuleCache } from './loader.js'
 export type { DiscoveryResult } from './loader.js'
+export {
+  createDiscoverySource,
+  createFileSystemDiscoverySource,
+  createInMemoryDiscoverySource,
+  FileSystemDiscoverySourceAdapter,
+  InMemoryDiscoverySourceAdapter,
+} from './discovery-source.js'
+export type {
+  DiscoverySource,
+  DiscoverySourceAdapter,
+  DiscoverySourceAdapterWalkOptions,
+  DiscoverySourceAdapterWalkResult,
+  DiscoverySourceDirectory,
+  DiscoverySourceFailure,
+  DiscoverySourceFailureOperation,
+  DiscoverySourceFile,
+  DiscoverySourceStats,
+  DiscoverySourceWalkOptions,
+  DiscoverySourceWalkResult,
+  InMemoryDiscoverySourceFile,
+} from './discovery-source.js'
 
 // === Watcher ===
 export { createDiscoveryWatcher, isDevelopment } from './watcher.js'
