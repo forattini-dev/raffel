@@ -775,6 +775,26 @@ export type {
   S3dbSessionDriverOptions,
 } from './middleware/session/index.js'
 
+// === Security (Trust-Boundary Sanitisers) ===
+export {
+  SanitisationError,
+  isSanitisationError,
+  safeHeaderValue,
+  safeChannelName,
+  safeRouteSegment,
+  safeStructuredKey,
+} from './security/index.js'
+export type {
+  SanitisationErrorKind,
+  SanitisationErrorOptions,
+  SanitisationSink,
+  SafeHeaderValueOptions,
+  SafeChannelNameOptions,
+  SafeRouteSegmentOptions,
+  SafeStructuredKeyOptions,
+  SanitiseMode,
+} from './security/index.js'
+
 // === Proxy ===
 export * from './proxy/index.js'
 

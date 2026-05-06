@@ -34,6 +34,14 @@
       "types": "./dist/proxy/index.d.ts",
       "import": "./dist/proxy/index.js"
     },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "import": "./dist/security/index.js"
+    },
+    "./security/sanitize": {
+      "types": "./dist/security/sanitize/index.d.ts",
+      "import": "./dist/security/sanitize/index.js"
+    },
     "./stream": {
       "types": "./dist/stream/index.d.ts",
       "import": "./dist/stream/index.js"
