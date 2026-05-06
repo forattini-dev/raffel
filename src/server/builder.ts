@@ -371,6 +371,19 @@ export function createServer(options: ServerOptions): RaffelServer {
     programmaticSource,
   })
 
+  // Adapt resource routes for the orchestration layer: convert per-route
+  // ResourceMiddleware (signature: `(ctx, next) => unknown`) into Interceptor
+  // (signature: `(envelope, ctx, next) => unknown`) so the registration
+  // service can splice them next to global / authz interceptors. Issue #115.
+  const generateResourceRoutesWithInterceptors = (resources: LoadedResource[]) =>
+    generateResourceRoutes(resources).map((route) => {
+      const middleware = route.middleware ?? []
+      const asInterceptors: Interceptor[] = middleware.map((mw) =>
+        (_envelope, ctx, next) => mw(ctx as never, next)
+      )
+      return { ...route, middleware: asInterceptors }
+    })
+
   // Registration service (owned by server/orchestration/registration.ts)
   const registrationService = createRegistrationService({
     registry,
@@ -378,7 +391,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     globalInterceptors,
     logger: loggerPort,
     recordOperationRegistration,
-    generateResourceRoutes,
+    generateResourceRoutes: generateResourceRoutesWithInterceptors,
     registerDiscoveredHandlers: (result, targetRegistry, targetSchemaRegistry, interceptors, onRegistered) => {
       registerDiscoveredHandlers(
         result as import('./fs-routes/index.js').DiscoveryResult,

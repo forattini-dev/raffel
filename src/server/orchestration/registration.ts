@@ -44,6 +44,16 @@ export interface GeneratedResourceRouteLike {
   handler: unknown
   method?: string
   path?: string
+  /**
+   * Per-route interceptors composed by the route generator (issue #115).
+   * Already includes the resource-level `config.middleware` floor plus any
+   * per-action / per-CRUD-slot overrides, in execution order.
+   *
+   * The registration service appends these AFTER global interceptors and
+   * authz interceptors, so global concerns (logging, tracing, policy)
+   * always wrap the resource-specific middleware chain.
+   */
+  middleware?: Interceptor[]
 }
 
 export interface LoadedTransportHandlerLike {
@@ -129,11 +139,12 @@ export function createRegistrationService<
     operationName: string,
     coLocatedPolicies: readonly import('../../middleware/policy/types.js').Policy[] | undefined,
     diagnosticsFilePath?: string,
+    extras?: Interceptor[],
   ): Interceptor[] | undefined {
     const authz = buildAuthzInterceptorsForOperation
       ? buildAuthzInterceptorsForOperation(operationName, coLocatedPolicies, diagnosticsFilePath)
       : []
-    const combined = [...globalInterceptors, ...authz]
+    const combined = [...globalInterceptors, ...authz, ...(extras ?? [])]
     return combined.length > 0 ? combined : undefined
   }
 
@@ -199,7 +210,12 @@ export function createRegistrationService<
             : undefined
 
       registry.procedure(name, route.handler as never, {
-        interceptors: combineInterceptors(name, resource.coLocatedPolicies, resource.filePath),
+        interceptors: combineInterceptors(
+          name,
+          resource.coLocatedPolicies,
+          resource.filePath,
+          route.middleware,
+        ),
         httpPath: route.path,
         httpMethod: route.method as never,
         httpSuccessStatus,
