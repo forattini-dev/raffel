@@ -14,6 +14,7 @@ import { createExtensionKey, withExtension } from '../types/context.js'
 import { createAbortableContext } from '../utils/context-utils.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
+import { safeStructuredKey, SanitisationError } from '../security/sanitize/index.js'
 import {
   jsonCodec,
   resolveCodecs,
@@ -187,6 +188,18 @@ function createJsonRpcHandler(
 
     if (typeof request.method !== 'string' || request.method === '') {
       return createError(JsonRpcErrorCode.INVALID_REQUEST, 'Method must be a non-empty string', id)
+    }
+
+    // Trust-boundary validation (#107): the method string flows into the
+    // registry, structured logs, and metrics. Reject CRLF / NUL / control
+    // chars / oversized values before any sink observes them.
+    try {
+      safeStructuredKey(request.method, { maxLength: 256 })
+    } catch (err) {
+      if (err instanceof SanitisationError) {
+        return createError(JsonRpcErrorCode.INVALID_REQUEST, 'Method contains invalid characters', id)
+      }
+      throw err
     }
 
     // Notifications (no id) don't get responses

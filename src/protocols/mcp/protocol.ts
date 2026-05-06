@@ -92,6 +92,7 @@ function schemaToJsonSchema(schema: McpSchemaInput | undefined): JsonSchema {
 
 // cleanJsonSchema imported from shared validation utility
 import { cleanJsonSchema as _cleanJsonSchema } from '../../validation/schema-utils.js'
+import { safeHeaderValue, safeStructuredKey, SanitisationError } from '../../security/sanitize/index.js'
 const cleanJsonSchema = (schema: Record<string, unknown>): JsonSchema => _cleanJsonSchema(schema) as JsonSchema
 
 // ─── Validation ──────────────────────────────────────────────────
@@ -493,6 +494,18 @@ export function createProtocolHandler(options: McpProtocolHandlerOptions): McpPr
       throw new McpError(JsonRpcErrorCode.InvalidParams, 'Tool name is required')
     }
 
+    // Trust-boundary validation (#107): the tool name flows into registry
+    // lookup, structured logs, metrics, and the tool's downstream handler.
+    // Reject CRLF / NUL / control chars / oversized values at ingress.
+    try {
+      safeStructuredKey(name, { maxLength: 256 })
+    } catch (err) {
+      if (err instanceof SanitisationError) {
+        throw new McpError(JsonRpcErrorCode.InvalidParams, 'Tool name contains invalid characters')
+      }
+      throw err
+    }
+
     const tool = tools.get(name)
     if (!tool) {
       throw new McpError(JsonRpcErrorCode.InvalidParams, `Tool not found: ${name}`)
@@ -520,6 +533,19 @@ export function createProtocolHandler(options: McpProtocolHandlerOptions): McpPr
     const uri = String(params.uri || '')
     if (!uri) {
       throw new McpError(JsonRpcErrorCode.InvalidParams, 'Resource URI is required')
+    }
+
+    // Trust-boundary validation (#107): URIs are broader than identifiers
+    // (`://`, paths, queries are valid), but CRLF / NUL / control chars are
+    // never legitimate. Use the header-value sanitiser which preserves URI
+    // shape while rejecting smuggling bytes.
+    try {
+      safeHeaderValue(uri, { maxLength: 2048 })
+    } catch (err) {
+      if (err instanceof SanitisationError) {
+        throw new McpError(JsonRpcErrorCode.InvalidParams, 'Resource URI contains invalid characters')
+      }
+      throw err
     }
 
     const ctx = createCallContext(requestId, authInfo)
