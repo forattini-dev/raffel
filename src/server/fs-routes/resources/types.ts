@@ -207,6 +207,13 @@ export interface ResourceAction<TInput = unknown, TOutput = unknown> {
   /** Input schema */
   input?: z.ZodType<TInput>
 
+  /**
+   * Per-action middleware. Composes AFTER `config.middleware` (issue #115).
+   * Runs only for this action; other actions and the standard CRUD slots
+   * are unaffected.
+   */
+  middleware?: ResourceMiddleware[]
+
   /** Handler */
   handler: (
     input: TInput,
@@ -214,6 +221,28 @@ export interface ResourceAction<TInput = unknown, TOutput = unknown> {
     ctx: ResourceContext
   ) => Promise<TOutput>
 }
+
+/**
+ * Object form for a CRUD slot that needs per-operation middleware (issue #115).
+ *
+ * Use this instead of a bare handler when a single CRUD slot needs a
+ * stricter (or extra) middleware chain than `config.middleware`. The
+ * `middleware` here composes AFTER `config.middleware`.
+ *
+ * @example
+ * ```ts
+ * export const create = {
+ *   middleware: [requireAdmin],
+ *   handler: async (data, ctx) => db.things.create({ data }),
+ * }
+ * ```
+ */
+export interface ResourceHandlerWithMiddleware<H> {
+  middleware?: ResourceMiddleware[]
+  handler: H
+}
+
+export type ResourceCrudSlot<H> = H | ResourceHandlerWithMiddleware<H> | false
 
 // === Resource Handler Exports ===
 
@@ -273,28 +302,28 @@ export interface ResourceExports<T = unknown, TInput = unknown> {
   config?: ResourceConfig
 
   /** List handler - GET /resources */
-  list?: ListHandler<T> | false
+  list?: ResourceCrudSlot<ListHandler<T>>
 
   /** Get handler - GET /resources/:id */
-  get?: GetHandler<T> | false
+  get?: ResourceCrudSlot<GetHandler<T>>
 
   /** Create handler - POST /resources */
-  create?: CreateHandler<T, TInput> | false
+  create?: ResourceCrudSlot<CreateHandler<T, TInput>>
 
   /** Update handler - PUT /resources/:id */
-  update?: UpdateHandler<T, TInput> | false
+  update?: ResourceCrudSlot<UpdateHandler<T, TInput>>
 
   /** Patch handler - PATCH /resources/:id */
-  patch?: PatchHandler<T, TInput> | false
+  patch?: ResourceCrudSlot<PatchHandler<T, TInput>>
 
   /** Delete handler - DELETE /resources/:id */
-  delete?: DeleteHandler<T> | false
+  delete?: ResourceCrudSlot<DeleteHandler<T>>
 
   /** Head handler - HEAD /resources/:id */
-  head?: HeadHandler | false
+  head?: ResourceCrudSlot<HeadHandler>
 
   /** Options handler - OPTIONS /resources */
-  options?: OptionsHandler | false
+  options?: ResourceCrudSlot<OptionsHandler>
 
   /** Custom actions */
   actions?: Record<string, ResourceAction>
@@ -384,4 +413,11 @@ export interface ResourceRoute {
 
   /** Handler function */
   handler: (input: unknown, ctx: ResourceContext) => Promise<unknown>
+
+  /**
+   * Middleware to run for this specific route, in order. Already includes
+   * resource-level `config.middleware` followed by per-action / per-CRUD-slot
+   * middleware (issue #115). Empty array when neither was declared.
+   */
+  middleware: ResourceMiddleware[]
 }
