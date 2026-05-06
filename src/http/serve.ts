@@ -6,6 +6,7 @@
  */
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { BodyInit } from './web-types.js'
 import { attachRequestSocketInfo } from '../utils/client-ip.js'
 
@@ -15,6 +16,15 @@ import { attachRequestSocketInfo } from '../utils/client-ip.js'
 
 /** Fetch handler function */
 export type FetchHandler = (request: Request) => Response | Promise<Response>
+
+/**
+ * HTTP upgrade handler.
+ * Receives WebSocket (or any other protocol-upgrade) requests forwarded from the
+ * underlying Node `http.Server` `'upgrade'` event. The handler owns the socket
+ * from this point on — write the `101 Switching Protocols` (or other) response
+ * frame yourself and pipe data as needed.
+ */
+export type UpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer) => void
 
 /** Serve options */
 export interface ServeOptions {
@@ -48,6 +58,33 @@ export interface ServeOptions {
    * @default Node.js default (60000ms)
    */
   headersTimeout?: number
+
+  /**
+   * Optional handler for HTTP `'upgrade'` events (e.g. WebSocket handshakes).
+   *
+   * When set, the underlying Node `http.Server` registers this function as its
+   * `'upgrade'` listener. Without it, upgrade requests are silently dropped by
+   * Node — there's no default listener.
+   *
+   * The handler owns the socket: write the `101 Switching Protocols` response,
+   * pipe to upstream, or `socket.destroy()` to reject.
+   *
+   * @example
+   * serve({
+   *   fetch: app.fetch,
+   *   port: 3000,
+   *   onUpgrade(req, socket, head) {
+   *     // tunnel WebSocket to upstream Next.js HMR
+   *     const upstream = createConnection(3001, 'localhost', () => {
+   *       upstream.write(`GET ${req.url} HTTP/1.1\r\nhost: localhost:3001\r\n\r\n`)
+   *       if (head.length) upstream.write(head)
+   *       socket.pipe(upstream)
+   *       upstream.pipe(socket)
+   *     })
+   *   },
+   * })
+   */
+  onUpgrade?: UpgradeHandler
 }
 
 /** Extended server interface with graceful shutdown */
@@ -199,6 +236,7 @@ export function serve(options: ServeOptions): RaffelServer {
     onError,
     keepAliveTimeout,
     headersTimeout,
+    onUpgrade,
   } = options
 
   let inFlightCount = 0
@@ -253,6 +291,13 @@ export function serve(options: ServeOptions): RaffelServer {
   }
   if (headersTimeout !== undefined) {
     server.headersTimeout = headersTimeout
+  }
+
+  // Wire HTTP upgrade handler (e.g. WebSocket handshakes).
+  // Node's http.Server has no default 'upgrade' listener — without this,
+  // upgrade requests are silently dropped on the floor.
+  if (onUpgrade) {
+    server.on('upgrade', onUpgrade)
   }
 
   // Add graceful shutdown methods

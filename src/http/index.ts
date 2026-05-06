@@ -53,6 +53,7 @@ export type {
   FetchHandler,
   ServeOptions,
   RaffelServer,
+  UpgradeHandler,
 } from './serve.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
