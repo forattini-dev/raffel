@@ -432,4 +432,3 @@ Things this convention deliberately doesn't try to do (see the linked issues for
 - [Match DSL](./match-dsl.md) — the `match` field's full reference.
 - [Patterns & recipes](./patterns.md) — RBAC, multi-tenant, owner-or-admin, etc.
 - [API reference](../reference/policies-api.md) — type signatures for policy config and bootstrap.
-- [ADR 0001 — Co-located policies](../adr/0001-co-located-policies.md) — the decision record behind this convention.

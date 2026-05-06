@@ -92,7 +92,6 @@ Authentication says *who* the request is. Policies say *what* they're allowed to
 | **[Patterns & Recipes](./patterns.md)** | Looking for a solution to a specific problem (RBAC, multi-tenant, owner-or-admin, shadow rollout, emergency revocation, etc.). |
 | **[Co-located policies](./co-located.md)** | Drop policy files next to handlers, channels, resources. Sibling and folder cascade conventions, `scope` filter, coverage report. |
 | **[API Reference](../reference/policies-api.md)** | Type signatures, config options, builder methods. |
-| **[ADR 0001 — Co-located policies](../adr/0001-co-located-policies.md)** | The decision record behind the co-located convention: context, alternatives, trade-offs. |
 
 ## Related
 
