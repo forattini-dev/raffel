@@ -87,6 +87,27 @@ This exposes:
 | `/docs/-/raffel-docs.css` | Reusable frontend docs stylesheet |
 | `/docs/-/assets/*` | Static assets referenced by Markdown pages |
 
+## Mounting on a standalone HttpApp
+
+When wiring USD docs onto a `HttpApp` (or any `app.get(path, handler)`-shaped router) directly, use `mountUSDDocs(app, ctx, config)` instead of calling `createUSDHandlers` and registering the eight handlers by hand:
+
+```ts
+import { HttpApp } from 'raffel/http'
+import { mountUSDDocs } from 'raffel/docs'
+
+const app = new HttpApp()
+mountUSDDocs(app, { registry, schemaRegistry }, {
+  basePath: '/coding',
+  info: { title: 'My API', version: '1.0.0' },
+})
+```
+
+`mountUSDDocs` registers every internal asset under `<basePath>/-/<asset>` first, then the spec endpoints (`/openapi.json`, `/usd.json`, `/usd.yaml`), then the markdown asset wildcard, and finally the SPA wildcard. The list of internal assets is owned by Raffel — adding a new asset in a future minor version does not require changes on the consumer side.
+
+The returned `USDHandlers` is the same object `createUSDHandlers` returns, so any additional custom routes (e.g. a separate JSON dump) can call into it after mounting.
+
+Forgetting an asset route used to leave the SPA wildcard serving HTML in place of JS, and the browser threw an opaque module syntax error. The runtime now also probes the sibling asset URLs at boot and emits a clear `console.error` naming the unmounted handler when an asset endpoint returns `text/html`.
+
 ## Route Boundaries
 
 There are two different routing layers:

@@ -564,3 +564,79 @@ export function createUSDHandlers(
     getOpenAPIDocument: getOpenAPI,
   }
 }
+
+// =============================================================================
+// mountUSDDocs — convenience helper
+// =============================================================================
+
+/**
+ * Minimal app shape `mountUSDDocs` needs: a `.get(path, handler)` that wires
+ * a request handler. Compatible with `HttpApp`, Hono, and any Hono-shaped
+ * adapter.
+ */
+export interface USDDocsApp {
+  get(path: string, handler: (c: { req: Request | { url: string } }) => Response | Promise<Response>): unknown
+}
+
+/**
+ * Mount the full USD documentation surface on an HttpApp (or any
+ * `.get(path, handler)`-shaped app) with a single call.
+ *
+ * Wires every internal asset route (`<basePath>/-/raffel-docs.{js,css}`,
+ * `marked.umd.js`, `prism.js`, `marked-renderer.js`, `protocol-console.js`,
+ * `sidebar-tree.js`), the spec endpoints (`<basePath>/openapi.json`,
+ * `usd.json`, `usd.yaml`), the static markdown asset wildcard
+ * (`<basePath>/-/assets/*`), and finally the SPA wildcard (`<basePath>/*`).
+ *
+ * Order matters: the SPA wildcard is registered last so individual asset
+ * lookups never get caught by it. The list of internal assets is owned by
+ * Raffel — consumers should not need to know it.
+ *
+ * @example
+ * ```ts
+ * import { HttpApp } from 'raffel/http'
+ * import { mountUSDDocs } from 'raffel/docs'
+ *
+ * const app = new HttpApp()
+ * mountUSDDocs(app, { registry, schemaRegistry }, { basePath: '/coding' })
+ * ```
+ */
+export function mountUSDDocs(
+  app: USDDocsApp,
+  ctx: USDMiddlewareContext,
+  config: USDMiddlewareConfig = {},
+): USDHandlers {
+  const handlers = createUSDHandlers(ctx, config)
+  const basePath = (config.basePath ?? '/docs').replace(/\/$/, '') || '/docs'
+
+  const reply = (fn: () => Response) => () => fn()
+  const replyOrFallback = (
+    fn: (pathname: string) => Response | null,
+  ) => (c: { req: { url: string } }) => {
+    const url = new URL(c.req.url, 'http://x')
+    const out = fn(url.pathname)
+    return out ?? new Response(null, { status: 404 })
+  }
+
+  // Internal assets — registered first so the SPA wildcard never shadows them.
+  app.get(`${basePath}/-/raffel-docs.css`, reply(() => handlers.serveUIStyles()))
+  app.get(`${basePath}/-/raffel-docs.js`, reply(() => handlers.serveUIRuntime()))
+  app.get(`${basePath}/-/marked.umd.js`, reply(() => handlers.serveUIMarkdownEngine()))
+  app.get(`${basePath}/-/prism.js`, reply(() => handlers.serveUISyntaxHighlighter()))
+  app.get(`${basePath}/-/marked-renderer.js`, reply(() => handlers.serveUIMarkdownRenderer()))
+  app.get(`${basePath}/-/protocol-console.js`, reply(() => handlers.serveUIProtocolConsole()))
+  app.get(`${basePath}/-/sidebar-tree.js`, reply(() => handlers.serveUISidebarTree()))
+
+  // Spec endpoints.
+  app.get(`${basePath}/openapi.json`, reply(() => handlers.serveOpenAPI()))
+  app.get(`${basePath}/usd.json`, reply(() => handlers.serveUSD()))
+  app.get(`${basePath}/usd.yaml`, reply(() => handlers.serveUSDYaml()))
+
+  // Static Markdown assets (images / extra JS shipped with the docs dir).
+  app.get(`${basePath}/-/assets/*`, replyOrFallback(handlers.serveDocsAsset))
+
+  // SPA wildcard last — all unmatched docs paths render the UI shell.
+  app.get(`${basePath}/*`, reply(() => handlers.serveUI()))
+
+  return handlers
+}

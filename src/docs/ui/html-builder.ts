@@ -120,7 +120,23 @@ ${styles}
     escapedMarkdown
   )
   const runtimeScript = assetMode === 'external'
-    ? `<script src="${escapeHtml(assetBasePath)}/-/marked.umd.js"></script>
+    ? `<script>
+  // Defensive asset probe: if a sibling JS asset returns HTML, the wildcard
+  // SPA route is shadowing it. Surfaces a clear error instead of letting the
+  // module loader fail with an opaque syntax error.
+  (function probeAssets(){
+    var paths = ['${escapeHtml(assetBasePath)}/-/marked.umd.js','${escapeHtml(assetBasePath)}/-/raffel-docs.js','${escapeHtml(assetBasePath)}/-/sidebar-tree.js'];
+    paths.forEach(function(p){
+      fetch(p, { method: 'HEAD' }).then(function(r){
+        var ct = (r.headers.get('content-type') || '').toLowerCase();
+        if (ct.indexOf('html') >= 0) {
+          console.error('[raffel-docs] Asset not mounted: ' + p + ' returned ' + ct + '. Wire the corresponding handler (e.g. handlers.serveUI*) at this path, or use mountUSDDocs() to do it automatically.');
+        }
+      }).catch(function(){});
+    });
+  })();
+  </script>
+  <script src="${escapeHtml(assetBasePath)}/-/marked.umd.js"></script>
   <script src="${escapeHtml(assetBasePath)}/-/prism.js"></script>
   <script type="module" data-raffel-runtime="external" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js"></script>`
     : `${generateInlineRuntimeDependencyScripts()}
