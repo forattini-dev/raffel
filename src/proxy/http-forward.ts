@@ -20,8 +20,10 @@ import { pipeline as streamPipeline } from 'node:stream/promises'
 import type { ProxyAuth, ProxyStats } from './types.js'
 import { parseBasicProxyAuth, verifyProxyAuth, createProxyStats } from './utils/auth.js'
 import { stripHopByHopHeaders } from './utils/hop-headers.js'
+import { sanitiseOutboundHeaders } from './utils/sanitize-headers.js'
 import type { ProxyFilter } from './utils/access-control.js'
 import { checkProxyFilter } from './utils/access-control.js'
+import { SanitisationError } from '../security/sanitize/index.js'
 import {
   runProxyMiddleware,
   type ProxyMiddleware,
@@ -412,6 +414,14 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
         }
       }
 
+      // Trust-boundary sanitisation — applied AFTER hop-by-hop stripping and
+      // AFTER any onRequest/middleware mutation, so even a buggy hook cannot
+      // smuggle CRLF/NUL/control bytes into upstream headers (PRD #103, #104).
+      preparedRequest = {
+        ...preparedRequest,
+        headers: sanitiseOutboundHeaders(preparedRequest.headers),
+      }
+
       const upstreamTarget = buildUpstreamTarget(preparedRequest, timeout)
       const doRequest = upstreamTarget.protocol === 'https:' ? httpsRequest : httpRequest
 
@@ -555,6 +565,9 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
 
       if (res.headersSent) {
         res.destroy()
+      } else if (err instanceof SanitisationError) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end(`Bad Request: ${err.message}`)
       } else if (error.message === BODY_TOO_LARGE) {
         res.writeHead(413, { 'Content-Type': 'text/plain' })
         res.end('Request Entity Too Large')
