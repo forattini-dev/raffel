@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
-import type { USDDocumentation, USDDocumentationPage, USDDocumentationSidebarItem } from '../usd/index.js'
+import type { USDDocumentation, USDDocumentationPage, USDDocumentationSidebarItem, USDHero, USDHeroButton } from '../usd/index.js'
 import type { NavItem } from './ui/types.js'
 
 export interface MarkdownDocsDirConfig {
@@ -57,7 +57,7 @@ const SPECIAL_MARKDOWN_FILES = new Set(['_sidebar.md', '_navbar.md', '_coverpage
 export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs {
   const { rootDir, routeBase, excludeDirs } = resolveMarkdownDocsSource(source)
   const config = normalizeMarkdownDocsSource(source)
-  const homepage = normalizeHomepagePath(config.homepage)
+  const homepage = resolveHomepage(rootDir, config.homepage)
   const configuredAliases = normalizeDocsAliases(config.aliases, routeBase, homepage)
   const markdownFiles = listMarkdownFiles(rootDir, excludeDirs)
   const specialFiles = new Map(markdownFiles
@@ -87,7 +87,8 @@ export function loadMarkdownDocs(source: MarkdownDocsSource): LoadedMarkdownDocs
   }
   const coverpage = specialFiles.get('_coverpage.md')
   if (coverpage) {
-    documentation.introduction = readFileSync(coverpage, 'utf8')
+    const hero = parseCoverpageHero(readFileSync(coverpage, 'utf8'))
+    if (hero) documentation.hero = hero
   }
   const notFound = specialFiles.get('_404.md')
   if (notFound) {
@@ -381,6 +382,81 @@ function normalizeHomepagePath(homepage: string | undefined): string {
     .replace(/^\/+/, '')
     .replace(/\/+/g, '/')
   return normalized || 'README.md'
+}
+
+function resolveHomepage(rootDir: string, configured: string | undefined): string {
+  if (configured) return normalizeHomepagePath(configured)
+  if (existsSync(path.join(rootDir, 'index.md'))) return 'index.md'
+  return 'README.md'
+}
+
+const COVERPAGE_BACKGROUNDS = new Set<USDHero['background']>(['gradient', 'solid', 'pattern', 'image'])
+
+export function parseCoverpageHero(markdown: string): USDHero | undefined {
+  const parsed = parseFrontmatter(markdown)
+  const hero: USDHero = {}
+
+  if (parsed.data.title) hero.title = parsed.data.title
+  if (parsed.data.version) hero.version = parsed.data.version
+  if (parsed.data.tagline) hero.tagline = parsed.data.tagline
+  if (parsed.data.background && COVERPAGE_BACKGROUNDS.has(parsed.data.background as USDHero['background'])) {
+    hero.background = parsed.data.background as USDHero['background']
+  }
+  if (parsed.data.backgroundImage) hero.backgroundImage = parsed.data.backgroundImage
+  if (parsed.data.backgroundColor) hero.backgroundColor = parsed.data.backgroundColor
+  if (parsed.data.github) hero.github = parsed.data.github
+
+  const features: string[] = []
+  const buttons: USDHeroButton[] = []
+  let titleSeen = false
+
+  for (const raw of parsed.body.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+
+    if (/^!\[[^\]]*\]\([^)]+\)/.test(line)) continue
+
+    const h1 = /^#\s+(.+)$/.exec(line)
+    if (h1 && !titleSeen) {
+      titleSeen = true
+      let titleText = h1[1].trim()
+      const small = /<small>([\s\S]*?)<\/small>/i.exec(titleText)
+      if (small) {
+        hero.version ??= small[1].trim()
+        titleText = titleText.replace(/<small>[\s\S]*?<\/small>/i, '').trim()
+      }
+      hero.title ??= titleText
+      continue
+    }
+
+    const tagline = /^>\s+(.+)$/.exec(line)
+    if (tagline) {
+      hero.tagline ??= tagline[1].trim()
+      continue
+    }
+
+    const feature = /^[-*]\s+(.+)$/.exec(line)
+    if (feature) {
+      features.push(feature[1].trim())
+      continue
+    }
+
+    const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g
+    const links = [...line.matchAll(linkPattern)]
+    if (links.length > 0 && line.replace(linkPattern, '').trim() === '') {
+      for (const match of links) {
+        buttons.push({ text: match[1].trim(), href: match[2].trim() })
+      }
+    }
+  }
+
+  if (features.length > 0 && !hero.features) hero.features = features
+  if (buttons.length > 0 && !hero.buttons) {
+    buttons[buttons.length - 1].primary = true
+    hero.buttons = buttons
+  }
+
+  return Object.keys(hero).length > 0 ? hero : undefined
 }
 
 function extractFirstHeading(markdown: string): string | undefined {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { loadMarkdownDocs, mergeMarkdownDocumentation, resolveMarkdownDocsSource } from '../../src/docs/markdown-loader.js'
+import { loadMarkdownDocs, mergeMarkdownDocumentation, parseCoverpageHero, resolveMarkdownDocsSource } from '../../src/docs/markdown-loader.js'
 import { readDocsAsset } from '../../src/docs/usd-middleware.js'
 
 describe('Markdown docs loader', () => {
@@ -41,7 +41,17 @@ describe('Markdown docs loader', () => {
       '  - [Portuguese](/guides/quickstart.md)',
       '- [Repository](https://example.com/repo)',
     ].join('\n'))
-    writeFileSync(path.join(dir, '_coverpage.md'), '# Cover\n\nRaffel docs.')
+    writeFileSync(path.join(dir, '_coverpage.md'), [
+      '# Cover <small>v1.0</small>',
+      '',
+      '> Raffel docs.',
+      '',
+      '- Fast',
+      '- Multi-protocol',
+      '',
+      '[Get Started](/guides/quickstart.md)',
+      '[GitHub](https://example.com/repo)',
+    ].join('\n'))
     writeFileSync(path.join(dir, '_404.md'), '# Not found')
 
     const loaded = loadMarkdownDocs({
@@ -53,7 +63,17 @@ describe('Markdown docs loader', () => {
       },
     })
 
-    expect(loaded.documentation.introduction).toBe('# Cover\n\nRaffel docs.')
+    expect(loaded.documentation.introduction).toBeUndefined()
+    expect(loaded.documentation.hero).toEqual({
+      title: 'Cover',
+      version: 'v1.0',
+      tagline: 'Raffel docs.',
+      features: ['Fast', 'Multi-protocol'],
+      buttons: [
+        { text: 'Get Started', href: '/guides/quickstart.md' },
+        { text: 'GitHub', href: 'https://example.com/repo', primary: true },
+      ],
+    })
     expect(loaded.documentation.routeBase).toBe('/docs')
     expect(loaded.documentation.aliases).toEqual({
       '/docs/old-start': '/docs/guides/quickstart',
@@ -218,5 +238,76 @@ describe('Markdown docs loader', () => {
     expect(await mjs?.text()).toContain('export const')
     expect(readDocsAsset(source.rootDir, 'secret.md')).toBeNull()
     expect(readDocsAsset(source.rootDir, '../package.json')).toBeNull()
+  })
+
+  it('uses index.md as homepage when present', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'raffel-docs-index-'))
+    writeFileSync(path.join(dir, 'index.md'), '# Index Home\n\nServed at /.')
+    writeFileSync(path.join(dir, 'README.md'), '# Readme\n\nServed at /README.')
+
+    const loaded = loadMarkdownDocs({ dir })
+    const home = loaded.documentation.pages.find(page => page.path === '/')
+    const readme = loaded.documentation.pages.find(page => page.path === '/README')
+
+    expect(home?.title).toBe('Index Home')
+    expect(readme?.title).toBe('Readme')
+  })
+
+  it('falls back to README.md when index.md is absent', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'raffel-docs-readme-'))
+    writeFileSync(path.join(dir, 'README.md'), '# Readme Home')
+
+    const loaded = loadMarkdownDocs({ dir })
+    const home = loaded.documentation.pages.find(page => page.path === '/')
+
+    expect(home?.title).toBe('Readme Home')
+  })
+})
+
+describe('parseCoverpageHero', () => {
+  it('parses docsify-style coverpage into hero fields', () => {
+    const hero = parseCoverpageHero([
+      '# Raffel <small>1.2</small>',
+      '> One server. Every protocol.',
+      '',
+      '- HTTP',
+      '- WebSocket',
+      '',
+      '[Get Started](#/quickstart)',
+      '[GitHub](https://example.com)',
+    ].join('\n'))
+
+    expect(hero).toEqual({
+      title: 'Raffel',
+      version: '1.2',
+      tagline: 'One server. Every protocol.',
+      features: ['HTTP', 'WebSocket'],
+      buttons: [
+        { text: 'Get Started', href: '#/quickstart' },
+        { text: 'GitHub', href: 'https://example.com', primary: true },
+      ],
+    })
+  })
+
+  it('honors frontmatter overrides for background and github', () => {
+    const hero = parseCoverpageHero([
+      '---',
+      'background: solid',
+      'backgroundColor: "#0f172a"',
+      'github: https://github.com/example/repo',
+      '---',
+      '# Title',
+      '> tag',
+    ].join('\n'))
+
+    expect(hero?.background).toBe('solid')
+    expect(hero?.backgroundColor).toBe('#0f172a')
+    expect(hero?.github).toBe('https://github.com/example/repo')
+    expect(hero?.title).toBe('Title')
+    expect(hero?.tagline).toBe('tag')
+  })
+
+  it('returns undefined for an empty coverpage', () => {
+    expect(parseCoverpageHero('')).toBeUndefined()
   })
 })
