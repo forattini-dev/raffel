@@ -338,6 +338,22 @@ export interface ChannelOptions {
   }
 
   /**
+   * Channel name validation rules applied to client-supplied names at the
+   * WebSocket subscribe / publish ingress (issue #106). Names that fail the
+   * check are rejected and the connection is closed with code 1008
+   * (Policy Violation) — the registry, the policy engine, and the metrics
+   * counter never observe the malformed name.
+   *
+   * Defaults: `pattern: /^[a-zA-Z0-9._:/-]+$/`, `maxLength: 256`.
+   */
+  nameValidation?: {
+    /** Allowlist regex applied to the full channel name. */
+    pattern?: RegExp
+    /** Max length in UTF-16 code units. */
+    maxLength?: number
+  }
+
+  /**
    * REST API configuration for server-side publishing.
    * When enabled, mounts HTTP endpoints for channel management.
    */

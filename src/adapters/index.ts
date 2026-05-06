@@ -42,6 +42,17 @@ export type { SmtpAdapter, SmtpAdapterOptions, SmtpContextCapability, SmtpTlsOpt
 export { checkConnectionFilter, checkWebSocketConnectionFilter } from './utils/connection-filter.js'
 export type { ConnectionFilter, WebSocketConnectionFilter } from './utils/connection-filter.js'
 
+// Channel name validation (WebSocket subscribe/publish ingress, issue #106)
+export {
+  validateChannelName,
+  DEFAULT_CHANNEL_NAME_PATTERN,
+  DEFAULT_CHANNEL_NAME_MAX_LENGTH,
+} from './utils/channel-name.js'
+export type {
+  ChannelNameValidation,
+  ChannelNameValidationOptions,
+} from './utils/channel-name.js'
+
 // Cancel Handler (shared TCP/WebSocket)
 export { handleCancelMessage, cleanupClientConnections } from './utils/cancel-handler.js'
 export type { CancellableClient, SendErrorFn } from './utils/cancel-handler.js'
