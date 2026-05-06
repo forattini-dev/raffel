@@ -571,8 +571,8 @@ export function createUSDHandlers(
 
 /**
  * Minimal app shape `mountUSDDocs` needs: a `.get(path, handler)` that wires
- * a request handler. Compatible with `HttpApp`, Hono, and any Hono-shaped
- * adapter.
+ * a request handler. Works with `HttpApp` and any router that exposes a
+ * compatible `.get(path, handler)` method.
  */
 export interface USDDocsApp {
   get(path: string, handler: (c: { req: Request | { url: string } }) => Response | Promise<Response>): unknown

@@ -377,24 +377,19 @@ Compression negotiates `Accept-Encoding` (br/gzip/deflate), sets
    expect(mockNext).toHaveBeenCalled()
    ```
 
-## HTTP-aware interceptors (Hono migration)
+## HTTP-aware interceptors
 
-When you need raw access to the underlying Node.js `IncomingMessage` /
-`ServerResponse` — for cookie parsing, response-header injection, or
-streaming — read them off `ctx.http?.req` and `ctx.http?.res`. They are
-populated only on the HTTP transport; non-HTTP transports leave them
-`undefined` (the optional chain is mandatory).
+The Raffel interceptor signature `(envelope, ctx, next)` is unified across
+protocols — the same function runs on HTTP, WebSocket, gRPC, JSON-RPC,
+and TCP. When an interceptor specifically needs to read raw HTTP state
+(a cookie, a trailer, the raw connection) or write to the raw response
+(set a security header, stream a response), reach for `ctx.http?.req`
+and `ctx.http?.res`. Both are `undefined` on non-HTTP transports — the
+optional chain is mandatory and lets the same interceptor stay
+multi-protocol.
 
 ```ts
-// Before — Hono `(c, next)` middleware
-app.use(async (c, next) => {
-  const cookie = c.req.header('cookie') ?? ''
-  if (!cookie.includes('session=')) return c.text('Unauthorized', 401)
-  await next()
-  c.res.headers.set('X-Powered-By', 'my-api')
-})
-
-// After — Raffel `(envelope, ctx, next)` interceptor
+// Cookie-style auth interceptor
 server.use(async (envelope, ctx, next) => {
   const cookie = ctx.http?.req?.headers.cookie ?? ''
   if (!cookie.includes('session=')) {
@@ -405,12 +400,9 @@ server.use(async (envelope, ctx, next) => {
 })
 ```
 
-The Raffel interceptor signature is unified across protocols: the same
-function runs on HTTP, WebSocket, gRPC, JSON-RPC, and TCP (subject to
-each transport's lifecycle). Reach into `ctx.http?.req` only when the
-abstracted accessors (`ctx.http?.headers`, `ctx.http?.rawBody`,
-`ctx.input.body`) don't cover your case — using `req` directly couples
-the code to Node.js HTTP.
+Reach into `ctx.http?.req` only when the abstracted accessors don't
+cover your case — using `req` directly couples the code to Node.js HTTP
+and cannot be reused on non-HTTP transports.
 
 | Need | Prefer | Fall back to |
 |---|---|---|
