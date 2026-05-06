@@ -140,13 +140,12 @@ export interface HttpContextCapability {
    * UDP, even if those transports populate `ctx.http.method`/`path` for
    * documentation purposes.
    *
-   * Exposed for Hono-style middleware migration (#102): an interceptor
-   * that needs to read cookies, peek at trailers, or inspect the raw
-   * connection can do so without dropping out of the standard Interceptor
-   * pipeline. Prefer the abstracted accessors (`ctx.http.headers`,
-   * `ctx.http.rawBody`) when they cover your case — using `req` directly
-   * couples your code to Node.js HTTP and cannot be reused on
-   * non-HTTP transports.
+   * Use this when an interceptor needs to read cookies, peek at trailers,
+   * or inspect the raw connection without dropping out of the standard
+   * Interceptor pipeline. Prefer the abstracted accessors
+   * (`ctx.http.headers`, `ctx.http.rawBody`) when they cover your case —
+   * using `req` directly couples your code to Node.js HTTP and cannot
+   * be reused on non-HTTP transports.
    *
    * @example
    * ```ts
