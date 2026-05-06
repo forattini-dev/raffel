@@ -107,6 +107,9 @@ export interface DiscoveryLoaderOptions {
   /** File extensions to load (default: ['.ts', '.js']) */
   extensions?: string[]
 
+  /** Discovery source adapter (defaults to real filesystem) */
+  source?: import('./discovery-source.js').DiscoverySource
+
   /** Called when handlers are loaded/reloaded */
   onLoad?: (stats: DiscoveryStats) => void
 

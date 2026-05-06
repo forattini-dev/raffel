@@ -126,6 +126,7 @@
 
 - **Reference**
   - [Core Model](/reference/core-model.md)
+  - [Architecture Glossary](/reference/architecture-glossary.md)
   - [Error Codes](/reference/error-codes.md)
   - [API Reference](/reference/api-reference.md)
   - [Framework Runtime RFC](/reference/framework-runtime-rfc.md)

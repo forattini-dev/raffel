@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { HttpMiddleware } from '../../src/adapters/http.js'
+import { createServerLifecycleExecution } from '../../src/server/builder/execution.js'
 import type { ServerLifecycleExecutionContext } from '../../src/server/builder/execution-types.js'
+import { createServerLifecycleExecutor } from '../../src/server/builder/lifecycle-executor.js'
 import type { MutableRef } from '../../src/server/builder/state.js'
+import { runStopTasks } from '../../src/server/builder/lifecycle-utils.js'
 import type { StopTask } from '../../src/server/telemetry-bootstrap.js'
+import {
+  createServerRuntimePlanQuery,
+  type ServerRuntimePlan,
+} from '../../src/server/runtime-plan.js'
 
 // ---------------------------------------------------------------------------
 // Helpers — minimal mock context factories
@@ -104,15 +112,73 @@ function collectStopTasks() {
   return { tasks, registerStopTask }
 }
 
+function createRuntimePlan(overrides: Partial<ServerRuntimePlan>): ServerRuntimePlan {
+  const plan = {
+    previewContext: {} as any,
+    previewConfig: {} as any,
+    protocols: {} as any,
+    host: '127.0.0.1',
+    basePath: '',
+    effectiveHost: '127.0.0.1',
+    effectivePort: 3000,
+    frontDoorEnabled: false,
+    frontDoorProtocols: [],
+    singlePortConfig: { enabled: false } as any,
+    singlePortSource: 'native' as const,
+    routeModes: { tcp: 'disabled' as const, grpc: 'disabled' as const },
+    entrypoint: {} as any,
+    httpSharedFeatures: { override: { maxBodySize: 1024 * 1024 } },
+    execution: {
+      providers: [],
+      telemetry: [],
+      discovery: [],
+      httpMiddleware: [],
+      prePortBinding: [],
+      entrypoint: [],
+      postPortBinding: [],
+      startup: [],
+      shutdown: [],
+    },
+    bindings: {
+      http: { host: '127.0.0.1', port: 3000 },
+    },
+    addresses: {
+      http: { host: '127.0.0.1', port: 3000, source: 'native' as const },
+    },
+    describeUdpAddress: vi.fn(() => ({
+      host: '127.0.0.1',
+      port: 9000,
+      frontDoor: false,
+      strategy: 'native' as const,
+      source: 'native' as const,
+    })),
+    ...overrides,
+  } as Omit<ServerRuntimePlan, 'query'> & { query?: ServerRuntimePlan['query'] }
+
+  return {
+    ...plan,
+    query: plan.query ?? createServerRuntimePlanQuery(plan),
+  } as ServerRuntimePlan
+}
+
+function createFakeAdapter(name: string, order: string[], address?: unknown) {
+  return {
+    start: vi.fn(async () => {
+      order.push(`start:${name}`)
+    }),
+    stop: vi.fn(async () => {
+      order.push(`stop:${name}`)
+    }),
+    ...(address ? { address } : {}),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests: createServerLifecycleExecution (orchestrator in execution.ts)
 // ---------------------------------------------------------------------------
 
 describe('createServerLifecycleExecution', () => {
   it('returns an object with resetRuntimeState and executeStartupPhase', async () => {
-    const { createServerLifecycleExecution } = await import(
-      '../../src/server/builder/execution.js'
-    )
     const ctx = createMinimalContext()
     const execution = createServerLifecycleExecution(ctx)
 
@@ -120,6 +186,188 @@ describe('createServerLifecycleExecution', () => {
     expect(execution).toHaveProperty('executeStartupPhase')
     expect(typeof execution.resetRuntimeState).toBe('function')
     expect(typeof execution.executeStartupPhase).toBe('function')
+  })
+})
+
+describe('createServerLifecycleExecutor protocol startup', () => {
+  it('starts web and socket protocols through the lifecycle interface and preserves stop order', async () => {
+    const order: string[] = []
+    const wsAdapter = createFakeAdapter('websocket', order)
+    const jsonRpcAdapter = createFakeAdapter('jsonrpc', order)
+    const tcpAdapter = createFakeAdapter('tcp', order)
+    const grpcAdapter = createFakeAdapter('grpc', order, { host: '127.0.0.1', port: 50051 })
+    const udpServer = {
+      name: 'echo-udp',
+      host: '127.0.0.1',
+      port: 9000,
+      socket: {} as any,
+      start: vi.fn(async () => {
+        order.push('start:udp-handler:echo-udp')
+      }),
+      stop: vi.fn(async () => {
+        order.push('stop:udp-handler:echo-udp')
+      }),
+      send: vi.fn(),
+      broadcast: vi.fn(),
+    }
+    const ctx = createMinimalContext({
+      factories: {
+        createWebSocketAdapter: vi.fn(() => wsAdapter as any),
+        createJsonRpcAdapter: vi.fn(() => jsonRpcAdapter as any),
+        createTcpAdapter: vi.fn(() => tcpAdapter as any),
+        createGrpcAdapter: vi.fn(() => grpcAdapter as any),
+        createUdpServer: vi.fn(() => udpServer as any),
+      },
+    })
+    ctx.state.addresses = createMutableRef({
+      http: { host: '127.0.0.1', port: 3000, source: 'native' as const },
+    })
+
+    const runtimePlan = createRuntimePlan({
+      protocols: {
+        grpc: { enabled: true, shared: false, options: {} as any },
+      } as any,
+      execution: {
+        providers: [],
+        telemetry: [],
+        discovery: [],
+        httpMiddleware: [],
+        prePortBinding: [],
+        entrypoint: [],
+        postPortBinding: [
+          {
+            kind: 'websocket',
+            binding: {
+              mode: 'dedicated',
+              host: '127.0.0.1',
+              port: 0,
+              path: '/ws',
+              options: {},
+            },
+          },
+          {
+            kind: 'jsonrpc',
+            binding: {
+              mode: 'dedicated',
+              host: '127.0.0.1',
+              port: 0,
+              path: '/rpc',
+              options: {},
+            },
+          },
+          {
+            kind: 'tcp',
+            binding: {
+              mode: 'dedicated',
+              host: '127.0.0.1',
+              port: 0,
+              options: {},
+            },
+          },
+          {
+            kind: 'grpc',
+            binding: {
+              mode: 'dedicated',
+              host: '127.0.0.1',
+              port: 0,
+              options: {
+                protoPath: '/tmp/test.proto',
+              },
+            },
+          },
+          {
+            kind: 'udp-handler',
+            handler: {
+              name: 'echo-udp',
+              filePath: '/tmp/echo-udp.ts',
+              config: {
+                host: '127.0.0.1',
+                port: 9000,
+                type: 'udp4',
+                reuseAddr: true,
+                reusePort: false,
+                recvBufferSize: undefined,
+                sendBufferSize: undefined,
+                ipv6Only: false,
+                multicast: null,
+              },
+              handlers: { onMessage: vi.fn() },
+            },
+          },
+        ],
+        startup: ['post-port-binding'],
+        shutdown: ['post-port-binding'],
+      },
+    } as any)
+    const httpMiddleware: HttpMiddleware[] = []
+    const registeredStops: Array<{ phase: string; task: StopTask }> = []
+
+    await createServerLifecycleExecutor(ctx).startRuntimePlan(
+      runtimePlan,
+      httpMiddleware,
+      (phase, task) => {
+        registeredStops.push({ phase, task })
+      }
+    )
+
+    expect(httpMiddleware).toHaveLength(0)
+    expect(ctx.factories?.createWebSocketAdapter).toHaveBeenCalledOnce()
+    expect(ctx.factories?.createJsonRpcAdapter).toHaveBeenCalledOnce()
+    expect(ctx.factories?.createTcpAdapter).toHaveBeenCalledOnce()
+    expect(ctx.factories?.createGrpcAdapter).toHaveBeenCalledOnce()
+    expect(ctx.factories?.createUdpServer).toHaveBeenCalledOnce()
+    expect(ctx.state.wsAdapter.value).toBe(wsAdapter)
+    expect(ctx.state.jsonRpcAdapter.value).toBe(jsonRpcAdapter)
+    expect(ctx.state.tcpAdapter.value).toBe(tcpAdapter)
+    expect(ctx.state.grpcAdapter.value).toBe(grpcAdapter)
+    expect(ctx.http.udpServers).toEqual([udpServer])
+    expect(ctx.state.addresses.value?.grpc).toEqual({
+      host: '127.0.0.1',
+      port: 50051,
+      frontDoor: false,
+      strategy: undefined,
+      source: 'native',
+    })
+    expect(ctx.state.addresses.value?.udp).toEqual({
+      host: '127.0.0.1',
+      port: 9000,
+      frontDoor: false,
+      strategy: 'native',
+      source: 'native',
+    })
+    expect(registeredStops.map(({ phase, task }) => `${phase}:${task.name}`)).toEqual([
+      'post-port-binding:websocket',
+      'post-port-binding:jsonrpc',
+      'post-port-binding:tcp',
+      'post-port-binding:grpc',
+      'post-port-binding:udp-handler:echo-udp',
+    ])
+    expect(order).toEqual([
+      'start:websocket',
+      'start:jsonrpc',
+      'start:tcp',
+      'start:grpc',
+      'start:udp-handler:echo-udp',
+    ])
+
+    await runStopTasks(registeredStops.map(({ task }) => task), 'shutdown:post-port-binding', ctx.logger as any)
+
+    expect(order).toEqual([
+      'start:websocket',
+      'start:jsonrpc',
+      'start:tcp',
+      'start:grpc',
+      'start:udp-handler:echo-udp',
+      'stop:udp-handler:echo-udp',
+      'stop:grpc',
+      'stop:tcp',
+      'stop:jsonrpc',
+      'stop:websocket',
+    ])
+    expect(ctx.state.wsAdapter.value).toBeNull()
+    expect(ctx.state.jsonRpcAdapter.value).toBeNull()
+    expect(ctx.state.tcpAdapter.value).toBeNull()
+    expect(ctx.state.grpcAdapter.value).toBeNull()
   })
 })
 

@@ -7,13 +7,17 @@ import type { ServerLifecycleExecutionContext } from '../../src/server/builder/e
 import type { ServerLifecycleState, MutableRef } from '../../src/server/builder/state.js'
 import type { ServerAddresses } from '../../src/server/types.js'
 import type { HttpMiddleware } from '../../src/adapters/http.js'
-import type { ServerRuntimePlan, ServerRuntimeHttpMiddlewareStep } from '../../src/server/runtime-plan.js'
+import {
+  createServerRuntimePlanQuery,
+  type ServerRuntimePlan,
+  type ServerRuntimeHttpMiddlewareStep,
+} from '../../src/server/runtime-plan.js'
 import { createExecutionHttpBase } from '../../src/server/builder/execution-http-base.js'
 import { createExecutionHttpDocs } from '../../src/server/builder/execution-http-docs.js'
 import { createExecutionHttpGraphQL } from '../../src/server/builder/execution-http-graphql.js'
 import { createExecutionHttpMcp } from '../../src/server/builder/execution-http-mcp.js'
 import { createExecutionHttpResources } from '../../src/server/builder/execution-http-resources.js'
-import { createServerLifecycleExecution } from '../../src/server/builder/execution.js'
+import { createServerLifecycleExecutor } from '../../src/server/builder/lifecycle-executor.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,7 +104,7 @@ function createMinimalContext(overrides?: Partial<ServerLifecycleExecutionContex
 }
 
 function createMinimalRuntimePlan(overrides?: Partial<ServerRuntimePlan>): ServerRuntimePlan {
-  return {
+  const plan = {
     previewContext: {} as any,
     previewConfig: {} as any,
     protocols: {} as any,
@@ -138,6 +142,11 @@ function createMinimalRuntimePlan(overrides?: Partial<ServerRuntimePlan>): Serve
       source: 'native' as const,
     }),
     ...overrides,
+  } as Omit<ServerRuntimePlan, 'query'> & { query?: ServerRuntimePlan['query'] }
+
+  return {
+    ...plan,
+    query: plan.query ?? createServerRuntimePlanQuery(plan),
   } as ServerRuntimePlan
 }
 
@@ -619,262 +628,33 @@ describe('createExecutionHttpMcp', () => {
 })
 
 // ---------------------------------------------------------------------------
-// execution.ts (orchestrator - executeStartupPhase with 'http-middleware')
+// lifecycle-executor.ts
 // ---------------------------------------------------------------------------
 
-describe('createServerLifecycleExecution (HTTP middleware dispatch)', () => {
-  it('returns resetRuntimeState and executeStartupPhase', () => {
+describe('createServerLifecycleExecutor (HTTP lifecycle interface)', () => {
+  it('returns resetRuntimeState and startRuntimePlan', () => {
     const ctx = createMinimalContext()
-    const execution = createServerLifecycleExecution(ctx)
+    const execution = createServerLifecycleExecutor(ctx)
 
     expect(execution).toHaveProperty('resetRuntimeState')
-    expect(execution).toHaveProperty('executeStartupPhase')
-    expect(typeof execution.executeStartupPhase).toBe('function')
+    expect(execution).toHaveProperty('startRuntimePlan')
+    expect(typeof execution.startRuntimePlan).toBe('function')
   })
 
-  it('dispatches front-door-decision step via executeStartupPhase', async () => {
+  it('starts HTTP base, docs, and shared GraphQL through one lifecycle interface', async () => {
     const fakeMw: HttpMiddleware = () => false
+    const customMw: HttpMiddleware = () => true
     const ctx = createMinimalContext({
       routing: {
         getSinglePortAliasMode: () => 'standard',
         createFrontDoorDecisionMiddleware: () => fakeMw,
       },
     })
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{ kind: 'front-door-decision' }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(middlewares[0]).toBe(fakeMw)
-  })
-
-  it('dispatches custom step via executeStartupPhase', async () => {
-    const mw: HttpMiddleware = () => true
-    const ctx = createMinimalContext()
-    ctx.http.httpOptions = { middleware: [mw] }
-
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{ kind: 'custom' }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(middlewares[0]).toBe(mw)
-  })
-
-  it('dispatches jsonrpc step via executeStartupPhase', async () => {
-    const ctx = createMinimalContext()
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{
-          kind: 'jsonrpc',
-          feature: {
-            path: '/rpc',
-            options: { timeout: 5000, maxBodySize: 1024 } as any,
-          },
-        }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(typeof middlewares[0]).toBe('function')
-  })
-
-  it('dispatches override step via executeStartupPhase', async () => {
-    const ctx = createMinimalContext()
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{
-          kind: 'override',
-          feature: { maxBodySize: 1024 },
-        }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(typeof middlewares[0]).toBe('function')
-  })
-
-  it('dispatches rest step via executeStartupPhase', async () => {
-    const ctx = createMinimalContext()
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{
-          kind: 'rest',
-          feature: { maxBodySize: 1024 },
-        }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(typeof middlewares[0]).toBe('function')
-  })
-
-  it('dispatches docs step via executeStartupPhase', async () => {
-    const ctx = createMinimalContext()
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{
-          kind: 'docs',
-          feature: {
-            basePath: '/docs',
-            config: { info: { title: 'Test', version: '1.0.0' } } as any,
-          },
-        }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(ctx.state.usdDocsHandlers.value).not.toBeNull()
-  })
-
-  it('dispatches graphql step via executeStartupPhase', async () => {
-    const ctx = createMinimalContext()
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{
-          kind: 'graphql',
-          feature: { path: '/graphql', options: {} as any },
-        }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
-
-    expect(middlewares).toHaveLength(1)
-    expect(ctx.state.graphqlMiddleware.value).not.toBeNull()
-    expect(ctx.state.graphqlAdapter.value).not.toBeNull()
-  })
-
-  it('dispatches mcp step via executeStartupPhase (async)', async () => {
-    const ctx = createMinimalContext()
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
-    const middlewares: HttpMiddleware[] = []
-    const stopTasks: Array<{ name: string; stop: () => Promise<void> }> = []
-    const runtimePlan = createMinimalRuntimePlan({
-      execution: {
-        providers: [],
-        telemetry: [],
-        discovery: [],
-        httpMiddleware: [{
-          kind: 'mcp',
-          feature: { path: '/mcp', options: {} as any },
-        }],
-        prePortBinding: [],
-        entrypoint: [],
-        postPortBinding: [],
-        startup: ['http-middleware'],
-        shutdown: [],
-      },
-    } as any)
-
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, (_phase, task) => {
-      stopTasks.push(task)
-    })
-
-    expect(middlewares).toHaveLength(1)
-    expect(stopTasks).toHaveLength(1)
-    expect(stopTasks[0].name).toBe('mcp')
-  })
-
-  it('accumulates middlewares across multiple steps in a single phase', async () => {
-    const fakeFrontDoor: HttpMiddleware = () => false
-    const customMw: HttpMiddleware = () => true
-    const ctx = createMinimalContext({
-      routing: {
-        getSinglePortAliasMode: () => 'standard',
-        createFrontDoorDecisionMiddleware: () => fakeFrontDoor,
-      },
-    })
     ctx.http.httpOptions = { middleware: [customMw] }
 
-    const { executeStartupPhase } = createServerLifecycleExecution(ctx)
+    const { startRuntimePlan } = createServerLifecycleExecutor(ctx)
     const middlewares: HttpMiddleware[] = []
+    const registeredStops: Array<{ phase: string; name: string; stop: () => Promise<void> }> = []
     const runtimePlan = createMinimalRuntimePlan({
       execution: {
         providers: [],
@@ -883,21 +663,84 @@ describe('createServerLifecycleExecution (HTTP middleware dispatch)', () => {
         httpMiddleware: [
           { kind: 'front-door-decision' },
           { kind: 'custom' },
-          { kind: 'override', feature: { maxBodySize: 1024 } },
+          {
+            kind: 'docs',
+            feature: {
+              basePath: '/docs',
+              config: { info: { title: 'Test', version: '1.0.0' } } as any,
+            },
+          },
+          {
+            kind: 'graphql',
+            feature: { path: '/graphql', options: {} as any },
+          },
         ],
         prePortBinding: [],
         entrypoint: [],
+        postPortBinding: [{
+          kind: 'shared-graphql',
+          binding: {
+            mode: 'shared',
+            host: '127.0.0.1',
+            port: 3000,
+            path: '/graphql',
+            options: {},
+          },
+          feature: { path: '/graphql', options: {} },
+        }],
+        startup: ['http-middleware', 'post-port-binding'],
+        shutdown: ['post-port-binding', 'http-middleware'],
+      },
+    } as any)
+
+    await startRuntimePlan(runtimePlan, middlewares, (phase, task) => {
+      registeredStops.push({ phase, name: task.name, stop: task.stop })
+    })
+
+    expect(middlewares).toHaveLength(4)
+    expect(middlewares[0]).toBe(fakeMw)
+    expect(middlewares[1]).toBe(customMw)
+    expect(typeof middlewares[2]).toBe('function')
+    expect(typeof middlewares[3]).toBe('function')
+    expect(ctx.state.usdDocsHandlers.value).not.toBeNull()
+    expect(ctx.state.graphqlMiddleware.value).not.toBeNull()
+    expect(ctx.state.graphqlAdapter.value).not.toBeNull()
+    expect(registeredStops).toEqual([{
+      phase: 'post-port-binding',
+      name: 'graphql',
+      stop: expect.any(Function),
+    }])
+
+    await registeredStops[0].stop()
+    expect(ctx.state.graphqlAdapter.value).toBeNull()
+  })
+
+  it('uses RuntimePlanQuery as the startup-order integration point', async () => {
+    const ctx = createMinimalContext()
+    const { startRuntimePlan } = createServerLifecycleExecutor(ctx)
+    const middlewares: HttpMiddleware[] = []
+    const getStartupOrder = vi.fn(() => ['http-middleware'] as const)
+    const runtimePlan = createMinimalRuntimePlan({
+      query: {
+        ...createMinimalRuntimePlan().query,
+        getStartupOrder,
+      },
+      execution: {
+        providers: [],
+        telemetry: [],
+        discovery: [],
+        httpMiddleware: [{ kind: 'override', feature: { maxBodySize: 1024 } }],
+        prePortBinding: [],
+        entrypoint: [],
         postPortBinding: [],
-        startup: ['http-middleware'],
+        startup: [],
         shutdown: [],
       },
     } as any)
 
-    await executeStartupPhase(runtimePlan, 'http-middleware', middlewares, vi.fn())
+    await startRuntimePlan(runtimePlan, middlewares, vi.fn())
 
-    expect(middlewares).toHaveLength(3)
-    expect(middlewares[0]).toBe(fakeFrontDoor)
-    expect(middlewares[1]).toBe(customMw)
-    expect(typeof middlewares[2]).toBe('function')
+    expect(getStartupOrder).toHaveBeenCalledOnce()
+    expect(middlewares).toHaveLength(1)
   })
 })

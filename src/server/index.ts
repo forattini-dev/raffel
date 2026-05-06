@@ -139,6 +139,11 @@ export {
   // Discovery
   loadDiscovery,
   createDiscoveryWatcher,
+  createDiscoverySource,
+  createFileSystemDiscoverySource,
+  createInMemoryDiscoverySource,
+  FileSystemDiscoverySourceAdapter,
+  InMemoryDiscoverySourceAdapter,
   createRouteInterceptors,
   createChannelAuthorizer,
   isDevelopment,
@@ -163,6 +168,15 @@ export type {
   DiscoveryLoaderOptions,
   DiscoveryStats,
   DiscoveryWatcher,
+  DiscoverySource,
+  DiscoverySourceAdapter,
+  DiscoverySourceDirectory,
+  DiscoverySourceFailure,
+  DiscoverySourceFile,
+  DiscoverySourceStats,
+  DiscoverySourceWalkOptions,
+  DiscoverySourceWalkResult,
+  InMemoryDiscoverySourceFile,
 
   // Loaded Handlers
   LoadedRoute,

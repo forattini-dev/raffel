@@ -4,12 +4,11 @@
  * Loads REST resources from file system and generates CRUD handlers.
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join, parse as parsePath } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { parse as parsePath } from 'node:path'
 import { z } from 'zod'
 import { createLogger } from '../../../utils/logger.js'
 import { Errors } from '../../../errors/index.js'
+import { createFileSystemDiscoverySource } from '../discovery-source.js'
 import type {
   RestExports,
   RestConfig,
@@ -74,37 +73,34 @@ const DEFAULT_CONFIG: ResolvedRestConfig = {
 export async function loadRestResources(options: RestLoaderOptions): Promise<RestLoaderResult> {
   const startTime = Date.now()
   const extensions = options.extensions ?? ['.ts', '.js']
+  const source = options.source ?? createFileSystemDiscoverySource()
   const resources: LoadedRestResource[] = []
 
-  if (!existsSync(options.restDir)) {
+  if (!await source.exists(options.restDir)) {
     logger.debug({ dir: options.restDir }, 'REST directory not found')
     return {
       resources: [],
+      sourceStats: source.snapshotStats(),
+      failures: source.snapshotFailures(),
       stats: { resources: 0, routes: 0, actions: 0, duration: Date.now() - startTime },
     }
   }
 
-  const entries = readdirSync(options.restDir)
-
-  for (const entry of entries) {
-    const fullPath = join(options.restDir, entry)
-    const stat = statSync(fullPath)
-
-    if (!stat.isFile()) continue
-
-    const { name, ext } = parsePath(entry)
+  const walk = await source.walkFiles(options.restDir, { extensions, recursive: false })
+  for (const { filePath } of walk.files) {
+    const { name, ext } = parsePath(filePath)
     if (!extensions.includes(ext)) continue
     if (name.startsWith('_')) continue // Skip special files
 
     try {
-      const exports = await importFile<RestExports>(fullPath)
+      const exports = await source.importModule<RestExports>(filePath)
 
       if (!exports.schema) {
-        logger.warn({ filePath: fullPath }, 'REST file missing schema export')
+        logger.warn({ filePath }, 'REST file missing schema export')
         continue
       }
 
-      const resource = createRestResource(name, fullPath, exports, options.defaults)
+      const resource = createRestResource(name, filePath, exports, options.defaults)
       resources.push(resource)
 
       logger.info(
@@ -112,7 +108,7 @@ export async function loadRestResources(options: RestLoaderOptions): Promise<Res
         'Loaded REST resource'
       )
     } catch (err) {
-      logger.error({ err, filePath: fullPath }, 'Failed to load REST resource')
+      logger.error({ err, filePath }, 'Failed to load REST resource')
     }
   }
 
@@ -121,6 +117,8 @@ export async function loadRestResources(options: RestLoaderOptions): Promise<Res
 
   return {
     resources,
+    sourceStats: source.snapshotStats(),
+    failures: source.snapshotFailures(),
     stats: {
       resources: resources.length,
       routes: totalRoutes,
@@ -754,12 +752,4 @@ function buildInclude(relations: string[]): Record<string, boolean> {
     include[relation] = true
   }
   return include
-}
-
-// === File Import ===
-
-async function importFile<T>(filePath: string): Promise<T> {
-  const fileUrl = pathToFileURL(filePath).href
-  const urlWithCacheBust = `${fileUrl}?t=${Date.now()}`
-  return import(urlWithCacheBust) as Promise<T>
 }

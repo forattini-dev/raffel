@@ -4,10 +4,9 @@
  * Auto-discovers and loads handlers from the file system.
  */
 
-import { existsSync, readdirSync, statSync, readFileSync } from 'node:fs'
 import { join, relative, parse as parsePath, extname } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { createLogger } from '../../utils/logger.js'
+import { createFileSystemDiscoverySource, type DiscoverySource, type DiscoverySourceFailure, type DiscoverySourceStats, type DiscoverySourceWalkResult } from './discovery-source.js'
 import { loadRestResources } from './rest/loader.js'
 import { loadResources } from './resources/loader.js'
 import { loadTcpHandlers } from './tcp/loader.js'
@@ -62,13 +61,13 @@ interface LoadedMiddleware {
  * Try to load a sibling .md file for a handler.
  * Returns the markdown content or undefined if not found.
  */
-function loadSiblingMarkdown(handlerPath: string): string | undefined {
+async function loadSiblingMarkdown(source: DiscoverySource, handlerPath: string): Promise<string | undefined> {
   const parsed = parsePath(handlerPath)
   const mdPath = join(parsed.dir, `${parsed.name}.md`)
 
-  if (existsSync(mdPath)) {
+  if (await source.exists(mdPath)) {
     try {
-      return readFileSync(mdPath, 'utf-8')
+      return await source.readText(mdPath)
     } catch (err) {
       logger.warn({ err, mdPath }, 'Failed to read markdown file')
     }
@@ -81,15 +80,16 @@ function loadSiblingMarkdown(handlerPath: string): string | undefined {
  * Priority: _meta.ts > _meta.md
  */
 async function loadDirectoryMeta(
+  source: DiscoverySource,
   dir: string,
   extensions: string[]
 ): Promise<DirectoryMeta | undefined> {
   // Try _meta.ts or _meta.js first
   for (const ext of extensions) {
     const metaPath = join(dir, `${META_FILE}${ext}`)
-    if (existsSync(metaPath)) {
+    if (await source.exists(metaPath)) {
       try {
-        const exports = await importFile<{ default?: DirectoryMeta }>(metaPath)
+        const exports = await source.importModule<{ default?: DirectoryMeta }>(metaPath)
         if (exports.default) {
           logger.debug({ dir }, 'Loaded directory meta from TypeScript')
           return exports.default
@@ -102,9 +102,9 @@ async function loadDirectoryMeta(
 
   // Try _meta.md as fallback
   const mdPath = join(dir, `${META_FILE}.md`)
-  if (existsSync(mdPath)) {
+  if (await source.exists(mdPath)) {
     try {
-      const content = readFileSync(mdPath, 'utf-8')
+      const content = await source.readText(mdPath)
       logger.debug({ dir }, 'Loaded directory meta from markdown')
       return { description: content }
     } catch (err) {
@@ -149,6 +149,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   const startTime = Date.now()
   const baseDir = options.baseDir ?? process.cwd()
   const extensions = options.extensions ?? ['.ts', '.js']
+  const source = options.source ?? createFileSystemDiscoverySource()
+  source.reset()
 
   const routes: LoadedRoute[] = []
   const channels: LoadedChannel[] = []
@@ -176,8 +178,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load HTTP routes
   if (config.http) {
     const dir = resolveDir(baseDir, config.http, DEFAULTS.http)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadDirectory(dir, 'procedure', extensions)
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadDirectory(source, dir, 'procedure', extensions)
       routes.push(...loaded.routes)
       stats.http = loaded.routes.length
       stats.middlewares += loaded.middlewareCount
@@ -188,8 +190,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load RPC routes
   if (config.rpc) {
     const dir = resolveDir(baseDir, config.rpc, DEFAULTS.rpc)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadDirectory(dir, 'procedure', extensions)
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadDirectory(source, dir, 'procedure', extensions)
       routes.push(...loaded.routes)
       stats.rpc = loaded.routes.length
       stats.middlewares += loaded.middlewareCount
@@ -200,8 +202,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load Stream routes
   if (config.streams) {
     const dir = resolveDir(baseDir, config.streams, DEFAULTS.streams)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadDirectory(dir, 'stream', extensions)
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadDirectory(source, dir, 'stream', extensions)
       routes.push(...loaded.routes)
       stats.streams = loaded.routes.length
       stats.middlewares += loaded.middlewareCount
@@ -212,8 +214,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load Channel routes
   if (config.channels) {
     const dir = resolveDir(baseDir, config.channels, DEFAULTS.channels)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadChannels(dir, extensions)
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadChannels(source, dir, extensions)
       channels.push(...loaded.channels)
       stats.channels = loaded.channels.length
       stats.middlewares += loaded.middlewareCount
@@ -224,8 +226,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load REST resources
   if (config.rest) {
     const dir = resolveDir(baseDir, config.rest, DEFAULTS.rest)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadRestResources({ baseDir, restDir: dir, extensions })
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadRestResources({ baseDir, restDir: dir, extensions, source })
       restResources.push(...loaded.resources)
       stats.rest = loaded.stats.resources
       logger.info({ count: stats.rest, dir }, 'Loaded REST resources')
@@ -235,8 +237,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load resource handlers
   if (config.resources) {
     const dir = resolveDir(baseDir, config.resources, DEFAULTS.resources)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadResources({ baseDir, resourcesDir: dir, extensions })
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadResources({ baseDir, resourcesDir: dir, extensions, source })
       resources.push(...loaded.resources)
       stats.resources = loaded.stats.resources
       logger.info({ count: stats.resources, dir }, 'Loaded resources')
@@ -246,8 +248,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load TCP handlers
   if (config.tcp) {
     const dir = resolveDir(baseDir, config.tcp, DEFAULTS.tcp)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadTcpHandlers({ baseDir, tcpDir: dir, extensions })
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadTcpHandlers({ baseDir, tcpDir: dir, extensions, source })
       tcpHandlers.push(...loaded.handlers)
       stats.tcp = loaded.stats.handlers
       logger.info({ count: stats.tcp, dir }, 'Loaded TCP handlers')
@@ -257,8 +259,8 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load UDP handlers
   if (config.udp) {
     const dir = resolveDir(baseDir, config.udp, DEFAULTS.udp)
-    if (dir && existsSync(dir)) {
-      const loaded = await loadUdpHandlers({ baseDir, udpDir: dir, extensions })
+    if (dir && await source.exists(dir)) {
+      const loaded = await loadUdpHandlers({ baseDir, udpDir: dir, extensions, source })
       udpHandlers.push(...loaded.handlers)
       stats.udp = loaded.stats.handlers
       logger.info({ count: stats.udp, dir }, 'Loaded UDP handlers')
@@ -272,7 +274,17 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     options.onLoad(stats)
   }
 
-  return { routes, channels, restResources, resources, tcpHandlers, udpHandlers, stats }
+  return {
+    routes,
+    channels,
+    restResources,
+    resources,
+    tcpHandlers,
+    udpHandlers,
+    stats,
+    sourceStats: source.snapshotStats(),
+    failures: source.snapshotFailures(),
+  }
 }
 
 export interface DiscoveryResult {
@@ -283,6 +295,8 @@ export interface DiscoveryResult {
   tcpHandlers: LoadedTcpHandler[]
   udpHandlers: LoadedUdpHandler[]
   stats: DiscoveryStats
+  sourceStats: DiscoverySourceStats
+  failures: DiscoverySourceFailure[]
 }
 
 /**
@@ -320,6 +334,7 @@ function resolveDir(baseDir: string, config: string | boolean, defaultPath: stri
  * Load all routes from a directory
  */
 async function loadDirectory(
+  source: DiscoverySource,
   dir: string,
   kind: 'procedure' | 'stream' | 'event',
   extensions: string[]
@@ -331,28 +346,29 @@ async function loadDirectory(
   const middlewareMap = new Map<string, LoadedMiddleware[]>()
   const authMap = new Map<string, AuthConfig>()
   const metaMap = new Map<string, DirectoryMeta>()
+  const walk = await source.walkFiles(dir, { extensions, recursive: true })
 
   // First pass: collect middlewares, auth configs, and directory metadata
-  await collectMiddlewaresAndAuth(dir, dir, middlewareMap, authMap, metaMap, extensions)
+  await collectMiddlewaresAndAuth(source, dir, walk, middlewareMap, authMap, metaMap, extensions)
   middlewareCount = middlewareMap.size
 
   // Second pass: load handlers
-  await walkDirectory(dir, async (filePath, relativePath) => {
+  for (const { filePath, relativePath } of walk.files) {
     const fileName = parsePath(filePath).name
 
     // Skip special files
-    if (fileName.startsWith('_')) return
+    if (fileName.startsWith('_')) continue
 
     // Check extension
     const ext = extname(filePath)
-    if (!extensions.includes(ext)) return
+    if (!extensions.includes(ext)) continue
 
     try {
-      const exports = await importFile<HandlerExports>(filePath)
+      const exports = await source.importModule<HandlerExports>(filePath)
 
       if (!exports.default || typeof exports.default !== 'function') {
         logger.warn({ filePath }, 'Handler file missing default export')
-        return
+        continue
       }
 
       // Parse route name from path
@@ -368,7 +384,7 @@ async function loadDirectory(
       const directoryMeta = findDirectoryMeta(relativePath, metaMap)
 
       // Load sibling markdown for rich description
-      const siblingMarkdown = loadSiblingMarkdown(filePath)
+      const siblingMarkdown = await loadSiblingMarkdown(source, filePath)
       const mergedMeta = mergeMetaWithMarkdown(exports.meta, siblingMarkdown, directoryMeta)
 
       const route: LoadedRoute = {
@@ -390,7 +406,7 @@ async function loadDirectory(
     } catch (err) {
       logger.error({ err, filePath }, 'Failed to load handler')
     }
-  })
+  }
 
   return { routes, middlewareCount }
 }
@@ -399,6 +415,7 @@ async function loadDirectory(
  * Load channels from directory
  */
 async function loadChannels(
+  source: DiscoverySource,
   dir: string,
   extensions: string[]
 ): Promise<{ channels: LoadedChannel[]; middlewareCount: number }> {
@@ -408,22 +425,23 @@ async function loadChannels(
   // Load auth config and metadata
   const authMap = new Map<string, AuthConfig>()
   const metaMap = new Map<string, DirectoryMeta>()
-  await collectMiddlewaresAndAuth(dir, dir, new Map(), authMap, metaMap, extensions)
+  const walk = await source.walkFiles(dir, { extensions, recursive: true })
+  await collectMiddlewaresAndAuth(source, dir, walk, new Map(), authMap, metaMap, extensions)
   middlewareCount = authMap.size
 
   // Load channel files
-  await walkDirectory(dir, async (filePath, relativePath) => {
+  for (const { filePath, relativePath } of walk.files) {
     const fileName = parsePath(filePath).name
 
     // Skip special files
-    if (fileName.startsWith('_')) return
+    if (fileName.startsWith('_')) continue
 
     // Check extension
     const ext = extname(filePath)
-    if (!extensions.includes(ext)) return
+    if (!extensions.includes(ext)) continue
 
     try {
-      const exports = await importFile<ChannelExports>(filePath)
+      const exports = await source.importModule<ChannelExports>(filePath)
 
       // Parse channel name
       const parsed = parseRoutePath(relativePath)
@@ -443,7 +461,7 @@ async function loadChannels(
     } catch (err) {
       logger.error({ err, filePath }, 'Failed to load channel')
     }
-  })
+  }
 
   return { channels, middlewareCount }
 }
@@ -452,58 +470,50 @@ async function loadChannels(
  * Collect middlewares, auth configs, and directory metadata from directory tree
  */
 async function collectMiddlewaresAndAuth(
+  source: DiscoverySource,
   rootDir: string,
-  currentDir: string,
+  walk: DiscoverySourceWalkResult,
   middlewareMap: Map<string, LoadedMiddleware[]>,
   authMap: Map<string, AuthConfig>,
   metaMap: Map<string, DirectoryMeta>,
   extensions: string[]
 ): Promise<void> {
-  const entries = readdirSync(currentDir)
-  const relativePath = relative(rootDir, currentDir) || '.'
-
-  // Try to load _meta.ts or _meta.md for this directory
-  const dirMeta = await loadDirectoryMeta(currentDir, extensions)
-  if (dirMeta) {
-    metaMap.set(relativePath, dirMeta)
+  for (const directory of walk.directories) {
+    const dirMeta = await loadDirectoryMeta(source, directory.dirPath, extensions)
+    if (dirMeta) {
+      metaMap.set(directory.relativePath, dirMeta)
+    }
   }
 
-  for (const entry of entries) {
-    const fullPath = join(currentDir, entry)
-    const stat = statSync(fullPath)
+  for (const { filePath } of walk.files) {
+    const { dir, name, ext } = parsePath(filePath)
+    if (!extensions.includes(ext)) continue
 
-    if (stat.isDirectory()) {
-      // Recurse into subdirectories
-      await collectMiddlewaresAndAuth(rootDir, fullPath, middlewareMap, authMap, metaMap, extensions)
-    } else if (stat.isFile()) {
-      const { name, ext } = parsePath(entry)
+    const relativePath = relative(rootDir, dir) || '.'
 
-      if (!extensions.includes(ext)) continue
-
-      if (name === MIDDLEWARE_FILE) {
-        try {
-          const exports = await importFile<MiddlewareExports>(fullPath)
-          if (exports.default && typeof exports.default === 'function') {
-            const existing = middlewareMap.get(relativePath) ?? []
-            existing.push({ fn: exports.default, config: exports.config })
-            middlewareMap.set(relativePath, existing)
-            logger.debug({ path: relativePath }, 'Loaded middleware')
-          }
-        } catch (err) {
-          logger.error({ err, fullPath }, 'Failed to load middleware')
+    if (name === MIDDLEWARE_FILE) {
+      try {
+        const exports = await source.importModule<MiddlewareExports>(filePath)
+        if (exports.default && typeof exports.default === 'function') {
+          const existing = middlewareMap.get(relativePath) ?? []
+          existing.push({ fn: exports.default, config: exports.config })
+          middlewareMap.set(relativePath, existing)
+          logger.debug({ path: relativePath }, 'Loaded middleware')
         }
+      } catch (err) {
+        logger.error({ err, fullPath: filePath }, 'Failed to load middleware')
       }
+    }
 
-      if (name === AUTH_FILE) {
-        try {
-          const exports = await importFile<AuthConfigExports>(fullPath)
-          if (exports.default) {
-            authMap.set(relativePath, exports.default)
-            logger.debug({ path: relativePath }, 'Loaded auth config')
-          }
-        } catch (err) {
-          logger.error({ err, fullPath }, 'Failed to load auth config')
+    if (name === AUTH_FILE) {
+      try {
+        const exports = await source.importModule<AuthConfigExports>(filePath)
+        if (exports.default) {
+          authMap.set(relativePath, exports.default)
+          logger.debug({ path: relativePath }, 'Loaded auth config')
         }
+      } catch (err) {
+        logger.error({ err, fullPath: filePath }, 'Failed to load auth config')
       }
     }
   }
@@ -682,39 +692,6 @@ function parseRoutePath(relativePath: string): ParsedRoute {
     params,
     name: routeName,
   }
-}
-
-/**
- * Walk directory recursively
- */
-async function walkDirectory(
-  dir: string,
-  callback: (filePath: string, relativePath: string) => Promise<void>,
-  rootDir: string = dir
-): Promise<void> {
-  const entries = readdirSync(dir)
-
-  for (const entry of entries) {
-    const fullPath = join(dir, entry)
-    const stat = statSync(fullPath)
-
-    if (stat.isDirectory()) {
-      await walkDirectory(fullPath, callback, rootDir)
-    } else if (stat.isFile()) {
-      const relativePath = relative(rootDir, fullPath)
-      await callback(fullPath, relativePath)
-    }
-  }
-}
-
-/**
- * Import a file as ES module
- */
-async function importFile<T>(filePath: string): Promise<T> {
-  const fileUrl = pathToFileURL(filePath).href
-  // Add cache buster for hot reload
-  const urlWithCacheBust = `${fileUrl}?t=${Date.now()}`
-  return import(urlWithCacheBust) as Promise<T>
 }
 
 /**

@@ -3,6 +3,15 @@ import type { Registry } from '../../core/registry.js'
 import type { Router } from '../../core/router.js'
 import type { SchemaRegistry } from '../../validation/index.js'
 import type { DiscoveryBootstrap } from '../discovery-bootstrap.js'
+import type { createGrpcAdapter } from '../../adapters/grpc.js'
+import type { createHttpAdapter } from '../../adapters/http.js'
+import type { createJsonRpcAdapter } from '../../adapters/jsonrpc.js'
+import type { createTcpAdapter, createTcpConnectionHandler } from '../../adapters/tcp.js'
+import type { createWebSocketAdapter } from '../../adapters/websocket.js'
+import type {
+  createGraphQLAdapter,
+  createGraphQLMiddleware,
+} from '../../graphql/index.js'
 import type {
   DiscoveryResult,
   LoadedChannel,
@@ -12,6 +21,9 @@ import type {
   TcpServerInstance,
   UdpServerInstance,
 } from '../fs-routes/index.js'
+import type { createTcpServer } from '../fs-routes/tcp/index.js'
+import type { createUdpServer } from '../fs-routes/udp/index.js'
+import type { createPortBinding } from '../port-binding.js'
 import type { RecordProtocolFusionDecisionInput } from '../protocol-fusion-diagnostics.js'
 import type { TelemetryState } from '../telemetry-bootstrap.js'
 import type {
@@ -88,6 +100,20 @@ export interface ServerLifecycleExecutionRoutingContext {
   createFrontDoorDecisionMiddleware: () => any
 }
 
+export interface ServerLifecycleExecutionFactories {
+  createGraphQLAdapter?: typeof createGraphQLAdapter
+  createGraphQLMiddleware?: typeof createGraphQLMiddleware
+  createGrpcAdapter?: typeof createGrpcAdapter
+  createHttpAdapter?: typeof createHttpAdapter
+  createJsonRpcAdapter?: typeof createJsonRpcAdapter
+  createPortBinding?: typeof createPortBinding
+  createTcpAdapter?: typeof createTcpAdapter
+  createTcpConnectionHandler?: typeof createTcpConnectionHandler
+  createTcpServer?: typeof createTcpServer
+  createUdpServer?: typeof createUdpServer
+  createWebSocketAdapter?: typeof createWebSocketAdapter
+}
+
 export interface ServerLifecycleExecutionContext {
   logger: ServerLifecycleExecutionLogger
   state: ServerLifecycleState
@@ -95,4 +121,5 @@ export interface ServerLifecycleExecutionContext {
   core: ServerLifecycleExecutionCoreContext
   http: ServerLifecycleExecutionHttpContext
   routing: ServerLifecycleExecutionRoutingContext
+  factories?: ServerLifecycleExecutionFactories
 }

@@ -15,6 +15,10 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
   const { logger, state } = context
   const { router } = context.core
   const { getSinglePortAliasMode, recordProtocolFusionDecision } = context.routing
+  const createHttp = context.factories?.createHttpAdapter ?? createHttpAdapter
+  const createTcpHandler = context.factories?.createTcpConnectionHandler ?? createTcpConnectionHandler
+  const createGrpc = context.factories?.createGrpcAdapter ?? createGrpcAdapter
+  const createBinding = context.factories?.createPortBinding ?? createPortBinding
 
   async function executePrePortBindingStep(
     step: ServerRuntimePrePortBindingStep,
@@ -24,7 +28,7 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
       case 'single-port-tcp': {
         if (!state.singlePortTcpConnectionHandler.value) {
           const tcpOpts = step.binding.options
-          state.singlePortTcpConnectionHandler.value = createTcpConnectionHandler(router, {
+          state.singlePortTcpConnectionHandler.value = createTcpHandler(router, {
             maxMessageSize: tcpOpts.maxMessageSize,
             keepAliveInterval: tcpOpts.keepAliveInterval,
           })
@@ -38,7 +42,7 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
           throw new Error('single-port gRPC currently supports h2c/insecure mode only; keep TLS gRPC on a dedicated listener')
         }
 
-        const grpcAdapter = createGrpcAdapter(router, {
+        const grpcAdapter = createGrpc(router, {
           host: '127.0.0.1',
           port: 0,
           protoPath: grpcOpts.protoPath,
@@ -73,7 +77,7 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
     httpMiddleware: HttpMiddleware[],
     registerStopTask: (task: StopTask) => void
   ) {
-    const portBinding = createPortBinding({
+    const portBinding = createBinding({
       port: step.entrypoint.portBinding.port,
       host: step.entrypoint.portBinding.host,
       logger: {
@@ -99,7 +103,7 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
 
     const httpServer = await startAssignedManagedAdapter({
       ref: state.httpServer,
-      adapter: createHttpAdapter(router, {
+      adapter: createHttp(router, {
         ...step.entrypoint.httpAdapter,
         middleware: httpMiddleware.length > 0 ? httpMiddleware : undefined,
       }),

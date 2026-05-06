@@ -15,7 +15,6 @@ import type {
   USDTagGroup,
   USDSchema,
   USDProtocol,
-  USDX,
   USDComponents,
   USDSecurityScheme,
   USDExternalDocs,
@@ -39,6 +38,7 @@ import { generateTcp, generateTcpSchemas, type TcpGeneratorOptions, type LoadedT
 import { generateUdp, generateUdpSchemas, type UdpGeneratorOptions, type LoadedUdpHandler } from './udp-generator.js'
 import { generateJsonRpc, type JsonRpcGeneratorOptions } from './jsonrpc-generator.js'
 import { generateGrpc, type GrpcGeneratorOptions } from './grpc-generator.js'
+import { createUSDAssemblyContext } from './usd-assembly-context.js'
 
 // =============================================================================
 // Types
@@ -276,42 +276,31 @@ export function generateUSD(
     includeJsonRpc: hasJsonRpcOptions,
     includeGrpc: hasGrpcOptions,
   })
-  const allTags = new Set<string>(customTags.map((t) => t.name))
-  const allSchemas: Record<string, USDSchema> = {}
-  const xUsd: USDX = {
+
+  const assembly = createUSDAssemblyContext({
+    info: buildInfo(info),
+    servers,
     protocols: detectedProtocols,
     contentTypes: globalContentTypes ?? DEFAULT_USD_CONTENT_TYPES,
     documentation,
-  }
+  })
 
-  // Initialize document
-  const document: USDDocument = {
-    usd: '1.0.0',
-    openapi: '3.1.0',
-    info: buildInfo(info),
-    servers,
-    components: {
-      schemas: {},
-    },
-  }
+  assembly.addTags(customTags)
 
   // Add security schemes if provided
   if (securitySchemes) {
-    document.components!.securitySchemes = securitySchemes
+    assembly.addSecuritySchemes(securitySchemes)
   }
 
   // Add stream auth schemes if streams protocol is detected
   if (detectedProtocols.includes('streams')) {
     const streamAuthSchemes = generateStreamAuthSchemes()
-    document.components!.securitySchemes = {
-      ...document.components!.securitySchemes,
-      ...streamAuthSchemes,
-    }
+    assembly.addSecuritySchemes(streamAuthSchemes)
   }
 
   // Add default security requirement
   if (defaultSecurity) {
-    document.security = defaultSecurity
+    assembly.setDefaultSecurity(defaultSecurity)
   }
 
   // Generate HTTP paths
@@ -330,12 +319,12 @@ export function generateUSD(
     )
 
     if (Object.keys(httpResult.paths).length > 0) {
-      document.paths = httpResult.paths
+      assembly.addPaths(httpResult.paths)
     }
 
     // Collect tags and schemas
-    httpResult.tags.forEach((tag) => allTags.add(tag))
-    Object.assign(allSchemas, httpResult.schemas)
+    assembly.addTags(httpResult.tags)
+    assembly.addSchemas(httpResult.schemas)
   }
 
   // Generate WebSocket specification
@@ -354,13 +343,13 @@ export function generateUSD(
         }
       )
 
-      xUsd.websocket = wsResult.websocket
-      Object.assign(allSchemas, wsResult.schemas)
+      assembly.setProtocolBlock('websocket', wsResult.websocket)
+      assembly.addSchemas(wsResult.schemas)
 
       // Extract tags from channels
       for (const channel of channels.values()) {
         const channelTags = extractChannelTags(channel.name)
-        channelTags.forEach((tag) => allTags.add(tag))
+        assembly.addTags(channelTags)
       }
     }
   }
@@ -379,13 +368,13 @@ export function generateUSD(
     )
 
     if (streamsResult.streams.endpoints && Object.keys(streamsResult.streams.endpoints).length > 0) {
-      xUsd.streams = streamsResult.streams
-      Object.assign(allSchemas, streamsResult.schemas)
+      assembly.setProtocolBlock('streams', streamsResult.streams)
+      assembly.addSchemas(streamsResult.schemas)
 
       // Extract tags from streams
       for (const meta of ctx.registry.listStreams()) {
         const streamTags = extractStreamTags(meta.name)
-        streamTags.forEach((tag) => allTags.add(tag))
+        assembly.addTags(streamTags)
       }
     }
   }
@@ -406,11 +395,11 @@ export function generateUSD(
     )
 
     if (jsonrpcResult.jsonrpc.methods && Object.keys(jsonrpcResult.jsonrpc.methods).length > 0) {
-      xUsd.jsonrpc = jsonrpcResult.jsonrpc
-      Object.assign(allSchemas, jsonrpcResult.schemas)
+      assembly.setProtocolBlock('jsonrpc', jsonrpcResult.jsonrpc)
+      assembly.addSchemas(jsonrpcResult.schemas)
 
       // Extract tags from JSON-RPC methods
-      jsonrpcResult.tags.forEach((tag) => allTags.add(tag))
+      assembly.addTags(jsonrpcResult.tags)
     }
   }
 
@@ -429,18 +418,18 @@ export function generateUSD(
     )
 
     if (grpcResult.grpc.services && Object.keys(grpcResult.grpc.services).length > 0) {
-      xUsd.grpc = grpcResult.grpc
-      Object.assign(allSchemas, grpcResult.schemas)
+      assembly.setProtocolBlock('grpc', grpcResult.grpc)
+      assembly.addSchemas(grpcResult.schemas)
 
       // Extract tags from gRPC services
-      grpcResult.tags.forEach((tag) => allTags.add(tag))
+      assembly.addTags(grpcResult.tags)
     }
   }
 
   // Add standard stream event schemas if requested
   if (includeStreamEventSchemas && detectedProtocols.includes('streams')) {
     const streamEvents = generateStreamEvents()
-    Object.assign(allSchemas, streamEvents)
+    assembly.addSchemas(streamEvents)
   }
 
   // Generate TCP specification
@@ -454,19 +443,19 @@ export function generateUSD(
     )
 
     if (tcpResult.tcp.servers && Object.keys(tcpResult.tcp.servers).length > 0) {
-      xUsd.tcp = tcpResult.tcp
-      Object.assign(allSchemas, tcpResult.schemas)
+      assembly.setProtocolBlock('tcp', tcpResult.tcp)
+      assembly.addSchemas(tcpResult.schemas)
 
       // Extract tags from TCP handlers
       for (const handler of ctx.tcpHandlers) {
         const tcpTags = extractHandlerTags(handler.name)
-        tcpTags.forEach((tag) => allTags.add(tag))
+        assembly.addTags(tcpTags)
       }
     }
 
     // Add standard TCP schemas
     const tcpSchemas = generateTcpSchemas()
-    Object.assign(allSchemas, tcpSchemas)
+    assembly.addSchemas(tcpSchemas)
   }
 
   // Generate UDP specification
@@ -480,71 +469,44 @@ export function generateUSD(
     )
 
     if (udpResult.udp.endpoints && Object.keys(udpResult.udp.endpoints).length > 0) {
-      xUsd.udp = udpResult.udp
-      Object.assign(allSchemas, udpResult.schemas)
+      assembly.setProtocolBlock('udp', udpResult.udp)
+      assembly.addSchemas(udpResult.schemas)
 
       // Extract tags from UDP handlers
       for (const handler of ctx.udpHandlers) {
         const udpTags = extractHandlerTags(handler.name)
-        udpTags.forEach((tag) => allTags.add(tag))
+        assembly.addTags(udpTags)
       }
     }
 
     // Add standard UDP schemas
     const udpSchemas = generateUdpSchemas()
-    Object.assign(allSchemas, udpSchemas)
-  }
-
-  // Merge all schemas into components
-  if (Object.keys(allSchemas).length > 0) {
-    document.components!.schemas = allSchemas
-  }
-
-  // Build tags array
-  const tagsArray = Array.from(allTags).sort()
-  if (tagsArray.length > 0) {
-    document.tags = tagsArray.map((name) => {
-      const customTag = customTags.find((t) => t.name === name)
-      return customTag ?? { name }
-    })
+    assembly.addSchemas(udpSchemas)
   }
 
   if (customTagGroups.length > 0) {
-    document['x-tagGroups'] = customTagGroups
+    assembly.setTagGroups(customTagGroups)
   }
 
   // Add external docs
   if (externalDocs) {
-    document.externalDocs = externalDocs
+    assembly.setExternalDocs(externalDocs)
   }
 
   // Merge external paths
   if (externalPaths && Object.keys(externalPaths).length > 0) {
-    document.paths = { ...document.paths, ...externalPaths }
+    assembly.addPaths(externalPaths)
   }
 
   // Merge external components (shallow per category)
   if (externalComponents) {
-    if (!document.components) document.components = {}
-    const components = document.components as Record<string, Record<string, unknown>>
-    const ext = externalComponents as Record<string, Record<string, unknown>>
-    for (const key of Object.keys(externalComponents)) {
-      components[key] = { ...(components[key] ?? {}), ...ext[key] }
-    }
-  }
-
-  // Clean up empty components
-  if (document.components && Object.keys(document.components.schemas ?? {}).length === 0) {
-    delete document.components.schemas
-  }
-  if (document.components && Object.keys(document.components).length === 0) {
-    delete document.components
+    assembly.mergeComponents(externalComponents)
   }
 
   // Authorization catalog — top-level x-raffel-authz extension.
   // Only emitted when `policy: { ... }` is configured on the server.
   if (ctx.authz && ctx.authz.policies.length > 0) {
-    document['x-raffel-authz'] = {
+    assembly.setRaffelAuthz({
       'default-mode': ctx.authz.defaultMode,
       policies: ctx.authz.policies.map((p) => ({
         id: p.id,
@@ -556,15 +518,15 @@ export function generateUSD(
         'has-condition': p.hasCondition,
         ...(p.match !== undefined ? { match: p.match } : {}),
       })),
-    }
+    })
   }
 
-  document['x-usd'] = xUsd
+  const result = assembly.build()
 
   return {
-    document,
+    document: result.document,
     protocols: detectedProtocols,
-    tags: tagsArray,
+    tags: result.tags,
   }
 }
 

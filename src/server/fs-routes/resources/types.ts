@@ -341,10 +341,15 @@ export interface ResourceLoaderOptions {
 
   /** File extensions to load */
   extensions?: string[]
+
+  /** Discovery source adapter (defaults to real filesystem) */
+  source?: import('../discovery-source.js').DiscoverySource
 }
 
 export interface ResourceLoaderResult {
   resources: LoadedResource[]
+  sourceStats: import('../discovery-source.js').DiscoverySourceStats
+  failures: import('../discovery-source.js').DiscoverySourceFailure[]
   stats: {
     resources: number
     operations: number

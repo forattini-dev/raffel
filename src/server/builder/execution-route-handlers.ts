@@ -18,8 +18,9 @@ export function createExecutionRouteHandlers(context: ServerLifecycleExecutionCo
   ) {
     switch (step.kind) {
       case 'tcp-handler': {
-        const { createTcpServer } = await import('../fs-routes/tcp/index.js')
-        const tcpServer = createTcpServer(step.handler)
+        const createTcpServerFactory = context.factories?.createTcpServer
+          ?? (await import('../fs-routes/tcp/index.js')).createTcpServer
+        const tcpServer = createTcpServerFactory(step.handler)
         await startManagedRuntimeResource({
           resource: tcpServer,
           name: `tcp-handler:${step.handler.name}`,
@@ -33,8 +34,9 @@ export function createExecutionRouteHandlers(context: ServerLifecycleExecutionCo
       }
 
       case 'udp-handler': {
-        const { createUdpServer } = await import('../fs-routes/udp/index.js')
-        const udpServer = createUdpServer(step.handler)
+        const createUdpServerFactory = context.factories?.createUdpServer
+          ?? (await import('../fs-routes/udp/index.js')).createUdpServer
+        const udpServer = createUdpServerFactory(step.handler)
         await startManagedRuntimeResource({
           resource: udpServer,
           name: `udp-handler:${step.handler.name}`,
