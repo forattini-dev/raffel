@@ -76,7 +76,7 @@ export async function parseHttpRequestBody(
   req: IncomingMessage,
   maxSize: number,
   codec: Codec
-): Promise<{ payload: unknown; size: number }> {
+): Promise<{ payload: unknown; size: number; raw?: Buffer }> {
   const chunks: Buffer[] = []
   let size = 0
 
@@ -94,9 +94,15 @@ export async function parseHttpRequestBody(
     return { payload: {}, size }
   }
 
+  // We always concat the chunks for parsing, so retaining the resulting
+  // Buffer adds one reference (no extra copy). The buffer is bounded by
+  // `maxSize` (default 1MB) and is released when the request ctx goes out
+  // of scope. This keeps `ctx.http.rawBody` available for HMAC signature
+  // verification (Stripe, Svix, GitHub webhooks, etc.) at predictable cost.
+  const raw = Buffer.concat(chunks)
   try {
-    const body = Buffer.concat(chunks).toString('utf-8')
-    return { payload: codec.decode(body), size }
+    const body = raw.toString('utf-8')
+    return { payload: codec.decode(body), size, raw }
   } catch {
     throw new HttpBodyParseError('PARSE_ERROR', 'Invalid request body')
   }
@@ -157,7 +163,7 @@ export async function resolveHttpRequestBody(args: {
   res: ServerResponse
   codecs: Codec[]
   maxBodySize: number
-}): Promise<{ payload: unknown; size: number } | null> {
+}): Promise<{ payload: unknown; size: number; raw?: Buffer } | null> {
   const { req, res, codecs, maxBodySize } = args
   const contentType = getHeaderValue(req.headers['content-type'])
   let requestCodec = jsonCodec
@@ -200,9 +206,10 @@ export function buildHttpContextSeed(options: {
     params?: Record<string, string>
     query?: Record<string, unknown>
   }
+  rawBody?: Buffer
   trustedProxies?: TrustedProxyConfig
 }): { metadata: Record<string, string>; seed: ContextSeed } {
-  const { req, method, url, input, trustedProxies } = options
+  const { req, method, url, input, rawBody, trustedProxies } = options
   const client = resolveClientIp({
     headers: req.headers,
     remoteAddress: req.socket?.remoteAddress,
@@ -233,6 +240,7 @@ export function buildHttpContextSeed(options: {
         clientIp: client.ip,
         remoteAddress: client.remoteAddress,
         remotePort: client.remotePort,
+        rawBody,
       },
     },
   }
@@ -266,6 +274,7 @@ export async function createHttpRequestContext(args: {
     params?: Record<string, string>
     query?: Record<string, unknown>
   }
+  rawBody?: Buffer
   trustedProxies?: TrustedProxyConfig
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   abortController?: AbortController
@@ -284,6 +293,7 @@ export async function createHttpRequestContext(args: {
     method: args.method,
     url: args.url,
     input: args.input,
+    rawBody: args.rawBody,
     trustedProxies: args.trustedProxies,
   })
   const ctx = await createAbortableContextAsync(

@@ -8,6 +8,17 @@ const STANDARD_METADATA_HEADERS = new Set([
   'content-type',
   'accept',
   'cookie',
+  // Well-known webhook signature headers. These do not start with `x-`
+  // but carry the HMAC that handlers verify against `ctx.http.rawBody`
+  // (issue #114). Forwarding them here lets resource handlers read
+  // `ctx.http.headers['stripe-signature']` etc. without escape hatches.
+  'stripe-signature',
+  'svix-id',
+  'svix-timestamp',
+  'svix-signature',
+  'webhook-id',
+  'webhook-timestamp',
+  'webhook-signature',
 ])
 
 function normalizeMetadataValue(value: unknown): string | undefined {

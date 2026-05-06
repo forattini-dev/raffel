@@ -250,6 +250,21 @@ export function createHttpAdapter(
     let ctx: Context | null = null
 
     try {
+      // For methods that carry a request body, parse it first so the raw
+      // bytes can be captured into the context for HMAC verification
+      // (Stripe, Svix, GitHub webhooks, etc.). See issue #114.
+      let parsedBody: { payload: unknown; size: number; raw?: Buffer } | null = null
+      const carriesBody =
+        req.method === 'POST' && (isEvent || (!isStream))
+      if (carriesBody) {
+        // Validate response codec before reading the body so we still emit
+        // 406/415 cleanly when negotiation fails.
+        const responseCodecCheck = resolveHttpResponseCodec(req, res, codecs)
+        if (!responseCodecCheck) return
+        parsedBody = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
+        if (!parsedBody) return
+      }
+
       ctx = (await createHttpRequestContext({
         req,
         res,
@@ -257,7 +272,9 @@ export function createHttpAdapter(
         url,
         input: {
           query: searchParamsToQuery(url.searchParams),
+          body: parsedBody?.payload,
         },
+        rawBody: parsedBody?.raw,
         trustedProxies,
         contextFactory: options.contextFactory,
       })).ctx
@@ -268,10 +285,10 @@ export function createHttpAdapter(
         await handleStream(req, res, procedure, url.searchParams, ctx)
       } else if (isEvent && req.method === 'POST') {
         // Fire-and-forget event
-        await handleEvent(req, res, procedure, ctx)
+        await handleEvent(req, res, procedure, ctx, parsedBody!.payload)
       } else if (req.method === 'POST') {
         // Regular procedure call
-        await handleProcedure(req, res, procedure, ctx)
+        await handleProcedure(req, res, procedure, ctx, parsedBody!.payload)
       } else {
         sendErrorResponse(res, 405, 'METHOD_NOT_ALLOWED', `Method ${req.method} not allowed`)
       }
@@ -291,18 +308,11 @@ export function createHttpAdapter(
     req: IncomingMessage,
     res: ServerResponse,
     procedure: string,
-    ctx: Context
+    ctx: Context,
+    payload: unknown
   ): Promise<void> {
     const responseCodec = resolveHttpResponseCodec(req, res, codecs)
     if (!responseCodec) return
-
-    const bodyResult = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
-    if (!bodyResult) return
-    const { payload } = bodyResult
-    ctx.input = {
-      ...ctx.input,
-      body: payload,
-    }
 
     await dispatchHttpEnvelope({
       res,
@@ -420,18 +430,11 @@ export function createHttpAdapter(
     req: IncomingMessage,
     res: ServerResponse,
     procedure: string,
-    ctx: Context
+    ctx: Context,
+    payload: unknown
   ): Promise<void> {
     if (!resolveHttpResponseCodec(req, res, codecs)) {
       return
-    }
-
-    const bodyResult = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
-    if (!bodyResult) return
-    const { payload } = bodyResult
-    ctx.input = {
-      ...ctx.input,
-      body: payload,
     }
 
     // Build envelope

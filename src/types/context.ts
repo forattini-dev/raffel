@@ -99,6 +99,40 @@ export interface HttpContextCapability {
   readonly clientIp?: string
   readonly remoteAddress?: string
   readonly remotePort?: number
+  /**
+   * Raw request body bytes, exactly as received over the wire.
+   *
+   * Available on requests where the HTTP adapter buffered the body for
+   * parsing (POST/PUT/PATCH/DELETE on procedures, REST resources, and
+   * `httpPath` overrides). Empty bodies and GET/HEAD/OPTIONS requests
+   * leave this `undefined`.
+   *
+   * Use this to verify HMAC signatures (Stripe, Svix/Resend/Clerk/Linear,
+   * GitHub webhooks, etc.) where the signed payload is the byte-exact
+   * request body — re-stringifying the parsed input does not produce the
+   * same bytes the sender signed.
+   *
+   * The buffer is bounded by `maxBodySize` (default 1MB), so retention
+   * cost is predictable. The reference is held for the request lifetime
+   * and then released when the context goes out of scope.
+   *
+   * @example
+   * ```ts
+   * import crypto from 'node:crypto'
+   *
+   * export const stripe = async (input, ctx) => {
+   *   const raw = ctx.http?.rawBody
+   *   const sig = ctx.http?.headers['stripe-signature']
+   *   if (!raw || !sig) throw new Error('UNAUTHENTICATED')
+   *   const expected = crypto
+   *     .createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET!)
+   *     .update(raw)
+   *     .digest('hex')
+   *   if (!sig.includes(expected)) throw new Error('PERMISSION_DENIED')
+   * }
+   * ```
+   */
+  readonly rawBody?: Buffer
 }
 
 export interface WebSocketContextCapability {
