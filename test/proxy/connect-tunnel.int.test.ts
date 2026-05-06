@@ -383,6 +383,45 @@ describe('CONNECT Tunnel (MITM intercept hooks)', () => {
     expect(result.status).toBe(200)
     expect(result.body).toContain('upstream-ok')
   }, 15_000)
+
+  // === Trust-boundary sanitisation (issue #105) ===
+
+  it('sanitises CRLF-injected request headers from onRequest before reaching upstream', async () => {
+    const result = await interceptRequest({
+      // A user hook appends a CRLF-laden header value. The proxy must reject
+      // the request rather than smuggle the injected header to the upstream.
+      onRequest: (req) => ({
+        ...req,
+        headers: { ...req.headers, 'x-evil': 'safe\r\nx-injected: pwn' },
+      }),
+    })
+    expect(result.status).toBe(400)
+    // Upstream must not have observed any request — the proxy short-circuited.
+    expect(requestLog.length).toBe(0)
+  }, 15_000)
+
+  it('rejects NUL bytes in request header values', async () => {
+    const result = await interceptRequest({
+      onRequest: (req) => ({
+        ...req,
+        headers: { ...req.headers, 'x-nul': 'before\x00after' },
+      }),
+    })
+    expect(result.status).toBe(400)
+    expect(requestLog.length).toBe(0)
+  }, 15_000)
+
+  it('sanitises CRLF-injected response headers from onResponse before reaching client', async () => {
+    const result = await interceptRequest({
+      // A user hook appends a CRLF-laden response header. The client must
+      // not see a smuggled header — proxy returns 502 instead.
+      onResponse: (res) => ({
+        ...res,
+        headers: { ...res.headers, 'x-evil': 'safe\r\nset-cookie: pwn=1' },
+      }),
+    })
+    expect(result.status).toBe(502)
+  }, 15_000)
 })
 
 describe('CONNECT Tunnel (MITM validate)', () => {
