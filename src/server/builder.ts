@@ -1460,6 +1460,21 @@ export function createServer(options: ServerOptions): RaffelServer {
       return router
     },
 
+    policyCoverage() {
+      if (!policyBootstrap) return null
+      const procedureEntries = registry.listProcedures().map((p) => ({
+        name: p.name,
+        kind: 'procedure',
+        location: operationRegistrations.get(p.name)?.source.location,
+      }))
+      const channelEntries = Array.from(channelRegistry.values()).map((c) => ({
+        name: c.name,
+        kind: 'channel',
+        location: c.filePath,
+      }))
+      return policyBootstrap.getCoverage([...procedureEntries, ...channelEntries])
+    },
+
     get isRunning() {
       return serverState.running.value
     },

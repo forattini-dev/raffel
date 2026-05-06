@@ -871,6 +871,14 @@ export interface RaffelServer {
   readonly registry: Registry
   /** Get the router */
   readonly router: Router
+  /**
+   * Compute the policy coverage report — counts and names of registered
+   * operations/channels with no policy attached. Returns null when no
+   * policy bootstrap is configured. Use as a CI assertion (fail when
+   * `gaps.length > 0` under `defaultMode: 'deny'`) or as a runtime audit
+   * surface.
+   */
+  policyCoverage(): import('../../middleware/policy/bootstrap.js').PolicyCoverageReport | null
   /** Check if server is running */
   readonly isRunning: boolean
   /** Get server addresses */

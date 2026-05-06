@@ -19,6 +19,27 @@ import { createPrincipalResolver } from './principal/index.js'
 import { setPolicyProvider } from '../../mcp/resources/index.js'
 import type { PolicyConfig, Principal, ProcedurePolicyConfig } from './types.js'
 
+export interface PolicyCoverageEntry {
+  /** Operation/channel name as registered in the registry. */
+  name: string
+  /** Source kind for diagnostics (e.g. 'procedure', 'channel', 'rest-resource'). */
+  kind: string
+  /** Optional file path or other origin marker for the entry. */
+  location?: string
+}
+
+export interface PolicyCoverageReport {
+  defaultMode: 'allow' | 'deny'
+  /** Total operations/channels considered. */
+  total: number
+  /** Names with at least one policy interceptor attached. */
+  covered: number
+  /** Names explicitly marked `public: true` via builder authz. */
+  public: number
+  /** Names with neither a policy nor a public marker. Empty when fully covered. */
+  gaps: PolicyCoverageEntry[]
+}
+
 export interface PolicyBootstrap {
   /** The resolved engine (user-supplied or createDefaultEngine). */
   engine: PolicyEnginePort
@@ -34,6 +55,12 @@ export interface PolicyBootstrap {
    * evaluate the engine outside of the procedure interceptor pipeline.
    */
   resolvePrincipal: (ctx: Context) => Promise<Principal>
+  /**
+   * Compute a structured coverage report against a list of currently
+   * registered operations/channels. Useful as a CI assertion or runtime
+   * audit when `defaultMode: 'deny'` is configured.
+   */
+  getCoverage: (registered: readonly PolicyCoverageEntry[]) => PolicyCoverageReport
 }
 
 export interface CreatePolicyBootstrapOptions {
@@ -80,8 +107,13 @@ export function createPolicyBootstrap(
   const defaultMode: 'allow' | 'deny' = config.defaultMode ?? 'allow'
   const policyLogger = config.logger ?? fallbackLogger
 
-  const interceptorFactory = (procedureName: string, procConfig: ProcedurePolicyConfig): Interceptor =>
-    createPolicyInterceptor({
+  const coveredNames = new Set<string>()
+  const publicNames = new Set<string>()
+
+  const interceptorFactory = (procedureName: string, procConfig: ProcedurePolicyConfig): Interceptor => {
+    coveredNames.add(procedureName)
+    if (procConfig.public) publicNames.add(procedureName)
+    return createPolicyInterceptor({
       engine,
       defaultAction: procedureName,
       config: procConfig,
@@ -89,9 +121,28 @@ export function createPolicyBootstrap(
       productionErrorBody,
       logger: policyLogger,
     })
+  }
 
   const noPolicyDeclaredFactory = (procedureName: string): Interceptor =>
     createNoPolicyDeclaredInterceptor(procedureName, productionErrorBody)
+
+  const getCoverage = (registered: readonly PolicyCoverageEntry[]) => {
+    const gaps: PolicyCoverageEntry[] = []
+    let covered = 0
+    let pub = 0
+    for (const entry of registered) {
+      if (publicNames.has(entry.name)) {
+        pub++
+        continue
+      }
+      if (coveredNames.has(entry.name)) {
+        covered++
+        continue
+      }
+      gaps.push(entry)
+    }
+    return { defaultMode, total: registered.length, covered, public: pub, gaps }
+  }
 
   if (registerMcpProvider) {
     // Sanitised snapshot for MCP discovery — strip `condition` (function,
@@ -116,5 +167,6 @@ export function createPolicyBootstrap(
     interceptorFactory,
     noPolicyDeclaredFactory,
     resolvePrincipal: async (ctx) => principalResolver(ctx),
+    getCoverage,
   }
 }
