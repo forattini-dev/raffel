@@ -14,6 +14,7 @@ import type {
   ResourceConfig,
   ResourceExports,
   ResourceContext,
+  ResourceMiddleware,
   ResourceQuery,
   ResourceLoaderOptions,
   ResourceLoaderResult,
@@ -146,6 +147,39 @@ function resolveConfig(config?: ResourceConfig, name?: string): ResolvedResource
 // === Route Generation ===
 
 /**
+ * Normalise a CRUD slot. The slot may be:
+ *   - a bare handler function
+ *   - `{ middleware?, handler }` (issue #115 per-slot override)
+ *   - `false` / `undefined` (operation disabled)
+ *
+ * Returns `null` when the slot is disabled, otherwise `{ handler, middleware }`.
+ */
+function unwrapCrudSlot<H>(
+  slot: H | { middleware?: ResourceMiddleware[]; handler: H } | false | undefined
+): { handler: H; middleware: ResourceMiddleware[] } | null {
+  if (slot === false || slot === undefined || slot === null) return null
+  if (typeof slot === 'function') return { handler: slot, middleware: [] }
+  if (typeof slot === 'object') {
+    const obj = slot as { middleware?: ResourceMiddleware[]; handler: H }
+    if (typeof obj.handler !== 'function') return null
+    return { handler: obj.handler, middleware: obj.middleware ?? [] }
+  }
+  return null
+}
+
+/**
+ * Compose middleware for a single route. Resource-level `config.middleware`
+ * is the floor and runs first; per-route middleware is appended (issue #115).
+ */
+function composeRouteMiddleware(
+  config: ResolvedResourceConfig,
+  routeSpecific: ResourceMiddleware[] | undefined
+): ResourceMiddleware[] {
+  if (!routeSpecific || routeSpecific.length === 0) return [...config.middleware]
+  return [...config.middleware, ...routeSpecific]
+}
+
+/**
  * Generate REST routes from loaded resources.
  */
 export function generateResourceRoutes(resources: LoadedResource[]): ResourceRoute[] {
@@ -156,109 +190,143 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
     const basePath = config.basePath
 
     // List: GET /resources
-    if (handlers.list) {
-      routes.push({
-        method: 'GET',
-        path: basePath,
-        operation: 'list',
-        resource: name,
-        isAction: false,
-        handler: createListRoute(name, handlers.list, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.list)
+      if (slot) {
+        routes.push({
+          method: 'GET',
+          path: basePath,
+          operation: 'list',
+          resource: name,
+          isAction: false,
+          handler: createListRoute(name, slot.handler, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Get: GET /resources/:id
-    if (handlers.get) {
-      routes.push({
-        method: 'GET',
-        path: `${basePath}/:id`,
-        operation: 'get',
-        resource: name,
-        isAction: false,
-        handler: createGetRoute(name, handlers.get, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.get)
+      if (slot) {
+        routes.push({
+          method: 'GET',
+          path: `${basePath}/:id`,
+          operation: 'get',
+          resource: name,
+          isAction: false,
+          handler: createGetRoute(name, slot.handler, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Create: POST /resources
-    if (handlers.create) {
-      routes.push({
-        method: 'POST',
-        path: basePath,
-        operation: 'create',
-        resource: name,
-        isAction: false,
-        handler: createCreateRoute(name, handlers.create, handlers.inputSchema, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.create)
+      if (slot) {
+        routes.push({
+          method: 'POST',
+          path: basePath,
+          operation: 'create',
+          resource: name,
+          isAction: false,
+          handler: createCreateRoute(name, slot.handler, handlers.inputSchema, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Update: PUT /resources/:id
-    if (handlers.update) {
-      routes.push({
-        method: 'PUT',
-        path: `${basePath}/:id`,
-        operation: 'update',
-        resource: name,
-        isAction: false,
-        handler: createUpdateRoute(name, handlers.update, handlers.inputSchema, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.update)
+      if (slot) {
+        routes.push({
+          method: 'PUT',
+          path: `${basePath}/:id`,
+          operation: 'update',
+          resource: name,
+          isAction: false,
+          handler: createUpdateRoute(name, slot.handler, handlers.inputSchema, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Patch: PATCH /resources/:id
-    if (handlers.patch) {
-      routes.push({
-        method: 'PATCH',
-        path: `${basePath}/:id`,
-        operation: 'patch',
-        resource: name,
-        isAction: false,
-        handler: createPatchRoute(name, handlers.patch, handlers.patchSchema, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.patch)
+      if (slot) {
+        routes.push({
+          method: 'PATCH',
+          path: `${basePath}/:id`,
+          operation: 'patch',
+          resource: name,
+          isAction: false,
+          handler: createPatchRoute(name, slot.handler, handlers.patchSchema, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Delete: DELETE /resources/:id
-    if (handlers.delete) {
-      routes.push({
-        method: 'DELETE',
-        path: `${basePath}/:id`,
-        operation: 'delete',
-        resource: name,
-        isAction: false,
-        handler: createDeleteRoute(name, handlers.delete, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.delete)
+      if (slot) {
+        routes.push({
+          method: 'DELETE',
+          path: `${basePath}/:id`,
+          operation: 'delete',
+          resource: name,
+          isAction: false,
+          handler: createDeleteRoute(name, slot.handler, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Head: HEAD /resources/:id
-    if (handlers.head) {
-      routes.push({
-        method: 'HEAD',
-        path: `${basePath}/:id`,
-        operation: 'head',
-        resource: name,
-        isAction: false,
-        handler: createHeadRoute(name, handlers.head, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.head)
+      if (slot) {
+        routes.push({
+          method: 'HEAD',
+          path: `${basePath}/:id`,
+          operation: 'head',
+          resource: name,
+          isAction: false,
+          handler: createHeadRoute(name, slot.handler, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      }
     }
 
     // Options: OPTIONS /resources
-    if (handlers.options) {
-      routes.push({
-        method: 'OPTIONS',
-        path: basePath,
-        operation: 'options',
-        resource: name,
-        isAction: false,
-        handler: createOptionsRoute(name, handlers.options, handlers, config),
-      })
-    } else {
-      // Auto-generate OPTIONS based on available handlers
-      routes.push({
-        method: 'OPTIONS',
-        path: basePath,
-        operation: 'options',
-        resource: name,
-        isAction: false,
-        handler: createAutoOptionsRoute(name, handlers, config),
-      })
+    {
+      const slot = unwrapCrudSlot(handlers.options)
+      if (slot) {
+        routes.push({
+          method: 'OPTIONS',
+          path: basePath,
+          operation: 'options',
+          resource: name,
+          isAction: false,
+          handler: createOptionsRoute(name, slot.handler, handlers, config),
+          middleware: composeRouteMiddleware(config, slot.middleware),
+        })
+      } else {
+        // Auto-generate OPTIONS based on available handlers (no per-slot
+        // middleware possible here since the user did not declare a slot).
+        routes.push({
+          method: 'OPTIONS',
+          path: basePath,
+          operation: 'options',
+          resource: name,
+          isAction: false,
+          handler: createAutoOptionsRoute(name, handlers, config),
+          middleware: composeRouteMiddleware(config, undefined),
+        })
+      }
     }
 
     // Custom actions
@@ -276,6 +344,7 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: true,
           handler: createActionRoute(name, actionName, action, config),
+          middleware: composeRouteMiddleware(config, action.middleware),
         })
       }
     }

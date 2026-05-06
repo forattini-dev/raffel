@@ -126,6 +126,199 @@ describe('Resource files via HTTP override middleware (issue #100)', () => {
     expect(del?.httpPath).toBe('/users/:id')
   })
 
+  it('per-action middleware composes after config.middleware (issue #115)', async () => {
+    // One global middleware (A) gates every action; one per-action
+    // middleware (B) gates only `create`. `list` and `get` should run A but
+    // never B; `create` should run A then B; if B rejects, the create
+    // handler must never execute.
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'raffel-resource-mw-'))
+    await mkdir(path.join(tempDir, 'src', 'resources'), { recursive: true })
+
+    const resource = `
+const calls = []
+globalThis.__raffelMwCalls__ = calls
+
+const tag = (ctx) => (ctx?.http?.path ?? '') + ' ' + (ctx?.http?.method ?? '')
+const requireAuth = async (ctx, next) => {
+  calls.push('A:' + tag(ctx))
+  return next()
+}
+
+const requireAdmin = async (ctx, next) => {
+  calls.push('B:' + tag(ctx))
+  if (ctx?.http?.headers?.['x-role'] !== 'admin') {
+    const err = new Error('forbidden')
+    err.status = 403
+    err.code = 'FORBIDDEN'
+    throw err
+  }
+  return next()
+}
+
+export const config = { basePath: '/things', middleware: [requireAuth] }
+
+const store = new Map()
+let next = 1
+
+export const list = async () => Array.from(store.values())
+export const get = async (id) => store.get(id) ?? null
+
+export const create = {
+  middleware: [requireAdmin],
+  handler: async (data) => {
+    const id = String(next++)
+    const thing = { id, ...data }
+    store.set(id, thing)
+    return thing
+  },
+}
+`
+
+    await writeFile(path.join(tempDir, 'src', 'resources', 'things.js'), resource)
+
+    const discovery = await loadDiscovery({
+      baseDir: tempDir,
+      discovery: { resources: true },
+      extensions: ['.js'],
+    })
+
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' })
+    server.addDiscovery(discovery)
+    await server.start()
+
+    const calls = (globalThis as { __raffelMwCalls__?: string[] }).__raffelMwCalls__ ?? []
+    calls.length = 0
+
+    const base = `http://127.0.0.1:${port}`
+
+    // GET /things (list) — only A runs
+    const listRes = await fetch(`${base}/things`)
+    expect(listRes.status).toBe(200)
+
+    // GET /things/missing — only A runs
+    await fetch(`${base}/things/missing`)
+
+    // POST /things without admin header — A runs, B rejects
+    const createForbidden = await fetch(`${base}/things`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'x' }),
+    })
+    expect(createForbidden.status).toBe(403)
+
+    // POST /things with admin header — A then B then handler
+    const createOk = await fetch(`${base}/things`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-role': 'admin' },
+      body: JSON.stringify({ name: 'ok' }),
+    })
+    expect(createOk.status).toBeLessThan(300)
+    expect(await createOk.json()).toMatchObject({ name: 'ok' })
+
+    // A must have run on every operation (4 requests)
+    const aCalls = calls.filter((c) => c.startsWith('A:'))
+    expect(aCalls.length).toBe(4)
+
+    // B must have run only on the two POST /things attempts
+    const bCalls = calls.filter((c) => c.startsWith('B:'))
+    expect(bCalls.length).toBe(2)
+
+    // Read-side ops must not see B at all
+    const bList = calls.filter((c) => c.startsWith('B:') && c.endsWith('GET'))
+    expect(bList).toEqual([])
+  })
+
+  it('per-action middleware on actions{} entry only runs for that action', async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'raffel-resource-actions-mw-'))
+    await mkdir(path.join(tempDir, 'src', 'resources'), { recursive: true })
+
+    const resource = `
+const calls = []
+globalThis.__raffelActionMw__ = calls
+
+const tagOf = (ctx) => (ctx?.http?.path ?? '') + ' ' + (ctx?.http?.method ?? '')
+const requireAuth = async (ctx, next) => { calls.push('A:' + tagOf(ctx)); return next() }
+const requireAdmin = async (ctx, next) => {
+  calls.push('B:' + tagOf(ctx))
+  if (ctx?.http?.headers?.['x-role'] !== 'admin') {
+    const e = new Error('forbidden'); e.status = 403; e.code = 'FORBIDDEN'; throw e
+  }
+  return next()
+}
+
+export const config = { basePath: '/teams', middleware: [requireAuth] }
+
+const members = new Map([['t1', ['ada']]])
+
+export const get = async (id) => ({ id, members: members.get(id) ?? [] })
+
+export const actions = {
+  members: {
+    method: 'GET',
+    collection: false,
+    handler: async (_input, id) => members.get(id) ?? [],
+  },
+  invite: {
+    method: 'POST',
+    collection: false,
+    middleware: [requireAdmin],
+    handler: async (data, id) => {
+      const list = members.get(id) ?? []
+      list.push(data?.user ?? 'unknown')
+      members.set(id, list)
+      return { ok: true, members: list }
+    },
+  },
+}
+`
+
+    await writeFile(path.join(tempDir, 'src', 'resources', 'teams.js'), resource)
+
+    const discovery = await loadDiscovery({
+      baseDir: tempDir,
+      discovery: { resources: true },
+      extensions: ['.js'],
+    })
+
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' })
+    server.addDiscovery(discovery)
+    await server.start()
+
+    const calls = (globalThis as { __raffelActionMw__?: string[] }).__raffelActionMw__ ?? []
+    calls.length = 0
+
+    const base = `http://127.0.0.1:${port}`
+
+    // members action: only A
+    const m = await fetch(`${base}/teams/t1/members`)
+    expect(m.status).toBe(200)
+
+    // invite without admin: A then B (rejects)
+    const inviteForbidden = await fetch(`${base}/teams/t1/invite`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user: 'lin' }),
+    })
+    expect(inviteForbidden.status).toBe(403)
+
+    // invite with admin: A then B then handler
+    const inviteOk = await fetch(`${base}/teams/t1/invite`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-role': 'admin' },
+      body: JSON.stringify({ user: 'lin' }),
+    })
+    expect(inviteOk.status).toBeLessThan(300)
+
+    // members action must NOT have triggered B
+    expect(calls.filter((c) => c.startsWith('B:') && c.includes('/members')).length).toBe(0)
+    // invite must have triggered B twice (once forbidden, once admin)
+    expect(calls.filter((c) => c.startsWith('B:') && c.includes('/invite')).length).toBe(2)
+    // A must have run on every request (members + 2x invite = 3)
+    expect(calls.filter((c) => c.startsWith('A:')).length).toBe(3)
+  })
+
   it('responds end-to-end on the auto-CRUD HTTP routes', async () => {
     tempDir = await createResourceFixture()
     const discovery = await loadDiscovery({
