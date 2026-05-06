@@ -14,6 +14,15 @@
     "actions": { "type": "array", "items": { "type": "string" } },
     "resources": { "type": "array", "items": { "type": "string" } },
     "match": { "$ref": "#/definitions/MatchNode" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "routes": { "type": "array", "items": { "type": "string" } },
+        "channels": { "type": "array", "items": { "type": "string" } },
+        "protocols": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "customCondition": { "type": "string", "minLength": 1 },
     "_source": { "type": "string" },
     "_index": { "type": "integer" }

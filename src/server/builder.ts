@@ -522,10 +522,12 @@ export function createServer(options: ServerOptions): RaffelServer {
             policyBootstrap.engine.addPolicies(policies)
           }
           const principal = await policyBootstrap.resolvePrincipal(ctx)
+          const ctxProtocol = (ctx as { protocol?: unknown }).protocol
           const decision = await policyBootstrap.engine.evaluate({
             principal,
             action: channelName,
             resource: { type: 'channel', id: channelName, tenantId: principal.tenantId },
+            protocol: typeof ctxProtocol === 'string' ? ctxProtocol : 'websocket',
           })
           return decision.allowed
         }

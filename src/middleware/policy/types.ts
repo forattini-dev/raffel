@@ -56,6 +56,32 @@ export interface AuthzInput {
   action: string
   resource: Resource
   context?: EvalContext
+  /**
+   * Transport that delivered the request: `'http'`, `'ws'`, `'grpc'`,
+   * `'jsonrpc'`, `'tcp'`, `'udp'`, etc. When present, policies declaring a
+   * `scope.protocols` filter must match this value (glob comparison).
+   */
+  protocol?: string
+}
+
+/**
+ * Optional applicability scope. When any field is present, the policy is
+ * considered only for inputs whose corresponding facet matches at least one
+ * pattern. All declared facets must match (implicit AND); facets that are
+ * not declared are not filtered. Patterns are the same glob form used by
+ * `principals`/`actions`/`resources`.
+ *
+ * `routes` and `channels` are sugar over the existing `actions` patterns —
+ * they match against `AuthzInput.action`. Declaring both is fine; they OR
+ * together within their own facet but each facet still ANDs with the others.
+ */
+export interface PolicyScope {
+  /** Match against the procedure/route name (i.e. `AuthzInput.action`). */
+  routes?: string[]
+  /** Match against the channel name (also `AuthzInput.action` for channels). */
+  channels?: string[]
+  /** Match against the transport name (`AuthzInput.protocol`). */
+  protocols?: string[]
 }
 
 // ============================================================================
@@ -93,6 +119,12 @@ export interface Policy {
    * BOTH must pass (implicit AND).
    */
   match?: MatchNode
+  /**
+   * Optional applicability filter (`scope.protocols`, `scope.routes`,
+   * `scope.channels`). When set, the policy is skipped entirely for inputs
+   * that do not match. See `PolicyScope`.
+   */
+  scope?: PolicyScope
   /** @internal Source path — populated by the loader for diagnostics. */
   _source?: string
   /** @internal Index within source — populated by the loader. */
@@ -110,6 +142,9 @@ export interface CompiledPolicyPatterns {
   principals: readonly RegExp[]
   actions: readonly RegExp[]
   resources: readonly RegExp[]
+  scopeRoutes?: readonly RegExp[]
+  scopeChannels?: readonly RegExp[]
+  scopeProtocols?: readonly RegExp[]
 }
 
 /**
