@@ -90,6 +90,7 @@ Authentication says *who* the request is. Policies say *what* they're allowed to
 | **[Guide](../guides/policies.md)** | First read. Concepts, lifecycle, quickstart, policy anatomy, examples, debugging — everything you need to ship. |
 | **[Match DSL Reference](./match-dsl.md)** | When writing complex `match` conditions. Every operator, every path form. |
 | **[Patterns & Recipes](./patterns.md)** | Looking for a solution to a specific problem (RBAC, multi-tenant, owner-or-admin, shadow rollout, emergency revocation, etc.). |
+| **[Co-located policies](./co-located.md)** | Drop a `<handler>.policy.{yaml,json}` next to a discovered handler — no manual wiring. |
 | **[API Reference](../reference/policies-api.md)** | Type signatures, config options, builder methods. |
 
 ## Related

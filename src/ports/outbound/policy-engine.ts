@@ -27,6 +27,13 @@ export interface PolicyEnginePort extends PolicyEnginePortLike {
   evaluate(input: AuthzInput): Decision | Promise<Decision>
   /** Read-only snapshot of all currently loaded policies. */
   list(): readonly Policy[]
+  /**
+   * Optional: append policies discovered after engine creation (e.g. from
+   * co-located policy files surfaced by FS discovery). Implementations that
+   * cannot accept new policies post-construction MAY omit this method; the
+   * server logs a warning and skips co-located bridging when absent.
+   */
+  addPolicies?(policies: readonly Policy[]): void
 }
 
 export type {

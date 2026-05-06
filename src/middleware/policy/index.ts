@@ -48,6 +48,26 @@ export type { PolicyCtxHelpers } from './ctx-helpers.js'
 export { loadPoliciesFromDir, mergePolicies } from './loader.js'
 export type { LoadOptions, LoadResult } from './loader.js'
 
+// Co-located policy discovery (sibling `<file>.policy.{yaml,yml,json}`)
+export {
+  resolveCoLocatedPolicies,
+  siblingPolicyCandidates,
+  handlerBaseKey,
+  policyFileBaseKey,
+} from './co-located/resolver.js'
+export type {
+  RouteDescriptor as CoLocatedRouteDescriptor,
+  PolicyFileDescriptor as CoLocatedPolicyFileDescriptor,
+  PolicyFileKind as CoLocatedPolicyFileKind,
+  PolicySource as CoLocatedPolicySource,
+  RoutePolicyDescriptor as CoLocatedRoutePolicyDescriptor,
+} from './co-located/resolver.js'
+export { loadCoLocatedPolicies } from './co-located/loader.js'
+export type {
+  CoLocatedLoadOptions,
+  CoLocatedLoadResult,
+} from './co-located/loader.js'
+
 // Types
 export type {
   AuthzInput,

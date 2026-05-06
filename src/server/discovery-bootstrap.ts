@@ -7,6 +7,7 @@
 import type {
   DiscoveryWatcher,
   DiscoveryConfig,
+  DiscoveryLoaderOptions,
 } from './fs-routes/index.js'
 import { createDiscoveryWatcher } from './fs-routes/index.js'
 
@@ -24,6 +25,7 @@ export interface DiscoveryBootstrapOptions {
   onLoad: (stats: DiscoveryResult['stats']) => void
   onReload: (result: DiscoveryResult) => Promise<void> | void
   onError: (err: Error) => void
+  coLocatedPolicies?: DiscoveryLoaderOptions['coLocatedPolicies']
 }
 
 export function createDiscoveryBootstrap({
@@ -32,6 +34,7 @@ export function createDiscoveryBootstrap({
   onLoad,
   onReload,
   onError,
+  coLocatedPolicies,
 }: DiscoveryBootstrapOptions): DiscoveryBootstrap {
   if (!discovery) {
     return {
@@ -48,6 +51,7 @@ export function createDiscoveryBootstrap({
   const watcher = createDiscoveryWatcher({
     discovery: normalizedDiscovery,
     hotReload,
+    coLocatedPolicies,
     onLoad: (stats) => {
       onLoad(stats)
     },

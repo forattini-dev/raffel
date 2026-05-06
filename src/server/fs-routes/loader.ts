@@ -4,8 +4,11 @@
  * Auto-discovers and loads handlers from the file system.
  */
 
-import { join, relative, parse as parsePath, extname } from 'node:path'
+import { join, relative, parse as parsePath, extname, isAbsolute } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
+import { loadCoLocatedPolicies } from '../../middleware/policy/co-located/loader.js'
+import { resolveCoLocatedPolicies } from '../../middleware/policy/co-located/resolver.js'
+import type { PolicyCondition } from '../../middleware/policy/types.js'
 import { createFileSystemDiscoverySource, type DiscoverySource, type DiscoverySourceFailure, type DiscoverySourceStats, type DiscoverySourceWalkResult } from './discovery-source.js'
 import { loadRestResources } from './rest/loader.js'
 import { loadResources } from './resources/loader.js'
@@ -175,11 +178,17 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Normalize discovery config
   const config = normalizeDiscoveryConfig(options.discovery)
 
+  const coLocatedEnabled = options.coLocatedPolicies?.enabled !== false
+  const coLocatedCustomConditions = options.coLocatedPolicies?.customConditions
+
   // Load HTTP routes
   if (config.http) {
     const dir = resolveDir(baseDir, config.http, DEFAULTS.http)
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'procedure', extensions)
+      if (coLocatedEnabled) {
+        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions)
+      }
       routes.push(...loaded.routes)
       stats.http = loaded.routes.length
       stats.middlewares += loaded.middlewareCount
@@ -192,6 +201,9 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     const dir = resolveDir(baseDir, config.rpc, DEFAULTS.rpc)
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'procedure', extensions)
+      if (coLocatedEnabled) {
+        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions)
+      }
       routes.push(...loaded.routes)
       stats.rpc = loaded.routes.length
       stats.middlewares += loaded.middlewareCount
@@ -204,6 +216,9 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     const dir = resolveDir(baseDir, config.streams, DEFAULTS.streams)
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'stream', extensions)
+      if (coLocatedEnabled) {
+        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions)
+      }
       routes.push(...loaded.routes)
       stats.streams = loaded.routes.length
       stats.middlewares += loaded.middlewareCount
@@ -327,7 +342,7 @@ function normalizeDiscoveryConfig(config: DiscoveryConfig | boolean): DiscoveryC
 function resolveDir(baseDir: string, config: string | boolean, defaultPath: string): string | null {
   if (config === false) return null
   if (config === true) return join(baseDir, defaultPath)
-  return join(baseDir, config)
+  return isAbsolute(config) ? config : join(baseDir, config)
 }
 
 /**
@@ -691,6 +706,40 @@ function parseRoutePath(relativePath: string): ParsedRoute {
     segments,
     params,
     name: routeName,
+  }
+}
+
+/**
+ * Read sibling `<handler>.policy.{yaml,yml,json}` files for each route and
+ * attach the parsed policies to the route descriptor. Throws on parse or
+ * schema errors so authors fix issues at startup.
+ */
+async function attachCoLocatedPolicies(
+  source: DiscoverySource,
+  routes: LoadedRoute[],
+  customConditions: Record<string, PolicyCondition> | undefined,
+): Promise<void> {
+  if (routes.length === 0) return
+  const { files } = await loadCoLocatedPolicies({
+    source,
+    handlerFilePaths: routes.map((r) => r.filePath),
+    customConditions,
+  })
+  if (files.length === 0) return
+
+  const descriptors = resolveCoLocatedPolicies(
+    routes.map((r) => ({ name: r.name, filePath: r.filePath })),
+    files,
+  )
+  const byPath = new Map(descriptors.map((d) => [d.filePath, d]))
+  for (const route of routes) {
+    const desc = byPath.get(route.filePath)
+    if (!desc || desc.policies.length === 0) continue
+    route.coLocatedPolicies = desc.policies
+    logger.debug(
+      { name: route.name, count: desc.policies.length, sources: desc.sources.map((s) => s.filePath) },
+      'Attached co-located policies',
+    )
   }
 }
 
