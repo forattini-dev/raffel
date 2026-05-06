@@ -45,6 +45,10 @@ import {
   type WebSocketConnectionFilter,
 } from './utils/connection-filter.js'
 import {
+  validateChannelName,
+  type ChannelNameValidationOptions,
+} from './utils/channel-name.js'
+import {
   handleCancelMessage as sharedHandleCancelMessage,
   cleanupClientConnections,
 } from './utils/cancel-handler.js'
@@ -119,6 +123,32 @@ export function createWebSocketAdapter(
   // Ensure ticket store exists for ticket mode
   if (authConfig?.mode === 'ticket' && !authConfig.ticketStore) {
     authConfig.ticketStore = createMemoryTicketStore()
+  }
+
+  // Channel name validation — reject CRLF/NUL/`;` and other unsafe chars
+  // before they reach the registry, the policy engine, metrics, or logs.
+  const channelNameValidation: ChannelNameValidationOptions | undefined =
+    options.channels?.nameValidation
+
+  /**
+   * Validate a client-supplied channel name. On failure: close the socket
+   * with code 1008 (Policy Violation) and a documented reason; the
+   * registry, the policy engine, and the metrics counter never observe
+   * the malformed name.
+   *
+   * Returns true if the name is safe to forward downstream.
+   */
+  function ensureValidChannelName(
+    client: ClientConnection,
+    name: unknown,
+  ): boolean {
+    const result = validateChannelName(name, channelNameValidation)
+    if (result.ok) return true
+    logger.warn({ clientId: client.id, reason: result.reason }, 'Rejected channel name')
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.close(1008, `Invalid channel name: ${result.reason}`)
+    }
+    return false
   }
 
   // Recovery store (only when channels + recovery are enabled)
@@ -343,23 +373,43 @@ export function createWebSocketAdapter(
     )
 
     switch (messageType) {
-      case 'subscribe':
-        await handleSubscribe(client, parsed as SubscribeMessage, ctx)
+      case 'subscribe': {
+        const msg = parsed as SubscribeMessage
+        if (!ensureValidChannelName(client, msg.channel)) return true
+        await handleSubscribe(client, msg, ctx)
         return true
-      case 'unsubscribe':
-        handleUnsubscribe(client, parsed as UnsubscribeMessage, ctx)
+      }
+      case 'unsubscribe': {
+        const msg = parsed as UnsubscribeMessage
+        if (!ensureValidChannelName(client, msg.channel)) return true
+        handleUnsubscribe(client, msg, ctx)
         return true
-      case 'publish':
-        await handlePublish(client, parsed as PublishMessage, ctx)
+      }
+      case 'publish': {
+        const msg = parsed as PublishMessage
+        if (!ensureValidChannelName(client, msg.channel)) return true
+        await handlePublish(client, msg, ctx)
         return true
-      case 'subscribe:batch':
-        await handleBatchSubscribe(client, parsed as unknown as BatchSubscribeMessage, ctx)
+      }
+      case 'subscribe:batch': {
+        const msg = parsed as unknown as BatchSubscribeMessage
+        for (const entry of msg.channels ?? []) {
+          if (!ensureValidChannelName(client, entry?.channel)) return true
+        }
+        await handleBatchSubscribe(client, msg, ctx)
         return true
-      case 'publish:batch':
-        await handleBatchPublish(client, parsed as unknown as BatchPublishMessage, ctx)
+      }
+      case 'publish:batch': {
+        const msg = parsed as unknown as BatchPublishMessage
+        for (const entry of msg.messages ?? []) {
+          if (!ensureValidChannelName(client, entry?.channel)) return true
+        }
+        await handleBatchPublish(client, msg, ctx)
         return true
+      }
       case 'typing': {
         const msg = parsed as unknown as TypingMessage
+        if (!ensureValidChannelName(client, msg.channel)) return true
         channelManager.handleTyping(client.id, msg.channel, msg.isTyping)
         return true
       }
