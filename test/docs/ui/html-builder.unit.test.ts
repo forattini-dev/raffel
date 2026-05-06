@@ -75,6 +75,7 @@ describe('Documentation UI HTML builder', () => {
       escapeJsonForScript([]),
       escapeJsonForScript({ '/old': '/new' }),
       escapeJsonForScript([]),
+      escapeJsonForScript([]),
       escapeJsonForScript('/docs/-/assets'),
       escapeJsonForScript(null),
       escapeJsonForScript({}),
@@ -99,6 +100,7 @@ describe('Documentation UI HTML builder', () => {
     expect(script).toContain('function parseMarkdown(md)')
     expect(script).toContain('docsAliases: {"/old":"/new"},')
     expect(script).toContain('searchIndex: [],')
+    expect(script).toContain('docsSidebar: [],')
     expect(script).toContain('docsAssetBasePath: "/docs/-/assets",')
     expect(script).toContain('markdownConfig: {}')
     expect(script).toContain('function getEndpointsForProtocol(protocol)')
@@ -134,6 +136,7 @@ describe('Documentation UI HTML builder', () => {
       },
       ui: {
         assets: { mode: 'external' },
+        customCss: '/docs/-/assets/custom.css',
         navbar: [
           { title: 'Guide', href: '#/quickstart' },
           { title: 'More', children: [{ title: 'API', href: '#/api' }] },
@@ -142,7 +145,9 @@ describe('Documentation UI HTML builder', () => {
     })
 
     expect(html).toContain('<link rel="stylesheet" href="/docs/-/raffel-docs.css">')
+    expect(html).toContain('<link rel="stylesheet" href="/docs/-/assets/custom.css" data-raffel-custom-css>')
     expect(html).toContain('<script src="/docs/-/marked.umd.js"></script>')
+    expect(html).toContain('<script src="/docs/-/prism.js"></script>')
     expect(html).toContain('<script type="module" src="/docs/-/raffel-docs.js"></script>')
     expect(html).toContain('<details class="top-nav-menu"')
     expect(html).toContain('<div class="top-nav-submenu"><a class="top-nav-link" href="#/api">API</a></div>')
@@ -180,6 +185,9 @@ describe('Documentation UI HTML builder', () => {
     expect(runtime).toContain('function renderDocsPagination(main, page)')
     expect(runtime).toContain('function extractSidebarHeadings(markdown)')
     expect(runtime).toContain('function renderMermaidDiagrams(root = document)')
+    expect(runtime).toContain('function highlightCodeBlocks(root = document)')
+    expect(runtime).toContain('function appendDeclarativeSidebarItem')
+    expect(runtime).toContain('docsSidebar')
     expect(runtime).toContain('function installDocsPluginApi()')
     expect(runtime).toContain('window.RaffelDocs')
     expect(runtime).toContain('navigator.clipboard')
@@ -196,6 +204,8 @@ describe('Documentation UI HTML builder', () => {
     expect(css).toContain('--primary-color: #336699;')
     expect(css).toContain('--text-primary: #1f2937;')
     expect(css).toContain('[data-theme="dark"]')
+    expect(css).toContain('[data-theme="custom"]')
+    expect(css).toContain('.token.keyword')
     expect(css).toContain('--bg-tertiary: #1e293b;')
     expect(css).toContain('.skip-link')
     expect(css).toContain('.top-nav-submenu')
@@ -249,6 +259,10 @@ describe('Documentation UI HTML builder', () => {
       new URL('../../../src/docs/ui/runtime/protocol-console.ts', import.meta.url),
       'utf8'
     )
+    const sidebarTreeSource = readFileSync(
+      new URL('../../../src/docs/ui/runtime/sidebar-tree.ts', import.meta.url),
+      'utf8'
+    )
 
     expect(runtimeSource).toContain('function renderTable()')
     expect(runtimeSource).toContain('function renderTabs()')
@@ -285,6 +299,12 @@ describe('Documentation UI HTML builder', () => {
     expect(runtimeSource).toContain('markdownConfig.autoHeader')
     expect(runtimeSource).toContain('themeStorageKey')
     expect(runtimeSource).toContain("win.localStorage?.setItem?.(themeStorageKey, next)")
+    expect(runtimeSource).toContain('const docsSidebar = Array.isArray(data.docsSidebar)')
+    expect(runtimeSource).toContain("import { appendDeclarativeSidebar")
+    expect(sidebarTreeSource).toContain('function appendSidebarItem')
+    expect(sidebarTreeSource).toContain("group.className = `tag-group docs-sidebar-group")
+    expect(runtimeSource).toContain('function highlightCodeBlocks')
+    expect(runtimeSource).toContain('data-syntax-highlight')
     expect(runtimeSource).toContain('function getExternalLinkTarget')
     expect(runtimeSource).toContain('function isNoCompileLink')
     expect(runtimeSource).toContain('IMPORTANT|CAUTION')

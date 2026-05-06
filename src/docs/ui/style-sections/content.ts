@@ -248,6 +248,78 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       white-space: pre;
     }
 
+    .markdown-content .token.comment,
+    .markdown-content .token.prolog,
+    .markdown-content .token.doctype,
+    .markdown-content .token.cdata {
+      color: var(--text-muted);
+    }
+
+    .markdown-content .token.punctuation {
+      color: var(--text-secondary);
+    }
+
+    .markdown-content .token.property,
+    .markdown-content .token.tag,
+    .markdown-content .token.boolean,
+    .markdown-content .token.number,
+    .markdown-content .token.constant,
+    .markdown-content .token.symbol {
+      color: #b45309;
+    }
+
+    .markdown-content .token.selector,
+    .markdown-content .token.attr-name,
+    .markdown-content .token.string,
+    .markdown-content .token.char,
+    .markdown-content .token.builtin {
+      color: #047857;
+    }
+
+    .markdown-content .token.operator,
+    .markdown-content .token.entity,
+    .markdown-content .token.url,
+    .markdown-content .token.variable {
+      color: #0f766e;
+    }
+
+    .markdown-content .token.atrule,
+    .markdown-content .token.attr-value,
+    .markdown-content .token.function,
+    .markdown-content .token.class-name {
+      color: #2563eb;
+    }
+
+    .markdown-content .token.keyword {
+      color: #7c3aed;
+    }
+
+    [data-theme="dark"] .markdown-content .token.property,
+    [data-theme="dark"] .markdown-content .token.tag,
+    [data-theme="dark"] .markdown-content .token.boolean,
+    [data-theme="dark"] .markdown-content .token.number,
+    [data-theme="dark"] .markdown-content .token.constant,
+    [data-theme="dark"] .markdown-content .token.symbol {
+      color: #fcd34d;
+    }
+
+    [data-theme="dark"] .markdown-content .token.selector,
+    [data-theme="dark"] .markdown-content .token.attr-name,
+    [data-theme="dark"] .markdown-content .token.string,
+    [data-theme="dark"] .markdown-content .token.char,
+    [data-theme="dark"] .markdown-content .token.builtin {
+      color: #86efac;
+    }
+
+    [data-theme="dark"] .markdown-content .token.function,
+    [data-theme="dark"] .markdown-content .token.class-name {
+      color: #93c5fd;
+    }
+
+    [data-theme="dark"] .markdown-content .token.keyword {
+      color: #c4b5fd;
+    }
+
     .markdown-content .mermaid {
       margin: 16px 0;
       padding: 16px;

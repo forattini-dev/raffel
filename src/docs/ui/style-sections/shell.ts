@@ -45,6 +45,29 @@ export function generateShellStyles(
       --hover-bg: rgba(99, 102, 241, 0.15);
     }
 
+    [data-theme="custom"] {
+      --primary-color: var(--raffel-primary-color, ${primaryColor});
+      --primary-hover: var(--raffel-primary-hover, ${primaryHover});
+      --bg-color: var(--raffel-bg-color, #ffffff);
+      --bg-primary: var(--raffel-bg-primary, var(--raffel-bg-color, #ffffff));
+      --bg-secondary: var(--raffel-bg-secondary, #f8fafc);
+      --bg-tertiary: var(--raffel-bg-tertiary, #f1f5f9);
+      --surface-color: var(--raffel-surface-color, #f8fafc);
+      --text-color: var(--raffel-text-color, #1f2937);
+      --text-primary: var(--raffel-text-primary, var(--raffel-text-color, #1f2937));
+      --text-secondary: var(--raffel-text-secondary, #475569);
+      --text-muted: var(--raffel-text-muted, #6b7280);
+      --border-color: var(--raffel-border-color, #e5e7eb);
+      --border: var(--raffel-border, var(--raffel-border-color, #e5e7eb));
+      --accent: var(--raffel-accent, var(--raffel-primary-color, ${primaryColor}));
+      --code-bg: var(--raffel-code-bg, #f3f4f6);
+      --sidebar-bg: var(--raffel-sidebar-bg, #f9fafb);
+      --hover-bg: var(--raffel-hover-bg, rgba(99, 102, 241, 0.08));
+      --code-panel-bg: var(--raffel-code-panel-bg, #263238);
+      --code-panel-text: var(--raffel-code-panel-text, #cfd8dc);
+      --code-panel-header: var(--raffel-code-panel-header, #37474f);
+    }
+
     @media (prefers-color-scheme: dark) {
       [data-theme="auto"] {
         --bg-color: #0f172a;

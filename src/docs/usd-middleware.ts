@@ -39,7 +39,7 @@ function readBuiltDocsRuntime(): string | null {
   return readBuiltDocsUIAsset('raffel-docs.js')
 }
 
-function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'protocol-console.js' | 'marked.umd.js'): string | null {
+function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'protocol-console.js' | 'sidebar-tree.js' | 'marked.umd.js' | 'prism.js'): string | null {
   const assetUrl = new URL(`./ui/assets/${fileName}`, import.meta.url)
   if (!existsSync(assetUrl)) return null
   return readFileSync(assetUrl, 'utf8')
@@ -157,10 +157,11 @@ export interface USDMiddlewareConfig {
 
   /** UI configuration */
   ui?: {
-    theme?: 'light' | 'dark' | 'auto'
+    theme?: 'light' | 'dark' | 'custom' | 'auto'
     primaryColor?: string
     logo?: string
     favicon?: string
+    customCss?: string | string[]
     tryItOut?: boolean
     codeGeneration?: {
       enabled?: boolean
@@ -202,6 +203,8 @@ export interface USDMiddlewareConfig {
       docsPages?: boolean
       /** Hide the sidebar entirely */
       hide?: boolean
+      /** Declarative sidebar tree. Order and hierarchy are preserved as declared. */
+      items?: Array<{ title: string; path?: string; href?: string; children?: Array<{ title: string; path?: string; href?: string; children?: any[] }> }>
       /** file-backed Markdown heading depth to include under the active docs page */
       subMaxLevel?: number
     }
@@ -288,10 +291,14 @@ export interface USDHandlers {
   serveUIRuntime: () => Response
   /** Serve reusable Markdown engine support asset */
   serveUIMarkdownEngine: () => Response
+  /** Serve reusable Prism.js syntax highlighter asset */
+  serveUISyntaxHighlighter: () => Response
   /** Serve reusable Markdown renderer bridge */
   serveUIMarkdownRenderer: () => Response
   /** Serve reusable protocol console bridge */
   serveUIProtocolConsole: () => Response
+  /** Serve reusable declarative sidebar runtime bridge */
+  serveUISidebarTree: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
@@ -501,6 +508,13 @@ export function createUSDHandlers(
       },
     }),
 
+    serveUISyntaxHighlighter: () => new Response(readBuiltDocsUIAsset('prism.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
     serveUIMarkdownRenderer: () => new Response(readBuiltDocsUIAsset('marked-renderer.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
@@ -509,6 +523,13 @@ export function createUSDHandlers(
     }),
 
     serveUIProtocolConsole: () => new Response(readBuiltDocsUIAsset('protocol-console.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
+    serveUISidebarTree: () => new Response(readBuiltDocsUIAsset('sidebar-tree.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
         'Cache-Control': 'public, max-age=3600',

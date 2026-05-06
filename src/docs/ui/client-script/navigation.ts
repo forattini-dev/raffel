@@ -17,7 +17,7 @@ export const navigationClientScript = String.raw`    // Search functionality
       themeToggle.addEventListener('click', () => {
         const root = document.documentElement;
         const current = root.getAttribute('data-theme') || 'auto';
-        const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : 'auto';
+        const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : current === 'light' ? 'custom' : 'auto';
         root.setAttribute('data-theme', next);
         localStorage?.setItem?.('raffel-docs-theme', next);
       });
@@ -41,14 +41,15 @@ export const navigationClientScript = String.raw`    // Search functionality
     }, { passive: true });
 
     window.addEventListener('hashchange', () => {
-      activePagePath = normalizeDocsPath(location.hash && location.hash.startsWith('#/')
-        ? location.hash.slice(1)
-        : '');
+      const route = parseRouteHash();
+      activePagePath = route.pagePath;
+      activeHeadingId = route.headingId;
       activePagePath = resolveDocsAlias(activePagePath);
       runVoidHook('onRouteChange', getPluginContext({ pagePath: activePagePath }));
       unmountDocsComponents(document.getElementById('mainContent'));
       renderSidebar();
       renderContent();
+      highlightCodeBlocks(document.getElementById('mainContent'));
       renderMermaidDiagrams();
       mountDocsComponents(document.getElementById('mainContent'));
     });
@@ -71,6 +72,7 @@ export const navigationClientScript = String.raw`    // Search functionality
     function setProtocol(protocol) {
       activeProtocol = protocol;
       activePagePath = '';
+      activeHeadingId = '';
       if (location.hash && location.hash.startsWith('#/')) {
         history.replaceState(null, '', '#docs');
       }
@@ -78,21 +80,29 @@ export const navigationClientScript = String.raw`    // Search functionality
       renderProtocolTabs();
       renderSidebar();
       renderContent();
+      highlightCodeBlocks(document.getElementById('mainContent'));
       renderMermaidDiagrams();
       mountDocsComponents(document.getElementById('mainContent'));
     }
 
-    function setDocsPage(path) {
+    function setDocsPage(path, headingId) {
       activePagePath = resolveDocsAlias(normalizeDocsPath(path));
-      history.replaceState(null, '', '#' + activePagePath);
-      runVoidHook('onRouteChange', getPluginContext({ pagePath: activePagePath }));
+      activeHeadingId = headingId || '';
+      history.replaceState(null, '', '#' + activePagePath + (activeHeadingId ? '?id=' + encodeURIComponent(activeHeadingId) : ''));
+      runVoidHook('onRouteChange', getPluginContext({ pagePath: activePagePath, headingId: activeHeadingId }));
       unmountDocsComponents(document.getElementById('mainContent'));
       renderProtocolTabs();
       renderSidebar();
       renderContent();
+      highlightCodeBlocks(document.getElementById('mainContent'));
       renderMermaidDiagrams();
       mountDocsComponents(document.getElementById('mainContent'));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (activeHeadingId) {
+        const target = document.getElementById(activeHeadingId);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     }
 
     function renderSidebar() {
@@ -229,6 +239,10 @@ export const navigationClientScript = String.raw`    // Search functionality
 
     function renderDocsPagesNav(nav) {
       if (sidebarConfig.docsPages === false || !Array.isArray(docsPages) || docsPages.length === 0) return;
+      if (Array.isArray(docsSidebar) && docsSidebar.length > 0 && !searchQuery) {
+        renderDeclarativeDocsSidebar(nav);
+        return;
+      }
       const pages = getDocsPageViews();
       const filteredPages = searchQuery
         ? pages.filter(page =>
@@ -300,6 +314,95 @@ export const navigationClientScript = String.raw`    // Search functionality
         groupEl.appendChild(items);
         nav.appendChild(groupEl);
       });
+    }
+
+    function renderDeclarativeDocsSidebar(nav) {
+      docsSidebar.forEach(item => appendDeclarativeSidebarItem(nav, item, 0));
+    }
+
+    function appendDeclarativeSidebarItem(parent, item, depth) {
+      const children = Array.isArray(item.children) ? item.children : [];
+      const title = String(item.title || item.path || item.href || '');
+      if (!title) return;
+      const itemPath = item.path ? resolveDocsAlias(normalizeDocsPath(item.path)) : '';
+      const active = Boolean(itemPath && itemPath === activePagePath);
+      const expanded = sidebarConfig.expandAll === true || active || children.some(sidebarItemContainsActivePath);
+
+      if (children.length > 0) {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'tag-group docs-sidebar-group docs-sidebar-depth-' + depth + (expanded ? '' : ' collapsed');
+        const header = document.createElement('div');
+        header.className = 'tag-group-header' + (active ? ' active' : '');
+        header.innerHTML = '<span class="tag-group-arrow">▼</span>' + esc(title) +
+          '<span class="tag-group-count">' + countSidebarLeaves(children) + '</span>';
+        header.onclick = () => groupEl.classList.toggle('collapsed');
+        const items = document.createElement('div');
+        items.className = 'tag-group-items';
+        items.style.maxHeight = expanded ? (Math.max(1, countSidebarRows(children)) * 90) + 'px' : '0';
+        if (itemPath || item.href) {
+          items.appendChild(createDeclarativeSidebarPage(item, title, active, depth));
+          if (active && !searchQuery) appendActivePageHeadings(items, item.path || activePagePath);
+        }
+        children.forEach(child => appendDeclarativeSidebarItem(items, child, depth + 1));
+        groupEl.appendChild(header);
+        groupEl.appendChild(items);
+        parent.appendChild(groupEl);
+        return;
+      }
+
+      parent.appendChild(createDeclarativeSidebarPage(item, title, active, depth));
+      if (active && !searchQuery) appendActivePageHeadings(parent, item.path || activePagePath);
+    }
+
+    function createDeclarativeSidebarPage(item, title, active, depth) {
+      const el = document.createElement('div');
+      el.className = 'nav-item docs-page-nav-item docs-sidebar-page docs-sidebar-depth-' + depth + (active ? ' active' : '');
+      el.innerHTML = '<span class="nav-item-text">' + esc(title) + '</span>';
+      el.onclick = (event) => {
+        event.stopPropagation();
+        if (item.href && !item.path) {
+          if (/^(?:https?:)?\/\//i.test(item.href)) location.href = item.href;
+          else history.replaceState(null, '', item.href);
+          return;
+        }
+        if (item.path) setDocsPage(item.path);
+      };
+      return el;
+    }
+
+    function appendActivePageHeadings(parent, path) {
+      const page = getDocsPageViews().find(candidate => candidate.path === resolveDocsAlias(normalizeDocsPath(path)));
+      if (!page) return;
+      const headings = extractSidebarHeadings(page.markdown);
+      if (headings.length === 0) return;
+      const subItems = document.createElement('div');
+      subItems.className = 'nav-subitems';
+      headings.forEach(heading => {
+        const child = document.createElement('button');
+        child.type = 'button';
+        child.className = 'nav-subitem nav-subitem-level-' + heading.level + (heading.id === activeHeadingId ? ' active' : '');
+        child.textContent = heading.title;
+        child.onclick = (event) => {
+          event.stopPropagation();
+          setDocsPage(activePagePath || path, heading.id);
+        };
+        subItems.appendChild(child);
+      });
+      parent.appendChild(subItems);
+    }
+
+    function sidebarItemContainsActivePath(item) {
+      const itemPath = item.path ? resolveDocsAlias(normalizeDocsPath(item.path)) : '';
+      return Boolean(itemPath && itemPath === activePagePath) ||
+        (Array.isArray(item.children) && item.children.some(sidebarItemContainsActivePath));
+    }
+
+    function countSidebarLeaves(items) {
+      return items.reduce((count, item) => count + (Array.isArray(item.children) && item.children.length > 0 ? countSidebarLeaves(item.children) : 1), 0);
+    }
+
+    function countSidebarRows(items) {
+      return items.reduce((count, item) => count + 1 + (Array.isArray(item.children) ? countSidebarRows(item.children) : 0), 0);
     }
 
     function getMethodClass(method) {

@@ -181,6 +181,9 @@ export interface USDDocumentation {
   /** Markdown documentation pages rendered alongside generated API docs */
   pages?: USDDocumentationPage[]
 
+  /** Declarative sidebar tree. Order and hierarchy are preserved as declared. */
+  sidebar?: USDDocumentationSidebarItem[]
+
   /** Route aliases for preserving old docs links, for example { '/old': '/new' } */
   aliases?: Record<string, string>
 
@@ -198,6 +201,17 @@ export interface USDDocumentation {
 
   /** Footer markdown/text rendered after docs content */
   footer?: string
+}
+
+export interface USDDocumentationSidebarItem {
+  /** Label shown in the sidebar */
+  title: string
+  /** Hash route/path for Markdown pages, for example `/quickstart` */
+  path?: string
+  /** Raw href for external or non-page links */
+  href?: string
+  /** Nested groups or pages */
+  children?: USDDocumentationSidebarItem[]
 }
 
 /**

@@ -68,8 +68,10 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
       { method: 'GET', path: `${docsBasePath}/openapi.json`, handler: state.usdDocsHandlers.value.serveOpenAPI },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.js`, handler: state.usdDocsHandlers.value.serveUIRuntime },
       { method: 'GET', path: `${docsBasePath}/-/marked.umd.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownEngine },
+      { method: 'GET', path: `${docsBasePath}/-/prism.js`, handler: state.usdDocsHandlers.value.serveUISyntaxHighlighter },
       { method: 'GET', path: `${docsBasePath}/-/marked-renderer.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownRenderer },
       { method: 'GET', path: `${docsBasePath}/-/protocol-console.js`, handler: state.usdDocsHandlers.value.serveUIProtocolConsole },
+      { method: 'GET', path: `${docsBasePath}/-/sidebar-tree.js`, handler: state.usdDocsHandlers.value.serveUISidebarTree },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.css`, handler: state.usdDocsHandlers.value.serveUIStyles },
       { method: 'GET', path: `${docsBasePath}/-/assets`, prefix: true, handler: state.usdDocsHandlers.value.serveDocsAsset },
     ]))

@@ -61,6 +61,16 @@ export const initClientScript = String.raw`    // Render introduction markdown i
       });
     }
 
+    function highlightCodeBlocks(root = document) {
+      if (!window.Prism?.highlightElement) return;
+      const blocks = Array.from(root.querySelectorAll('pre code[class*="language-"]:not([data-prism-highlighted])'));
+      blocks.forEach(block => {
+        window.Prism.highlightElement(block);
+        block.dataset.prismHighlighted = 'true';
+      });
+      document.documentElement.setAttribute('data-syntax-highlight', 'prism');
+    }
+
     document.addEventListener('click', (event) => {
       const zoomClose = event.target.closest('.image-zoom-close');
       if (zoomClose || event.target.classList?.contains('image-zoom-overlay')) {
@@ -142,7 +152,7 @@ export const initClientScript = String.raw`    // Render introduction markdown i
     });
 
     const storedTheme = localStorage?.getItem?.('raffel-docs-theme');
-    if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light') {
+    if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light' || storedTheme === 'custom') {
       document.documentElement.setAttribute('data-theme', storedTheme);
     }
 
@@ -153,6 +163,7 @@ export const initClientScript = String.raw`    // Render introduction markdown i
     renderProtocolTabs();
     renderSidebar();
     renderContent();
+    highlightCodeBlocks(document.getElementById('mainContent'));
     renderMermaidDiagrams();
     mountDocsComponents(document.getElementById('mainContent'));
 `

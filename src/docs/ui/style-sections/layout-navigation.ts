@@ -167,6 +167,10 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       color: var(--text-color);
     }
 
+    .tag-group-header.active {
+      color: var(--primary-color);
+    }
+
     .tag-group-arrow {
       transition: transform 0.2s;
       font-size: 10px;
@@ -256,6 +260,13 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       color: var(--primary-color);
       font-weight: 600;
     }
+
+    .docs-sidebar-depth-1 { margin-left: 4px; }
+    .docs-sidebar-depth-2 { margin-left: 10px; }
+    .docs-sidebar-depth-3,
+    .docs-sidebar-depth-4,
+    .docs-sidebar-depth-5,
+    .docs-sidebar-depth-6 { margin-left: 16px; }
 
     .nav-item-intro {
       margin-bottom: 16px;

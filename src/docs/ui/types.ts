@@ -8,10 +8,12 @@
  * UI configuration options
  */
 export interface UIConfig {
-  theme?: 'light' | 'dark' | 'auto'
+  theme?: 'light' | 'dark' | 'custom' | 'auto'
   primaryColor?: string
   logo?: string
   favicon?: string
+  /** External CSS files loaded after the built-in stylesheet so they can override variables and component styles. */
+  customCss?: string | string[]
   tryItOut?: boolean
   codeGeneration?: {
     enabled?: boolean
@@ -71,8 +73,21 @@ export interface SidebarConfig {
   showCounts?: boolean
   docsPages?: boolean
   hide?: boolean
+  /** Declarative sidebar tree. Order is preserved exactly as declared. */
+  items?: DocsSidebarItem[]
   /** file-backed Markdown heading depth to include under the active docs page. */
   subMaxLevel?: number
+}
+
+/**
+ * Declarative sidebar item. Groups may contain nested children, while pages
+ * point at a hash-routed Markdown page path.
+ */
+export interface DocsSidebarItem {
+  title: string
+  path?: string
+  href?: string
+  children?: DocsSidebarItem[]
 }
 
 /**
