@@ -186,6 +186,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     const dir = resolveDir(baseDir, config.http, DEFAULTS.http)
     if (dir && await source.exists(dir)) {
       const loaded = await loadDirectory(source, dir, 'procedure', extensions)
+      applyHttpVerbConvention(loaded.routes)
       if (coLocatedEnabled) {
         await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
       }
@@ -715,6 +716,37 @@ function parseRoutePath(relativePath: string): ParsedRoute {
     segments,
     params,
     name: routeName,
+  }
+}
+
+const HTTP_VERB_SEGMENTS = new Set([
+  'get', 'post', 'put', 'patch', 'delete', 'head', 'options',
+])
+
+/**
+ * Apply Next.js-style verb convention to procedures discovered under the
+ * `http/` source: a route whose final segment is an HTTP verb (`users/get`,
+ * `users/:id/patch`) is rewritten to expose `httpMethod` (the verb) and
+ * `httpPath` (everything before the verb, prefixed with `/`).
+ *
+ * Operates only on routes whose meta does not already declare an explicit
+ * `httpMethod` — explicit `export const meta = { httpMethod, httpPath }`
+ * always wins.
+ */
+function applyHttpVerbConvention(routes: LoadedRoute[]): void {
+  for (const route of routes) {
+    if (route.meta?.httpMethod) continue
+    const segments = route.name.split('/')
+    if (segments.length < 1) continue
+    const last = segments[segments.length - 1]?.toLowerCase()
+    if (!last || !HTTP_VERB_SEGMENTS.has(last)) continue
+    const pathSegments = segments.slice(0, -1)
+    const httpPath = pathSegments.length === 0 ? '/' : `/${pathSegments.join('/')}`
+    route.meta = {
+      ...(route.meta ?? {}),
+      httpMethod: last.toUpperCase() as HandlerMeta['httpMethod'],
+      httpPath: route.meta?.httpPath ?? httpPath,
+    }
   }
 }
 
