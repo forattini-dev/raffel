@@ -154,11 +154,9 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       padding: 10px 12px;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      color: var(--text-secondary);
       transition: all 0.2s;
     }
 

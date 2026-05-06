@@ -16,8 +16,8 @@ export function generateShellStyles(
       --text-primary: #1f2937;
       --text-secondary: #475569;
       --text-muted: #6b7280;
-      --border-color: #e5e7eb;
-      --border: #e5e7eb;
+      --border-color: #d4d8df;
+      --border: #d4d8df;
       --accent: ${primaryColor};
       --code-bg: #f3f4f6;
       --sidebar-bg: #f9fafb;
@@ -25,6 +25,19 @@ export function generateShellStyles(
       --code-panel-bg: #263238;
       --code-panel-text: #cfd8dc;
       --code-panel-header: #37474f;
+
+      /* Type scale (#111 #3) — body 16 / small 14 / xs 12, headings descending */
+      --font-size-body: 16px;
+      --font-size-small: 14px;
+      --font-size-xs: 12px;
+      --font-size-h1: 36px;
+      --font-size-h2: 28px;
+      --font-size-h3: 22px;
+      --font-size-h4: 18px;
+      --font-size-h5: 16px;
+      --font-size-h6: 14px;
+      --line-height-body: 1.6;
+      --line-height-tight: 1.25;
     }
 
     [data-theme="dark"] {
@@ -37,8 +50,8 @@ export function generateShellStyles(
       --text-primary: #f8fafc;
       --text-secondary: #cbd5e1;
       --text-muted: #94a3b8;
-      --border-color: #334155;
-      --border: #334155;
+      --border-color: #475569;
+      --border: #475569;
       --accent: #a5b4fc;
       --code-bg: #1e293b;
       --sidebar-bg: #1e293b;
@@ -79,8 +92,8 @@ export function generateShellStyles(
         --text-primary: #f8fafc;
         --text-secondary: #cbd5e1;
         --text-muted: #94a3b8;
-        --border-color: #334155;
-        --border: #334155;
+        --border-color: #475569;
+        --border: #475569;
         --accent: #a5b4fc;
         --code-bg: #1e293b;
         --sidebar-bg: #1e293b;

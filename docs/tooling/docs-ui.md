@@ -1,5 +1,20 @@
 # Raffel Docs UI
 
+> **`mountUSDDocs` and `mountOpenApiDocs` are intentionally separate. Pick one based on what you ship.**
+
+Raffel has two documentation surfaces, and they target different consumers. They are not redundant — they sit side by side in many real projects and solve different problems. Use this matrix to pick:
+
+| You want… | Use | Lives in |
+|---|---|---|
+| ReDoc-style HTTP API reference, single-protocol, Swagger compatible | `mountOpenApiDocs(app, opts)` | `raffel/http` |
+| Multi-protocol reference (HTTP + WebSocket + gRPC + JSON-RPC + TCP + UDP) plus Markdown guides plus live protocol consoles | `mountUSDDocs(app, ctx, opts)` | `raffel/docs` |
+| Both, side by side (e.g. ReDoc at `/api`, USD at `/docs`) | Both — they don't conflict | — |
+| Just the spec endpoints with no UI | Either helper, or call the underlying generators directly (`generateOpenAPI`, `createUSDHandlers`) | — |
+
+The split is by *consumer*: ReDoc/Swagger are universally recognised and useful for HTTP-first APIs that are consumed by tools outside the Raffel ecosystem. USD docs are richer (everything the Raffel server registered shows up — including channels, streams, gRPC services, etc.) and were designed for projects that want a single-page docs site backed by the contract Raffel already knows about, including hand-written Markdown alongside.
+
+There is no `prefer="usd"` flag on `mountOpenApiDocs` (or vice versa) — they run on different paths, with different UIs, and a project that needs both mounts both. A project that doesn't need OpenAPI compatibility can skip `mountOpenApiDocs` entirely.
+
 Raffel has two documentation inputs that meet in one UI.
 
 USD/OpenAPI documentation is generated from the API contract registered in the server: procedures, REST resources, schemas, protocols, tags, security, streams, WebSocket channels, JSON-RPC, gRPC, TCP, and UDP. This is the source for `/docs/usd.json`, `/docs/usd.yaml`, `/docs/openapi.json`, and the generated API reference shown in `/docs`.
