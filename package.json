@@ -74,6 +74,10 @@
       "types": "./dist/inspect/index.d.ts",
       "import": "./dist/inspect/index.js"
     },
+    "./docs": {
+      "types": "./dist/docs/index.d.ts",
+      "import": "./dist/docs/index.js"
+    },
     "./docs/ui": {
       "types": "./dist/ui/docs/ui/index.d.ts",
       "import": "./dist/docs/ui/index.js"
