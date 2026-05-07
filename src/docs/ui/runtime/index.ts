@@ -3,6 +3,7 @@ import { appendProtocolConsole } from './protocol-console.js'
 import { appendDeclarativeSidebar, type RuntimeSidebarItem } from './sidebar-tree.js'
 import { enhanceCodeBlockToolbars } from './code-block-toolbar.js'
 import { flattenReadingOrder, prevNext, type PageNavEntry } from './page-nav.js'
+import { createDocsSearchModal } from './search-modal.js'
 type DocsPage = {
   title?: string
   path?: string
@@ -1635,16 +1636,6 @@ function bindEvents(): void {
   })
   doc?.addEventListener?.('keydown', (event: any) => {
     if (event.key === 'Escape') closeImageZoom()
-    const wantsSearch = event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey
-    const wantsCommandSearch = event.key?.toLowerCase?.() === 'k' && (event.ctrlKey || event.metaKey)
-    if (wantsSearch || wantsCommandSearch) {
-      const search = byId('searchInput')
-      if (search && doc?.activeElement !== search) {
-        event.preventDefault?.()
-        search.focus?.()
-        doc.documentElement?.setAttribute?.('data-search-focused', 'true')
-      }
-    }
   })
 }
 
@@ -1674,6 +1665,14 @@ function init(): void {
   bindEvents()
   renderFooter()
   render()
+  // Mount cmd+K / ctrl+K search modal (skipped when sidebar search is disabled).
+  const modal = createDocsSearchModal({
+    doc, win, enabled: sidebarConfig?.search !== false,
+    altShortcut: typeof sidebarConfig?.searchModalAltShortcut === 'string' ? String(sidebarConfig.searchModalAltShortcut) : '',
+    getEntries: () => searchIndex, scoreEntry: (entry, terms) => scoreSearchEntry(entry as any, terms),
+    getSearchTerms, esc, setDocsPage, normalizeDocsPath,
+  })
+  if (modal && win.RaffelDocs) win.RaffelDocs.searchModal = modal
 }
 
 function highlightCodeBlocks(root: any = doc): void {

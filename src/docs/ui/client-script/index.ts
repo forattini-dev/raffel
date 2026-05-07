@@ -110,7 +110,7 @@ function generateSharedRuntimeScript(): string | null {
   const runtimeDir = findRuntimeDir()
   if (!runtimeDir) return null
   const extension = existsSync(join(runtimeDir, 'index.js')) ? '.js' : '.ts'
-  const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'code-block-toolbar', 'page-nav', 'index']
+  const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'code-block-toolbar', 'page-nav', 'search-modal', 'index']
   const chunks: string[] = []
   for (const moduleName of modules) {
     const path = join(runtimeDir, `${moduleName}${extension}`)
