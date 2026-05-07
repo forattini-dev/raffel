@@ -10,6 +10,15 @@ type DocsPage = {
   section?: string
   order?: number
   updatedAt?: string
+  filePath?: string
+  editable?: boolean
+}
+type DocsRepoRuntimeConfig = {
+  base?: string
+  branch?: string
+  pathPrefix?: string
+  label?: string
+  editSegment?: string
 }
 type Endpoint = {
   id: string
@@ -24,6 +33,8 @@ type PageView = Required<Pick<DocsPage, 'title' | 'path' | 'markdown' | 'descrip
   order: number
   updatedAt?: string
   frontmatter: Record<string, string>
+  filePath?: string
+  editable?: boolean
 }
 type SearchIndexEntry = {
   kind?: 'page' | 'heading'
@@ -90,6 +101,7 @@ const docsAssetBasePath = String(data.docsAssetBasePath ?? '')
 const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
 const markdownConfig = data.markdownConfig ?? {}
+const docsRepoConfig = (data.docsRepoConfig ?? null) as DocsRepoRuntimeConfig | null
 const xUsd = spec['x-usd'] ?? {}
 const { websocket: wsSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
 const docsRouteBase = String(xUsd.documentation?.routeBase ?? '').replace(/^#/, '').replace(/\/+$/, '')
@@ -741,6 +753,7 @@ function firstMarkdownHeading(markdown: string): string {
 function getDocsPageView(page: DocsPage): PageView {
   const parsed = parsePageFrontmatter(page.markdown ?? '')
   const order = Number(parsed.data.order ?? page.order ?? 0)
+  const editableFlag = parseEditableFromFrontmatter(parsed.data.editable)
   return {
     title: parsed.data.title ?? page.title ?? firstMarkdownHeading(parsed.body) ?? page.path ?? 'Untitled',
     path: normalizeDocsPath(page.path ?? ''),
@@ -750,7 +763,17 @@ function getDocsPageView(page: DocsPage): PageView {
     order: Number.isFinite(order) ? order : 0,
     updatedAt: parsed.data.updatedAt ?? page.updatedAt,
     frontmatter: parsed.data,
+    filePath: page.filePath,
+    editable: editableFlag ?? page.editable,
   }
+}
+
+function parseEditableFromFrontmatter(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined
+  const normalized = String(value).trim().toLowerCase()
+  if (normalized === 'false') return false
+  if (normalized === 'true') return true
+  return undefined
 }
 
 function getDocsPageViews(): PageView[] {
@@ -768,6 +791,54 @@ function getDocsPageMarkdown(page: PageView): string {
   const markdown = renderUpdatedMarker(page.markdown ?? '', page.updatedAt)
   if (markdownConfig.autoHeader !== true || /^#\s+.+$/m.test(markdown)) return markdown
   return `# ${page.title}\n\n${markdown}`
+}
+
+function resolveEditLinkForPage(page: PageView): { url: string; label: string } | null {
+  if (!docsRepoConfig || !docsRepoConfig.base) return null
+  if (!page.filePath) return null
+  if (page.editable === false) return null
+
+  const base = String(docsRepoConfig.base).trim().replace(/\/+$/, '')
+  if (!base) return null
+  const branch = encodeURIComponent(String(docsRepoConfig.branch ?? 'main').replace(/^\/+|\/+$/g, ''))
+  const segment = String(docsRepoConfig.editSegment ?? 'edit').replace(/^\/+|\/+$/g, '')
+  const rawPrefix = String(docsRepoConfig.pathPrefix ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+  const prefix = rawPrefix ? (rawPrefix.endsWith('/') ? rawPrefix : `${rawPrefix}/`) : ''
+  const file = String(page.filePath).replace(/\\/g, '/').replace(/^\/+/, '')
+  const fullPath = `${prefix}${file}`
+  const encoded = fullPath.split('/').map(part => encodeURIComponent(part)).join('/')
+  const url = `${base}/${segment}/${branch}/${encoded}`
+  const label = String(docsRepoConfig.label ?? '').trim() || defaultEditLinkLabel(base)
+  return { url, label }
+}
+
+function defaultEditLinkLabel(base: string): string {
+  try {
+    const parsed = new URL(base)
+    if (parsed.hostname === 'github.com' || parsed.hostname.endsWith('.github.com')) return 'Edit on GitHub'
+  } catch {
+    if (/(?:^|\/)github\.com(?:\/|:|$)/i.test(base)) return 'Edit on GitHub'
+  }
+  return 'Edit this page'
+}
+
+function injectEditLink(article: any, page: PageView): void {
+  const link = resolveEditLinkForPage(page)
+  if (!link) return
+  const heading = article?.querySelector?.('h1')
+  if (!heading || heading.parentElement !== article) return
+  const wrapper = doc.createElement('div')
+  wrapper.className = 'docs-page-header'
+  const anchor = doc.createElement('a')
+  anchor.className = 'docs-edit-link'
+  anchor.href = link.url
+  anchor.target = '_blank'
+  anchor.rel = 'noopener noreferrer'
+  anchor.setAttribute('aria-label', link.label)
+  anchor.innerHTML = `<span class="docs-edit-link-label">${esc(link.label)}</span><span class="docs-edit-link-glyph" aria-hidden="true">&#x2197;</span>`
+  article.insertBefore(wrapper, heading)
+  wrapper.appendChild(heading)
+  wrapper.appendChild(anchor)
 }
 
 function renderUpdatedMarker(markdown: string, updatedAt?: string): string {
@@ -1124,6 +1195,7 @@ function renderContent(): void {
     const article = doc.createElement('article')
     article.className = 'docs-page markdown-content'
     article.innerHTML = parseMarkdown(getDocsPageMarkdown(page), page.path)
+    injectEditLink(article, page)
     main.appendChild(article)
     renderDocsPagination(main, page)
     renderToc(main)

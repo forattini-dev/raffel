@@ -305,6 +305,10 @@ export interface USDDocumentationPage {
   order?: number
   /** Last updated timestamp for file-backed Markdown pages */
   updatedAt?: string
+  /** Repository-relative source path for file-backed Markdown pages. Absent for generated reference pages. */
+  filePath?: string
+  /** When `false`, the page opts out of an edit-on-source link. */
+  editable?: boolean
 }
 
 // =============================================================================
