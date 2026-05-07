@@ -1103,10 +1103,13 @@ function renderDocsPagesNav(nav: any): void {
     const header = doc.createElement('div')
     header.className = 'tag-group-header'
     header.innerHTML = `<span class="tag-group-arrow">▼</span>${esc(groupLabel)}<span class="tag-group-count">${allPages.length}</span>`
-    header.onclick = () => wrapper.classList.toggle('collapsed')
     const inner = doc.createElement('div')
     inner.className = 'tag-group-items'
     inner.style.maxHeight = hasActiveDocPage || sidebarConfig.expandAll ? '9999px' : '0'
+    header.onclick = () => {
+      wrapper.classList.toggle('collapsed')
+      inner.style.maxHeight = wrapper.classList.contains('collapsed') ? '0' : '9999px'
+    }
     wrapper.appendChild(header)
     wrapper.appendChild(inner)
     nav.appendChild(wrapper)
@@ -1176,11 +1179,15 @@ function appendSidebarGroup(
   const header = doc.createElement('div')
   header.className = 'tag-group-header'
   header.innerHTML = `<span class="tag-group-arrow">▼</span>${esc(title)}<span class="tag-group-count">${items.length}</span>`
-  header.onclick = () => group.classList.toggle('collapsed')
   const itemContainer = doc.createElement('div')
   itemContainer.className = 'tag-group-items'
   const childCount = items.reduce((count, item) => count + (item.children?.length ?? 0), 0)
-  itemContainer.style.maxHeight = `${items.length * 50 + childCount * 34}px`
+  const expandedHeight = `${items.length * 50 + childCount * 34}px`
+  itemContainer.style.maxHeight = expandedHeight
+  header.onclick = () => {
+    group.classList.toggle('collapsed')
+    itemContainer.style.maxHeight = group.classList.contains('collapsed') ? '0' : expandedHeight
+  }
   for (const item of items) {
     const el = doc.createElement('div')
     el.className = `nav-item${item.active ? ' active' : ''}`

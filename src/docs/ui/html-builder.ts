@@ -146,6 +146,18 @@ ${styles}
     });
   })();
   </script>
+  <script type="importmap">
+  {
+    "imports": {
+      "${escapeHtml(assetBasePath)}/-/sidebar-tree.js": "${escapeHtml(assetBasePath)}/-/sidebar-tree.js?v=${_startupTs}",
+      "${escapeHtml(assetBasePath)}/-/marked-renderer.js": "${escapeHtml(assetBasePath)}/-/marked-renderer.js?v=${_startupTs}",
+      "${escapeHtml(assetBasePath)}/-/protocol-console.js": "${escapeHtml(assetBasePath)}/-/protocol-console.js?v=${_startupTs}",
+      "${escapeHtml(assetBasePath)}/-/code-block-toolbar.js": "${escapeHtml(assetBasePath)}/-/code-block-toolbar.js?v=${_startupTs}",
+      "${escapeHtml(assetBasePath)}/-/page-nav.js": "${escapeHtml(assetBasePath)}/-/page-nav.js?v=${_startupTs}",
+      "${escapeHtml(assetBasePath)}/-/search-modal.js": "${escapeHtml(assetBasePath)}/-/search-modal.js?v=${_startupTs}"
+    }
+  }
+  </script>
   <script src="${escapeHtml(assetBasePath)}/-/marked.umd.js"></script>
   <script src="${escapeHtml(assetBasePath)}/-/prism.js"></script>
   <script type="module" data-raffel-runtime="external" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js?v=${_startupTs}"></script>`

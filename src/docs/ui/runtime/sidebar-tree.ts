@@ -44,11 +44,13 @@ function appendSidebarItem(parent: any, item: RuntimeSidebarItem, depth: number,
     const header = deps.doc.createElement('div')
     header.className = `tag-group-header${active ? ' active' : ''}`
     header.innerHTML = `<span class="tag-group-arrow">▼</span>${deps.esc(title)}<span class="tag-group-count">${countLeaves(children)}</span>`
-    header.onclick = () => group.classList.toggle('collapsed')
-
     const childContainer = deps.doc.createElement('div')
     childContainer.className = 'tag-group-items'
     childContainer.style.maxHeight = expanded ? `${Math.max(1, countRows(children)) * 90}px` : '0'
+    header.onclick = () => {
+      group.classList.toggle('collapsed')
+      childContainer.style.maxHeight = group.classList.contains('collapsed') ? '0' : `${Math.max(1, countRows(children)) * 90}px`
+    }
     if (itemPath || item.href) {
       childContainer.appendChild(createPageItem(item, title, active, depth, deps))
       if (active && !deps.searchQuery) appendActivePageHeadings(childContainer, item.path ?? deps.activePagePath, deps)
