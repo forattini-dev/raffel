@@ -12,7 +12,7 @@
  * 3. JSON data is escaped for script embedding to prevent XSS
  */
 
-import type { NavItem, UIGeneratorOptions } from './types.js'
+import type { BreadcrumbsConfig, NavItem, UIGeneratorOptions } from './types.js'
 import { generateStyles } from './styles.js'
 import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS } from './utils.js'
 import {
@@ -61,6 +61,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const footer = ui?.footer ?? usdDocumentation?.footer
   const toc = ui?.toc ?? {}
   const markdown = ui?.markdown ?? {}
+  const breadcrumbs = normalizeBreadcrumbsConfig(ui?.breadcrumbs)
   const docsSidebar = ui?.sidebar?.items ?? usdDocumentation?.sidebar ?? []
   const assetMode = ui?.assets?.mode ?? 'inline'
   const assetBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
@@ -87,6 +88,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedToc = escapeJsonForScript(toc)
   const escapedMarkdown = escapeJsonForScript(markdown)
   const escapedDocsRepo = escapeJsonForScript(ui?.docsRepo ?? null)
+  const escapedBreadcrumbs = escapeJsonForScript(breadcrumbs)
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -119,7 +121,8 @@ ${styles}
     escapedFooter,
     escapedToc,
     escapedMarkdown,
-    escapedDocsRepo
+    escapedDocsRepo,
+    escapedBreadcrumbs
   )
   const runtimeScript = assetMode === 'external'
     ? `<script>
@@ -169,6 +172,24 @@ ${dataScript}
   ${runtimeScript}
 </body>
 </html>`
+}
+
+/**
+ * Normalize the `ui.breadcrumbs` option into a concrete config object.
+ *
+ *   undefined / true  → enabled with default `hideOnHome: true`.
+ *   false             → `{ enabled: false }`.
+ *   { ... }           → enabled with overrides applied on top of defaults.
+ */
+function normalizeBreadcrumbsConfig(
+  raw: boolean | BreadcrumbsConfig | undefined
+): { enabled: boolean; hideOnHome: boolean } {
+  if (raw === false) return { enabled: false, hideOnHome: true }
+  if (raw === undefined || raw === true) return { enabled: true, hideOnHome: true }
+  return {
+    enabled: true,
+    hideOnHome: raw.hideOnHome !== false,
+  }
 }
 
 function normalizeCustomCss(customCss: string | string[] | undefined): string[] {

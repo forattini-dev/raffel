@@ -5,6 +5,90 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       width: 100%;
     }
 
+    /* ========== BREADCRUMBS ========== */
+    .docs-breadcrumb {
+      margin: 0 0 16px 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .docs-breadcrumb-list {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .docs-breadcrumb-item {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .docs-breadcrumb-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: pointer;
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .docs-breadcrumb-link:hover {
+      color: var(--primary-color);
+      text-decoration: underline;
+    }
+
+    .docs-breadcrumb-label {
+      color: var(--text-muted);
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .docs-breadcrumb-current {
+      color: var(--text-secondary);
+      font-weight: 500;
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .docs-breadcrumb-separator {
+      color: var(--text-muted);
+      user-select: none;
+    }
+
+    /* Mobile: keep first + last segments, ellipsise the middle. We cannot
+       collapse via DOM at this layer (the resolver feeds the full chain), but
+       on narrow screens we hide every link/label between the second and the
+       last-but-one entries, leaving the first, an ellipsis, and the current
+       page visible. Separators around hidden items are also hidden. */
+    @media (max-width: 600px) {
+      .docs-breadcrumb-list > .docs-breadcrumb-item:not(:first-child):not(:last-child) {
+        display: none;
+      }
+      .docs-breadcrumb-list > .docs-breadcrumb-separator:nth-child(n+4):not(:nth-last-child(2)) {
+        display: none;
+      }
+      .docs-breadcrumb-list > .docs-breadcrumb-item:first-child + .docs-breadcrumb-separator + .docs-breadcrumb-item:not(:last-child)::after {
+        content: ' \\2026 ';
+        color: var(--text-muted);
+        margin-left: 4px;
+      }
+      .docs-breadcrumb-link,
+      .docs-breadcrumb-label,
+      .docs-breadcrumb-current {
+        max-width: 140px;
+      }
+    }
+
     .section { margin-bottom: 48px; }
 
     .section-title {

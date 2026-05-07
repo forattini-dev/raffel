@@ -29,6 +29,16 @@ export interface UIConfig {
   skipLink?: boolean | string
   /** Repository config used to render an "Edit this page" link in Markdown page headers. */
   docsRepo?: DocsRepoConfig
+  /**
+   * Breadcrumb trail at the top of every Markdown / generated reference page.
+   *
+   *   `false`         — disable
+   *   `true`          — enable with default options
+   *   `{ ... }`       — enable with overrides
+   *
+   * Default: enabled with `hideOnHome: true`.
+   */
+  breadcrumbs?: boolean | BreadcrumbsConfig
 }
 
 /**
@@ -45,6 +55,14 @@ export interface DocsRepoConfig {
   label?: string
   /** Optional URL segment between branch and filePath. Defaults to `edit`. */
   editSegment?: string
+}
+
+/**
+ * Breadcrumb trail configuration.
+ */
+export interface BreadcrumbsConfig {
+  /** Hide the breadcrumb on the home / root page. Default: true. */
+  hideOnHome?: boolean
 }
 
 /**

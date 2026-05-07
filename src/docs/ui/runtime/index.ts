@@ -102,6 +102,9 @@ const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
 const markdownConfig = data.markdownConfig ?? {}
 const docsRepoConfig = (data.docsRepoConfig ?? null) as DocsRepoRuntimeConfig | null
+const breadcrumbsConfig = (data.breadcrumbsConfig && typeof data.breadcrumbsConfig === 'object')
+  ? data.breadcrumbsConfig
+  : { enabled: true, hideOnHome: true }
 const xUsd = spec['x-usd'] ?? {}
 const { websocket: wsSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
 const docsRouteBase = String(xUsd.documentation?.routeBase ?? '').replace(/^#/, '').replace(/\/+$/, '')
@@ -964,6 +967,92 @@ function setDocsPage(path: unknown, headingId = ''): void {
   render()
 }
 
+type BreadcrumbEntry = { title: string, path: string }
+
+/**
+ * Resolve the breadcrumb chain from the declarative sidebar tree to the
+ * active docs page. Mirrors src/docs/ui/breadcrumbs.ts so the runtime stays
+ * self-contained but the algorithm is identical.
+ */
+function resolveDocsBreadcrumbs(items: RuntimeSidebarItem[], targetPath: string): BreadcrumbEntry[] {
+  const target = normalizeDocsPath(targetPath)
+  if (!target) return []
+  const chain = findBreadcrumbChain(Array.isArray(items) ? items : [], target)
+  return chain && chain.length >= 2 ? chain : []
+}
+
+function findBreadcrumbChain(items: RuntimeSidebarItem[], target: string): BreadcrumbEntry[] | null {
+  for (const item of items) {
+    const itemPath = item?.path ? normalizeDocsPath(item.path) : ''
+    const externalOnly = !item?.path && !!item?.href
+    const ownEntry: BreadcrumbEntry | null = externalOnly
+      ? null
+      : { title: String(item?.title ?? item?.path ?? item?.href ?? '').trim(), path: itemPath }
+    if (itemPath && itemPath === target && ownEntry) return [ownEntry]
+    const children = Array.isArray(item?.children) ? item.children as RuntimeSidebarItem[] : []
+    if (children.length > 0) {
+      const sub = findBreadcrumbChain(children, target)
+      if (sub) {
+        const head: BreadcrumbEntry = ownEntry ?? { title: String(item?.title ?? item?.path ?? item?.href ?? '').trim(), path: '' }
+        return [head, ...sub]
+      }
+    }
+  }
+  return null
+}
+
+function renderDocsBreadcrumb(page: PageView): any {
+  const config = breadcrumbsConfig as { enabled?: boolean, hideOnHome?: boolean }
+  if (config.enabled === false) return null
+  const activePath = normalizeDocsPath(page?.path ?? '')
+  if (!activePath) return null
+  if (config.hideOnHome !== false && (activePath === '/' || activePath === '/index' || activePath === '/home')) return null
+  const chain = resolveDocsBreadcrumbs(docsSidebar, activePath)
+  if (!chain || chain.length < 2) return null
+  const nav = doc.createElement('nav')
+  nav.className = 'docs-breadcrumb'
+  nav.setAttribute('aria-label', 'Breadcrumb')
+  const ol = doc.createElement('ol')
+  ol.className = 'docs-breadcrumb-list'
+  chain.forEach((entry: BreadcrumbEntry, index: number) => {
+    const li = doc.createElement('li')
+    li.className = 'docs-breadcrumb-item'
+    const isLast = index === chain.length - 1
+    if (isLast) {
+      const span = doc.createElement('span')
+      span.className = 'docs-breadcrumb-current'
+      span.setAttribute('aria-current', 'page')
+      span.textContent = entry.title
+      li.appendChild(span)
+    } else if (entry.path) {
+      const a = doc.createElement('a')
+      a.className = 'docs-breadcrumb-link'
+      a.href = `#${entry.path}`
+      a.textContent = entry.title
+      a.onclick = (event: any) => {
+        event.preventDefault?.()
+        setDocsPage(entry.path)
+      }
+      li.appendChild(a)
+    } else {
+      const span = doc.createElement('span')
+      span.className = 'docs-breadcrumb-label'
+      span.textContent = entry.title
+      li.appendChild(span)
+    }
+    ol.appendChild(li)
+    if (!isLast) {
+      const sep = doc.createElement('span')
+      sep.className = 'docs-breadcrumb-separator'
+      sep.setAttribute('aria-hidden', 'true')
+      sep.textContent = '›'
+      ol.appendChild(sep)
+    }
+  })
+  nav.appendChild(ol)
+  return nav
+}
+
 function renderSidebar(): void {
   const nav = byId('sidebarNav')
   if (!nav) return
@@ -1192,6 +1281,8 @@ function renderContent(): void {
   main.textContent = ''
   const page = activePagePath ? getDocsPageViews().find(item => item.path === activePagePath) : null
   if (page) {
+    const breadcrumb = renderDocsBreadcrumb(page)
+    if (breadcrumb) main.appendChild(breadcrumb)
     const article = doc.createElement('article')
     article.className = 'docs-page markdown-content'
     article.innerHTML = parseMarkdown(getDocsPageMarkdown(page), page.path)
