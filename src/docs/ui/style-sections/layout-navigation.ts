@@ -31,6 +31,13 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       grid-template-columns: 1fr;
     }
 
+    .main-shell {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      align-items: start;
+      min-width: 0;
+    }
+
     /* ========== SIDEBAR ========== */
     .sidebar {
       background: var(--sidebar-bg);
@@ -401,6 +408,15 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .back-to-top:focus-visible {
       outline: 2px solid var(--primary-color);
       outline-offset: 2px;
+    }
+
+    @media (max-width: 1200px) {
+      .main-shell {
+        grid-template-columns: 1fr;
+      }
+      .toc {
+        display: none;
+      }
     }
 
     /* ========== TOC (On this page) — editorial sidenote ========== */
