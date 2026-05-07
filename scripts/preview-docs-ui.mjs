@@ -12,6 +12,7 @@
  */
 
 import { createServer } from '../dist/server/builder.js'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 
@@ -43,7 +44,7 @@ server.enableUSD({
   ui: {
     assets: { mode: 'external' },
     theme: 'auto',
-    sidebar: { search: true, docsPages: true, subMaxLevel: 3 },
+    sidebar: { search: true, docsPages: true, subMaxLevel: 3, docsPagesGroup: 'Pages' },
     toc: { enabled: true, minLevel: 2, maxLevel: 4 },
   },
 })

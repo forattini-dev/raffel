@@ -1092,10 +1092,32 @@ function renderSidebar(): void {
 
 function renderDocsPagesNav(nav: any): void {
   if (sidebarConfig.docsPages === false) return
+
+  const groupLabel = sidebarConfig.docsPagesGroup
+  const hasActiveDocPage = Boolean(activePagePath)
+  let target = nav
+  if (groupLabel) {
+    const allPages = getDocsPageViews()
+    const wrapper = doc.createElement('div')
+    wrapper.className = `tag-group docs-pages-group${hasActiveDocPage || sidebarConfig.expandAll ? '' : ' collapsed'}`
+    const header = doc.createElement('div')
+    header.className = 'tag-group-header'
+    header.innerHTML = `<span class="tag-group-arrow">▼</span>${esc(groupLabel)}<span class="tag-group-count">${allPages.length}</span>`
+    header.onclick = () => wrapper.classList.toggle('collapsed')
+    const inner = doc.createElement('div')
+    inner.className = 'tag-group-items'
+    inner.style.maxHeight = hasActiveDocPage || sidebarConfig.expandAll ? '9999px' : '0'
+    wrapper.appendChild(header)
+    wrapper.appendChild(inner)
+    nav.appendChild(wrapper)
+    target = inner
+  }
+
   if (docsSidebar.length > 0 && !searchQuery) {
-    renderDeclarativeDocsSidebar(nav)
+    renderDeclarativeDocsSidebar(target)
     return
   }
+
   const pages = getDocsPageViews().filter(page =>
     !searchQuery ||
     page.title.toLowerCase().includes(searchQuery) ||
@@ -1108,7 +1130,7 @@ function renderDocsPagesNav(nav: any): void {
     sections.get(page.section)?.push(page)
   }
   for (const [section, sectionPages] of sections) {
-    appendSidebarGroup(nav, section, sectionPages.map(page => ({
+    appendSidebarGroup(target, section, sectionPages.map(page => ({
       active: page.path === activePagePath,
       label: page.title,
       children: page.path === activePagePath && !searchQuery ? extractSidebarHeadings(page.markdown) : [],

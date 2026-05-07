@@ -507,7 +507,7 @@ export function createUSDHandlers(
       return new Response(runtime, {
         headers: {
           'Content-Type': 'application/javascript; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': 'no-store',
         },
       })
     },
