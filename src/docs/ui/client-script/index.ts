@@ -40,7 +40,8 @@ export function generateClientDataScript(
   escapedDocsAssetBasePath: string,
   escapedFooter: string,
   escapedToc: string,
-  escapedMarkdown: string
+  escapedMarkdown: string,
+  escapedPageNav: string = '{"enabled":true,"hide":[]}'
 ): string {
   return `
     window.__RAFFEL_DOCS__ = {
@@ -56,7 +57,8 @@ export function generateClientDataScript(
       docsAssetBasePath: ${escapedDocsAssetBasePath},
       footerMarkdown: ${escapedFooter},
       tocConfig: ${escapedToc},
-      markdownConfig: ${escapedMarkdown}
+      markdownConfig: ${escapedMarkdown},
+      pageNavConfig: ${escapedPageNav}
     };
 `
 }
@@ -104,7 +106,7 @@ function generateSharedRuntimeScript(): string | null {
   const runtimeDir = findRuntimeDir()
   if (!runtimeDir) return null
   const extension = existsSync(join(runtimeDir, 'index.js')) ? '.js' : '.ts'
-  const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'index']
+  const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'page-nav', 'index']
   const chunks: string[] = []
   for (const moduleName of modules) {
     const path = join(runtimeDir, `${moduleName}${extension}`)
@@ -177,6 +179,7 @@ function generateLegacyClientRuntimeScript(): string {
     const footerMarkdown = docsData.footerMarkdown || null;
     const tocConfig = docsData.tocConfig || {};
     const markdownConfig = docsData.markdownConfig || {};
+    const pageNavConfig = docsData.pageNavConfig || { enabled: true, hide: [] };
     const docsPlugins = [];
     function getDocsRuntimeState() {
       return { activePagePath, activeHeadingId, activeProtocol, searchQuery };
@@ -256,7 +259,8 @@ export function generateClientScript(
   escapedDocsAssetBasePath: string,
   escapedFooter: string,
   escapedToc: string,
-  escapedMarkdown: string
+  escapedMarkdown: string,
+  escapedPageNav: string = '{"enabled":true,"hide":[]}'
 ): string {
   return `${generateClientDataScript(
     escapedSpec,
@@ -271,7 +275,8 @@ export function generateClientScript(
     escapedDocsAssetBasePath,
     escapedFooter,
     escapedToc,
-    escapedMarkdown
+    escapedMarkdown,
+    escapedPageNav
   )}
 ${generateClientRuntimeScript()}`
 }

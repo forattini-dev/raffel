@@ -27,6 +27,22 @@ export interface UIConfig {
   assets?: UIAssetsConfig
   markdown?: MarkdownConfig
   skipLink?: boolean | string
+  /**
+   * Previous / Next page navigation cards rendered below every Markdown page.
+   * - `true` / omitted: enabled for every file-backed page in the sidebar.
+   * - `false`: disabled globally.
+   * - `{ hide: [...] }`: enabled, but the listed paths opt out of the chain.
+   *   Markdown frontmatter `pageNav: false` opts out individual pages too.
+   */
+  pageNav?: boolean | PageNavConfig
+}
+
+/**
+ * Configuration for the bottom-of-page Previous / Next navigation cards.
+ */
+export interface PageNavConfig {
+  /** Routes that should be skipped over when computing neighbours. */
+  hide?: string[]
 }
 
 /**

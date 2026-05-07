@@ -1,6 +1,7 @@
 import { renderMarkedMarkdown } from './marked-renderer.js'
 import { appendProtocolConsole } from './protocol-console.js'
 import { appendDeclarativeSidebar, type RuntimeSidebarItem } from './sidebar-tree.js'
+import { flattenReadingOrder, prevNext, type PageNavEntry } from './page-nav.js'
 type DocsPage = {
   title?: string
   path?: string
@@ -89,6 +90,7 @@ const docsAssetBasePath = String(data.docsAssetBasePath ?? '')
 const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
 const markdownConfig = data.markdownConfig ?? {}
+const pageNavConfig: { enabled?: boolean; hide?: string[] } = data.pageNavConfig ?? { enabled: true, hide: [] }
 const xUsd = spec['x-usd'] ?? {}
 const { websocket: wsSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
 const docsRouteBase = String(xUsd.documentation?.routeBase ?? '').replace(/^#/, '').replace(/\/+$/, '')
@@ -1250,25 +1252,50 @@ function highlightSearchExcerpt(excerpt: string): string {
   return escaped.replace(new RegExp(`(${terms.join('|')})`, 'gi'), '<mark>$1</mark>')
 }
 
+function getPageNavOptedOut(): Set<string> {
+  const opted = new Set<string>()
+  for (const path of pageNavConfig.hide ?? []) {
+    if (path) opted.add(normalizeDocsPath(String(path)))
+  }
+  for (const raw of docsPages) {
+    if (!raw?.path) continue
+    const flag = String(parsePageFrontmatter(raw.markdown ?? '').data.pageNav ?? '').toLowerCase()
+    if (flag === 'false' || flag === 'no' || flag === '0') opted.add(normalizeDocsPath(raw.path))
+  }
+  return opted
+}
+
 function renderDocsPagination(main: any, page: PageView): void {
-  const pages = getDocsPageViews()
-  const index = pages.findIndex(item => item.path === page.path)
-  if (index === -1 || pages.length < 2) return
+  if (pageNavConfig.enabled === false) return
+  const order = flattenReadingOrder(docsSidebar).map(entry => ({
+    title: entry.title,
+    path: normalizeDocsPath(entry.path),
+  }))
+  if (order.length < 2) return
+  const optedOut = getPageNavOptedOut()
+  if (optedOut.has(page.path)) return
+  const neighbours = prevNext(page.path, order, optedOut)
+  if (!neighbours.prev && !neighbours.next) return
+
   const nav = doc.createElement('nav')
-  nav.className = 'docs-pagination'
-  const previous = pages[index - 1]
-  const next = pages[index + 1]
-  nav.appendChild(previous ? paginationButton(previous, 'Previous', 'previous') : doc.createElement('span'))
-  if (next) nav.appendChild(paginationButton(next, 'Next', 'next'))
+  nav.className = 'page-nav-grid docs-pagination'
+  nav.setAttribute('aria-label', 'Page navigation')
+
+  if (neighbours.prev) nav.appendChild(pageNavCard(neighbours.prev, 'Previous', 'prev'))
+  else nav.appendChild(doc.createElement('span'))
+
+  if (neighbours.next) nav.appendChild(pageNavCard(neighbours.next, 'Next', 'next'))
+  else nav.appendChild(doc.createElement('span'))
+
   main.appendChild(nav)
 }
 
-function paginationButton(page: PageView, label: string, direction: string): any {
+function pageNavCard(entry: PageNavEntry, label: string, direction: 'prev' | 'next'): any {
   const button = doc.createElement('button')
   button.type = 'button'
-  button.className = `docs-pagination-link docs-pagination-${direction}`
-  button.innerHTML = `<span class="docs-pagination-label">${esc(label)}</span><span class="docs-pagination-title">${esc(page.title)}</span>`
-  button.onclick = () => setDocsPage(page.path)
+  button.className = `page-nav-card page-nav-card-${direction} docs-pagination-link docs-pagination-${direction === 'prev' ? 'previous' : 'next'}`
+  button.innerHTML = `<span class="page-nav-eyebrow docs-pagination-label">${esc(label)}</span><span class="page-nav-title docs-pagination-title">${esc(entry.title)}</span>`
+  button.onclick = () => setDocsPage(entry.path)
   return button
 }
 

@@ -148,26 +148,66 @@ export const contentClientScript = String.raw`    function renderContent() {
       main.appendChild(section);
     }
 
+    function flattenSidebarReadingOrder(items) {
+      const out = [];
+      const visit = node => {
+        if (!node) return;
+        const path = node.path;
+        const isExternal = typeof path === 'string' && (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(path) || /^(?:mailto|tel):/i.test(path));
+        if (path && !isExternal) {
+          const title = String(node.title || path).trim();
+          out.push({ title, path });
+        }
+        if (Array.isArray(node.children)) node.children.forEach(visit);
+      };
+      (Array.isArray(items) ? items : []).forEach(visit);
+      return out;
+    }
+
+    function getPageNavOptedOut() {
+      const opted = new Set();
+      const hide = (pageNavConfig && Array.isArray(pageNavConfig.hide)) ? pageNavConfig.hide : [];
+      hide.forEach(path => { if (path) opted.add(normalizeDocsPath(String(path))); });
+      (Array.isArray(docsPages) ? docsPages : []).forEach(raw => {
+        if (!raw || !raw.path) return;
+        const parsed = parsePageFrontmatter(raw.markdown || '');
+        const flag = String(parsed.data.pageNav || '').toLowerCase();
+        if (flag === 'false' || flag === 'no' || flag === '0') opted.add(normalizeDocsPath(raw.path));
+      });
+      return opted;
+    }
+
     function renderDocsPagination(main, page) {
-      const pages = getDocsPageViews();
-      const currentIndex = pages.findIndex(item => normalizeDocsPath(item.path) === normalizeDocsPath(page.path));
-      if (currentIndex === -1 || pages.length < 2) return;
+      if (pageNavConfig && pageNavConfig.enabled === false) return;
+      const sidebar = Array.isArray(docsSidebar) ? docsSidebar : [];
+      const order = flattenSidebarReadingOrder(sidebar).map(entry => ({
+        title: entry.title,
+        path: normalizeDocsPath(entry.path),
+      }));
+      if (order.length < 2) return;
+      const optedOut = getPageNavOptedOut();
+      const activePath = normalizeDocsPath(page.path);
+      if (optedOut.has(activePath)) return;
+      const index = order.findIndex(item => item.path === activePath);
+      if (index === -1) return;
+      let previous, next;
+      for (let i = index - 1; i >= 0; i -= 1) {
+        if (!optedOut.has(order[i].path)) { previous = order[i]; break; }
+      }
+      for (let i = index + 1; i < order.length; i += 1) {
+        if (!optedOut.has(order[i].path)) { next = order[i]; break; }
+      }
+      if (!previous && !next) return;
 
-      const previous = pages[currentIndex - 1];
-      const next = pages[currentIndex + 1];
       const nav = document.createElement('nav');
-      nav.className = 'docs-pagination';
-      nav.setAttribute('aria-label', 'Documentation pagination');
+      nav.className = 'page-nav-grid docs-pagination';
+      nav.setAttribute('aria-label', 'Page navigation');
 
-      if (previous) {
-        nav.appendChild(createDocsPaginationLink(previous, 'Previous', 'previous'));
-      } else {
-        nav.appendChild(document.createElement('span'));
-      }
+      if (previous) nav.appendChild(createDocsPaginationLink(previous, 'Previous', 'prev'));
+      else nav.appendChild(document.createElement('span'));
 
-      if (next) {
-        nav.appendChild(createDocsPaginationLink(next, 'Next', 'next'));
-      }
+      if (next) nav.appendChild(createDocsPaginationLink(next, 'Next', 'next'));
+      else nav.appendChild(document.createElement('span'));
 
       main.appendChild(nav);
     }
@@ -175,9 +215,10 @@ export const contentClientScript = String.raw`    function renderContent() {
     function createDocsPaginationLink(page, label, direction) {
       const link = document.createElement('button');
       link.type = 'button';
-      link.className = 'docs-pagination-link docs-pagination-' + direction;
-      link.innerHTML = '<span class="docs-pagination-label">' + esc(label) + '</span>' +
-        '<span class="docs-pagination-title">' + esc(page.title) + '</span>';
+      const legacyDir = direction === 'prev' ? 'previous' : 'next';
+      link.className = 'page-nav-card page-nav-card-' + direction + ' docs-pagination-link docs-pagination-' + legacyDir;
+      link.innerHTML = '<span class="page-nav-eyebrow docs-pagination-label">' + esc(label) + '</span>' +
+        '<span class="page-nav-title docs-pagination-title">' + esc(page.title) + '</span>';
       link.onclick = () => setDocsPage(page.path);
       return link;
     }
