@@ -50,6 +50,7 @@ export const navigationClientScript = String.raw`    // Search functionality
       renderSidebar();
       renderContent();
       highlightCodeBlocks(document.getElementById('mainContent'));
+      enhanceCodeBlockToolbars(document.getElementById('mainContent'));
       renderMermaidDiagrams();
       mountDocsComponents(document.getElementById('mainContent'));
     });
@@ -81,6 +82,7 @@ export const navigationClientScript = String.raw`    // Search functionality
       renderSidebar();
       renderContent();
       highlightCodeBlocks(document.getElementById('mainContent'));
+      enhanceCodeBlockToolbars(document.getElementById('mainContent'));
       renderMermaidDiagrams();
       mountDocsComponents(document.getElementById('mainContent'));
     }
@@ -95,6 +97,7 @@ export const navigationClientScript = String.raw`    // Search functionality
       renderSidebar();
       renderContent();
       highlightCodeBlocks(document.getElementById('mainContent'));
+      enhanceCodeBlockToolbars(document.getElementById('mainContent'));
       renderMermaidDiagrams();
       mountDocsComponents(document.getElementById('mainContent'));
       if (activeHeadingId) {

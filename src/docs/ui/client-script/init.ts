@@ -71,6 +71,52 @@ export const initClientScript = String.raw`    // Render introduction markdown i
       document.documentElement.setAttribute('data-syntax-highlight', 'prism');
     }
 
+    function enhanceCodeBlockToolbars(root) {
+      const scope = root || document;
+      if (!scope.querySelectorAll) return;
+      const codes = scope.querySelectorAll('pre > code[class*="language-"]');
+      codes.forEach(code => {
+        const pre = code.parentElement;
+        if (!pre || pre.getAttribute('data-code-toolbar-enhanced') === 'true') return;
+        pre.setAttribute('data-code-toolbar-enhanced', 'true');
+        if (pre.style && !pre.style.position) pre.style.position = 'relative';
+        const langMatch = String(code.className || '').match(/(?:^|\s)language-([\w+#.-]+)/);
+        const lang = langMatch ? langMatch[1].toLowerCase() : '';
+        const toolbar = document.createElement('div');
+        toolbar.className = 'code-block-toolbar';
+        const langEl = document.createElement('span');
+        langEl.className = 'code-block-lang';
+        langEl.textContent = lang;
+        if (!lang) langEl.setAttribute('hidden', 'hidden');
+        toolbar.appendChild(langEl);
+        const button = document.createElement('button');
+        button.setAttribute('type', 'button');
+        button.className = 'code-block-copy';
+        button.textContent = 'Copy';
+        button.addEventListener('click', () => {
+          const text = String(code.textContent || '');
+          const finish = () => {
+            button.textContent = 'Copied';
+            setTimeout(() => { if (button.textContent === 'Copied') button.textContent = 'Copy'; }, 1000);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+              const result = navigator.clipboard.writeText(text);
+              if (result && typeof result.then === 'function') result.then(finish).catch(finish);
+              else finish();
+            } catch { finish(); }
+          } else finish();
+        });
+        toolbar.appendChild(button);
+        pre.insertBefore(toolbar, pre.firstChild);
+        const wrap = pre.parentElement;
+        if (wrap && wrap.classList && wrap.classList.contains('md-code-wrap')) {
+          const legacy = wrap.querySelector(':scope > .copy-code-btn');
+          if (legacy) legacy.setAttribute('hidden', 'hidden');
+        }
+      });
+    }
+
     document.addEventListener('click', (event) => {
       const zoomClose = event.target.closest('.image-zoom-close');
       if (zoomClose || event.target.classList?.contains('image-zoom-overlay')) {
@@ -164,6 +210,7 @@ export const initClientScript = String.raw`    // Render introduction markdown i
     renderSidebar();
     renderContent();
     highlightCodeBlocks(document.getElementById('mainContent'));
+    enhanceCodeBlockToolbars(document.getElementById('mainContent'));
     renderMermaidDiagrams();
     mountDocsComponents(document.getElementById('mainContent'));
 `
