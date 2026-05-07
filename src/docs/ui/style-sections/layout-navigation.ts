@@ -419,6 +419,31 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       }
     }
 
+    .docs-pages-group > .tag-group-header {
+      color: var(--text-primary);
+      background: var(--hover-bg);
+      border-left: 3px solid var(--primary-color);
+      padding-left: 9px;
+      margin-bottom: 4px;
+      letter-spacing: 0.01em;
+    }
+
+    .docs-pages-group > .tag-group-header:hover {
+      background: var(--hover-bg);
+      opacity: 0.85;
+    }
+
+    .docs-sidebar-home {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .docs-sidebar-home-icon {
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+
     /* ========== TOC (On this page) — editorial sidenote ========== */
     .toc {
       align-self: start;

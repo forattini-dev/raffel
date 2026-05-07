@@ -1133,6 +1133,7 @@ function renderDocsPagesNav(nav: any): void {
     appendSidebarGroup(target, section, sectionPages.map(page => ({
       active: page.path === activePagePath,
       label: page.title,
+      path: page.path,
       children: page.path === activePagePath && !searchQuery ? extractSidebarHeadings(page.markdown) : [],
       onClick: () => setDocsPage(page.path),
     })))
@@ -1156,12 +1157,15 @@ function renderDeclarativeDocsSidebar(nav: any): void {
   })
 }
 
+const HOME_ICON_SVG = '<svg class="docs-sidebar-home-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>'
+
 function appendSidebarGroup(
   nav: any,
   title: string,
   items: Array<{
     active: boolean
     label: string
+    path?: string
     prefix?: string
     children?: SidebarHeadingItem[]
     onClick: () => void
@@ -1180,7 +1184,10 @@ function appendSidebarGroup(
   for (const item of items) {
     const el = doc.createElement('div')
     el.className = `nav-item${item.active ? ' active' : ''}`
-    el.innerHTML = `${item.prefix ? `<span class="nav-item-method method-${esc(item.prefix.toLowerCase())}">${esc(item.prefix)}</span>` : ''}<span class="nav-item-path">${esc(item.label)}</span>`
+    const isHome = item.path === '/' || item.path === ''
+    el.innerHTML = isHome
+      ? `<span class="docs-sidebar-home">${HOME_ICON_SVG}<span class="nav-item-path">${esc(item.label)}</span></span>`
+      : `${item.prefix ? `<span class="nav-item-method method-${esc(item.prefix.toLowerCase())}">${esc(item.prefix)}</span>` : ''}<span class="nav-item-path">${esc(item.label)}</span>`
     el.onclick = (event: any) => {
       event.stopPropagation()
       item.onClick()

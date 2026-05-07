@@ -65,10 +65,16 @@ function appendSidebarItem(parent: any, item: RuntimeSidebarItem, depth: number,
   if (active && !deps.searchQuery) appendActivePageHeadings(parent, item.path ?? deps.activePagePath, deps)
 }
 
+const HOME_ICON_SVG = '<svg class="docs-sidebar-home-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>'
+
 function createPageItem(item: RuntimeSidebarItem, title: string, active: boolean, depth: number, deps: SidebarTreeDeps): any {
   const element = deps.doc.createElement('div')
   element.className = `nav-item docs-page-nav-item docs-sidebar-page docs-sidebar-depth-${depth}${active ? ' active' : ''}`
-  element.innerHTML = `<span class="nav-item-text">${deps.esc(title)}</span>`
+  const normalizedPath = item.path ? deps.normalizeDocsPath(item.path) : ''
+  const isHome = depth === 0 && (normalizedPath === '/' || normalizedPath === '')
+  element.innerHTML = isHome
+    ? `<span class="docs-sidebar-home">${HOME_ICON_SVG}<span class="nav-item-text">${deps.esc(title)}</span></span>`
+    : `<span class="nav-item-text">${deps.esc(title)}</span>`
   element.onclick = (event: any) => {
     event.stopPropagation()
     if (item.href && !item.path) {
