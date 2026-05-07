@@ -965,7 +965,11 @@ function setDocsPage(path: unknown, headingId = ''): void {
   activePagePath = resolveDocsAlias(normalizeDocsPath(path))
   activeHeadingId = headingId
   win.history?.replaceState?.(null, '', routeToHash(activePagePath, activeHeadingId))
-  if (!activeHeadingId) win.scrollTo?.({ top: 0, behavior: 'smooth' })
+  if (!activeHeadingId) {
+    const appEl = doc.getElementById('docs') ?? doc.querySelector('.app-container')
+    if (appEl) appEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    else win.scrollTo?.({ top: 0, behavior: 'smooth' })
+  }
   runVoidHook('onRouteChange', getPluginContext({ pagePath: activePagePath, headingId: activeHeadingId }))
   render()
 }
