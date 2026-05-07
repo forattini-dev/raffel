@@ -12,7 +12,7 @@
  * 3. JSON data is escaped for script embedding to prevent XSS
  */
 
-import type { BreadcrumbsConfig, NavItem, UIGeneratorOptions } from './types.js'
+import type { BreadcrumbsConfig, NavItem, PageNavConfig, UIGeneratorOptions } from './types.js'
 import { generateStyles } from './styles.js'
 import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS } from './utils.js'
 import {
@@ -63,6 +63,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const markdown = ui?.markdown ?? {}
   const breadcrumbs = normalizeBreadcrumbsConfig(ui?.breadcrumbs)
   const docsSidebar = ui?.sidebar?.items ?? usdDocumentation?.sidebar ?? []
+  const pageNav = normalizePageNav(ui?.pageNav)
   const assetMode = ui?.assets?.mode ?? 'inline'
   const assetBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
   const docsAssetBasePath = `${assetBasePath}/-/assets`
@@ -89,6 +90,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedMarkdown = escapeJsonForScript(markdown)
   const escapedDocsRepo = escapeJsonForScript(ui?.docsRepo ?? null)
   const escapedBreadcrumbs = escapeJsonForScript(breadcrumbs)
+  const escapedPageNav = escapeJsonForScript(pageNav)
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -122,7 +124,8 @@ ${styles}
     escapedToc,
     escapedMarkdown,
     escapedDocsRepo,
-    escapedBreadcrumbs
+    escapedBreadcrumbs,
+    escapedPageNav
   )
   const runtimeScript = assetMode === 'external'
     ? `<script>
@@ -196,6 +199,15 @@ function normalizeCustomCss(customCss: string | string[] | undefined): string[] 
   return (Array.isArray(customCss) ? customCss : customCss ? [customCss] : [])
     .map(href => href.trim())
     .filter(Boolean)
+}
+
+function normalizePageNav(value: boolean | PageNavConfig | undefined): { enabled: boolean; hide: string[] } {
+  if (value === false) return { enabled: false, hide: [] }
+  if (value === true || value === undefined || value === null) return { enabled: true, hide: [] }
+  const hide = Array.isArray(value.hide)
+    ? value.hide.map(item => String(item)).filter(Boolean)
+    : []
+  return { enabled: true, hide }
 }
 
 /**

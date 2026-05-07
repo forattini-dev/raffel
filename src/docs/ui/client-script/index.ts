@@ -42,7 +42,8 @@ export function generateClientDataScript(
   escapedToc: string,
   escapedMarkdown: string,
   escapedDocsRepo: string = 'null',
-  escapedBreadcrumbs: string = '{"enabled":true,"hideOnHome":true}'
+  escapedBreadcrumbs: string = '{"enabled":true,"hideOnHome":true}',
+  escapedPageNav: string = '{"enabled":true,"hide":[]}'
 ): string {
   return `
     window.__RAFFEL_DOCS__ = {
@@ -60,7 +61,8 @@ export function generateClientDataScript(
       tocConfig: ${escapedToc},
       markdownConfig: ${escapedMarkdown},
       docsRepoConfig: ${escapedDocsRepo},
-      breadcrumbsConfig: ${escapedBreadcrumbs}
+      breadcrumbsConfig: ${escapedBreadcrumbs},
+      pageNavConfig: ${escapedPageNav}
     };
 `
 }
@@ -108,7 +110,7 @@ function generateSharedRuntimeScript(): string | null {
   const runtimeDir = findRuntimeDir()
   if (!runtimeDir) return null
   const extension = existsSync(join(runtimeDir, 'index.js')) ? '.js' : '.ts'
-  const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'code-block-toolbar', 'index']
+  const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'code-block-toolbar', 'page-nav', 'index']
   const chunks: string[] = []
   for (const moduleName of modules) {
     const path = join(runtimeDir, `${moduleName}${extension}`)
@@ -185,6 +187,7 @@ function generateLegacyClientRuntimeScript(): string {
     const breadcrumbsConfig = docsData.breadcrumbsConfig && typeof docsData.breadcrumbsConfig === 'object'
       ? docsData.breadcrumbsConfig
       : { enabled: true, hideOnHome: true };
+    const pageNavConfig = docsData.pageNavConfig || { enabled: true, hide: [] };
     const docsPlugins = [];
     function getDocsRuntimeState() {
       return { activePagePath, activeHeadingId, activeProtocol, searchQuery };
@@ -266,7 +269,8 @@ export function generateClientScript(
   escapedToc: string,
   escapedMarkdown: string,
   escapedDocsRepo: string = 'null',
-  escapedBreadcrumbs?: string
+  escapedBreadcrumbs?: string,
+  escapedPageNav: string = '{"enabled":true,"hide":[]}'
 ): string {
   return `${generateClientDataScript(
     escapedSpec,
@@ -283,7 +287,8 @@ export function generateClientScript(
     escapedToc,
     escapedMarkdown,
     escapedDocsRepo,
-    escapedBreadcrumbs
+    escapedBreadcrumbs,
+    escapedPageNav
   )}
 ${generateClientRuntimeScript()}`
 }
