@@ -59,7 +59,7 @@ export function readDocsAsset(rootDir: string, relativePath: string): Response |
   return new Response(readFileSync(assetPath), {
     headers: {
       'Content-Type': contentTypeForAsset(assetPath),
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'no-store',
     },
   })
 }
@@ -515,56 +515,56 @@ export function createUSDHandlers(
     serveUIMarkdownEngine: () => new Response(readBuiltDocsUIAsset('marked.umd.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUISyntaxHighlighter: () => new Response(readBuiltDocsUIAsset('prism.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUIMarkdownRenderer: () => new Response(readBuiltDocsUIAsset('marked-renderer.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUIProtocolConsole: () => new Response(readBuiltDocsUIAsset('protocol-console.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUICodeBlockToolbar: () => new Response(readBuiltDocsUIAsset('code-block-toolbar.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUIPageNav: () => new Response(readBuiltDocsUIAsset('page-nav.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUISearchModal: () => new Response(readBuiltDocsUIAsset('search-modal.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
     serveUISidebarTree: () => new Response(readBuiltDocsUIAsset('sidebar-tree.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     }),
 
@@ -578,7 +578,7 @@ export function createUSDHandlers(
       return new Response(css, {
         headers: {
           'Content-Type': 'text/css; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': 'no-store',
         },
       })
     },
