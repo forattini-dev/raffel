@@ -108,6 +108,8 @@ export const contentClientScript = String.raw`    function renderContent() {
     }
 
     function renderDocsPage(main, page) {
+      const breadcrumb = renderDocsBreadcrumb(page);
+      if (breadcrumb) main.appendChild(breadcrumb);
       const article = document.createElement('article');
       article.className = 'docs-page markdown-content';
       article.dataset.path = page.path;
@@ -115,6 +117,87 @@ export const contentClientScript = String.raw`    function renderContent() {
       main.appendChild(article);
       document.title = page.title ? page.title + ' - ' + spec.info.title : spec.info.title;
       renderDocsPagination(main, page);
+    }
+
+    /* Resolve the breadcrumb chain from the declarative sidebar tree. Pure
+       traversal — mirrors src/docs/ui/breadcrumbs.ts. Returns [] when the
+       chain has fewer than 2 entries (single-segment / home / not found). */
+    function resolveDocsBreadcrumbs(sidebar, activePath) {
+      const items = Array.isArray(sidebar) ? sidebar : [];
+      const target = normalizeDocsPath(activePath);
+      if (!target) return [];
+      const chain = findBreadcrumbChain(items, target);
+      return chain && chain.length >= 2 ? chain : [];
+    }
+
+    function findBreadcrumbChain(items, target) {
+      for (const item of items) {
+        const itemPath = item && item.path ? normalizeDocsPath(item.path) : '';
+        const isExternalOnly = !item.path && !!item.href;
+        const ownEntry = isExternalOnly ? null : { title: String(item.title || item.path || item.href || '').trim(), path: itemPath };
+        if (itemPath && itemPath === target && ownEntry) return [ownEntry];
+        const children = Array.isArray(item.children) ? item.children : [];
+        if (children.length > 0) {
+          const sub = findBreadcrumbChain(children, target);
+          if (sub) {
+            const head = ownEntry || { title: String(item.title || item.path || item.href || '').trim(), path: '' };
+            return [head, ...sub];
+          }
+        }
+      }
+      return null;
+    }
+
+    function renderDocsBreadcrumb(page) {
+      const config = (typeof breadcrumbsConfig === 'object' && breadcrumbsConfig) || { enabled: true, hideOnHome: true };
+      if (config.enabled === false) return null;
+      const activePath = normalizeDocsPath(page && page.path);
+      if (!activePath) return null;
+      if (config.hideOnHome !== false && (activePath === '/' || activePath === '/index' || activePath === '/home')) return null;
+      const chain = resolveDocsBreadcrumbs(docsSidebar, activePath);
+      if (!chain || chain.length < 2) return null;
+      const nav = document.createElement('nav');
+      nav.className = 'docs-breadcrumb';
+      nav.setAttribute('aria-label', 'Breadcrumb');
+      const ol = document.createElement('ol');
+      ol.className = 'docs-breadcrumb-list';
+      chain.forEach((entry, idx) => {
+        const li = document.createElement('li');
+        li.className = 'docs-breadcrumb-item';
+        const isLast = idx === chain.length - 1;
+        if (isLast) {
+          const span = document.createElement('span');
+          span.className = 'docs-breadcrumb-current';
+          span.setAttribute('aria-current', 'page');
+          span.textContent = entry.title;
+          li.appendChild(span);
+        } else if (entry.path) {
+          const a = document.createElement('a');
+          a.className = 'docs-breadcrumb-link';
+          a.href = '#' + entry.path;
+          a.textContent = entry.title;
+          a.onclick = (event) => {
+            event.preventDefault();
+            setDocsPage(entry.path);
+          };
+          li.appendChild(a);
+        } else {
+          const span = document.createElement('span');
+          span.className = 'docs-breadcrumb-label';
+          span.textContent = entry.title;
+          li.appendChild(span);
+        }
+        ol.appendChild(li);
+        if (!isLast) {
+          const sep = document.createElement('span');
+          sep.className = 'docs-breadcrumb-separator';
+          sep.setAttribute('aria-hidden', 'true');
+          sep.textContent = '›';
+          ol.appendChild(sep);
+        }
+      });
+      nav.appendChild(ol);
+      return nav;
     }
 
     function renderDocsPageSearchResults(main) {

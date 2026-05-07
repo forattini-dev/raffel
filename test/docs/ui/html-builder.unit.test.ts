@@ -298,6 +298,63 @@ describe('Documentation UI HTML builder', () => {
     })
   })
 
+  it('embeds breadcrumb config + runtime + CSS for every Markdown page', () => {
+    const html = generateUIHTML({
+      basePath: '/docs',
+      doc: {
+        info: { title: 'API', version: '1.0.0' },
+        paths: {},
+        'x-usd': {
+          documentation: {
+            pages: [
+              { title: 'Sessions', path: '/guides/advanced/sessions', markdown: '# Sessions' },
+            ],
+            sidebar: [
+              {
+                title: 'Guides',
+                children: [
+                  {
+                    title: 'Advanced',
+                    path: '/guides/advanced',
+                    children: [
+                      { title: 'Sessions', path: '/guides/advanced/sessions' },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    // breadcrumb config payload reaches the client.
+    expect(html).toContain('breadcrumbsConfig: {"enabled":true,"hideOnHome":true}')
+    // Runtime exposes the resolver + renderer.
+    expect(html).toContain('function resolveDocsBreadcrumbs(')
+    expect(html).toContain('function renderDocsBreadcrumb(')
+    // CSS section is shipped.
+    expect(html).toContain('.docs-breadcrumb')
+    // aria-label is wired into the runtime via setAttribute (not literal HTML).
+    expect(html).toContain("'aria-label', 'Breadcrumb'")
+  })
+
+  it('honours ui.breadcrumbs option overrides', () => {
+    const disabled = generateUIHTML({
+      basePath: '/docs',
+      doc: { info: { title: 'API', version: '1.0.0' }, paths: {} },
+      ui: { breadcrumbs: false },
+    })
+    const customised = generateUIHTML({
+      basePath: '/docs',
+      doc: { info: { title: 'API', version: '1.0.0' }, paths: {} },
+      ui: { breadcrumbs: { hideOnHome: false } },
+    })
+
+    expect(disabled).toContain('breadcrumbsConfig: {"enabled":false,"hideOnHome":true}')
+    expect(customised).toContain('breadcrumbsConfig: {"enabled":true,"hideOnHome":false}')
+  })
+
   it('assembles style sections with theme variables and try-it styles', () => {
     const css = generateStyles({
       primaryColor: '#336699',
