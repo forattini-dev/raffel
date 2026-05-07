@@ -138,16 +138,27 @@ export const initClientScript = String.raw`    // Render introduction markdown i
       }
     });
 
+    // cmd+K / ctrl+K opens the docs search modal (legacy fallback delivery).
+    // The shared runtime delivery wires this through createDocsSearchModal().
     document.addEventListener('keydown', (event) => {
-      const wantsSearch = event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey;
-      const wantsCommandSearch = event.key?.toLowerCase?.() === 'k' && (event.ctrlKey || event.metaKey);
-      if (wantsSearch || wantsCommandSearch) {
-        const search = document.getElementById('searchInput');
-        if (search && document.activeElement !== search) {
-          event.preventDefault();
-          search.focus();
-          document.documentElement.setAttribute('data-search-focused', 'true');
-        }
+      if ((sidebarConfig && sidebarConfig.search === false)) return;
+      const isShortcut = event.key?.toLowerCase?.() === 'k' && (event.ctrlKey || event.metaKey);
+      if (!isShortcut) return;
+      const target = event.target;
+      const isFormField = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable === true ||
+        (typeof target.getAttribute === 'function' && target.getAttribute('contenteditable') === 'true')
+      );
+      const existing = document.querySelector('dialog.search-modal');
+      if (isFormField && !(existing && existing.hasAttribute('open'))) return;
+      event.preventDefault();
+      const search = document.getElementById('searchInput');
+      if (search && document.activeElement !== search) {
+        search.focus();
+        document.documentElement.setAttribute('data-search-focused', 'true');
       }
     });
 

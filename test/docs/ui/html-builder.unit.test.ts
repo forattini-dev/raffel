@@ -108,7 +108,7 @@ describe('Documentation UI HTML builder', () => {
     expect(script).toContain('function parsePageFrontmatter(')
     expect(script).toContain('function renderDocsPagination(')
     expect(script).toContain('function renderEndpointDetails(')
-    expect(script).toContain('wantsCommandSearch')
+    expect(script).toContain('createDocsSearchModal')
     expect(script).toContain('function init()')
   })
 

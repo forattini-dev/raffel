@@ -293,6 +293,7 @@
     "ajv": "^8.18.0",
     "fastest-validator": "^1.19.1",
     "joi": "^18.1.2",
+    "jsdom": "^29.1.1",
     "recker": "^1.0.86",
     "serve": "^14.2.6",
     "typescript": "^6.0.2",
