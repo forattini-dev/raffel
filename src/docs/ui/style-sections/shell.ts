@@ -211,188 +211,163 @@ export function generateShellStyles(
       align-items: center;
     }
 
-    /* ========== HERO SECTION (built-in) ========== */
+    /* ========== HERO SECTION — editorial-technical ========== */
+    /* Distilled (#111 #3): no gradient, no centred hero, no pill buttons,
+       no shadow stacking, no glassmorphism. Left-aligned editorial layout
+       in the same surface as the rest of the page. The optional gradient
+       background remains opt-in for users who configure it explicitly. */
     .hero {
       ${heroBackgroundCSS}
-      color: white;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 60px 40px;
-      text-align: center;
+      padding: 64px 40px 48px;
+      border-bottom: 1px solid var(--border-color);
       position: relative;
-    }
-
-    .hero::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.15) 100%);
-      pointer-events: none;
     }
 
     .hero-content {
-      max-width: 800px;
-      margin: 0 auto;
-      position: relative;
-      z-index: 1;
+      max-width: 960px;
+      margin: 0;
+      padding: 0 0 0 40px;
     }
 
     .hero-logo {
-      height: 120px;
-      margin-bottom: 32px;
-      filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15));
+      height: 32px;
+      margin-bottom: 24px;
+      display: block;
     }
 
     .hero-title {
-      font-size: 56px;
+      font-size: var(--font-size-h1);
       font-weight: 700;
-      margin-bottom: 8px;
-      text-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      letter-spacing: -0.02em;
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+      line-height: var(--line-height-tight);
     }
 
     .hero-version {
       display: inline-block;
-      font-size: 14px;
+      font-size: var(--font-size-small);
       font-weight: 500;
-      background: rgba(255,255,255,0.2);
-      padding: 4px 12px;
-      border-radius: 100px;
+      color: var(--text-muted);
       margin-left: 12px;
       vertical-align: middle;
-      backdrop-filter: blur(4px);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
     .hero-tagline {
-      font-size: 22px;
-      opacity: 0.95;
-      margin-bottom: 28px;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
-      line-height: 1.5;
-      font-weight: 300;
+      font-size: var(--font-size-h4);
+      color: var(--text-secondary);
+      margin: 0 0 24px;
+      max-width: 60ch;
+      line-height: 1.45;
+      font-weight: 400;
     }
 
     .hero-features {
       list-style: none;
       padding: 0;
-      margin: 0 auto 36px;
+      margin: 0 0 28px;
       display: flex;
       flex-wrap: wrap;
-      gap: 8px 24px;
-      justify-content: center;
-      max-width: 600px;
+      gap: 4px 14px;
+      max-width: 70ch;
+      font-size: var(--font-size-small);
+      color: var(--text-secondary);
     }
 
     .hero-features li {
-      font-size: 16px;
-      opacity: 0.9;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      display: inline;
     }
 
-    .hero-features li::before {
-      content: '✓';
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 20px;
-      height: 20px;
-      background: rgba(255,255,255,0.2);
-      border-radius: 50%;
-      font-size: 12px;
-      font-weight: bold;
+    .hero-features li:not(:last-child)::after {
+      content: ' \\00b7';
+      margin-left: 10px;
+      color: var(--text-muted);
     }
 
     .hero-buttons {
       display: flex;
-      gap: 16px;
-      justify-content: center;
+      gap: 24px;
       flex-wrap: wrap;
-      margin-bottom: 48px;
+      margin: 0 0 0;
+      font-size: var(--font-size-body);
     }
 
     .hero-btn {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 14px 32px;
-      border-radius: 100px;
-      font-size: 16px;
-      font-weight: 600;
+      gap: 4px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      font-weight: 500;
       text-decoration: none;
       cursor: pointer;
-      transition: all 0.2s ease;
-      border: 2px solid rgba(255,255,255,0.8);
+      color: var(--text-secondary);
+      border-bottom: 1px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .hero-btn::after {
+      content: '\\2192';
+      font-weight: 400;
     }
 
     .hero-btn-primary {
-      background: white;
       color: var(--primary-color);
-      border-color: white;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    }
+
+    .hero-btn:hover {
+      color: var(--text-primary);
+      border-color: currentColor;
     }
 
     .hero-btn-primary:hover {
-      background: rgba(255,255,255,0.95);
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-    }
-
-    .hero-btn-secondary {
-      background: transparent;
-      color: white;
-    }
-
-    .hero-btn-secondary:hover {
-      background: rgba(255,255,255,0.15);
-      transform: translateY(-2px);
+      color: var(--primary-hover);
     }
 
     .hero-quicklinks {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      max-width: 900px;
-      margin: 0 auto;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0;
+      max-width: 960px;
+      margin: 32px 0 0;
+      border-top: 1px solid var(--border-color);
     }
 
     .hero-quicklink {
-      background: rgba(255,255,255,0.12);
-      backdrop-filter: blur(12px);
-      border-radius: 16px;
-      padding: 24px;
+      padding: 20px 24px 20px 0;
       text-decoration: none;
-      color: white;
-      text-align: left;
-      transition: all 0.25s ease;
-      border: 1px solid rgba(255,255,255,0.15);
+      color: var(--text-secondary);
+      border-right: 1px solid var(--border-color);
+      transition: color 0.15s;
+    }
+
+    .hero-quicklink:last-child {
+      border-right: 0;
     }
 
     .hero-quicklink:hover {
-      background: rgba(255,255,255,0.2);
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      color: var(--text-primary);
     }
 
     .hero-quicklink-icon {
-      font-size: 28px;
-      margin-bottom: 12px;
+      font-size: var(--font-size-h4);
+      margin-bottom: 8px;
+      display: block;
+      color: var(--primary-color);
     }
 
     .hero-quicklink-title {
-      font-size: 17px;
+      font-size: var(--font-size-body);
       font-weight: 600;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
+      color: var(--text-primary);
     }
 
     .hero-quicklink-desc {
-      font-size: 14px;
-      opacity: 0.8;
+      font-size: var(--font-size-small);
+      color: var(--text-muted);
       line-height: 1.4;
     }
 

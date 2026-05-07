@@ -199,22 +199,24 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 12px;
-      border-radius: 6px;
+      padding: 6px 12px 6px 14px;
+      border-left: 2px solid transparent;
+      border-radius: 0;
       text-decoration: none;
-      color: var(--text-color);
-      font-size: 14px;
+      color: var(--text-secondary);
+      font-size: var(--font-size-small);
       cursor: pointer;
-      transition: all 0.15s;
+      transition: color 0.15s, border-color 0.15s;
     }
 
     .nav-item:hover {
-      background: var(--hover-bg);
+      color: var(--text-primary);
     }
 
     .nav-item.active {
-      background: var(--primary-color);
-      color: white;
+      color: var(--text-primary);
+      border-left-color: var(--primary-color);
+      font-weight: 600;
     }
 
     .nav-subitems {
@@ -250,13 +252,13 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .nav-subitem:hover {
-      background: var(--hover-bg);
-      color: var(--text-color);
+      color: var(--text-primary);
     }
 
     .nav-subitem.active {
-      color: var(--primary-color);
+      color: var(--text-primary);
       font-weight: 600;
+      box-shadow: inset 2px 0 0 var(--primary-color);
     }
 
     .docs-sidebar-depth-1 { margin-left: 4px; }
@@ -290,29 +292,99 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .nav-item-method {
       font-size: 10px;
       font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 3px;
+      padding: 1px 4px;
+      border: 1px solid var(--border-color);
+      border-radius: 2px;
       text-transform: uppercase;
-      font-family: 'SF Mono', 'Monaco', monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text-secondary);
+      background: transparent;
+      letter-spacing: 0.02em;
     }
 
-    .method-get { background: #10b981; color: white; }
-    .method-post { background: #3b82f6; color: white; }
-    .method-put { background: #f59e0b; color: white; }
-    .method-patch { background: #8b5cf6; color: white; }
-    .method-delete { background: #ef4444; color: white; }
-    .method-ws { background: #ec4899; color: white; }
-    .method-stream { background: #06b6d4; color: white; }
-    .method-rpc { background: #f97316; color: white; }
-    .method-grpc { background: #14b8a6; color: white; }
+    /* Method classes kept for HTML compatibility but visually unified.
+       The DELETE verb gets the only chromatic accent — destructive
+       intent earns visual weight. */
+    .method-get,
+    .method-post,
+    .method-put,
+    .method-patch,
+    .method-ws,
+    .method-stream,
+    .method-rpc,
+    .method-grpc {
+      color: var(--text-secondary);
+      background: transparent;
+      border-color: var(--border-color);
+    }
+
+    .method-delete {
+      color: var(--primary-color);
+      border-color: var(--primary-color);
+      background: transparent;
+    }
 
     .nav-item-path {
-      font-family: 'SF Mono', 'Monaco', monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px;
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    /* ========== TOC (On this page) — editorial sidenote ========== */
+    .toc {
+      align-self: start;
+      position: sticky;
+      top: 24px;
+      padding: 8px 0 8px 16px;
+      border-left: 1px solid var(--border-color);
+      font-size: var(--font-size-small);
+      line-height: 1.5;
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+    }
+
+    .toc:empty {
+      border: 0;
+      padding: 0;
+    }
+
+    .toc-title {
+      color: var(--text-muted);
+      font-size: var(--font-size-xs);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      margin: 0 0 8px;
+      text-transform: uppercase;
+    }
+
+    .toc-link {
+      display: block;
+      padding: 3px 0;
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      margin-left: -16px;
+      padding-left: 14px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .toc-link:hover {
+      color: var(--text-primary);
+    }
+
+    .toc-link.active {
+      color: var(--text-primary);
+      border-left-color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    .toc-level-2 { padding-left: 14px; }
+    .toc-level-3 { padding-left: 26px; }
+    .toc-level-4 { padding-left: 38px; }
+    .toc-level-5 { padding-left: 50px; }
+    .toc-level-6 { padding-left: 62px; }
 
 `

@@ -49,7 +49,9 @@ export function generateHeroBackgroundCSS(
 ): string {
   switch (background) {
     case 'gradient':
-      return `background: linear-gradient(135deg, ${primaryColor} 0%, ${adjustColor(primaryColor, -30)} 100%);`
+      // Kept opt-in for users who explicitly request it. The default
+      // hero now uses a solid surface (see `default` branch).
+      return `background: linear-gradient(135deg, ${primaryColor} 0%, ${adjustColor(primaryColor, -30)} 100%); color: white;`
     case 'pattern':
       return `background: ${primaryColor}; background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");`
     case 'image':
@@ -57,6 +59,8 @@ export function generateHeroBackgroundCSS(
         ? `background: url("${backgroundImage}") center/cover no-repeat;`
         : `background: ${primaryColor};`
     default:
-      return `background: ${primaryColor};`
+      // Editorial default — same surface as the rest of the page so the
+      // hero reads as an opening section, not a marketing banner.
+      return `background: var(--bg-color);`
   }
 }
