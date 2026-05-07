@@ -333,6 +333,76 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       white-space: nowrap;
     }
 
+    /* ========== Floating utility buttons (theme toggle, back-to-top) ========== */
+    .icon-button {
+      appearance: none;
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: var(--font-size-small);
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      line-height: 1.2;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .icon-button:hover {
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+
+    .icon-button:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
+
+    .back-to-top {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 50;
+      appearance: none;
+      background: var(--bg-color);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-size: var(--font-size-small);
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      line-height: 1.2;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s, color 0.15s, border-color 0.15s;
+    }
+
+    .back-to-top.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    .back-to-top::before {
+      content: '\\2191';
+      margin-right: 6px;
+      font-weight: 400;
+    }
+
+    .back-to-top:hover {
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+
+    .back-to-top:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
+
     /* ========== TOC (On this page) — editorial sidenote ========== */
     .toc {
       align-self: start;
