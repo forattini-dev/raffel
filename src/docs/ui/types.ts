@@ -129,6 +129,8 @@ export interface SidebarConfig {
   items?: DocsSidebarItem[]
   /** file-backed Markdown heading depth to include under the active docs page. */
   subMaxLevel?: number
+  /** When set, wraps all auto-generated docs-page sections under a single collapsible group with this label. */
+  docsPagesGroup?: string
 }
 
 /**
