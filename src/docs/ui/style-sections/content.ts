@@ -234,6 +234,27 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       color: var(--text-primary);
     }
 
+    /* Heading anchor (#) — hidden by default, fades in on heading hover.
+       Muted colour, no underline, no accent. Stripe/Vercel/GitHub pattern. */
+    .markdown-content :is(.md-h1, .md-h2, .md-h3, .md-h4, .md-h5, .md-h6) > .heading-anchor {
+      display: inline-block;
+      margin-right: 8px;
+      color: var(--text-muted);
+      text-decoration: none;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+      font-weight: 400;
+    }
+
+    .markdown-content :is(.md-h1, .md-h2, .md-h3, .md-h4, .md-h5, .md-h6):hover > .heading-anchor,
+    .markdown-content .heading-anchor:focus-visible {
+      opacity: 1;
+    }
+
+    .markdown-content .heading-anchor:hover {
+      color: var(--text-secondary);
+    }
+
     .markdown-content .md-h2 {
       font-size: 18px;
       font-weight: 600;
