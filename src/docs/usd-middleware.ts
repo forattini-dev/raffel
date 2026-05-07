@@ -39,7 +39,7 @@ function readBuiltDocsRuntime(): string | null {
   return readBuiltDocsUIAsset('raffel-docs.js')
 }
 
-function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'protocol-console.js' | 'sidebar-tree.js' | 'marked.umd.js' | 'prism.js'): string | null {
+function readBuiltDocsUIAsset(fileName: 'raffel-docs.js' | 'marked-renderer.js' | 'protocol-console.js' | 'sidebar-tree.js' | 'code-block-toolbar.js' | 'page-nav.js' | 'search-modal.js' | 'marked.umd.js' | 'prism.js'): string | null {
   const assetUrl = new URL(`./ui/assets/${fileName}`, import.meta.url)
   if (!existsSync(assetUrl)) return null
   return readFileSync(assetUrl, 'utf8')
@@ -304,6 +304,12 @@ export interface USDHandlers {
   serveUIProtocolConsole: () => Response
   /** Serve reusable declarative sidebar runtime bridge */
   serveUISidebarTree: () => Response
+  /** Serve reusable code-block toolbar runtime bridge */
+  serveUICodeBlockToolbar: () => Response
+  /** Serve reusable page-nav (prev/next) runtime bridge */
+  serveUIPageNav: () => Response
+  /** Serve reusable cmd+K search modal runtime bridge */
+  serveUISearchModal: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
@@ -534,6 +540,27 @@ export function createUSDHandlers(
       },
     }),
 
+    serveUICodeBlockToolbar: () => new Response(readBuiltDocsUIAsset('code-block-toolbar.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
+    serveUIPageNav: () => new Response(readBuiltDocsUIAsset('page-nav.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
+    serveUISearchModal: () => new Response(readBuiltDocsUIAsset('search-modal.js') ?? '', {
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }),
+
     serveUISidebarTree: () => new Response(readBuiltDocsUIAsset('sidebar-tree.js') ?? '', {
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
@@ -631,6 +658,9 @@ export function mountUSDDocs(
   app.get(`${basePath}/-/marked-renderer.js`, reply(() => handlers.serveUIMarkdownRenderer()))
   app.get(`${basePath}/-/protocol-console.js`, reply(() => handlers.serveUIProtocolConsole()))
   app.get(`${basePath}/-/sidebar-tree.js`, reply(() => handlers.serveUISidebarTree()))
+  app.get(`${basePath}/-/code-block-toolbar.js`, reply(() => handlers.serveUICodeBlockToolbar()))
+  app.get(`${basePath}/-/page-nav.js`, reply(() => handlers.serveUIPageNav()))
+  app.get(`${basePath}/-/search-modal.js`, reply(() => handlers.serveUISearchModal()))
 
   // Spec endpoints.
   app.get(`${basePath}/openapi.json`, reply(() => handlers.serveOpenAPI()))
