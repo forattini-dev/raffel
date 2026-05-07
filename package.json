@@ -238,6 +238,7 @@
     "prepack": "pnpm run build",
     "dev": "tsc --watch",
     "docs": "serve docs -p 3000",
+    "docs:preview": "pnpm run build && node scripts/preview-docs-ui.mjs",
     "test": "node --test --import tsx tests/smoke.test.ts",
     "test:watch": "vitest -c vitest.config.unit.ts",
     "test:unit": "vitest run -c vitest.config.unit.ts",
