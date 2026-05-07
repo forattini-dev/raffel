@@ -112,6 +112,7 @@ describe('Markdown docs loader', () => {
         section: 'Guide Local',
         order: 0,
         updatedAt: '<updated>',
+        filePath: 'guides/quickstart.md',
       },
       {
         title: 'Home',
@@ -121,6 +122,7 @@ describe('Markdown docs loader', () => {
         section: 'Intro',
         order: 0,
         updatedAt: '<updated>',
+        filePath: 'README.md',
       },
       {
         title: 'Deep local',
@@ -130,6 +132,7 @@ describe('Markdown docs loader', () => {
         section: 'Guide Local',
         order: 1,
         updatedAt: '<updated>',
+        filePath: 'guides/advanced/deep.md',
       },
       {
         title: '404',
@@ -251,6 +254,33 @@ describe('Markdown docs loader', () => {
 
     expect(home?.title).toBe('Index Home')
     expect(readme?.title).toBe('Readme')
+  })
+
+  it('propagates frontmatter editable: false through to the loaded page', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'raffel-docs-editable-'))
+    writeFileSync(path.join(dir, 'README.md'), '# Home')
+    writeFileSync(path.join(dir, 'pinned.md'), [
+      '---',
+      'title: Pinned',
+      'editable: false',
+      '---',
+      '# Pinned',
+    ].join('\n'))
+    writeFileSync(path.join(dir, 'editable.md'), [
+      '---',
+      'title: Editable',
+      '---',
+      '# Editable',
+    ].join('\n'))
+
+    const loaded = loadMarkdownDocs({ dir })
+    const pinned = loaded.documentation.pages.find(page => page.path === '/pinned')
+    const editable = loaded.documentation.pages.find(page => page.path === '/editable')
+
+    expect(pinned?.editable).toBe(false)
+    expect(pinned?.filePath).toBe('pinned.md')
+    expect(editable?.editable).toBeUndefined()
+    expect(editable?.filePath).toBe('editable.md')
   })
 
   it('falls back to README.md when index.md is absent', () => {

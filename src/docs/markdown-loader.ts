@@ -187,8 +187,10 @@ function createDocumentationPage(
     ?? sidebar?.title
     ?? extractFirstHeading(parsed.body)
     ?? titleFromSlug(path.basename(relativePath, '.md'))
+  const normalizedFilePath = relativePath.split(path.sep).join('/')
+  const editable = parseEditableFlag(parsed.data.editable)
 
-  return {
+  const page: USDDocumentationPage = {
     title,
     path: routePath,
     markdown,
@@ -196,7 +198,18 @@ function createDocumentationPage(
     section: parsed.data.section ?? sidebar?.section ?? sectionFromPath,
     order: parseNumericOrder(parsed.data.order) ?? sidebar?.order ?? index,
     updatedAt,
+    filePath: normalizedFilePath,
   }
+  if (editable === false) page.editable = false
+  return page
+}
+
+function parseEditableFlag(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined
+  const normalized = String(value).trim().toLowerCase()
+  if (normalized === 'false') return false
+  if (normalized === 'true') return true
+  return undefined
 }
 
 function parseFrontmatter(markdown: string): FrontmatterResult {
