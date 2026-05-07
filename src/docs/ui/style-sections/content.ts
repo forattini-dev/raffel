@@ -1068,4 +1068,68 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       font-weight: 600;
     }
 
+    /* Issue #123: Previous / Next page-nav cards.
+       Uses only existing tokens (--border-color, --text-secondary,
+       --text-primary). No shadows, no pill radius. */
+    .page-nav-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .page-nav-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 76px;
+      padding: 14px 16px;
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-primary);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .page-nav-card:hover,
+    .page-nav-card:focus-visible {
+      border-color: var(--text-primary);
+    }
+
+    .page-nav-card-next {
+      text-align: right;
+      align-items: flex-end;
+    }
+
+    .page-nav-eyebrow {
+      display: block;
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .page-nav-title {
+      display: block;
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    @media (max-width: 720px) {
+      .page-nav-grid {
+        grid-template-columns: 1fr;
+      }
+      .page-nav-card-prev {
+        order: 0;
+      }
+      .page-nav-card-next {
+        order: 1;
+        text-align: left;
+        align-items: flex-start;
+      }
+    }
+
 `
