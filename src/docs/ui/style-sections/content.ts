@@ -234,6 +234,15 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       color: var(--text-primary);
     }
 
+    .markdown-content a:not(.heading-anchor) {
+      color: var(--primary-color);
+      text-decoration: none;
+    }
+
+    .markdown-content a:not(.heading-anchor):hover {
+      text-decoration: underline;
+    }
+
     /* Heading anchor (#) — hidden by default, fades in on heading hover.
        Muted colour, no underline, no accent. Stripe/Vercel/GitHub pattern. */
     .markdown-content :is(.md-h1, .md-h2, .md-h3, .md-h4, .md-h5, .md-h6) > .heading-anchor {
