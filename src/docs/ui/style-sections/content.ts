@@ -240,6 +240,70 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       border-color: var(--primary-color);
     }
 
+    .markdown-content .md-code-block[data-code-toolbar-enhanced="true"] {
+      padding-top: 32px;
+    }
+
+    .markdown-content .code-block-toolbar {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      left: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+
+    .markdown-content pre:hover .code-block-toolbar,
+    .markdown-content .code-block-toolbar:focus-within {
+      opacity: 1;
+    }
+
+    @media (hover: none) {
+      .markdown-content .code-block-toolbar {
+        opacity: 1;
+      }
+    }
+
+    .markdown-content .code-block-lang {
+      pointer-events: auto;
+      font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+      font-size: var(--font-size-xs, 11px);
+      line-height: 1;
+      color: var(--text-muted);
+      text-transform: lowercase;
+      letter-spacing: 0.02em;
+    }
+
+    .markdown-content .code-block-lang[hidden] {
+      display: none;
+    }
+
+    .markdown-content .code-block-copy {
+      pointer-events: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 2px 8px;
+      font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+      font-size: var(--font-size-xs, 11px);
+      line-height: 16px;
+      cursor: pointer;
+      transition: color 120ms ease, border-color 120ms ease;
+    }
+
+    .markdown-content .code-block-copy:hover,
+    .markdown-content .code-block-copy:focus-visible {
+      color: var(--text-secondary);
+      border-color: var(--text-secondary);
+      outline: none;
+    }
+
     .markdown-content .md-code-block code {
       font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
       font-size: 13px;

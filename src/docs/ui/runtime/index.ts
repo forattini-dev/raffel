@@ -1,6 +1,7 @@
 import { renderMarkedMarkdown } from './marked-renderer.js'
 import { appendProtocolConsole } from './protocol-console.js'
 import { appendDeclarativeSidebar, type RuntimeSidebarItem } from './sidebar-tree.js'
+import { enhanceCodeBlockToolbars } from './code-block-toolbar.js'
 type DocsPage = {
   title?: string
   path?: string
@@ -1464,6 +1465,7 @@ function render(): void {
   renderSidebar()
   renderContent()
   highlightCodeBlocks(byId('mainContent'))
+  enhanceCodeBlockToolbars(byId('mainContent'), { document: doc, navigator: win.navigator })
   renderMermaidDiagrams()
   mountDocsComponents(byId('mainContent'))
   runVoidHook('afterRender', getPluginContext())
