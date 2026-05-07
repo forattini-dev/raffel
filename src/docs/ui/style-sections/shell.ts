@@ -125,6 +125,27 @@ export function generateShellStyles(
       backdrop-filter: blur(10px);
     }
 
+    /* When the navbar lives INSIDE the hero, float it top-right. No
+       chrome — the hero is the surface, the nav rides on top of it. */
+    .hero .top-nav {
+      position: absolute;
+      top: 16px;
+      right: 24px;
+      left: auto;
+      width: auto;
+      min-height: 0;
+      padding: 0;
+      gap: 18px;
+      background: transparent;
+      border: 0;
+      backdrop-filter: none;
+      z-index: 5;
+    }
+
+    .hero .top-nav-brand {
+      display: none;
+    }
+
     .top-nav-brand,
     .top-nav-link,
     .top-nav-menu summary {
@@ -212,19 +233,23 @@ export function generateShellStyles(
     }
 
     /* ========== HERO SECTION — editorial-technical ========== */
-    /* Distilled (#111 #3): no gradient, no centred hero, no pill buttons,
-       no shadow stacking, no glassmorphism. Left-aligned editorial layout
-       in the same surface as the rest of the page. The optional gradient
-       background remains opt-in for users who configure it explicitly. */
+    /* Distilled (#111 #3): no gradient default, no pill buttons, no shadow
+       stacking, no glassmorphism, no checkmark bullets. Full-viewport
+       height kept (a hero should occupy the viewport) but content is
+       left-flush + vertically centred — editorial, not centered-marketing. */
     .hero {
       ${heroBackgroundCSS}
-      padding: 64px 40px 48px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 64px 40px;
       border-bottom: 1px solid var(--border-color);
       position: relative;
     }
 
     .hero-content {
       max-width: 960px;
+      width: 100%;
       margin: 0;
       padding: 0 0 0 40px;
     }

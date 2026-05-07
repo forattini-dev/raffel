@@ -72,7 +72,8 @@ export function generateHeroSection(
   hero: UIConfig['hero'],
   logo: string | undefined,
   title: string,
-  version?: string
+  version?: string,
+  topNavHtml?: string
 ): string {
   if (!hero) return ''
 
@@ -113,6 +114,7 @@ export function generateHeroSection(
   return `
   <header class="hero">
     ${githubHtml}
+    ${topNavHtml ?? ''}
     <div class="hero-content">
       ${logo ? `<img class="hero-logo" src="${escapeHtml(logo)}" alt="Logo">` : ''}
       <h1 class="hero-title">${escapeHtml(hero.title || title)}${versionHtml}</h1>

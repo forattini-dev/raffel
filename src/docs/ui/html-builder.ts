@@ -157,9 +157,9 @@ ${generateClientRuntimeScript()}
 </head>
 <body>
   ${generateSkipLink(ui?.skipLink)}
-  ${generateHeroSection(hero, logo, title, version)}
+  ${generateHeroSection(hero, logo, title, version, generateTopNavigation(logo, title, navItems))}
   ${generateIntroductionSection(introduction)}
-  ${generateTopNavigation(logo, title, navItems)}
+  ${hero ? '' : generateTopNavigation(logo, title, navItems)}
   ${generateAppContainer(logo, title, sidebar, footer)}
   <script>
 ${dataScript}
