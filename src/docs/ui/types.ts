@@ -27,6 +27,24 @@ export interface UIConfig {
   assets?: UIAssetsConfig
   markdown?: MarkdownConfig
   skipLink?: boolean | string
+  /**
+   * Breadcrumb trail at the top of every Markdown / generated reference page.
+   *
+   *   `false`         — disable
+   *   `true`          — enable with default options
+   *   `{ ... }`       — enable with overrides
+   *
+   * Default: enabled with `hideOnHome: true`.
+   */
+  breadcrumbs?: boolean | BreadcrumbsConfig
+}
+
+/**
+ * Breadcrumb trail configuration.
+ */
+export interface BreadcrumbsConfig {
+  /** Hide the breadcrumb on the home / root page. Default: true. */
+  hideOnHome?: boolean
 }
 
 /**

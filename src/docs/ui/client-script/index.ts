@@ -40,7 +40,8 @@ export function generateClientDataScript(
   escapedDocsAssetBasePath: string,
   escapedFooter: string,
   escapedToc: string,
-  escapedMarkdown: string
+  escapedMarkdown: string,
+  escapedBreadcrumbs: string = '{"enabled":true,"hideOnHome":true}'
 ): string {
   return `
     window.__RAFFEL_DOCS__ = {
@@ -56,7 +57,8 @@ export function generateClientDataScript(
       docsAssetBasePath: ${escapedDocsAssetBasePath},
       footerMarkdown: ${escapedFooter},
       tocConfig: ${escapedToc},
-      markdownConfig: ${escapedMarkdown}
+      markdownConfig: ${escapedMarkdown},
+      breadcrumbsConfig: ${escapedBreadcrumbs}
     };
 `
 }
@@ -177,6 +179,9 @@ function generateLegacyClientRuntimeScript(): string {
     const footerMarkdown = docsData.footerMarkdown || null;
     const tocConfig = docsData.tocConfig || {};
     const markdownConfig = docsData.markdownConfig || {};
+    const breadcrumbsConfig = docsData.breadcrumbsConfig && typeof docsData.breadcrumbsConfig === 'object'
+      ? docsData.breadcrumbsConfig
+      : { enabled: true, hideOnHome: true };
     const docsPlugins = [];
     function getDocsRuntimeState() {
       return { activePagePath, activeHeadingId, activeProtocol, searchQuery };
@@ -256,7 +261,8 @@ export function generateClientScript(
   escapedDocsAssetBasePath: string,
   escapedFooter: string,
   escapedToc: string,
-  escapedMarkdown: string
+  escapedMarkdown: string,
+  escapedBreadcrumbs?: string
 ): string {
   return `${generateClientDataScript(
     escapedSpec,
@@ -271,7 +277,8 @@ export function generateClientScript(
     escapedDocsAssetBasePath,
     escapedFooter,
     escapedToc,
-    escapedMarkdown
+    escapedMarkdown,
+    escapedBreadcrumbs
   )}
 ${generateClientRuntimeScript()}`
 }

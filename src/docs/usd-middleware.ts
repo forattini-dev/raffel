@@ -228,6 +228,11 @@ export interface USDMiddlewareConfig {
     skipLink?: boolean | string
     /** UI asset delivery mode */
     assets?: { mode?: 'inline' | 'external' }
+    /**
+     * Breadcrumb trail at the top of every Markdown / generated reference
+     * page. `false` disables; `true` (default) enables with `hideOnHome: true`.
+     */
+    breadcrumbs?: boolean | { hideOnHome?: boolean }
   }
 
   /** Include standard error schemas */
