@@ -86,6 +86,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedFooter = escapeJsonForScript(footer ?? null)
   const escapedToc = escapeJsonForScript(toc)
   const escapedMarkdown = escapeJsonForScript(markdown)
+  const escapedDocsRepo = escapeJsonForScript(ui?.docsRepo ?? null)
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -117,7 +118,8 @@ ${styles}
     escapedDocsAssetBasePath,
     escapedFooter,
     escapedToc,
-    escapedMarkdown
+    escapedMarkdown,
+    escapedDocsRepo
   )
   const runtimeScript = assetMode === 'external'
     ? `<script>

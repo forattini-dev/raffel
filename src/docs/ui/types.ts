@@ -27,6 +27,24 @@ export interface UIConfig {
   assets?: UIAssetsConfig
   markdown?: MarkdownConfig
   skipLink?: boolean | string
+  /** Repository config used to render an "Edit this page" link in Markdown page headers. */
+  docsRepo?: DocsRepoConfig
+}
+
+/**
+ * Editor / source-of-truth repository for Markdown pages.
+ */
+export interface DocsRepoConfig {
+  /** Repository base URL, for example `https://github.com/owner/repo`. */
+  base: string
+  /** Branch name. Defaults to `main`. */
+  branch?: string
+  /** Optional path prefix prepended to a page's `filePath`. */
+  pathPrefix?: string
+  /** Optional override for the rendered link label. */
+  label?: string
+  /** Optional URL segment between branch and filePath. Defaults to `edit`. */
+  editSegment?: string
 }
 
 /**
