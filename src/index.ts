@@ -801,9 +801,6 @@ export * from './proxy/index.js'
 // === SMTP (Client + Relay) ===
 export * from './smtp/index.js'
 
-// === Testing Mocks ===
-export * from './testing/index.js'
-
 // === MCP (Model Context Protocol) ===
 export {
   // Server
