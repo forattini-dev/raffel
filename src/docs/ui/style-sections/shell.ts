@@ -58,6 +58,16 @@ export function generateShellStyles(
       --hover-bg: rgba(99, 102, 241, 0.15);
     }
 
+    /*
+     * theme: 'custom' — user-controlled palette via the --raffel-* token set.
+     *
+     * Fallbacks here are the LIGHT defaults. They only kick in when the user
+     * sets theme: 'custom' and does NOT define the corresponding --raffel-*
+     * token in their customCss. The matching prefers-color-scheme: dark
+     * block below mirrors theme: 'auto' so a dark-mode visitor never lands
+     * on a half-styled light surface; together they make 'custom' default
+     * to system preference until the consumer takes full control.
+     */
     [data-theme="custom"] {
       --primary-color: var(--raffel-primary-color, ${primaryColor});
       --primary-hover: var(--raffel-primary-hover, ${primaryHover});
@@ -79,6 +89,26 @@ export function generateShellStyles(
       --code-panel-bg: var(--raffel-code-panel-bg, #263238);
       --code-panel-text: var(--raffel-code-panel-text, #cfd8dc);
       --code-panel-header: var(--raffel-code-panel-header, #37474f);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      [data-theme="custom"] {
+        --bg-color: var(--raffel-bg-color, #0f172a);
+        --bg-primary: var(--raffel-bg-primary, var(--raffel-bg-color, #0f172a));
+        --bg-secondary: var(--raffel-bg-secondary, #111c33);
+        --bg-tertiary: var(--raffel-bg-tertiary, #1e293b);
+        --surface-color: var(--raffel-surface-color, #111c33);
+        --text-color: var(--raffel-text-color, #f1f5f9);
+        --text-primary: var(--raffel-text-primary, var(--raffel-text-color, #f1f5f9));
+        --text-secondary: var(--raffel-text-secondary, #cbd5e1);
+        --text-muted: var(--raffel-text-muted, #94a3b8);
+        --border-color: var(--raffel-border-color, #475569);
+        --border: var(--raffel-border, var(--raffel-border-color, #475569));
+        --accent: var(--raffel-accent, var(--raffel-primary-color, ${primaryColor}));
+        --code-bg: var(--raffel-code-bg, #1e293b);
+        --sidebar-bg: var(--raffel-sidebar-bg, #1e293b);
+        --hover-bg: var(--raffel-hover-bg, rgba(99, 102, 241, 0.15));
+      }
     }
 
     @media (prefers-color-scheme: dark) {
