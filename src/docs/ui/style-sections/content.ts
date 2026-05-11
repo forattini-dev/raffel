@@ -498,6 +498,41 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       color: #c4b5fd;
     }
 
+    /*
+     * Prism dark tokens also apply to theme: 'custom' under prefers-color-scheme
+     * dark, mirroring the shell.ts default-token logic. Without this block,
+     * consumers using customCss on a dark body inherit the light-mode token
+     * colors (orange/green over dark, hard to scan) and have to rewrite all
+     * 8 token classes themselves.
+     */
+    @media (prefers-color-scheme: dark) {
+      [data-theme="custom"] .markdown-content .token.property,
+      [data-theme="custom"] .markdown-content .token.tag,
+      [data-theme="custom"] .markdown-content .token.boolean,
+      [data-theme="custom"] .markdown-content .token.number,
+      [data-theme="custom"] .markdown-content .token.constant,
+      [data-theme="custom"] .markdown-content .token.symbol {
+        color: #fcd34d;
+      }
+
+      [data-theme="custom"] .markdown-content .token.selector,
+      [data-theme="custom"] .markdown-content .token.attr-name,
+      [data-theme="custom"] .markdown-content .token.string,
+      [data-theme="custom"] .markdown-content .token.char,
+      [data-theme="custom"] .markdown-content .token.builtin {
+        color: #86efac;
+      }
+
+      [data-theme="custom"] .markdown-content .token.function,
+      [data-theme="custom"] .markdown-content .token.class-name {
+        color: #93c5fd;
+      }
+
+      [data-theme="custom"] .markdown-content .token.keyword {
+        color: #c4b5fd;
+      }
+    }
+
     .markdown-content .mermaid {
       margin: 16px 0;
       padding: 16px;
