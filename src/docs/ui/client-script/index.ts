@@ -44,7 +44,7 @@ export function generateClientDataScript(
   escapedDocsRepo: string = 'null',
   escapedBreadcrumbs: string = '{"enabled":true,"hideOnHome":true}',
   escapedPageNav: string = '{"enabled":true,"hide":[]}',
-  escapedMermaid: string = '{"enabled":true,"src":"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"}'
+  escapedMermaid: string = '{"enabled":true,"src":"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js","viewer":true}'
 ): string {
   return `
     window.__RAFFEL_DOCS__ = {

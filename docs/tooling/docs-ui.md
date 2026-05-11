@@ -357,17 +357,20 @@ Fenced code blocks with the `mermaid` language are parsed into `<div class="merm
 
 Raffel intentionally does NOT bundle Mermaid (~3 MB minified), so the script is fetched from a CDN when needed.
 
-Pin a specific Mermaid version or self-host the asset:
+Each rendered diagram is wrapped in a **viewer overlay** with a toolbar (zoom in / zoom out / reset / fullscreen). The toolbar fades in on hover. When zoomed in (scale > 1) the diagram can be panned by mouse drag. Ctrl/⌘ + wheel zooms inside the viewport. Fullscreen mode opens a `<dialog>` with the same controls and `Esc` to close.
+
+Pin a specific Mermaid version, self-host the asset, or disable the viewer overlay:
 
 ```ts
 ui: {
   mermaid: {
     src: 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js',
+    viewer: true, // default — set false to render raw SVGs without the toolbar
   },
 }
 ```
 
-Disable entirely (for example when serving docs in an air-gapped environment with no fallback library):
+Disable Mermaid entirely (for example when serving docs in an air-gapped environment with no fallback library):
 
 ```ts
 ui: {

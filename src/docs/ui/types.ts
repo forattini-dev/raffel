@@ -66,6 +66,13 @@ export interface UIConfig {
 export interface MermaidConfig {
   /** Script URL to load Mermaid from. Defaults to jsdelivr CDN. */
   src?: string
+  /**
+   * Wrap rendered diagrams in a viewer with a toolbar (zoom in/out/reset/fullscreen).
+   * Pan via mouse drag when zoomed in. Wheel-zoom with Ctrl / ⌘ pressed.
+   *
+   * Default: `true`. Set `false` to render diagrams without the viewer overlay.
+   */
+  viewer?: boolean
 }
 
 /**
