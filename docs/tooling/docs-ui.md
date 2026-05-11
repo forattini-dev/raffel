@@ -340,7 +340,7 @@ The Markdown runtime supports common file-backed Markdown authoring features:
 - admonitions like `[!NOTE]`, `[!WARNING]`, `[!IMPORTANT]`
 - legacy callouts with `!>` and `?>`
 - tab blocks with `<!-- tabs:start -->`
-- Mermaid blocks
+- Mermaid blocks (lazy-loaded the first time a `.mermaid` element renders — see [Mermaid Diagrams](#mermaid-diagrams))
 - image zoom
 - emoji shorthand, unless `markdown.noEmoji` is enabled
 - `markdown.noCompileLinks`
@@ -350,6 +350,32 @@ The Markdown runtime supports common file-backed Markdown authoring features:
 - raw HTML is escaped by default; set `markdown.html: 'raw'` only for trusted Markdown
 
 When `ui.assets.mode` is `external`, Raffel serves the Markdown engine, Prism.js, and renderer bridge from the same docs mount as the UI runtime. There is no CDN requirement. If the Markdown engine asset is unavailable, the runtime falls back to the built-in parser.
+
+## Mermaid Diagrams
+
+Fenced code blocks with the `mermaid` language are parsed into `<div class="mermaid">` elements at HTML generation time. **Rendering is enabled by default and lazy-loaded** — the runtime fetches the Mermaid library only the first time it sees a `.mermaid` element in the DOM, then caches the load promise for the rest of the session. Pages without diagrams never pay the network cost.
+
+Raffel intentionally does NOT bundle Mermaid (~3 MB minified), so the script is fetched from a CDN when needed.
+
+Pin a specific Mermaid version or self-host the asset:
+
+```ts
+ui: {
+  mermaid: {
+    src: 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js',
+  },
+}
+```
+
+Disable entirely (for example when serving docs in an air-gapped environment with no fallback library):
+
+```ts
+ui: {
+  mermaid: false,
+}
+```
+
+When disabled, `.mermaid` blocks render as fallback `<pre>` text — no broken diagrams, no missing-library error. If `window.mermaid` is already present on the page (consumer self-hosted earlier in the shell), the runtime uses it without triggering a second fetch.
 
 ## Theme Preference
 

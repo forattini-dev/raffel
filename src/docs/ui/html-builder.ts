@@ -93,6 +93,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedDocsRepo = escapeJsonForScript(ui?.docsRepo ?? null)
   const escapedBreadcrumbs = escapeJsonForScript(breadcrumbs)
   const escapedPageNav = escapeJsonForScript(pageNav)
+  const escapedMermaid = escapeJsonForScript(normalizeMermaidConfig(ui?.mermaid))
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -127,7 +128,8 @@ ${styles}
     escapedMarkdown,
     escapedDocsRepo,
     escapedBreadcrumbs,
-    escapedPageNav
+    escapedPageNav,
+    escapedMermaid
   )
   const runtimeScript = assetMode === 'external'
     ? `<script>
@@ -246,4 +248,24 @@ export function generateUICSS(options: UIGeneratorOptions): string {
   )
 
   return generateStyles({ primaryColor, heroBackgroundCSS })
+}
+
+const DEFAULT_MERMAID_CDN_SRC = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js'
+
+/**
+ * Normalize the `ui.mermaid` option into a concrete `{ enabled, src }` shape
+ * the runtime can read off `window.__RAFFEL_DOCS__.mermaidConfig`.
+ *
+ *   undefined / true → enabled with the default CDN source.
+ *   false            → disabled. The runtime will leave `.mermaid` blocks
+ *                      in their fallback state without attempting to load
+ *                      the library.
+ *   { src }          → enabled with a pinned/self-hosted script URL.
+ */
+function normalizeMermaidConfig(option: unknown): { enabled: boolean; src: string } {
+  if (option === false) return { enabled: false, src: '' }
+  if (option && typeof option === 'object' && 'src' in option && typeof (option as { src?: string }).src === 'string') {
+    return { enabled: true, src: (option as { src: string }).src }
+  }
+  return { enabled: true, src: DEFAULT_MERMAID_CDN_SRC }
 }
