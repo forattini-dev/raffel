@@ -103,7 +103,7 @@ const docsAssetBasePath = String(data.docsAssetBasePath ?? '')
 const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
 const markdownConfig = data.markdownConfig ?? {}
-const mermaidConfig = data.mermaidConfig ?? { enabled: true, src: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js' }
+const mermaidConfig = data.mermaidConfig ?? { enabled: true, src: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js', viewer: true }
 let mermaidLoadPromise: Promise<any> | null = null
 const docsRepoConfig = (data.docsRepoConfig ?? null) as DocsRepoRuntimeConfig | null
 const breadcrumbsConfig = (data.breadcrumbsConfig && typeof data.breadcrumbsConfig === 'object')
@@ -1609,6 +1609,7 @@ async function renderMermaidDiagrams(root: any = doc): Promise<void> {
         result?.bindFunctions?.(diagram)
         diagram.dataset.mermaidRendered = 'true'
         diagram.classList.remove('mermaid-fallback', 'mermaid-error')
+        if (mermaidConfig.viewer !== false) mountMermaidViewer(diagram)
       })
       .catch((error: unknown) => {
         diagram.dataset.mermaidRendered = 'error'
@@ -1616,6 +1617,164 @@ async function renderMermaidDiagrams(root: any = doc): Promise<void> {
         diagram.setAttribute('title', error instanceof Error ? error.message : 'Unable to render Mermaid diagram')
       })
   })
+}
+
+/**
+ * Wrap a freshly rendered Mermaid SVG in a viewer overlay:
+ *   • toolbar (zoom in/out/reset/fullscreen) — fades in on hover
+ *   • drag-to-pan when zoomed in (scale > 1)
+ *   • wheel-zoom with Ctrl/⌘ pressed (so vertical scroll still works normally)
+ *   • fullscreen via <dialog>, with same controls
+ *
+ * Idempotent: skips diagrams already wrapped (data-mermaid-viewer-mounted).
+ */
+function mountMermaidViewer(diagram: any): void {
+  if (diagram.dataset.mermaidViewerMounted) return
+  const svg = diagram.querySelector?.('svg')
+  if (!svg) return
+
+  const viewport = doc.createElement('div')
+  viewport.className = 'mermaid-viewport'
+  diagram.insertBefore(viewport, svg)
+  viewport.appendChild(svg)
+
+  const toolbar = doc.createElement('div')
+  toolbar.className = 'mermaid-toolbar'
+  toolbar.innerHTML = [
+    '<button class="mermaid-btn" data-mermaid-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>',
+    '<button class="mermaid-btn" data-mermaid-action="zoom-out" aria-label="Zoom out" title="Zoom out">−</button>',
+    '<button class="mermaid-btn" data-mermaid-action="reset" aria-label="Reset view" title="Reset view">⟲</button>',
+    '<button class="mermaid-btn" data-mermaid-action="fullscreen" aria-label="Open fullscreen" title="Fullscreen">⛶</button>',
+  ].join('')
+  diagram.appendChild(toolbar)
+
+  const state = { scale: 1, tx: 0, ty: 0 }
+  function apply(): void {
+    svg.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`
+    svg.style.transformOrigin = 'center center'
+    svg.style.transition = 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)'
+    viewport.style.cursor = state.scale > 1 ? 'grab' : ''
+  }
+  function reset(): void { state.scale = 1; state.tx = 0; state.ty = 0; apply() }
+  function zoomBy(factor: number): void {
+    state.scale = Math.max(0.5, Math.min(state.scale * factor, 8))
+    if (state.scale === 1) { state.tx = 0; state.ty = 0 }
+    apply()
+  }
+
+  toolbar.addEventListener('click', (ev: any) => {
+    const action = ev.target?.dataset?.mermaidAction
+    if (action === 'zoom-in') zoomBy(1.25)
+    else if (action === 'zoom-out') zoomBy(1 / 1.25)
+    else if (action === 'reset') reset()
+    else if (action === 'fullscreen') openMermaidFullscreen(svg.cloneNode(true) as any)
+  })
+
+  let panning = false; let panStartX = 0; let panStartY = 0; let panStartTx = 0; let panStartTy = 0
+  viewport.addEventListener('mousedown', (ev: any) => {
+    if (ev.button !== 0 || state.scale <= 1) return
+    panning = true
+    panStartX = ev.clientX; panStartY = ev.clientY
+    panStartTx = state.tx; panStartTy = state.ty
+    viewport.style.cursor = 'grabbing'
+    ev.preventDefault()
+  })
+  doc.addEventListener('mousemove', (ev: any) => {
+    if (!panning) return
+    state.tx = panStartTx + (ev.clientX - panStartX)
+    state.ty = panStartTy + (ev.clientY - panStartY)
+    svg.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`
+  })
+  doc.addEventListener('mouseup', () => {
+    if (!panning) return
+    panning = false
+    viewport.style.cursor = state.scale > 1 ? 'grab' : ''
+  })
+
+  viewport.addEventListener('wheel', (ev: any) => {
+    if (!ev.ctrlKey && !ev.metaKey) return
+    ev.preventDefault()
+    zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1)
+  })
+
+  diagram.dataset.mermaidViewerMounted = 'true'
+}
+
+function openMermaidFullscreen(svg: any): void {
+  const dialog = doc.createElement('dialog')
+  dialog.className = 'mermaid-fullscreen-dialog'
+
+  const close = doc.createElement('button')
+  close.className = 'mermaid-fullscreen-close'
+  close.setAttribute('aria-label', 'Close')
+  close.textContent = '✕'
+  close.addEventListener('click', () => dialog.close())
+
+  const stage = doc.createElement('div')
+  stage.className = 'mermaid-fullscreen-stage'
+  svg.removeAttribute('style')
+  stage.appendChild(svg)
+
+  const fsState = { scale: 1, tx: 0, ty: 0 }
+  function fsApply(): void {
+    svg.style.transform = `translate(${fsState.tx}px, ${fsState.ty}px) scale(${fsState.scale})`
+    svg.style.transformOrigin = 'center center'
+    stage.style.cursor = fsState.scale > 1 ? 'grab' : ''
+  }
+  function fsZoom(factor: number): void {
+    fsState.scale = Math.max(0.5, Math.min(fsState.scale * factor, 8))
+    if (fsState.scale === 1) { fsState.tx = 0; fsState.ty = 0 }
+    fsApply()
+  }
+
+  const toolbar = doc.createElement('div')
+  toolbar.className = 'mermaid-toolbar mermaid-toolbar-fullscreen'
+  toolbar.innerHTML = [
+    '<button class="mermaid-btn" data-mermaid-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>',
+    '<button class="mermaid-btn" data-mermaid-action="zoom-out" aria-label="Zoom out" title="Zoom out">−</button>',
+    '<button class="mermaid-btn" data-mermaid-action="reset" aria-label="Reset view" title="Reset view">⟲</button>',
+  ].join('')
+  toolbar.addEventListener('click', (ev: any) => {
+    const action = ev.target?.dataset?.mermaidAction
+    if (action === 'zoom-in') fsZoom(1.25)
+    else if (action === 'zoom-out') fsZoom(1 / 1.25)
+    else if (action === 'reset') { fsState.scale = 1; fsState.tx = 0; fsState.ty = 0; fsApply() }
+  })
+
+  let fsPan = false; let fsStartX = 0; let fsStartY = 0; let fsStartTx = 0; let fsStartTy = 0
+  stage.addEventListener('mousedown', (ev: any) => {
+    if (ev.button !== 0 || fsState.scale <= 1) return
+    fsPan = true
+    fsStartX = ev.clientX; fsStartY = ev.clientY
+    fsStartTx = fsState.tx; fsStartTy = fsState.ty
+    stage.style.cursor = 'grabbing'
+    ev.preventDefault()
+  })
+  doc.addEventListener('mousemove', (ev: any) => {
+    if (!fsPan) return
+    fsState.tx = fsStartTx + (ev.clientX - fsStartX)
+    fsState.ty = fsStartTy + (ev.clientY - fsStartY)
+    fsApply()
+  })
+  doc.addEventListener('mouseup', () => {
+    if (!fsPan) return
+    fsPan = false
+    stage.style.cursor = fsState.scale > 1 ? 'grab' : ''
+  })
+  stage.addEventListener('wheel', (ev: any) => {
+    ev.preventDefault()
+    fsZoom(ev.deltaY < 0 ? 1.1 : 1 / 1.1)
+  })
+
+  dialog.appendChild(close)
+  dialog.appendChild(toolbar)
+  dialog.appendChild(stage)
+  doc.body.appendChild(dialog)
+  dialog.addEventListener('close', () => { try { doc.body.removeChild(dialog) } catch {} })
+  dialog.addEventListener('keydown', (ev: any) => {
+    if (ev.key === 'Escape') dialog.close()
+  })
+  dialog.showModal?.()
 }
 
 function parseComponentProps(raw: unknown): Record<string, unknown> {

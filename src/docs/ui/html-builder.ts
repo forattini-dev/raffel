@@ -262,10 +262,15 @@ const DEFAULT_MERMAID_CDN_SRC = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/me
  *                      the library.
  *   { src }          → enabled with a pinned/self-hosted script URL.
  */
-function normalizeMermaidConfig(option: unknown): { enabled: boolean; src: string } {
-  if (option === false) return { enabled: false, src: '' }
-  if (option && typeof option === 'object' && 'src' in option && typeof (option as { src?: string }).src === 'string') {
-    return { enabled: true, src: (option as { src: string }).src }
+function normalizeMermaidConfig(option: unknown): { enabled: boolean; src: string; viewer: boolean } {
+  if (option === false) return { enabled: false, src: '', viewer: false }
+  if (option && typeof option === 'object') {
+    const obj = option as { src?: string; viewer?: boolean }
+    return {
+      enabled: true,
+      src: typeof obj.src === 'string' && obj.src ? obj.src : DEFAULT_MERMAID_CDN_SRC,
+      viewer: obj.viewer !== false,
+    }
   }
-  return { enabled: true, src: DEFAULT_MERMAID_CDN_SRC }
+  return { enabled: true, src: DEFAULT_MERMAID_CDN_SRC, viewer: true }
 }

@@ -534,13 +534,65 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .markdown-content .mermaid {
+      position: relative;
       margin: 16px 0;
       padding: 16px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg-primary);
-      overflow-x: auto;
+      overflow: hidden;
       text-align: center;
+    }
+
+    /* Viewport — clips the scaled SVG so it doesn't overflow the card. */
+    .markdown-content .mermaid .mermaid-viewport {
+      position: relative;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Toolbar — appears in the top-right corner, fades in on hover. */
+    .markdown-content .mermaid .mermaid-toolbar {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.18s ease;
+      z-index: 2;
+    }
+    .markdown-content .mermaid:hover .mermaid-toolbar,
+    .markdown-content .mermaid:focus-within .mermaid-toolbar { opacity: 1; }
+
+    .markdown-content .mermaid .mermaid-btn {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      color: var(--text-secondary);
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .markdown-content .mermaid .mermaid-btn:hover {
+      background: var(--hover-bg);
+      color: var(--text-primary);
+    }
+    .markdown-content .mermaid .mermaid-btn:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
     }
 
     .markdown-content .mermaid-fallback,
@@ -554,6 +606,80 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .markdown-content .mermaid-error {
       border-left: 4px solid #d97706;
+    }
+
+    /* Fullscreen dialog — opened by the toolbar fullscreen button. */
+    dialog.mermaid-fullscreen-dialog {
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: var(--bg-color);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+    dialog.mermaid-fullscreen-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    dialog.mermaid-fullscreen-dialog .mermaid-fullscreen-stage {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    dialog.mermaid-fullscreen-dialog .mermaid-fullscreen-stage svg {
+      max-width: 92vw;
+      max-height: 84vh;
+      width: auto;
+      height: auto;
+      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    dialog.mermaid-fullscreen-dialog .mermaid-toolbar-fullscreen {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px;
+      display: flex;
+      gap: 4px;
+      opacity: 1;
+    }
+    dialog.mermaid-fullscreen-close {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      z-index: 3;
+      transition: background 0.15s ease;
+    }
+    dialog.mermaid-fullscreen-close:hover { background: var(--hover-bg); }
+    dialog.mermaid-fullscreen-close:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
     }
 
     .markdown-content .md-image {
