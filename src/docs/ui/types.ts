@@ -47,6 +47,25 @@ export interface UIConfig {
    *   Markdown frontmatter `pageNav: false` opts out individual pages too.
    */
   pageNav?: boolean | PageNavConfig
+  /**
+   * Mermaid diagram rendering for fenced ` ```mermaid ` blocks.
+   *
+   *   `false` / omitted — Mermaid blocks render as fallback `<pre>` text.
+   *   `true`            — Inject `<script defer src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">`
+   *                       before the docs runtime so `window.mermaid` is available
+   *                       when the runtime walks the DOM looking for diagrams.
+   *   `{ src }`         — Same as `true` but with an explicit script URL. Use this
+   *                       to pin a Mermaid version or self-host the asset.
+   *
+   * Mermaid is intentionally not bundled in Raffel (~3 MB) — this option exists
+   * to avoid the customCss-can-only-load-CSS gap when a consumer needs diagrams.
+   */
+  mermaid?: boolean | MermaidConfig
+}
+
+export interface MermaidConfig {
+  /** Script URL to load Mermaid from. Defaults to jsdelivr CDN. */
+  src?: string
 }
 
 /**

@@ -103,6 +103,8 @@ const docsAssetBasePath = String(data.docsAssetBasePath ?? '')
 const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
 const markdownConfig = data.markdownConfig ?? {}
+const mermaidConfig = data.mermaidConfig ?? { enabled: true, src: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js' }
+let mermaidLoadPromise: Promise<any> | null = null
 const docsRepoConfig = (data.docsRepoConfig ?? null) as DocsRepoRuntimeConfig | null
 const breadcrumbsConfig = (data.breadcrumbsConfig && typeof data.breadcrumbsConfig === 'object')
   ? data.breadcrumbsConfig
@@ -1551,14 +1553,52 @@ function scrollToEndpoint(id: string): void {
   byId(id)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
 }
 
-function renderMermaidDiagrams(root: any = doc): void {
-  const mermaid = win.mermaid
+/**
+ * Lazy-load the Mermaid renderer the first time a page with diagrams is
+ * visited. Cached: subsequent route transitions inside the SPA reuse the
+ * same `<script>` injection. Pages without `.mermaid` blocks never trigger
+ * the network request, so the ~3MB library stays off the critical path
+ * for the 95% of docs pages that have no diagrams.
+ */
+function loadMermaidLibrary(src: string): Promise<any> {
+  if (win.mermaid) return Promise.resolve(win.mermaid)
+  if (mermaidLoadPromise) return mermaidLoadPromise
+  mermaidLoadPromise = new Promise((resolve, reject) => {
+    const script = doc.createElement('script')
+    script.src = src
+    script.defer = true
+    script.onload = () => resolve(win.mermaid)
+    script.onerror = () => {
+      mermaidLoadPromise = null
+      reject(new Error(`Failed to load Mermaid from ${src}`))
+    }
+    doc.head?.appendChild(script)
+  })
+  return mermaidLoadPromise
+}
+
+async function renderMermaidDiagrams(root: any = doc): Promise<void> {
   const diagrams = Array.from(root?.querySelectorAll?.('.mermaid:not([data-mermaid-rendered])') ?? []) as any[]
   if (diagrams.length === 0) return
-  if (!mermaid) {
+
+  if (mermaidConfig.enabled === false) {
     diagrams.forEach(diagram => diagram.classList.add('mermaid-fallback'))
     return
   }
+
+  let mermaid: any = win.mermaid
+  if (!mermaid) {
+    try {
+      mermaid = await loadMermaidLibrary(mermaidConfig.src)
+    } catch (error) {
+      diagrams.forEach(diagram => {
+        diagram.classList.add('mermaid-fallback', 'mermaid-error')
+        diagram.setAttribute('title', error instanceof Error ? error.message : 'Unable to load Mermaid')
+      })
+      return
+    }
+  }
+
   mermaid.initialize?.({ startOnLoad: false, securityLevel: 'strict' })
   diagrams.forEach((diagram, index) => {
     const source = diagram.getAttribute('data-mermaid-source') || diagram.textContent || ''
