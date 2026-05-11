@@ -366,6 +366,32 @@ ui: {
 
 Custom CSS can override component styles directly or set custom theme tokens such as `--raffel-bg-color`, `--raffel-text-color`, `--raffel-primary-color`, `--raffel-sidebar-bg`, and `--raffel-code-bg`.
 
+When `theme: 'custom'` is set and no `--raffel-*` token is defined, fallbacks follow the visitor's `prefers-color-scheme` (dark visitors get the dark-mode hex set, light visitors get the light set). This mirrors `theme: 'auto'` behavior until the consumer takes full control.
+
+### Custom CSS — Public Selector Surface
+
+These are the load-bearing classes that `customCss` can target safely. They are part of the public DX contract: a rename in this list is a breaking change tracked in CHANGELOG.
+
+| Surface | Class | Behavior |
+| --- | --- | --- |
+| Hero shell | `.hero` | Root wrapper around the cover section |
+| Hero content | `.hero-content` | Inner container holding title, tagline, features, buttons, quickLinks |
+| Hero title | `.hero-title`, `.hero-version` | H1 plus the small version chip |
+| Hero tagline | `.hero-tagline` | Single-line subtitle paragraph |
+| Hero features | `.hero-features`, `.hero-features li` | Bullet list parsed from `_coverpage.md` body |
+| Hero buttons | `.hero-buttons`, `.hero-btn`, `.hero-btn-primary`, `.hero-btn-secondary` | CTA anchors; last button parsed becomes primary |
+| Hero quick links | `.hero-quicklinks`, `.hero-quicklink`, `.hero-quicklink-title`, `.hero-quicklink-desc`, `.hero-quicklink-icon` | Card-style navigation hero cells |
+| Top navigation | `.app-nav`, `.top-nav` | Sticky navbar |
+| Sidebar | `.sidebar`, `.sidebar-header`, `.sidebar-logo`, `.sidebar-search`, `.sidebar-nav` | Left rail container and parts |
+| Sidebar links | `.sidebar a`, `.sidebar a.active` | Nav rows and the active route |
+| Main content | `.app-container`, `.markdown-content` | Outer shell plus markdown body |
+| TOC | `.toc`, `.toc a`, `.toc a.active` | Right-rail table of contents when `ui.toc.enabled` |
+| Code blocks | `.markdown-content pre`, `.markdown-content pre code`, `:not(pre) > code` | Fenced blocks and inline code |
+| Prism tokens | `.token.keyword`, `.token.string`, `.token.function`, `.token.class-name`, `.token.property`, `.token.tag`, `.token.boolean`, `.token.number`, `.token.constant`, `.token.symbol`, `.token.selector`, `.token.attr-name`, `.token.char`, `.token.builtin`, `.token.comment` | Syntax-highlighted spans inside fenced code blocks |
+| Schema badges | `.type-string`, `.type-number`, `.type-integer`, `.type-boolean`, `.type-object`, `.type-array`, `.type-null`, `.type-ref` | Generated API reference type chips |
+
+Selectors outside this table are internal and may change without notice. If you find yourself reaching for an unlisted class, open an issue describing the use case — that's a candidate for the public list.
+
 ## Svelte Mounts
 
 Raffel does not embed Vue. Component slots are Svelte-friendly and framework-neutral. Use a fenced block in Markdown:
