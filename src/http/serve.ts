@@ -6,9 +6,13 @@
  */
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
+import type { TLSSocket } from 'node:tls'
 import type { Duplex } from 'node:stream'
 import type { BodyInit } from './web-types.js'
 import { attachRequestSocketInfo } from '../utils/client-ip.js'
+import { attachRequestPeerCertificate } from '../utils/peer-cert.js'
+import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -85,6 +89,52 @@ export interface ServeOptions {
    * })
    */
   onUpgrade?: UpgradeHandler
+
+  /**
+   * Application-level TLS (and optionally mTLS).
+   *
+   * When set, `serve()` instantiates `https.createServer` instead of plain
+   * `http.createServer`. The `TlsOptions` shape mirrors the rest of the
+   * codebase (inline buffers, file paths, env-var base64) — see
+   * `resolveTlsOptions` in `utils/tls.ts` for the resolution order.
+   *
+   * When a TLS source is configured, the function becomes **async** and
+   * returns `Promise<RaffelServer>` (overload resolves automatically).
+   *
+   * mTLS is opt-in by setting `requestCert: true`. With `rejectUnauthorized`
+   * also `true` (the default), the TLS layer refuses connections whose cert
+   * does not chain to the configured `ca`. With `rejectUnauthorized: false`,
+   * unauthenticated clients are allowed through and the handler can decide
+   * what to do — useful for routes that accept both anonymous and
+   * cert-authenticated callers on the same listener.
+   *
+   * In a handler:
+   *
+   * ```ts
+   * import { getRequestPeerCertificate } from 'raffel'
+   *
+   * app.get('/me', (c) => {
+   *   const peer = getRequestPeerCertificate(c.req.raw)
+   *   if (!peer?.authorized) return c.json({ error: 'cert required' }, 401)
+   *   return c.json({ subject: peer.certificate.subject })
+   * })
+   * ```
+   *
+   * Multi-protocol scope: `tls` here covers **only** the HTTP listener owned
+   * by `serve()` (and its WebSocket upgrades — `onUpgrade` inherits the same
+   * TLS socket). gRPC, SMTP, UDP and other adapters bring their own TLS
+   * knobs and must be configured separately.
+   */
+  tls?: TlsOptions & {
+    /** When true, request a client certificate during the TLS handshake. Required for mTLS. */
+    requestCert?: boolean
+    /**
+     * When true (default), reject the connection if the client cert does not
+     * validate against `ca`. When false, accept the connection and let the
+     * handler decide via `getRequestPeerCertificate(req).authorized`.
+     */
+    rejectUnauthorized?: boolean
+  }
 }
 
 /** Extended server interface with graceful shutdown */
@@ -227,38 +277,68 @@ async function sendWebResponse(webResponse: Response, nodeRes: ServerResponse): 
  *   await server.shutdown()
  * })
  */
-export function serve(options: ServeOptions): RaffelServer {
-  const {
-    fetch,
-    port = 3000,
-    hostname = '0.0.0.0',
-    onListen,
-    onError,
-    keepAliveTimeout,
-    headersTimeout,
-    onUpgrade,
-  } = options
+export function serve(options: ServeOptions & { tls: NonNullable<ServeOptions['tls']> }): Promise<RaffelServer>
+export function serve(options: ServeOptions): RaffelServer
+export function serve(options: ServeOptions): RaffelServer | Promise<RaffelServer> {
+  if (options.tls !== undefined) {
+    return serveTls(options as ServeOptions & { tls: NonNullable<ServeOptions['tls']> })
+  }
+  return serveHttp(options)
+}
 
-  let inFlightCount = 0
-  let isAcceptingRequests = true
-  const waitingResolvers: (() => void)[] = []
+interface ServerState {
+  inFlightCount: number
+  isAcceptingRequests: boolean
+  waitingResolvers: (() => void)[]
+}
 
-  /**
-   * Handle incoming request
-   */
-  async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // Reject if not accepting
-    if (!isAcceptingRequests) {
+/**
+ * Build the per-request handler closure shared by the plain-HTTP and HTTPS
+ * branches. Track in-flight count + accepting state, run the fetch handler,
+ * push the web response back into the Node response stream. The mTLS branch
+ * additionally attaches `RequestPeerCertificateInfo` to the request via
+ * WeakMap before invoking the fetch handler.
+ */
+function buildRequestHandler(
+  options: ServeOptions,
+  state: ServerState,
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  const { fetch, onError } = options
+  const requestCert = options.tls?.requestCert === true
+
+  return async function handleRequest(req, res) {
+    if (!state.isAcceptingRequests) {
       res.statusCode = 503
       res.setHeader('Connection', 'close')
       res.end('Service Unavailable')
       return
     }
 
-    inFlightCount++
+    state.inFlightCount++
 
     try {
       const webRequest = await nodeRequestToWebRequest(req)
+
+      // When mTLS is on, surface the peer cert via WeakMap so handlers can
+      // read it through `getRequestPeerCertificate(req)`. We always attempt
+      // this when requestCert was requested — if the client did not present
+      // a cert (only possible with rejectUnauthorized: false) `subject` is
+      // empty and `authorized` is false.
+      if (requestCert) {
+        const tlsSocket = req.socket as TLSSocket
+        if (typeof tlsSocket.getPeerCertificate === 'function') {
+          const certificate = tlsSocket.getPeerCertificate(true)
+          const hasCert = certificate && Object.keys(certificate).length > 0
+          if (hasCert) {
+            attachRequestPeerCertificate(webRequest, {
+              certificate,
+              authorized: tlsSocket.authorized === true,
+              authorizationError: tlsSocket.authorizationError ?? undefined,
+            })
+          }
+        }
+      }
+
       const webResponse = await fetch(webRequest)
       await sendWebResponse(webResponse, res)
     } catch (err) {
@@ -270,22 +350,32 @@ export function serve(options: ServeOptions): RaffelServer {
         res.end('Internal Server Error')
       }
     } finally {
-      inFlightCount--
+      state.inFlightCount--
 
-      // Notify waiters if no more requests
-      if (inFlightCount === 0 && waitingResolvers.length > 0) {
-        for (const resolve of waitingResolvers) {
+      if (state.inFlightCount === 0 && state.waitingResolvers.length > 0) {
+        for (const resolve of state.waitingResolvers) {
           resolve()
         }
-        waitingResolvers.length = 0
+        state.waitingResolvers.length = 0
       }
     }
   }
+}
 
-  // Create server
-  const server = createServer(handleRequest) as RaffelServer
+/**
+ * Wires extension methods, error handler, upgrade handler, and starts
+ * listening. Returns a Promise that resolves on `'listening'` so callers
+ * (notably the TLS branch, which is already async) can await a fully-bound
+ * server. The HTTP branch keeps the synchronous fire-and-forget pattern for
+ * backwards compatibility.
+ */
+function attachServerExtensions(
+  server: RaffelServer,
+  options: ServeOptions,
+  state: ServerState,
+): Promise<void> {
+  const { onListen, onError, keepAliveTimeout, headersTimeout, onUpgrade } = options
 
-  // Apply production timeouts if specified
   if (keepAliveTimeout !== undefined) {
     server.keepAliveTimeout = keepAliveTimeout
   }
@@ -293,34 +383,33 @@ export function serve(options: ServeOptions): RaffelServer {
     server.headersTimeout = headersTimeout
   }
 
-  // Wire HTTP upgrade handler (e.g. WebSocket handshakes).
-  // Node's http.Server has no default 'upgrade' listener — without this,
-  // upgrade requests are silently dropped on the floor.
   if (onUpgrade) {
+    // Node has no default 'upgrade' listener; without this, upgrade requests
+    // are silently dropped. The WebSocket handshake survives TLS naturally:
+    // on https.Server the `socket` here is a TLSSocket, and inside the
+    // upgrade handler `req.socket.getPeerCertificate()` works directly.
     server.on('upgrade', onUpgrade)
   }
 
-  // Add graceful shutdown methods
   server.stopAcceptingRequests = function () {
-    isAcceptingRequests = false
+    state.isAcceptingRequests = false
   }
 
   server.getInFlightCount = function () {
-    return inFlightCount
+    return state.inFlightCount
   }
 
   server.waitForRequestsToFinish = function (timeoutMs = 30000): Promise<void> {
     return new Promise((resolve) => {
-      if (inFlightCount === 0) {
+      if (state.inFlightCount === 0) {
         resolve()
         return
       }
 
       const timer = setTimeout(() => {
-        // Remove from waiters
-        const index = waitingResolvers.indexOf(resolveWrap)
+        const index = state.waitingResolvers.indexOf(resolveWrap)
         if (index !== -1) {
-          waitingResolvers.splice(index, 1)
+          state.waitingResolvers.splice(index, 1)
         }
         resolve()
       }, timeoutMs)
@@ -330,7 +419,7 @@ export function serve(options: ServeOptions): RaffelServer {
         resolve()
       }
 
-      waitingResolvers.push(resolveWrap)
+      state.waitingResolvers.push(resolveWrap)
     })
   }
 
@@ -342,16 +431,70 @@ export function serve(options: ServeOptions): RaffelServer {
     })
   }
 
-  // Error handling
   server.on('error', (err) => {
     onError?.(err)
   })
 
-  // Start listening
-  server.listen(port, hostname, () => {
-    onListen?.({ port, hostname })
+  const port = options.port ?? 3000
+  const hostname = options.hostname ?? '0.0.0.0'
+  return new Promise<void>((resolve) => {
+    server.listen(port, hostname, () => {
+      onListen?.({ port, hostname })
+      resolve()
+    })
   })
+}
 
+function serveHttp(options: ServeOptions): RaffelServer {
+  const state: ServerState = { inFlightCount: 0, isAcceptingRequests: true, waitingResolvers: [] }
+  const server = createServer(buildRequestHandler(options, state)) as RaffelServer
+  // HTTP branch fires-and-forgets the listen promise to preserve the
+  // pre-existing synchronous return contract — callers that need the bound
+  // address listen for the 'listening' event themselves.
+  void attachServerExtensions(server, options, state)
+  return server
+}
+
+async function serveTls(
+  options: ServeOptions & { tls: NonNullable<ServeOptions['tls']> },
+): Promise<RaffelServer> {
+  const { tls: tlsOpts } = options
+  const requestCert = tlsOpts.requestCert === true
+  const rejectUnauthorized = tlsOpts.rejectUnauthorized ?? true
+
+  // mTLS without a CA cannot validate any client — fail loudly at boot
+  // instead of silently rejecting every connection (or, worse with
+  // rejectUnauthorized: false, silently letting everyone through with
+  // authorized: false on every request).
+  const hasCa =
+    tlsOpts.ca != null || tlsOpts.caFile != null || tlsOpts.caEnv != null
+  if (requestCert && rejectUnauthorized && !hasCa) {
+    throw new Error(
+      'serve(): tls.requestCert=true with rejectUnauthorized=true requires tls.ca ' +
+        '(inline / file / env). Provide a CA cert that signs the expected client certs, ' +
+        'or set rejectUnauthorized=false to handle unauthenticated clients in your handler.',
+    )
+  }
+
+  const resolved = await resolveTlsOptions(tlsOpts)
+  const state: ServerState = { inFlightCount: 0, isAcceptingRequests: true, waitingResolvers: [] }
+
+  // https.Server extends tls.Server which adds members RaffelServer does not
+  // declare (`enableTrace`, `setSecureContext`, …) so neither type contains
+  // the other. Cast through `unknown` to match the http branch's pattern —
+  // attachServerExtensions wires the missing methods at runtime below.
+  const server = createHttpsServer(
+    {
+      key: resolved.key,
+      cert: resolved.cert,
+      ca: resolved.ca,
+      requestCert,
+      rejectUnauthorized,
+    },
+    buildRequestHandler(options, state),
+  ) as unknown as RaffelServer
+
+  await attachServerExtensions(server, options, state)
   return server
 }
 
