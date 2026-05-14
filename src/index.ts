@@ -454,6 +454,10 @@ export type { SidOptions, AlphabetName } from './utils/index.js'
 export { resolveTlsOptions } from './utils/tls.js'
 export type { TlsOptions, ResolvedTls } from './utils/tls.js'
 
+// Peer certificate (mTLS request-handler side-channel)
+export { attachRequestPeerCertificate, getRequestPeerCertificate } from './utils/peer-cert.js'
+export type { RequestPeerCertificateInfo } from './utils/peer-cert.js'
+
 // Certificates
 export { generateCertificate, generateCA, getDefaultCA } from './utils/certs.js'
 
