@@ -409,7 +409,12 @@ function resolveDocsAlias(path: string): string {
 
 function parseRouteHash(): { pagePath: string, headingId: string } {
   const hash = String(win.location?.hash ?? '')
-  if (!hash.startsWith('#/')) return { pagePath: '', headingId: hash.startsWith('#') ? hash.slice(1) : '' }
+  // When no docs route is in the hash, return the canonical root path
+  // (`/`) instead of the empty string. Returning `''` would make every
+  // downstream comparison against page paths (which always start with
+  // `/`) fail, so the initial render would land on no page and the docs
+  // nav highlight would point nowhere.
+  if (!hash.startsWith('#/')) return { pagePath: '/', headingId: hash.startsWith('#') ? hash.slice(1) : '' }
   const raw = hash.slice(1)
   const [pathPart, query = ''] = raw.split('?')
   const params = typeof URLSearchParams === 'undefined' ? null : new URLSearchParams(query)
