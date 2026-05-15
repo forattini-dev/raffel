@@ -8,12 +8,19 @@ import pino from 'pino'
 
 const isDev = process.env.NODE_ENV !== 'production'
 
+// Respect `LOG_FORMAT=json` to opt into JSON output even in dev. Without
+// this override raffel always emits pino-pretty in dev, which mixes
+// badly with a host service's own JSON logs and is hostile to grep / jq
+// when the operator is shipping aggregated logs to a JSON sink.
+const logFormat = String(process.env.LOG_FORMAT ?? '').toLowerCase()
+const wantsPretty = isDev && logFormat !== 'json'
+
 /**
  * Base logger instance
  */
 const baseLogger = pino({
   level: process.env.LOG_LEVEL ?? (isDev ? 'debug' : 'info'),
-  transport: isDev
+  transport: wantsPretty
     ? {
         target: 'pino-pretty',
         options: {
