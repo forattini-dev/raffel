@@ -38,6 +38,26 @@ export type { GrpcAdapter, GrpcAdapterOptions, GrpcTlsOptions, GrpcMethodInfo } 
 export { createSmtpAdapter, createSmtpClient } from './smtp.js'
 export type { SmtpAdapter, SmtpAdapterOptions, SmtpContextCapability, SmtpTlsOptions, SmtpAuthVerifier, SmtpRecipientValidator } from './smtp.js'
 
+// SSH adapter
+export { createSshAdapter } from './ssh.js'
+export { generateEphemeralHostKey } from './ssh-host-key.js'
+export { parseKeys } from './ssh-keys.js'
+export type {
+  SshAdapter,
+  SshAdapterOptions,
+  SshAuthOptions,
+  SshAuthHandler,
+  SshAuthRequest,
+  SshClientInfo,
+  SshHostKey,
+  SshPtyInfo,
+  SshSession,
+  SshSessionHandler,
+  KeyEvent,
+  TtyReadable,
+  TtyWritable,
+} from './ssh-types.js'
+
 // Connection Filter (TCP, UDP, WebSocket)
 export { checkConnectionFilter, checkWebSocketConnectionFilter } from './utils/connection-filter.js'
 export type { ConnectionFilter, WebSocketConnectionFilter } from './utils/connection-filter.js'
