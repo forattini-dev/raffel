@@ -2,7 +2,7 @@
 
 # Raffel
 
-### One server. HTTP, WebSocket, gRPC, TCP, UDP — all at once.
+### One server. HTTP, WebSocket, gRPC, TCP, UDP, SSH — all at once.
 
 [![npm version](https://img.shields.io/npm/v/raffel.svg?style=flat-square&color=8b5cf6)](https://www.npmjs.com/package/raffel)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -17,7 +17,7 @@
 
 Raffel is a TypeScript runtime for building APIs, proxies, and traffic-aware infrastructure in one stack.
 
-- Build HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, and UDP services with one project.
+- Build HTTP, WebSocket, gRPC, JSON-RPC, GraphQL, TCP, UDP, SMTP, and SSH services with one project.
 - Run reverse proxy, explicit proxy, CONNECT MITM, SOCKS5/SOCKS5h, and transparent proxy modes.
 - Export service-mesh style telemetry with `source -> destination -> protocol`, p50/p90/p95, throughput, bytes, and error rates.
 - Add resilience and policy with rate limit, retry, timeout, circuit breaker, validation, auth/session, filters, and proxy middleware.
@@ -26,7 +26,7 @@ Heavy edge features stay off by default. Telemetry, graph snapshots, Prometheus 
 
 Need the right guide fast? Use the docs or the built-in MCP tools: `raffel_feature_catalog`, `raffel_proxy_capabilities`, `raffel_get_guide`, and `raffel_search`.
 
-- **Protocols:** [HTTP](https://forattini-dev.github.io/raffel/#/protocols/http), [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket), [gRPC](https://forattini-dev.github.io/raffel/#/protocols/grpc), [UDP](https://forattini-dev.github.io/raffel/#/protocols/udp)
+- **Protocols:** [HTTP](https://forattini-dev.github.io/raffel/#/protocols/http), [WebSocket](https://forattini-dev.github.io/raffel/#/protocols/websocket), [gRPC](https://forattini-dev.github.io/raffel/#/protocols/grpc), [UDP](https://forattini-dev.github.io/raffel/#/protocols/udp), [SMTP](https://forattini-dev.github.io/raffel/#/protocols/smtp), [SSH](https://forattini-dev.github.io/raffel/#/protocols/ssh)
 - **Proxies:** [Overview](https://forattini-dev.github.io/raffel/#/proxy), [Modes](https://forattini-dev.github.io/raffel/#/proxy/modes), [Routing](https://forattini-dev.github.io/raffel/#/proxy/routing), [Service Mesh](https://forattini-dev.github.io/raffel/#/proxy/service-mesh)
 - **Observability:** [Flow Metrics](https://forattini-dev.github.io/raffel/#/proxy/flow-metrics), [Observability](https://forattini-dev.github.io/raffel/#/observability), [Tracing](https://forattini-dev.github.io/raffel/#/observability/tracing)
 
@@ -544,6 +544,58 @@ const proxy = createTransparentProxy({
 
 await proxy.start()
 ```
+
+---
+
+## SSH Server (TUI over `ssh your.app`)
+
+Ship terminal apps the way [terminal.shop](https://terminal.shop) does — users
+type `ssh your.app` and land in a real, rendered TUI. The adapter exposes raw
+streams, parsed key events, resize handling, and an optional TTY-compatible
+bridge for [tuiuiu.js](https://www.npmjs.com/package/tuiuiu.js) so reactive
+components render straight into the SSH session.
+
+```typescript
+import { createSshAdapter } from 'raffel'
+
+const ssh = createSshAdapter({
+  port: 2222,
+  // auth defaults to anonymous (terminal.shop style); add password/publicKey
+  // verifiers to mix public and private access in the same adapter.
+  onSession: async (session) => {
+    session.write(`☕ Hi ${session.user}!\r\n`)
+    for await (const key of session.keys) {
+      if (key.ctrl && key.name === 'c') break
+      session.write(key.str)
+    }
+  },
+})
+
+await ssh.start()
+// Now: ssh -p 2222 anything@localhost
+```
+
+With **tuiuiu.js** plugged in:
+
+```typescript
+import { render, Box, Text } from 'tuiuiu.js'
+
+createSshAdapter({
+  port: 2222,
+  onSession: async (session) => {
+    const app = render(
+      () => Box({}, Text({ color: 'cyan' }, `Hello, ${session.user}!`)),
+      session.tui,                              // TTY-compatible bridge
+    )
+    await app.waitUntilExit()
+  },
+})
+```
+
+Install peer deps when you use the adapter: `pnpm add ssh2` (required),
+`pnpm add tuiuiu.js` (only for reactive UIs).
+
+Full details: [SSH protocol guide](https://forattini-dev.github.io/raffel/#/protocols/ssh).
 
 ---
 
