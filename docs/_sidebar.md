@@ -31,6 +31,7 @@
   - [TCP](/protocols/tcp.md)
   - [UDP](/protocols/udp.md)
   - [SMTP](/protocols/smtp.md)
+  - [SSH](/protocols/ssh.md)
   - [MCP (build your own)](/protocols/mcp.md)
   - [Shared-Port Fusion](/protocols/single-port.md)
 
