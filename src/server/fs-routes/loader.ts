@@ -21,6 +21,8 @@ import type { LoadedUdpHandler } from './udp/types.js'
 import type {
   DiscoveryConfig,
   DiscoveryLoaderOptions,
+  DiscoverySourceEntry,
+  DiscoverySourceValue,
   DiscoveryStats,
   LoadedRoute,
   LoadedChannel,
@@ -35,6 +37,15 @@ import type {
   AuthConfig,
   ParsedRoute,
 } from './types.js'
+
+/**
+ * Resolved discovery source — what the loader actually iterates over.
+ */
+interface ResolvedSource {
+  dir: string
+  /** Cleaned prefix (no leading/trailing slashes). Empty string means "no prefix". */
+  prefix: string
+}
 
 const logger = createLogger('fs-discovery')
 
@@ -181,115 +192,105 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   const coLocatedEnabled = options.coLocatedPolicies?.enabled !== false
   const coLocatedCustomConditions = options.coLocatedPolicies?.customConditions
 
-  // Load HTTP routes
-  if (config.http) {
-    const dir = resolveDir(baseDir, config.http, DEFAULTS.http)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadDirectory(source, dir, 'procedure', extensions)
-      applyHttpVerbConvention(loaded.routes)
-      if (coLocatedEnabled) {
-        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
-      }
-      routes.push(...loaded.routes)
-      stats.http = loaded.routes.length
-      stats.middlewares += loaded.middlewareCount
-      logger.info({ count: stats.http, dir }, 'Loaded HTTP routes')
+  // Load HTTP routes (multi-source aware)
+  for (const src of resolveSources(baseDir, config.http, DEFAULTS.http)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadDirectory(source, src.dir, 'procedure', extensions)
+    prefixRouteNames(loaded.routes, src.prefix)
+    applyHttpVerbConvention(loaded.routes)
+    if (coLocatedEnabled) {
+      await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, src.dir)
     }
+    routes.push(...loaded.routes)
+    stats.http += loaded.routes.length
+    stats.middlewares += loaded.middlewareCount
+    logger.info({ count: loaded.routes.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded HTTP routes')
   }
 
   // Load RPC routes
-  if (config.rpc) {
-    const dir = resolveDir(baseDir, config.rpc, DEFAULTS.rpc)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadDirectory(source, dir, 'procedure', extensions)
-      if (coLocatedEnabled) {
-        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
-      }
-      routes.push(...loaded.routes)
-      stats.rpc = loaded.routes.length
-      stats.middlewares += loaded.middlewareCount
-      logger.info({ count: stats.rpc, dir }, 'Loaded RPC routes')
+  for (const src of resolveSources(baseDir, config.rpc, DEFAULTS.rpc)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadDirectory(source, src.dir, 'procedure', extensions)
+    prefixRouteNames(loaded.routes, src.prefix)
+    if (coLocatedEnabled) {
+      await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, src.dir)
     }
+    routes.push(...loaded.routes)
+    stats.rpc += loaded.routes.length
+    stats.middlewares += loaded.middlewareCount
+    logger.info({ count: loaded.routes.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded RPC routes')
   }
 
   // Load Stream routes
-  if (config.streams) {
-    const dir = resolveDir(baseDir, config.streams, DEFAULTS.streams)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadDirectory(source, dir, 'stream', extensions)
-      if (coLocatedEnabled) {
-        await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, dir)
-      }
-      routes.push(...loaded.routes)
-      stats.streams = loaded.routes.length
-      stats.middlewares += loaded.middlewareCount
-      logger.info({ count: stats.streams, dir }, 'Loaded stream routes')
+  for (const src of resolveSources(baseDir, config.streams, DEFAULTS.streams)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadDirectory(source, src.dir, 'stream', extensions)
+    prefixRouteNames(loaded.routes, src.prefix)
+    if (coLocatedEnabled) {
+      await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, src.dir)
     }
+    routes.push(...loaded.routes)
+    stats.streams += loaded.routes.length
+    stats.middlewares += loaded.middlewareCount
+    logger.info({ count: loaded.routes.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded stream routes')
   }
 
-  // Load Channel routes
-  if (config.channels) {
-    const dir = resolveDir(baseDir, config.channels, DEFAULTS.channels)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadChannels(source, dir, extensions)
-      if (coLocatedEnabled) {
-        await attachCoLocatedPoliciesToFileItems(source, loaded.channels, coLocatedCustomConditions, dir)
-      }
-      channels.push(...loaded.channels)
-      stats.channels = loaded.channels.length
-      stats.middlewares += loaded.middlewareCount
-      logger.info({ count: stats.channels, dir }, 'Loaded channels')
+  // Load Channels
+  for (const src of resolveSources(baseDir, config.channels, DEFAULTS.channels)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadChannels(source, src.dir, extensions)
+    prefixChannelNames(loaded.channels, src.prefix)
+    if (coLocatedEnabled) {
+      await attachCoLocatedPoliciesToFileItems(source, loaded.channels, coLocatedCustomConditions, src.dir)
     }
+    channels.push(...loaded.channels)
+    stats.channels += loaded.channels.length
+    stats.middlewares += loaded.middlewareCount
+    logger.info({ count: loaded.channels.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded channels')
   }
 
   // Load REST resources
-  if (config.rest) {
-    const dir = resolveDir(baseDir, config.rest, DEFAULTS.rest)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadRestResources({ baseDir, restDir: dir, extensions, source })
-      if (coLocatedEnabled) {
-        await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, dir)
-      }
-      restResources.push(...loaded.resources)
-      stats.rest = loaded.stats.resources
-      logger.info({ count: stats.rest, dir }, 'Loaded REST resources')
+  for (const src of resolveSources(baseDir, config.rest, DEFAULTS.rest)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadRestResources({ baseDir, restDir: src.dir, extensions, source })
+    prefixRestResourceNames(loaded.resources, src.prefix)
+    if (coLocatedEnabled) {
+      await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, src.dir)
     }
+    restResources.push(...loaded.resources)
+    stats.rest += loaded.stats.resources
+    logger.info({ count: loaded.stats.resources, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded REST resources')
   }
 
   // Load resource handlers
-  if (config.resources) {
-    const dir = resolveDir(baseDir, config.resources, DEFAULTS.resources)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadResources({ baseDir, resourcesDir: dir, extensions, source })
-      if (coLocatedEnabled) {
-        await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, dir)
-      }
-      resources.push(...loaded.resources)
-      stats.resources = loaded.stats.resources
-      logger.info({ count: stats.resources, dir }, 'Loaded resources')
+  for (const src of resolveSources(baseDir, config.resources, DEFAULTS.resources)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadResources({ baseDir, resourcesDir: src.dir, extensions, source })
+    prefixResourceNames(loaded.resources, src.prefix)
+    if (coLocatedEnabled) {
+      await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, src.dir)
     }
+    resources.push(...loaded.resources)
+    stats.resources += loaded.stats.resources
+    logger.info({ count: loaded.stats.resources, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded resources')
   }
 
-  // Load TCP handlers
-  if (config.tcp) {
-    const dir = resolveDir(baseDir, config.tcp, DEFAULTS.tcp)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadTcpHandlers({ baseDir, tcpDir: dir, extensions, source })
-      tcpHandlers.push(...loaded.handlers)
-      stats.tcp = loaded.stats.handlers
-      logger.info({ count: stats.tcp, dir }, 'Loaded TCP handlers')
-    }
+  // Load TCP handlers (prefix has no semantic effect — handlers route by port)
+  for (const src of resolveSources(baseDir, config.tcp, DEFAULTS.tcp)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadTcpHandlers({ baseDir, tcpDir: src.dir, extensions, source })
+    tcpHandlers.push(...loaded.handlers)
+    stats.tcp += loaded.stats.handlers
+    logger.info({ count: loaded.stats.handlers, dir: src.dir }, 'Loaded TCP handlers')
   }
 
-  // Load UDP handlers
-  if (config.udp) {
-    const dir = resolveDir(baseDir, config.udp, DEFAULTS.udp)
-    if (dir && await source.exists(dir)) {
-      const loaded = await loadUdpHandlers({ baseDir, udpDir: dir, extensions, source })
-      udpHandlers.push(...loaded.handlers)
-      stats.udp = loaded.stats.handlers
-      logger.info({ count: stats.udp, dir }, 'Loaded UDP handlers')
-    }
+  // Load UDP handlers (prefix has no semantic effect — handlers route by port)
+  for (const src of resolveSources(baseDir, config.udp, DEFAULTS.udp)) {
+    if (!(await source.exists(src.dir))) continue
+    const loaded = await loadUdpHandlers({ baseDir, udpDir: src.dir, extensions, source })
+    udpHandlers.push(...loaded.handlers)
+    stats.udp += loaded.stats.handlers
+    logger.info({ count: loaded.stats.handlers, dir: src.dir }, 'Loaded UDP handlers')
   }
 
   stats.total = stats.http + stats.rpc + stats.streams + stats.channels + stats.rest + stats.resources + stats.tcp + stats.udp
@@ -347,12 +348,103 @@ function normalizeDiscoveryConfig(config: DiscoveryConfig | boolean): DiscoveryC
 }
 
 /**
- * Resolve directory path
+ * Resolve a single directory path (absolute or relative to baseDir).
  */
-function resolveDir(baseDir: string, config: string | boolean, defaultPath: string): string | null {
-  if (config === false) return null
-  if (config === true) return join(baseDir, defaultPath)
-  return isAbsolute(config) ? config : join(baseDir, config)
+function resolveDir(baseDir: string, dir: string): string {
+  return isAbsolute(dir) ? dir : join(baseDir, dir)
+}
+
+/**
+ * Strip leading/trailing slashes from a prefix. Returns '' if empty/undefined.
+ * `'/leads/'` → `'leads'`, `'leads'` → `'leads'`, `undefined` → `''`.
+ */
+function normalizePrefix(prefix: string | undefined): string {
+  if (!prefix) return ''
+  return prefix.replace(/^\/+|\/+$/g, '')
+}
+
+/**
+ * Normalize a discovery slot value into a flat list of resolved sources.
+ *
+ * Handles the union: `false | true | string | DiscoverySourceEntry | Array<...>`.
+ * Returns an empty array for disabled slots.
+ */
+function resolveSources(
+  baseDir: string,
+  value: DiscoverySourceValue | undefined,
+  defaultPath: string,
+): ResolvedSource[] {
+  if (value === false || value === undefined) return []
+  if (value === true) {
+    return [{ dir: resolveDir(baseDir, defaultPath), prefix: '' }]
+  }
+  if (typeof value === 'string') {
+    return [{ dir: resolveDir(baseDir, value), prefix: '' }]
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      typeof entry === 'string'
+        ? { dir: resolveDir(baseDir, entry), prefix: '' }
+        : { dir: resolveDir(baseDir, entry.dir), prefix: normalizePrefix(entry.prefix) },
+    )
+  }
+  // Single DiscoverySourceEntry object
+  const entry = value as DiscoverySourceEntry
+  return [{ dir: resolveDir(baseDir, entry.dir), prefix: normalizePrefix(entry.prefix) }]
+}
+
+/**
+ * Prefix a discovered name with the source's prefix.
+ * `prefix=''` returns name unchanged. `prefix='leads', name='list/get'`
+ * → `'leads/list/get'`.
+ */
+function applyPrefix(prefix: string, name: string): string {
+  if (!prefix) return name
+  return name ? `${prefix}/${name}` : prefix
+}
+
+/**
+ * In-place: prefix each route's `name` with the source's prefix.
+ * Called BEFORE `applyHttpVerbConvention` so that the verb-derived
+ * httpPath includes the prefix automatically.
+ */
+function prefixRouteNames(routes: LoadedRoute[], prefix: string): void {
+  if (!prefix) return
+  for (const route of routes) {
+    route.name = applyPrefix(prefix, route.name)
+  }
+}
+
+function prefixChannelNames(channels: LoadedChannel[], prefix: string): void {
+  if (!prefix) return
+  for (const channel of channels) {
+    channel.name = applyPrefix(prefix, channel.name)
+  }
+}
+
+function prefixRestResourceNames(items: LoadedRestResource[], prefix: string): void {
+  if (!prefix) return
+  for (const item of items) {
+    item.name = applyPrefix(prefix, item.name)
+    if (item.config?.basePath) {
+      item.config.basePath = `/${prefix}${item.config.basePath}`
+    }
+    // REST routes are pre-generated with concrete paths — rewrite them too.
+    for (const route of item.routes ?? []) {
+      route.path = `/${prefix}${route.path}`
+    }
+  }
+}
+
+function prefixResourceNames(items: LoadedResource[], prefix: string): void {
+  if (!prefix) return
+  for (const item of items) {
+    item.name = applyPrefix(prefix, item.name)
+    // Resources compute paths from `config.basePath` at registration time.
+    if (item.config?.basePath) {
+      item.config.basePath = `/${prefix}${item.config.basePath}`
+    }
+  }
 }
 
 /**

@@ -296,6 +296,14 @@ export interface ServerRuntimePlan {
     host: string
     port: number
   }): FrontDoorProtocolAddress
+  /**
+   * Lazy accessors for TCP/UDP handlers loaded via FS discovery.
+   * Evaluated by the executor at the `post-port-binding` phase so that
+   * handlers discovered AFTER the plan was built are picked up.
+   * Returns an empty array if no discovery source registered them.
+   */
+  getTcpHandlers?: () => LoadedTcpHandler[]
+  getUdpHandlers?: () => LoadedUdpHandler[]
 }
 
 export function createServerRuntimePlanQuery(
@@ -808,19 +816,12 @@ export function createServerRuntimePlanBuilder(
       })
     }
 
-    for (const handler of getTcpHandlers?.() ?? []) {
-      postPortBinding.push({
-        kind: 'tcp-handler',
-        handler,
-      })
-    }
-
-    for (const handler of getUdpHandlers?.() ?? []) {
-      postPortBinding.push({
-        kind: 'udp-handler',
-        handler,
-      })
-    }
+    // NOTE: TCP/UDP handler steps from FS discovery are NOT pushed here.
+    // Discovery runs AFTER the plan is built (during the 'discovery' phase),
+    // so iterating `getTcpHandlers()` / `getUdpHandlers()` at plan-build time
+    // would always see empty arrays. Instead, the executor expands these
+    // lazily during the 'post-port-binding' phase via `plan.getTcpHandlers`
+    // and `plan.getUdpHandlers`. See `lifecycle-executor.ts`.
 
     return {
       providers,
@@ -917,6 +918,8 @@ export function createServerRuntimePlanBuilder(
           source: isUdpSinglePort ? 'singlePort' : isUdpOffload ? 'offload' : 'native',
         }
       },
+      getTcpHandlers,
+      getUdpHandlers,
     }
 
     return {

@@ -198,6 +198,27 @@ export function createServerLifecycleExecutor(
             (task) => registerStopTask('post-port-binding', task)
           )
         }
+        // Lazy expansion of FS-discovered TCP/UDP handlers.
+        // Discovery runs during the 'discovery' phase, AFTER the plan was
+        // built — so iterating handlers at build time would miss them.
+        // We invoke `plan.getTcpHandlers()` / `plan.getUdpHandlers()` here
+        // to pick up whatever discovery registered. Single-port (multiplex)
+        // TCP/gRPC takes a different code path (kind: 'tcp' / 'grpc') and
+        // is unaffected by this lazy expansion.
+        for (const handler of runtimePlan.getTcpHandlers?.() ?? []) {
+          await executePostPortBindingStep(
+            runtimePlan,
+            { kind: 'tcp-handler', handler },
+            (task) => registerStopTask('post-port-binding', task)
+          )
+        }
+        for (const handler of runtimePlan.getUdpHandlers?.() ?? []) {
+          await executePostPortBindingStep(
+            runtimePlan,
+            { kind: 'udp-handler', handler },
+            (task) => registerStopTask('post-port-binding', task)
+          )
+        }
       }
     }
   }

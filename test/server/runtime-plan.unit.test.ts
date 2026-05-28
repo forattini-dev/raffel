@@ -491,13 +491,16 @@ describe('server runtime plan', () => {
       'single-port-tcp',
       'single-port-grpc',
     ])
+    // TCP/UDP handler steps are NOT pushed at plan-build time anymore.
+    // Discovery runs after the plan is built, so the executor expands
+    // them lazily via `plan.getTcpHandlers()` / `plan.getUdpHandlers()`.
     expect(runtimePlan.execution.postPortBinding.map((step) => step.kind)).toEqual([
       'websocket',
       'jsonrpc',
       'graphql',
       'protocol-extension',
-      'tcp-handler',
-      'udp-handler',
     ])
+    expect(runtimePlan.getTcpHandlers?.().map((h) => h.name)).toEqual(['echo'])
+    expect(runtimePlan.getUdpHandlers?.().map((h) => h.name)).toEqual(['metrics'])
   })
 })
