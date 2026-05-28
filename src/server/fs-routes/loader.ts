@@ -4,12 +4,18 @@
  * Auto-discovers and loads handlers from the file system.
  */
 
-import { join, relative, parse as parsePath, extname, isAbsolute } from 'node:path'
+import { join, relative, parse as parsePath, extname } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
 import { loadCoLocatedPolicies } from '../../middleware/policy/co-located/loader.js'
 import { resolveCoLocatedPolicies } from '../../middleware/policy/co-located/resolver.js'
 import type { PolicyCondition } from '../../middleware/policy/types.js'
 import { createFileSystemDiscoverySource, type DiscoverySource, type DiscoverySourceFailure, type DiscoverySourceStats, type DiscoverySourceWalkResult } from './discovery-source.js'
+import {
+  DISCOVERY_DEFAULTS,
+  applyDiscoveryPrefix,
+  normalizeDiscoveryConfig,
+  resolveDiscoverySources,
+} from './discovery-sources.js'
 import { loadRestResources } from './rest/loader.js'
 import { loadResources } from './resources/loader.js'
 import { loadTcpHandlers } from './tcp/loader.js'
@@ -19,10 +25,7 @@ import type { LoadedResource } from './resources/types.js'
 import type { LoadedTcpHandler } from './tcp/types.js'
 import type { LoadedUdpHandler } from './udp/types.js'
 import type {
-  DiscoveryConfig,
   DiscoveryLoaderOptions,
-  DiscoverySourceEntry,
-  DiscoverySourceValue,
   DiscoveryStats,
   LoadedRoute,
   LoadedChannel,
@@ -38,28 +41,10 @@ import type {
   ParsedRoute,
 } from './types.js'
 
-/**
- * Resolved discovery source — what the loader actually iterates over.
- */
-interface ResolvedSource {
-  dir: string
-  /** Cleaned prefix (no leading/trailing slashes). Empty string means "no prefix". */
-  prefix: string
-}
-
 const logger = createLogger('fs-discovery')
 
-// Default directories
-const DEFAULTS = {
-  http: './src/http',
-  channels: './src/channels',
-  rpc: './src/rpc',
-  streams: './src/streams',
-  rest: './src/rest',
-  resources: './src/resources',
-  tcp: './src/tcp',
-  udp: './src/udp',
-}
+// Default directories shared with the watcher.
+const DEFAULTS = DISCOVERY_DEFAULTS
 
 // Special files
 const MIDDLEWARE_FILE = '_middleware'
@@ -325,83 +310,11 @@ export interface DiscoveryResult {
   failures: DiscoverySourceFailure[]
 }
 
-/**
- * Normalize discovery config
- */
-function normalizeDiscoveryConfig(config: DiscoveryConfig | boolean): DiscoveryConfig {
-  if (config === true) {
-    return {
-      http: true,
-      channels: true,
-      rpc: true,
-      streams: true,
-      rest: true,
-      resources: true,
-      tcp: true,
-      udp: true,
-    }
-  }
-  if (config === false) {
-    return {}
-  }
-  return config
-}
-
-/**
- * Resolve a single directory path (absolute or relative to baseDir).
- */
-function resolveDir(baseDir: string, dir: string): string {
-  return isAbsolute(dir) ? dir : join(baseDir, dir)
-}
-
-/**
- * Strip leading/trailing slashes from a prefix. Returns '' if empty/undefined.
- * `'/leads/'` → `'leads'`, `'leads'` → `'leads'`, `undefined` → `''`.
- */
-function normalizePrefix(prefix: string | undefined): string {
-  if (!prefix) return ''
-  return prefix.replace(/^\/+|\/+$/g, '')
-}
-
-/**
- * Normalize a discovery slot value into a flat list of resolved sources.
- *
- * Handles the union: `false | true | string | DiscoverySourceEntry | Array<...>`.
- * Returns an empty array for disabled slots.
- */
-function resolveSources(
-  baseDir: string,
-  value: DiscoverySourceValue | undefined,
-  defaultPath: string,
-): ResolvedSource[] {
-  if (value === false || value === undefined) return []
-  if (value === true) {
-    return [{ dir: resolveDir(baseDir, defaultPath), prefix: '' }]
-  }
-  if (typeof value === 'string') {
-    return [{ dir: resolveDir(baseDir, value), prefix: '' }]
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) =>
-      typeof entry === 'string'
-        ? { dir: resolveDir(baseDir, entry), prefix: '' }
-        : { dir: resolveDir(baseDir, entry.dir), prefix: normalizePrefix(entry.prefix) },
-    )
-  }
-  // Single DiscoverySourceEntry object
-  const entry = value as DiscoverySourceEntry
-  return [{ dir: resolveDir(baseDir, entry.dir), prefix: normalizePrefix(entry.prefix) }]
-}
-
-/**
- * Prefix a discovered name with the source's prefix.
- * `prefix=''` returns name unchanged. `prefix='leads', name='list/get'`
- * → `'leads/list/get'`.
- */
-function applyPrefix(prefix: string, name: string): string {
-  if (!prefix) return name
-  return name ? `${prefix}/${name}` : prefix
-}
+// Discovery source resolution helpers live in ./discovery-sources.ts so the
+// watcher can use the same logic. We alias to the previous local names to
+// minimize diff churn in the call sites below.
+const resolveSources = resolveDiscoverySources
+const applyPrefix = applyDiscoveryPrefix
 
 /**
  * In-place: prefix each route's `name` with the source's prefix.

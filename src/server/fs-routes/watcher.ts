@@ -9,7 +9,12 @@ import { join, extname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../../utils/logger.js'
 import { loadDiscovery, clearModuleCache, type DiscoveryResult } from './loader.js'
-import type { DiscoveryLoaderOptions } from './types.js'
+import {
+  DISCOVERY_DEFAULTS,
+  normalizeDiscoveryConfig,
+  resolveDiscoverySources,
+} from './discovery-sources.js'
+import type { DiscoveryConfig, DiscoveryLoaderOptions } from './types.js'
 
 const logger = createLogger('fs-watcher')
 
@@ -57,34 +62,21 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
   const extensions = loaderOptions.extensions ?? ['.ts', '.js']
 
   /**
-   * Get directories to watch
+   * Get directories to watch.
+   *
+   * Uses the shared `resolveDiscoverySources` helper so it transparently
+   * handles every shape the loader supports: `boolean | string |
+   * DiscoverySourceEntry | Array<string | DiscoverySourceEntry>`.
    */
   function getWatchDirs(): string[] {
     const baseDir = loaderOptions.baseDir ?? process.cwd()
+    const config = normalizeDiscoveryConfig(loaderOptions.discovery)
     const dirs: string[] = []
 
-    const config = loaderOptions.discovery === true
-      ? { http: true, channels: true, rpc: true, streams: true, rest: true, resources: true, tcp: true, udp: true }
-      : loaderOptions.discovery || {}
-
-    const defaults: Record<string, string> = {
-      http: './src/http',
-      channels: './src/channels',
-      rpc: './src/rpc',
-      streams: './src/streams',
-      rest: './src/rest',
-      resources: './src/resources',
-      tcp: './src/tcp',
-      udp: './src/udp',
-    }
-
-    for (const [key, defaultPath] of Object.entries(defaults)) {
-      const value = config[key as keyof typeof config]
-      if (value) {
-        const dir = value === true ? join(baseDir, defaultPath) : join(baseDir, value as string)
-        if (existsSync(dir)) {
-          dirs.push(dir)
-        }
+    for (const key of Object.keys(DISCOVERY_DEFAULTS) as Array<keyof DiscoveryConfig>) {
+      const sources = resolveDiscoverySources(baseDir, config[key], DISCOVERY_DEFAULTS[key])
+      for (const { dir } of sources) {
+        if (existsSync(dir)) dirs.push(dir)
       }
     }
 
