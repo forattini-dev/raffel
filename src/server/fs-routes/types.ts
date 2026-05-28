@@ -18,10 +18,58 @@ import type {
 // === Discovery Configuration ===
 
 /**
+ * A discovery source: either a directory path (string) or an entry with
+ * an optional `prefix` that is prepended to every discovered route name.
+ *
+ * For HTTP/RPC/streams/channels/rest/resources, `prefix` namespaces the
+ * routes (e.g. `prefix: 'leads'` + handler at `list/get.ts` → name
+ * `leads/list/get` → `GET /leads/list`).
+ *
+ * For TCP/UDP, prefix has no effect (handlers are identified by their
+ * `config.port`, not by name).
+ */
+export interface DiscoverySourceEntry {
+  /** Directory to scan. Can be absolute or relative to baseDir. */
+  dir: string
+  /**
+   * Optional route-name prefix. Leading/trailing slashes are stripped.
+   * For HTTP, this becomes part of the URL path.
+   */
+  prefix?: string
+}
+
+/**
+ * Value type for each discovery slot.
+ *
+ * - `false` — disabled
+ * - `true` — use the default directory (no prefix)
+ * - `string` — single directory (no prefix)
+ * - `DiscoverySourceEntry` — single directory with optional prefix
+ * - `Array<string | DiscoverySourceEntry>` — multiple sources (each can have its own prefix)
+ *
+ * Arrays enable domain-driven layouts:
+ *
+ * ```typescript
+ * discovery: {
+ *   http: [
+ *     { dir: './domains/leads/http', prefix: 'leads' },
+ *     { dir: './domains/tasks/http', prefix: 'tasks' },
+ *   ],
+ * }
+ * ```
+ */
+export type DiscoverySourceValue =
+  | boolean
+  | string
+  | DiscoverySourceEntry
+  | Array<string | DiscoverySourceEntry>
+
+/**
  * Auto-discovery configuration for loading handlers from file system.
  *
- * Each property specifies a directory to scan for handlers.
- * Set to `true` to use default path, or a string for custom path.
+ * Each property specifies one or more directories to scan for handlers.
+ * Set to `true` to use the default path, a string for a custom path,
+ * or an array of `{ dir, prefix }` entries for domain-driven layouts.
  *
  * @example
  * ```typescript
@@ -34,64 +82,68 @@ import type {
  *   channels: './src/realtime',
  *   rest: './src/rest',
  * }
+ *
+ * // Domain-driven (multiple sources with prefixes)
+ * discovery: {
+ *   http: [
+ *     { dir: './domains/leads/http', prefix: 'leads' },
+ *     { dir: './domains/tasks/http', prefix: 'tasks' },
+ *   ],
+ * }
  * ```
  */
 export interface DiscoveryConfig {
   /**
-   * HTTP procedures directory.
-   * Individual handler files with full control.
+   * HTTP procedures source(s). Individual handler files with full control.
    * @default './src/http'
    */
-  http?: string | boolean
+  http?: DiscoverySourceValue
 
   /**
-   * WebSocket channels directory.
-   * Pusher-like pub/sub channels.
+   * WebSocket channels source(s). Pusher-like pub/sub channels.
    * @default './src/channels'
    */
-  channels?: string | boolean
+  channels?: DiscoverySourceValue
 
   /**
-   * RPC procedures directory (JSON-RPC, gRPC).
+   * RPC procedures source(s) (JSON-RPC, gRPC).
    * @default './src/rpc'
    */
-  rpc?: string | boolean
+  rpc?: DiscoverySourceValue
 
   /**
-   * Streaming handlers directory.
+   * Streaming handlers source(s).
    * @default './src/streams'
    */
-  streams?: string | boolean
+  streams?: DiscoverySourceValue
 
   /**
-   * REST auto-CRUD directory.
+   * REST auto-CRUD source(s).
    * Schema-first API generation - one schema file = all CRUD operations.
-   * Lowest boilerplate, highest convention.
    * @default './src/rest'
    */
-  rest?: string | boolean
+  rest?: DiscoverySourceValue
 
   /**
-   * Resource handlers directory.
+   * Resource handlers source(s).
    * Middle-level abstraction: 1 file = 1 resource with explicit handlers.
-   * Balance between boilerplate and control.
    * @default './src/resources'
    */
-  resources?: string | boolean
+  resources?: DiscoverySourceValue
 
   /**
-   * TCP custom handlers directory.
-   * Full control over TCP connections, framing, and binary data.
+   * TCP custom handlers source(s). Prefix has no effect (handlers are
+   * identified by `config.port`); arrays are supported for multi-domain layouts.
    * @default './src/tcp'
    */
-  tcp?: string | boolean
+  tcp?: DiscoverySourceValue
 
   /**
-   * UDP custom handlers directory.
-   * Full control over UDP packets, multicast support.
+   * UDP custom handlers source(s). Prefix has no effect (handlers are
+   * identified by `config.port`); arrays are supported for multi-domain layouts.
    * @default './src/udp'
    */
-  udp?: string | boolean
+  udp?: DiscoverySourceValue
 }
 
 export interface DiscoveryLoaderOptions {
