@@ -25,20 +25,17 @@ import type {
   Policy,
   PolicyCondition,
 } from './types.js'
-
-// Lazy-load schema — JSON import via fs avoids bundler oddities and keeps
-// loader free of import-assert syntax.
-function loadSchema(): unknown {
-  const schemaPath = new URL('./schema.json', import.meta.url)
-  return JSON.parse(readFileSync(schemaPath, 'utf-8'))
-}
+import { policySchema } from './schema.js'
 
 let validator: ((data: unknown) => boolean) & { errors?: ErrorObject[] | null } | undefined
 
 function getValidator() {
   if (validator) return validator
   const ajv = new Ajv({ allErrors: true, strict: false })
-  validator = ajv.compile(loadSchema() as object) as unknown as typeof validator
+  // `policySchema` is the canonical schema as a TS literal; the equivalent
+  // `schema.json` is kept around for external tooling and the unit test
+  // `schema-sync.unit.test.ts` enforces they stay byte-equivalent.
+  validator = ajv.compile(policySchema as unknown as object) as unknown as typeof validator
   return validator!
 }
 

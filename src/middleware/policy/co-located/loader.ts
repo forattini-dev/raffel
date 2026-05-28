@@ -27,6 +27,7 @@ import type {
   PolicyCondition,
 } from '../types.js'
 import type { DiscoverySource } from '../../../server/fs-routes/discovery-source.js'
+import { policySchema } from '../schema.js'
 import {
   ancestorDirs,
   folderPolicyCandidates,
@@ -40,10 +41,11 @@ let validator:
 
 function getValidator() {
   if (validator) return validator
-  const schemaPath = new URL('../schema.json', import.meta.url)
-  const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'))
   const ajv = new Ajv({ allErrors: true, strict: false })
-  validator = ajv.compile(schema as object) as unknown as typeof validator
+  // Canonical schema is the TS literal in `../schema.ts`. The equivalent
+  // `../schema.json` exists for external tooling and is kept in sync by
+  // `schema-sync.unit.test.ts`.
+  validator = ajv.compile(policySchema as unknown as object) as unknown as typeof validator
   return validator!
 }
 
