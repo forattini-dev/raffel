@@ -30,6 +30,82 @@ section.cover pre {
   z-index: 999 !important;
 }
 
+/* Desktop: the sidebar is always visible, so the hamburger (☰) only overlaps
+   the "Search docs" input. Hide it while the sidebar is open; it reappears
+   when the sidebar is collapsed (body.close) so it can be reopened. */
+@media screen and (min-width: 769px) {
+  body:not(.close) .sidebar-toggle {
+    display: none !important;
+  }
+}
+
+/* Mobile: when the menu is open, the cover page must not overlap the sidebar.
+   The cover (section.cover.show) renders full-viewport on top of the fixed
+   sidebar, making the menu unreadable/unclickable. Hide it while the menu is
+   open and keep the sidebar above everything. */
+@media screen and (max-width: 768px) {
+  body.close section.cover {
+    display: none !important;
+  }
+  body.close .sidebar {
+    z-index: 100 !important;
+  }
+}
+
+/* Scroll conflict fix (desktop): before the sidebar becomes sticky it still
+   has a fixed height + overflow-y:auto, so scrolling over it captures the
+   wheel and the page stays put while moving from the cover into the docs.
+   While not sticky, let the sidebar grow with its content so the whole page
+   scrolls as one. Once sticky (fixed), it regains its own independent scroll. */
+@media screen and (min-width: 769px) {
+  body:not(.sticky) .sidebar {
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+}
+.sidebar {
+  overscroll-behavior: contain;
+}
+
+/* GitHub corner: the octocat link is external, so the global
+   a[target="_blank"]::after arrow (" ↗") leaks outside the triangle.
+   Suppress it — the octocat already signals it's a GitHub link — and pin
+   the corner flush to the top-right. */
+.github-corner {
+  top: 0 !important;
+  right: 0 !important;
+}
+.github-corner::after {
+  content: none !important;
+}
+
+/* Dark/Light theme toggle: it sat on top of the "words | min" reading-count
+   span (float:right at the top of the content). Move it to a free spot — to
+   the left of the GitHub corner and above the count. left:auto is required
+   because the plugin sets left:10px on mobile, which would otherwise win over
+   right and pin the toggle onto the hamburger (☰). */
+#docsify-darklight-theme {
+  position: fixed !important;
+  top: 14px !important;
+  left: auto !important;
+  z-index: 2 !important;
+}
+@media screen and (min-width: 769px) {
+  #docsify-darklight-theme {
+    right: 100px !important;
+  }
+}
+@media screen and (max-width: 768px) {
+  /* On mobile the top-right holds the GitHub corner and the content's
+     reading-count sits high and wide. Park the toggle next to the hamburger
+     (☰) in the top-left instead, where there's free space. */
+  #docsify-darklight-theme {
+    left: 64px !important;
+    right: auto !important;
+    top: 16px !important;
+  }
+}
+
 /* Hide reading time that may leak */
 .markdown-section .reading-time,
 .content .reading-time {
