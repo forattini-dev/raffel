@@ -27,6 +27,7 @@ export { generateExampleFromSchema } from './examples.js'
 export {
   AUTH_GUIDE,
   MIGRATION_GUIDE,
+  PROVIDERS_GUIDE,
   REST_API_GUIDE,
   SESSIONS_GUIDE,
 } from './core-guides.js'
