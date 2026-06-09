@@ -640,18 +640,78 @@ export function createRefreshInterceptor(options: RefreshInterceptorOptions): In
 }
 
 /**
+ * Normalise a procedure name for `publicProcedures` matching.
+ *
+ * `publicProcedures` entries are **procedure names** (the discovery-relative
+ * path without extension, e.g. `api/health/get`), not HTTP paths — but the
+ * confusion is natural, so we are lenient: leading/trailing slashes and a
+ * trailing source extension are stripped before comparison. `/api/health/get`,
+ * `api/health/get` and `api/health/get.ts` all normalise to the same value.
+ */
+function normalizePublicProcedureName(name: string): string {
+  return name
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.(ts|js|mjs|cjs)$/i, '')
+}
+
+/**
+ * Pre-compile a `publicProcedures` list into a fast matcher.
+ *
+ * Accepts exact names, a leading-slash/extension-tolerant form, and wildcards
+ * mirroring `createAuthzMiddleware`:
+ *   - `*`                    → every procedure is public
+ *   - `users.*` / `users/*`  → any procedure under the `users` prefix
+ */
+export function buildPublicProcedureMatcher(
+  publicProcedures: readonly string[]
+): (procedure: string) => boolean {
+  if (publicProcedures.length === 0) return () => false
+
+  let matchAll = false
+  const exact = new Set<string>()
+  const prefixes: string[] = []
+
+  for (const raw of publicProcedures) {
+    const entry = raw.trim()
+    if (entry === '*') {
+      matchAll = true
+      continue
+    }
+    if (entry.endsWith('.*') || entry.endsWith('/*')) {
+      prefixes.push(normalizePublicProcedureName(entry.slice(0, -2)))
+      continue
+    }
+    exact.add(normalizePublicProcedureName(entry))
+  }
+
+  return (procedure: string): boolean => {
+    if (matchAll) return true
+    const norm = normalizePublicProcedureName(procedure)
+    if (exact.has(norm)) return true
+    for (const prefix of prefixes) {
+      if (norm === prefix || norm.startsWith(`${prefix}.`) || norm.startsWith(`${prefix}/`)) {
+        return true
+      }
+    }
+    return false
+  }
+}
+
+/**
  * Create the authentication interceptor
  */
 export function createAuthMiddleware(options: AuthMiddlewareOptions): Interceptor {
   const { strategies, publicProcedures = [], onError } = options
+  const isPublicProcedure = buildPublicProcedureMatcher(publicProcedures)
 
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     if ((ctx as { auth?: AuthContext }).auth?.authenticated) {
       return next()
     }
 
-    // Check if procedure is public
-    if (publicProcedures.includes(envelope.procedure)) {
+    // Check if procedure is public (leading-slash / extension / wildcard tolerant)
+    if (isPublicProcedure(envelope.procedure)) {
       return next()
     }
 
