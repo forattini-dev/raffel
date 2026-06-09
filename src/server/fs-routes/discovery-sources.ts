@@ -24,6 +24,14 @@ export interface ResolvedDiscoverySource {
   dir: string
   /** Cleaned prefix (no leading/trailing slashes). Empty string means "no prefix". */
   prefix: string
+  /**
+   * `true` when the directory was configured explicitly (a string, entry, or
+   * array element). `false` when it came from the `true` shorthand falling
+   * back to a default convention directory. The loader only warns about a
+   * missing/empty directory when it was configured explicitly — a missing
+   * default convention dir is expected and stays silent.
+   */
+  explicit: boolean
 }
 
 /** Default directories used when a slot is `true`. */
@@ -77,18 +85,19 @@ export function resolveDiscoverySources(
 ): ResolvedDiscoverySource[] {
   if (value === false || value === undefined) return []
   if (value === true) {
-    return [{ dir: resolveDiscoveryDir(baseDir, defaultPath), prefix: '' }]
+    return [{ dir: resolveDiscoveryDir(baseDir, defaultPath), prefix: '', explicit: false }]
   }
   if (typeof value === 'string') {
-    return [{ dir: resolveDiscoveryDir(baseDir, value), prefix: '' }]
+    return [{ dir: resolveDiscoveryDir(baseDir, value), prefix: '', explicit: true }]
   }
   if (Array.isArray(value)) {
     return value.map((entry) =>
       typeof entry === 'string'
-        ? { dir: resolveDiscoveryDir(baseDir, entry), prefix: '' }
+        ? { dir: resolveDiscoveryDir(baseDir, entry), prefix: '', explicit: true }
         : {
             dir: resolveDiscoveryDir(baseDir, entry.dir),
             prefix: normalizeDiscoveryPrefix(entry.prefix),
+            explicit: true,
           },
     )
   }
@@ -98,6 +107,7 @@ export function resolveDiscoverySources(
     {
       dir: resolveDiscoveryDir(baseDir, entry.dir),
       prefix: normalizeDiscoveryPrefix(entry.prefix),
+      explicit: true,
     },
   ]
 }

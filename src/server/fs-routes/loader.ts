@@ -15,6 +15,7 @@ import {
   applyDiscoveryPrefix,
   normalizeDiscoveryConfig,
   resolveDiscoverySources,
+  type ResolvedDiscoverySource,
 } from './discovery-sources.js'
 import { loadRestResources } from './rest/loader.js'
 import { loadResources } from './resources/loader.js'
@@ -42,6 +43,35 @@ import type {
 } from './types.js'
 
 const logger = createLogger('fs-discovery')
+
+/**
+ * Warn when an explicitly-configured discovery directory does not exist.
+ *
+ * The classic ESM footgun: passing a relative path (`'./http'`) instead of an
+ * absolute one resolves against `process.cwd()`, the directory is not found,
+ * and discovery silently registers zero handlers. We only warn for explicitly
+ * configured sources — a missing default convention dir is expected.
+ */
+function warnMissingDiscoverySource(src: ResolvedDiscoverySource, slot: string): void {
+  if (!src.explicit) return
+  logger.warn(
+    { dir: src.dir, slot },
+    `Discovery source "${slot}" → ${src.dir} does not exist; 0 handlers registered. ` +
+      `In ESM, pass an absolute path, e.g. join(dirname(fileURLToPath(import.meta.url)), '${slot}').`,
+  )
+}
+
+/**
+ * Warn when an explicitly-configured discovery directory exists but yields no
+ * handlers — usually a wrong sub-path or files filtered out by extension.
+ */
+function warnEmptyDiscoverySource(src: ResolvedDiscoverySource, slot: string, count: number): void {
+  if (!src.explicit || count > 0) return
+  logger.warn(
+    { dir: src.dir, slot },
+    `Discovery source "${slot}" → ${src.dir} exists but registered 0 handlers.`,
+  )
+}
 
 // Default directories shared with the watcher.
 const DEFAULTS = DISCOVERY_DEFAULTS
@@ -179,7 +209,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
 
   // Load HTTP routes (multi-source aware)
   for (const src of resolveSources(baseDir, config.http, DEFAULTS.http)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'http'); continue }
     const loaded = await loadDirectory(source, src.dir, 'procedure', extensions)
     prefixRouteNames(loaded.routes, src.prefix)
     applyHttpVerbConvention(loaded.routes)
@@ -189,12 +219,13 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     routes.push(...loaded.routes)
     stats.http += loaded.routes.length
     stats.middlewares += loaded.middlewareCount
+    warnEmptyDiscoverySource(src, 'http', loaded.routes.length)
     logger.info({ count: loaded.routes.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded HTTP routes')
   }
 
   // Load RPC routes
   for (const src of resolveSources(baseDir, config.rpc, DEFAULTS.rpc)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'rpc'); continue }
     const loaded = await loadDirectory(source, src.dir, 'procedure', extensions)
     prefixRouteNames(loaded.routes, src.prefix)
     if (coLocatedEnabled) {
@@ -203,12 +234,13 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     routes.push(...loaded.routes)
     stats.rpc += loaded.routes.length
     stats.middlewares += loaded.middlewareCount
+    warnEmptyDiscoverySource(src, 'rpc', loaded.routes.length)
     logger.info({ count: loaded.routes.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded RPC routes')
   }
 
   // Load Stream routes
   for (const src of resolveSources(baseDir, config.streams, DEFAULTS.streams)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'streams'); continue }
     const loaded = await loadDirectory(source, src.dir, 'stream', extensions)
     prefixRouteNames(loaded.routes, src.prefix)
     if (coLocatedEnabled) {
@@ -217,12 +249,13 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     routes.push(...loaded.routes)
     stats.streams += loaded.routes.length
     stats.middlewares += loaded.middlewareCount
+    warnEmptyDiscoverySource(src, 'streams', loaded.routes.length)
     logger.info({ count: loaded.routes.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded stream routes')
   }
 
   // Load Channels
   for (const src of resolveSources(baseDir, config.channels, DEFAULTS.channels)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'channels'); continue }
     const loaded = await loadChannels(source, src.dir, extensions)
     prefixChannelNames(loaded.channels, src.prefix)
     if (coLocatedEnabled) {
@@ -231,12 +264,13 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     channels.push(...loaded.channels)
     stats.channels += loaded.channels.length
     stats.middlewares += loaded.middlewareCount
+    warnEmptyDiscoverySource(src, 'channels', loaded.channels.length)
     logger.info({ count: loaded.channels.length, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded channels')
   }
 
   // Load REST resources
   for (const src of resolveSources(baseDir, config.rest, DEFAULTS.rest)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'rest'); continue }
     const loaded = await loadRestResources({ baseDir, restDir: src.dir, extensions, source })
     prefixRestResourceNames(loaded.resources, src.prefix)
     if (coLocatedEnabled) {
@@ -244,12 +278,13 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     }
     restResources.push(...loaded.resources)
     stats.rest += loaded.stats.resources
+    warnEmptyDiscoverySource(src, 'rest', loaded.stats.resources)
     logger.info({ count: loaded.stats.resources, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded REST resources')
   }
 
   // Load resource handlers
   for (const src of resolveSources(baseDir, config.resources, DEFAULTS.resources)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'resources'); continue }
     const loaded = await loadResources({ baseDir, resourcesDir: src.dir, extensions, source })
     prefixResourceNames(loaded.resources, src.prefix)
     if (coLocatedEnabled) {
@@ -257,24 +292,27 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     }
     resources.push(...loaded.resources)
     stats.resources += loaded.stats.resources
+    warnEmptyDiscoverySource(src, 'resources', loaded.stats.resources)
     logger.info({ count: loaded.stats.resources, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded resources')
   }
 
   // Load TCP handlers (prefix has no semantic effect — handlers route by port)
   for (const src of resolveSources(baseDir, config.tcp, DEFAULTS.tcp)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'tcp'); continue }
     const loaded = await loadTcpHandlers({ baseDir, tcpDir: src.dir, extensions, source })
     tcpHandlers.push(...loaded.handlers)
     stats.tcp += loaded.stats.handlers
+    warnEmptyDiscoverySource(src, 'tcp', loaded.stats.handlers)
     logger.info({ count: loaded.stats.handlers, dir: src.dir }, 'Loaded TCP handlers')
   }
 
   // Load UDP handlers (prefix has no semantic effect — handlers route by port)
   for (const src of resolveSources(baseDir, config.udp, DEFAULTS.udp)) {
-    if (!(await source.exists(src.dir))) continue
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'udp'); continue }
     const loaded = await loadUdpHandlers({ baseDir, udpDir: src.dir, extensions, source })
     udpHandlers.push(...loaded.handlers)
     stats.udp += loaded.stats.handlers
+    warnEmptyDiscoverySource(src, 'udp', loaded.stats.handlers)
     logger.info({ count: loaded.stats.handlers, dir: src.dir }, 'Loaded UDP handlers')
   }
 

@@ -319,6 +319,20 @@ export interface ResourceExports<T = unknown, TInput = unknown> {
   /** Delete handler - DELETE /resources/:id */
   delete?: ResourceCrudSlot<DeleteHandler<T>>
 
+  /**
+   * Alias for {@link delete}. Because `delete` is a reserved word,
+   * `export const delete = …` is a syntax error — export `_delete`
+   * (`export { _delete as delete }` is not needed) and the loader maps it
+   * onto the `delete` slot. `destroy` / `remove` are also accepted.
+   */
+  _delete?: ResourceCrudSlot<DeleteHandler<T>>
+
+  /** Alias for {@link delete}. See {@link _delete}. */
+  destroy?: ResourceCrudSlot<DeleteHandler<T>>
+
+  /** Alias for {@link delete}. See {@link _delete}. */
+  remove?: ResourceCrudSlot<DeleteHandler<T>>
+
   /** Head handler - HEAD /resources/:id */
   head?: ResourceCrudSlot<HeadHandler>
 

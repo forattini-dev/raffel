@@ -74,25 +74,35 @@ export async function loadResources(options: ResourceLoaderOptions): Promise<Res
     if (name.startsWith('_')) continue
 
     try {
-      const exports = await source.importModule<ResourceExports>(filePath)
+      const imported = await source.importModule<ResourceExports>(filePath)
+
+      // `delete` is a reserved word, so `export const delete = …` is a syntax
+      // error. Accept the documented aliases (`_delete`, `destroy`, `remove`)
+      // and normalise them onto the canonical `delete` slot. ESM namespace
+      // objects are sealed, so we copy into a mutable object first.
+      const handlers: ResourceExports = { ...imported }
+      if (handlers.delete === undefined) {
+        const aliased = handlers._delete ?? handlers.destroy ?? handlers.remove
+        if (aliased !== undefined) handlers.delete = aliased
+      }
 
       // Must have at least one handler
-      const hasHandler = exports.list || exports.get || exports.create ||
-        exports.update || exports.patch || exports.delete ||
-        exports.head || exports.options || exports.actions
+      const hasHandler = handlers.list || handlers.get || handlers.create ||
+        handlers.update || handlers.patch || handlers.delete ||
+        handlers.head || handlers.options || handlers.actions
 
       if (!hasHandler) {
         logger.warn({ filePath }, 'Resource file has no handlers')
         continue
       }
 
-      const config = resolveConfig(exports.config, name)
+      const config = resolveConfig(handlers.config, name)
 
       resources.push({
         name,
         filePath,
         config,
-        handlers: exports,
+        handlers,
       })
 
       logger.info({ name, basePath: config.basePath }, 'Loaded resource')
