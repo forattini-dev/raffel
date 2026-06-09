@@ -28,6 +28,7 @@ import {
   MCP_INTELLIGENCE_GUIDE,
   MCP_SERVER_GUIDE,
   MIGRATION_GUIDE,
+  PROVIDERS_GUIDE,
   PROXY_CAPABILITIES_GUIDE,
   PROXY_GUIDE,
   PROXY_OBSERVABILITY_GUIDE,
@@ -61,6 +62,12 @@ function refreshGuideResources(): void {
       name: 'Session Store Guide',
       description: 'Session management with memory and custom drivers (including Redis adapters)',
       content: SESSIONS_GUIDE,
+    },
+    {
+      topic: 'providers',
+      name: 'Providers (Dependency Injection)',
+      description: 'Inject db/cache/config via provider factories resolved at server.start(); avoids the ESM module-load init-order footgun. Imperative server.provide() and onShutdown cleanup.',
+      content: PROVIDERS_GUIDE,
     },
     {
       topic: 'rest-api',

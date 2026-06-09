@@ -213,6 +213,63 @@ server.procedure('users.get').handler(async ({ id }) => {
 \`\`\`
 `
 
+export const PROVIDERS_GUIDE = `# Providers (Dependency Injection)
+
+Providers are how Raffel injects long-lived dependencies (database clients,
+caches, config) into handlers. A provider **factory runs once during
+\`server.start()\`** — after the runtime is wired — and its instance is exposed
+on \`ctx\` for every handler, including filesystem-discovered ones.
+
+## Setup
+
+\`\`\`ts
+import { createServer } from 'raffel/server'
+
+const server = createServer({
+  port: 3000,
+  providers: {
+    db: () => new PrismaClient(),
+    cache: () => new Redis(process.env.REDIS_URL),
+    // factories receive already-resolved providers and can depend on each other
+    users: ({ db }) => new UserRepository(db),
+  },
+})
+
+await server.start()
+\`\`\`
+
+## Usage in handlers
+
+\`\`\`ts
+// src/http/users/get.ts (discovered) — ctx.db / ctx.users are ready
+export default async (input, ctx) => ctx.users.findById(input.id)
+\`\`\`
+
+## Why this matters in ESM
+
+Filesystem discovery \`import()\`s handler modules **before** \`server.start()\`.
+Top-level initialisation therefore runs too early:
+
+\`\`\`ts
+// ✗ getDb() runs at import time, before providers exist → undefined
+const repo = new LeadRepository(getDb())
+export const list = () => repo.findAll()
+
+// ✓ inject via ctx — no lazy-getter boilerplate
+export const list = (input, ctx) => ctx.leads.findAll()
+\`\`\`
+
+## Imperative registration
+
+\`\`\`ts
+server.provide('db', () => new PrismaClient(), {
+  onShutdown: (db) => db.\$disconnect(),
+})
+\`\`\`
+
+\`onShutdown\` runs on \`server.stop()\` for every provider that was instantiated.
+`
+
 export const MIGRATION_GUIDE = `# Migrating to Raffel
 
 ## From Express

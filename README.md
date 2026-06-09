@@ -131,6 +131,73 @@ serve({
 
 ---
 
+## Providers (Dependency Injection)
+
+Anything that owns a connection — a database client, a cache, a config object —
+should be a **provider**, not a module-level singleton. Provider factories run
+**once, during `server.start()`**, *after* the runtime is wired, and their
+instances are injected into `ctx` for every handler — including the ones
+discovered from the file system.
+
+```typescript
+import { createServer } from 'raffel/server'
+import { PrismaClient } from '@prisma/client'
+import { Redis } from 'ioredis'
+
+const server = createServer({
+  port: 3000,
+  providers: {
+    db: () => new PrismaClient(),
+    cache: () => new Redis(process.env.REDIS_URL!),
+    // factories receive already-resolved providers, so they can depend on each other
+    users: ({ db }) => new UserRepository(db as PrismaClient),
+  },
+})
+
+await server.start()
+```
+
+```typescript
+// src/http/users/get.ts — a discovered handler. `ctx.db` is ready here.
+export default async function (input: { id: string }, ctx) {
+  return ctx.users.findById(input.id)
+}
+```
+
+### Why this matters in ESM
+
+Filesystem discovery `import()`s your handler modules *before* `server.start()`
+runs. So **top-level initialisation runs too early**:
+
+```typescript
+// ✗ getDb() runs at import time — before providers are wired → undefined
+const repo = new LeadRepository(getDb())
+export const list = () => repo.findAll()
+
+// ✓ let the runtime inject it — no lazy-init boilerplate
+export const list = (input, ctx) => ctx.leads.findAll()
+```
+
+Providers replace the manual lazy-getter pattern entirely. You can also register
+them imperatively with `server.provide(name, factory)` before `start()`.
+
+### Cleanup
+
+Use the object form to release resources on shutdown:
+
+```typescript
+providers: {
+  db: {
+    factory: () => new PrismaClient(),
+    onShutdown: (db) => db.$disconnect(),
+  },
+}
+```
+
+`onShutdown` runs on `server.stop()` for every provider that was instantiated.
+
+---
+
 ## Developer Experience In 2026
 
 Raffel now ships with an inspection-first workflow for multi-protocol services:
