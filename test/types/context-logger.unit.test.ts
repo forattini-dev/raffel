@@ -5,34 +5,28 @@ import { createContext } from '../../src/types/context.js'
 import type { ContextLogger } from '../../src/types/context.js'
 
 /** Restore the global base after every test (unit config runs isolate: false). */
-describe('createContext request logger (lazy)', () => {
+describe('createContext request logger', () => {
   afterEach(() => resetLogger())
 
-  it('does not materialize the request child until ctx.logger is read', () => {
+  it('derives the request logger from the injected base, bound to the requestId', () => {
     const base = pino({ level: 'silent' })
     const childSpy = vi.spyOn(base, 'child')
     configureLogger(base)
 
     const ctx = createContext('req-1')
-    expect(childSpy).not.toHaveBeenCalled()
 
-    // First access derives exactly one child, bound to the requestId.
-    void ctx.logger
+    // Exactly one child per context, bound to the requestId. `logger` is a
+    // plain data property (not an accessor) so the router's per-dispatch
+    // `{ ...ctx }` spread stays on the fast path.
     expect(childSpy).toHaveBeenCalledTimes(1)
     expect(childSpy).toHaveBeenCalledWith({ requestId: 'req-1' })
   })
 
-  it('memoizes the request logger across reads (at most one child per request)', () => {
-    const base = pino({ level: 'silent' })
-    const childSpy = vi.spyOn(base, 'child')
-    configureLogger(base)
+  it('exposes a stable request logger reference across reads', () => {
+    configureLogger(pino({ level: 'silent' }))
 
     const ctx = createContext('req-2')
-    const first = ctx.logger
-    const second = ctx.logger
-
-    expect(first).toBe(second)
-    expect(childSpy).toHaveBeenCalledTimes(1)
+    expect(ctx.logger).toBe(ctx.logger)
   })
 
   it('honors a logger supplied in the context seed without deriving a default', () => {
