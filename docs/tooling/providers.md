@@ -225,13 +225,14 @@ server
 
 ### Built-in: the `log` provider
 
-Raffel registers one provider for you: `log`, an app-scoped child of the base
-logger (carrying `component: 'app'`), reachable as `ctx.log` and
-`ctx.services.log`. It is the singleton companion to the request-scoped
-`ctx.logger` — same sink, but not tied to a request and never reallocated per
-call. Override it by declaring your own `log` provider, and see
-[Logging](/observability/logging.md) for how to inject the base logger via
-`createServer({ logger })`.
+When you inject a logger via `createServer({ logger })`, Raffel also registers a
+`log` provider: an app-scoped child of the base logger (carrying
+`component: 'app'`), reachable as `ctx.log` and `ctx.services.log`. It is the
+singleton companion to the request-scoped `ctx.logger` — same sink, but not tied
+to a request and never reallocated per call. Servers that don't inject a logger
+keep their exact prior behavior (no provider added). Override it by declaring
+your own `log` provider, and see [Logging](/observability/logging.md) for the
+injection details.
 
 ```ts
 server.provide('log', () => myCustomAppLogger) // replaces the built-in

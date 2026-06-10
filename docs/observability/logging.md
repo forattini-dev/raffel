@@ -73,8 +73,9 @@ server.http.get('/users/:id', async (input, ctx) => {
 ```
 
 `ctx.log` is a built-in [provider](/tooling/providers.md) — an app-scoped child
-of the base logger, created once at startup. Override it by declaring your own
-`log` provider:
+of the base logger, created once at startup. It is registered only when you
+inject a logger (servers without an injected logger are left untouched).
+Override it by declaring your own `log` provider:
 
 ```typescript
 createServer({

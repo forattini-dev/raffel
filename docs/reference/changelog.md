@@ -13,12 +13,15 @@ page highlights notable updates in the docs.
 routing **all** of Raffel's logs through the host's logger for a single,
 consistent format (e.g. one JSON stream in Datadog):
 
-- **`ctx.logger`** (request-scoped, carries `requestId`) and the new built-in
-  **`ctx.log`** provider (app-scoped child, carries `component: 'app'`) both flow
-  through the injected logger. Override `ctx.log` with your own `log` provider.
-- **Memory-safe** — component loggers are process-scoped singletons; `ctx.logger`
-  is now materialized lazily (at most one child per request, only when the
-  handler logs), so injection never multiplies allocations.
+- **`ctx.logger`** (request-scoped, carries `requestId`) and, when a logger is
+  injected, the new built-in **`ctx.log`** provider (app-scoped child, carries
+  `component: 'app'`) both flow through the injected logger. Servers that don't
+  inject a logger are left untouched. Override `ctx.log` with your own `log`
+  provider.
+- **Memory-safe** — component loggers are process-scoped singletons (one per
+  module). `ctx.logger` stays a plain data property (one child per request, as
+  before) — not an accessor — so the router's per-dispatch context spread stays
+  on its fast path.
 - **Zero-config convergence** — without injecting, the built-in pino still
   respects `LOG_LEVEL` and `LOG_FORMAT=json`.
 

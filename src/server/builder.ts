@@ -316,6 +316,10 @@ export function createServer(options: ServerOptions): RaffelServer {
 
   // Provider definitions (added via .provide() or options.providers)
   const providerDefinitions = new Map<string, ProviderDefinition>()
+  // Names of providers Raffel registered itself (not user-supplied). Excluded
+  // from the user-provider diagnostics so a framework built-in never trips the
+  // "prefer ctx.services" warning.
+  const builtinProviderNames = new Set<string>()
   const resolvedProviders: ResolvedProviders = {}
   const registeredPlugins = new Map<string, ServerPlugin>()
   const pluginRuntime = createServerPluginRuntime({
@@ -339,12 +343,17 @@ export function createServer(options: ServerOptions): RaffelServer {
   // created once at startup and injected as `ctx.log` into every handler. This
   // is the singleton companion to the request-scoped `ctx.logger` — same sink,
   // but carrying `component: 'app'` instead of `requestId`, and never
-  // reallocated per request. Users can override it by declaring their own
-  // `log` provider in `options.providers`.
-  if (!providerDefinitions.has('log')) {
+  // reallocated per request.
+  //
+  // Only registered when a logger is injected via `createServer({ logger })`,
+  // so servers that don't opt into logger injection keep their exact prior
+  // behavior (no provider middleware, no diagnostics change). Users can
+  // override it by declaring their own `log` provider in `options.providers`.
+  if (options.logger && !providerDefinitions.has('log')) {
     providerDefinitions.set('log', {
       factory: () => getLogger().child({ component: 'app' }),
     })
+    builtinProviderNames.add('log')
   }
 
   function registerProtocolExtension(config: ProtocolExtensionConfig): void {
@@ -460,7 +469,7 @@ export function createServer(options: ServerOptions): RaffelServer {
   }
 
   const previewContext = serverPlanner.createPreviewContext({
-    getProviderCount: () => providerDefinitions.size,
+    getProviderCount: () => providerDefinitions.size - builtinProviderNames.size,
   })
   const runtimePlanBuilder = createServerRuntimePlanBuilder({
     host,
