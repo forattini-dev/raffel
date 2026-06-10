@@ -570,6 +570,11 @@ export function createContext(
   requestId: string,
   options: ContextSeed = {}
 ): Context {
+  // Lazily materialize the request logger: at most one child per request, and
+  // only when the handler actually reads `ctx.logger`. A request that never
+  // logs allocates nothing here. The child derives from the host-injected base
+  // logger (via getLogger()), so its sink/format matches the rest of the app.
+  let loggerSlot: ContextLogger | undefined = options.logger
   return {
     requestId,
     tracing: options.tracing ?? {
@@ -581,7 +586,13 @@ export function createContext(
     auth: createAuthContext(options.auth),
     input: normalizeInput(options.input),
     services: Object.freeze({ ...(options.services ?? {}) }),
-    logger: options.logger ?? defaultLoggerForRequest(requestId),
+    get logger(): ContextLogger {
+      if (!loggerSlot) loggerSlot = defaultLoggerForRequest(requestId)
+      return loggerSlot
+    },
+    set logger(value: ContextLogger) {
+      loggerSlot = value
+    },
     protocol: options.protocol,
     extensions: new Map(),
     contract: options.contract,

@@ -6,7 +6,9 @@
  */
 
 import type { IncomingMessage } from 'node:http'
+import type { Logger as PinoLogger } from 'pino'
 import type { Options as ProtoLoaderOptions } from '@grpc/proto-loader'
+import type { LoggerFactory } from '../../ports/outbound/logger.js'
 import type {
   Context,
   ContextSeed,
@@ -391,6 +393,38 @@ export interface ServerOptions {
   cors?: CorsOptions | boolean
   /** HTTP adapter options */
   http?: HttpOptions
+
+  /**
+   * Host logger injection.
+   *
+   * When provided, *all* of Raffel's logs — internal adapters/core, the
+   * request-scoped `ctx.logger`, and the `log` provider — flow through this
+   * logger instead of Raffel's built-in pino singleton. Use it to unify log
+   * format/destination with the host service (e.g. one JSON stream in Datadog).
+   *
+   * - Pass a `pino.Logger` for the rich path: component loggers become
+   *   `logger.child({ component })` and request loggers
+   *   `logger.child({ requestId })`, preserving every binding end to end.
+   * - Pass a `LoggerFactory` (`(component) => LoggerPort`) for the abstract,
+   *   pino-independent path.
+   *
+   * Memory note: component loggers are process-scoped singletons and the
+   * request logger is materialized lazily (at most one child per request, only
+   * if the handler logs) — injecting a logger never multiplies allocations.
+   *
+   * @example
+   * ```typescript
+   * import pino from 'pino'
+   * const server = createServer({ port: 3000, logger: pino() })
+   *
+   * // In handlers:
+   * server.procedure('users.get').handler(async (input, ctx) => {
+   *   ctx.logger.info({ id: input.id }, 'fetching user') // carries requestId
+   *   ctx.log.info('app-scoped singleton child')          // carries component: 'app'
+   * })
+   * ```
+   */
+  logger?: PinoLogger | LoggerFactory
 
   /** Front-door entrypoint options */
   frontDoor?: FrontDoorConfig

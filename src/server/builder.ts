@@ -62,7 +62,7 @@ import {
   type TcpServerInstance,
   type UdpServerInstance,
 } from './fs-routes/index.js'
-import { createLogger } from '../utils/logger.js'
+import { createLogger, configureLogger, getLogger } from '../utils/logger.js'
 import { createPolicyBootstrap } from '../middleware/policy/index.js'
 import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type { PolicyEnginePort } from '../ports/outbound/policy-engine.js'
@@ -122,6 +122,12 @@ const loggerPort = adaptPinoLogger(logger)
  * Create a unified Raffel server
  */
 export function createServer(options: ServerOptions): RaffelServer {
+  // Swap the base logger before anything logs, so the module-level `loggerPort`
+  // proxy and every internal `createLogger(...)` resolve to the host's logger.
+  if (options.logger) {
+    configureLogger(options.logger)
+  }
+
   const {
     port,
     host = '0.0.0.0',
@@ -327,6 +333,18 @@ export function createServer(options: ServerOptions): RaffelServer {
         providerDefinitions.set(name, config)
       }
     }
+  }
+
+  // Built-in `log` provider: a single app-scoped child of the base logger,
+  // created once at startup and injected as `ctx.log` into every handler. This
+  // is the singleton companion to the request-scoped `ctx.logger` — same sink,
+  // but carrying `component: 'app'` instead of `requestId`, and never
+  // reallocated per request. Users can override it by declaring their own
+  // `log` provider in `options.providers`.
+  if (!providerDefinitions.has('log')) {
+    providerDefinitions.set('log', {
+      factory: () => getLogger().child({ component: 'app' }),
+    })
   }
 
   function registerProtocolExtension(config: ProtocolExtensionConfig): void {
