@@ -13,7 +13,7 @@ import type { WebSocketAdapter } from '../adapters/websocket.js'
 import type { TcpAdapter, TcpConnectionHandler } from '../adapters/tcp.js'
 import type { GrpcAdapter } from '../adapters/grpc.js'
 import type { JsonRpcAdapter } from '../adapters/jsonrpc.js'
-import type { GraphQLAdapter, GraphQLMiddleware } from '../graphql/index.js'
+import type { GraphQLAdapter, GraphQLMiddleware, GraphQLPolicyBridge } from '../graphql/index.js'
 import { getRouterModuleDefinition } from './router-module.js'
 import { createSchemaRegistry } from '../validation/index.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
@@ -60,6 +60,7 @@ import {
   type DiscoveryResult,
   type LoadedRoute,
   type LoadedChannel,
+  type LoadedGraphQLResource,
   type LoadedRestResource,
   type LoadedResource,
   type LoadedTcpHandler,
@@ -68,7 +69,7 @@ import {
   type UdpServerInstance,
 } from './fs-routes/index.js'
 import { createLogger, configureLogger, getLogger } from '../utils/logger.js'
-import { createPolicyBootstrap } from '../middleware/policy/index.js'
+import { createPolicyBootstrap, type PolicyBootstrap } from '../middleware/policy/index.js'
 import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type { PolicyEnginePort } from '../ports/outbound/policy-engine.js'
 import {
@@ -393,6 +394,10 @@ export function createServer(options: ServerOptions): RaffelServer {
 
   // REST resources for HTTP routing
   const restResourceRegistry: LoadedRestResource[] = []
+
+  // GraphQL resources for object/relationship schema generation
+  const graphqlResourceRegistry: LoadedGraphQLResource[] = []
+
   let apiDocumentationRevision = 0
   let apiDocumentationUpdatedAt: string | null = null
   let apiDocumentationMountedAt: string | null = null
@@ -520,6 +525,11 @@ export function createServer(options: ServerOptions): RaffelServer {
     registrationService.registerRestResource(restResourceRegistry, resource)
   }
 
+  function registerGraphQLResource(resource: LoadedGraphQLResource): void {
+    graphqlResourceRegistry.push(resource)
+    logger.debug({ name: resource.name, filePath: resource.filePath }, 'GraphQL resource registered')
+  }
+
   function registerResource(resource: LoadedResource): void {
     registrationService.registerResource(resource)
   }
@@ -540,6 +550,9 @@ export function createServer(options: ServerOptions): RaffelServer {
       tcpHandlers,
       udpHandlers
     )
+    for (const resource of result.graphqlResources) {
+      registerGraphQLResource(resource)
+    }
     advanceApiDocumentationRevision()
   }
 
@@ -609,6 +622,56 @@ export function createServer(options: ServerOptions): RaffelServer {
       })
     : undefined
 
+  function createGraphQLPolicyBridge(
+    bootstrap: PolicyBootstrap | null
+  ): GraphQLPolicyBridge | undefined {
+    if (!bootstrap) return undefined
+
+    return {
+      async evaluate(ctx, authz, value, args, parent) {
+        const principal = await bootstrap.resolvePrincipal(ctx)
+        const rawResource = await authz.resource(value, args, ctx, parent)
+        const resources = rawResource == null
+          ? [{ type: '*', id: '*', tenantId: principal.tenantId }]
+          : Array.isArray(rawResource)
+            ? rawResource
+            : [rawResource]
+        if (resources.length === 0) {
+          resources.push({ type: '*', id: '*', tenantId: principal.tenantId })
+        }
+        const protocol = (ctx as { protocol?: unknown }).protocol
+        const protocolValue = typeof protocol === 'string' ? protocol : 'graphql'
+
+        let lastDecision: Awaited<ReturnType<PolicyEnginePort['evaluate']>> | undefined
+        if (authz.mode === 'any') {
+          for (const resource of resources) {
+            const decision = await bootstrap.engine.evaluate({
+              principal,
+              action: authz.action,
+              resource,
+              protocol: protocolValue,
+            })
+            lastDecision = decision
+            if (decision.allowed) return decision
+          }
+          return lastDecision!
+        }
+
+        for (const resource of resources) {
+          const decision = await bootstrap.engine.evaluate({
+            principal,
+            action: authz.action,
+            resource,
+            protocol: protocolValue,
+          })
+          lastDecision = decision
+          if (!decision.allowed) return decision
+        }
+        return lastDecision!
+      },
+    }
+  }
+
   const serverLifecycle = createServerLifecycle({
     logger,
     state: serverState,
@@ -627,6 +690,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     getDocsState,
     channelRegistry,
     restResourceRegistry,
+    graphqlResourceRegistry,
     tcpHandlers,
     udpHandlers,
     tcpServers,
@@ -659,6 +723,7 @@ export function createServer(options: ServerOptions): RaffelServer {
           return decision.allowed
         }
       : undefined,
+    graphqlPolicyBridge: createGraphQLPolicyBridge(policyBootstrap),
   })
 
   /**
@@ -1438,6 +1503,7 @@ export function createServer(options: ServerOptions): RaffelServer {
           channels: result.channels.length,
           rest: result.restResources.length,
           resources: result.resources.length,
+          graphql: result.graphqlResources.length,
           tcp: result.tcpHandlers.length,
           udp: result.udpHandlers.length,
         },

@@ -16,6 +16,7 @@
  *     streams: './src/streams',
  *     rest: './src/rest',       // Auto-CRUD from schema
  *     resources: './src/resources', // 1 file = 1 resource
+ *     graphql: './src/graphql', // GraphQL resource objects
  *     tcp: './src/tcp',         // Custom TCP handlers
  *     udp: './src/udp',         // Custom UDP handlers
  *   },
@@ -38,6 +39,8 @@
  * │   └── users.ts             # → GET/POST/PUT/PATCH/DELETE /users
  * ├── resources/               # Explicit handlers (balance)
  * │   └── products.ts          # → All CRUD with custom logic
+ * ├── graphql/                 # GraphQL resources
+ * │   └── leads.graphql.ts     # → GraphQL object + root fields
  * ├── channels/                # WebSocket pub/sub
  * │   ├── chat-room.ts
  * │   └── presence-lobby.ts
@@ -144,6 +147,18 @@ export type {
   AdapterDeleteQuery,
   AdapterCountQuery,
 } from './rest/index.js'
+
+// === GraphQL Resource Discovery ===
+export {
+  loadGraphQLResources,
+} from './graphql/index.js'
+export type {
+  GraphQLResourceConfig,
+  GraphQLResourceExports,
+  GraphQLResourceLoaderOptions,
+  GraphQLResourceLoaderResult,
+  LoadedGraphQLResource,
+} from './graphql/index.js'
 
 // === Resource Handlers ===
 export {

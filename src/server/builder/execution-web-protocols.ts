@@ -24,7 +24,7 @@ type WebProtocolPostPortBindingStep = Extract<
 
 export function createExecutionWebProtocols(context: ServerLifecycleExecutionContext) {
   const { state } = context
-  const { registry, schemaRegistry, router } = context.core
+  const { registry, schemaRegistry, router, graphqlResources, graphqlPolicyBridge } = context.core
   const createWsAdapter = context.factories?.createWebSocketAdapter ?? createWebSocketAdapter
   const createRpcAdapter = context.factories?.createJsonRpcAdapter ?? createJsonRpcAdapter
   const createGqlAdapter = context.factories?.createGraphQLAdapter ?? createGraphQLAdapter
@@ -124,6 +124,8 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
               step.binding.options as GraphQLOptions,
               step.binding.path!
             ),
+            graphqlResources,
+            policyBridge: graphqlPolicyBridge,
           }),
           name: 'graphql',
           registerStopTask,

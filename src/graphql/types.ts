@@ -9,6 +9,7 @@ import type { Registry } from '../core/registry.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { Router } from '../core/router.js'
 import type { Codec } from '../utils/content-codecs.js'
+import type { GraphQLPolicyBridge, LoadedGraphQLResource } from './resource.js'
 
 // === Server Options ===
 
@@ -184,6 +185,12 @@ export interface GraphQLAdapterOptions {
 
   /** Port to listen on */
   port: number
+
+  /** GraphQL resources discovered from the filesystem. */
+  graphqlResources?: LoadedGraphQLResource[]
+
+  /** Policy bridge used by GraphQL resource field resolvers. */
+  policyBridge?: GraphQLPolicyBridge
 }
 
 export interface GraphQLAdapter {

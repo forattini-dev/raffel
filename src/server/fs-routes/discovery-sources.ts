@@ -26,6 +26,8 @@ export interface ResolvedDiscoverySource {
   dir: string
   /** Cleaned prefix (no leading/trailing slashes). Empty string means "no prefix". */
   prefix: string
+  /** Logical namespace for non-path discovery surfaces. Empty string means "none". */
+  namespace: string
   /**
    * `true` when the directory was configured explicitly (a string, entry, or
    * array element). `false` when it came from the `true` shorthand falling
@@ -44,6 +46,7 @@ export const DISCOVERY_DEFAULTS: Record<DefaultDiscoverySlot, string> = {
   streams: './src/streams',
   rest: './src/rest',
   resources: './src/resources',
+  graphql: './src/graphql',
   tcp: './src/tcp',
   udp: './src/udp',
 }
@@ -87,18 +90,19 @@ export function resolveDiscoverySources(
 ): ResolvedDiscoverySource[] {
   if (value === false || value === undefined) return []
   if (value === true) {
-    return [{ dir: resolveDiscoveryDir(baseDir, defaultPath), prefix: '', explicit: false }]
+    return [{ dir: resolveDiscoveryDir(baseDir, defaultPath), prefix: '', namespace: '', explicit: false }]
   }
   if (typeof value === 'string') {
-    return [{ dir: resolveDiscoveryDir(baseDir, value), prefix: '', explicit: true }]
+    return [{ dir: resolveDiscoveryDir(baseDir, value), prefix: '', namespace: '', explicit: true }]
   }
   if (Array.isArray(value)) {
     return value.map((entry) =>
       typeof entry === 'string'
-        ? { dir: resolveDiscoveryDir(baseDir, entry), prefix: '', explicit: true }
+        ? { dir: resolveDiscoveryDir(baseDir, entry), prefix: '', namespace: '', explicit: true }
         : {
             dir: resolveDiscoveryDir(baseDir, entry.dir),
             prefix: normalizeDiscoveryPrefix(entry.prefix),
+            namespace: normalizeDiscoveryPrefix(entry.namespace),
             explicit: true,
           },
     )
@@ -109,6 +113,7 @@ export function resolveDiscoverySources(
     {
       dir: resolveDiscoveryDir(baseDir, entry.dir),
       prefix: normalizeDiscoveryPrefix(entry.prefix),
+      namespace: normalizeDiscoveryPrefix(entry.namespace),
       explicit: true,
     },
   ]
@@ -127,6 +132,7 @@ export function normalizeDiscoveryConfig(config: DiscoveryConfig | boolean): Dis
       streams: true,
       rest: true,
       resources: true,
+      graphql: true,
       tcp: true,
       udp: true,
     }

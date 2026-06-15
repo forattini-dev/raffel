@@ -36,6 +36,11 @@ export interface DiscoverySourceEntry {
    * For HTTP, this becomes part of the URL path.
    */
   prefix?: string
+  /**
+   * Optional logical namespace for non-path discovery surfaces such as
+   * GraphQL resources. For route-like surfaces, use `prefix`.
+   */
+  namespace?: string
 }
 
 /**
@@ -141,6 +146,13 @@ export interface DiscoveryConfig {
   resources?: DiscoverySourceValue
 
   /**
+   * GraphQL resource source(s). Resource-shaped GraphQL modules in
+   * `*.graphql.ts` / `*.graphql.js` files.
+   * @default './src/graphql'
+   */
+  graphql?: DiscoverySourceValue
+
+  /**
    * TCP custom handlers source(s). Prefix has no effect (handlers are
    * identified by `config.port`); arrays are supported for multi-domain layouts.
    * @default './src/tcp'
@@ -206,6 +218,7 @@ export interface DiscoveryLoaderOptions {
 export interface DiscoveryStats {
   routes: number
   http: number
+  graphql: number
   channels: number
   rpc: number
   streams: number

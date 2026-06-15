@@ -11,10 +11,12 @@ import type { createWebSocketAdapter } from '../../adapters/websocket.js'
 import type {
   createGraphQLAdapter,
   createGraphQLMiddleware,
+  GraphQLPolicyBridge,
 } from '../../graphql/index.js'
 import type {
   DiscoveryResult,
   LoadedChannel,
+  LoadedGraphQLResource,
   LoadedRestResource,
   LoadedTcpHandler,
   LoadedUdpHandler,
@@ -59,6 +61,8 @@ export interface ServerLifecycleExecutionCoreContext {
   schemaRegistry: SchemaRegistry
   router: Router
   globalInterceptors: Interceptor[]
+  graphqlResources: LoadedGraphQLResource[]
+  graphqlPolicyBridge?: GraphQLPolicyBridge
   /**
    * Authorization snapshot — present only when `policy: { ... }` was passed
    * to `createServer`. Drives `x-usd.authz` in USD documents and similar

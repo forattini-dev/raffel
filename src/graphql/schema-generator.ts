@@ -25,6 +25,8 @@ import {
   GraphQLInputFieldConfig,
   GraphQLOutputType,
   GraphQLInputType,
+  GraphQLError,
+  type GraphQLResolveInfo,
   Kind,
 } from 'graphql'
 import type { Registry } from '../core/registry.js'
@@ -40,6 +42,14 @@ import type {
   SchemaGenerationOptions,
   GeneratedSchemaInfo,
 } from './types.js'
+import {
+  GRAPHQL_POLICY_BRIDGE_KEY,
+  type GraphQLPolicyBridge,
+  type GraphQLResourceFieldAuthz,
+  type GraphQLResourceRelationConfig,
+  type GraphQLResourceRootFieldConfig,
+  type LoadedGraphQLResource,
+} from './resource.js'
 import { createLogger } from '../utils/logger.js'
 
 const logger = createLogger('graphql-schema')
@@ -433,16 +443,449 @@ function getDescriptorForSchema(schema: unknown, validator?: string): SchemaDesc
   })
 }
 
+function capitalizeName(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function toGraphQLName(value: string, fallback: string): string {
+  const cleaned = value.replace(/[^_0-9A-Za-z]/g, '_')
+  const safe = cleaned && /^[_A-Za-z]/.test(cleaned) ? cleaned : `${fallback}${cleaned}`
+  return safe || fallback
+}
+
+function resourceTypeName(resource: LoadedGraphQLResource): string {
+  return toGraphQLName(capitalizeName(resource.name), 'Resource')
+}
+
+function buildArgsFromConfig(
+  ownerName: string,
+  fieldName: string,
+  argsConfig: Record<string, unknown> | undefined,
+  inputConfig: unknown,
+  cache: TypeCache
+): Record<string, { type: GraphQLInputType; description?: string }> | undefined {
+  const args: Record<string, { type: GraphQLInputType; description?: string }> = {}
+
+  if (argsConfig) {
+    for (const [name, schema] of Object.entries(argsConfig)) {
+      const descriptor = getDescriptorForSchema(schema)
+      const { schema: jsonSchema } = unwrapNullableSchema(descriptor.jsonSchema)
+      args[name] = {
+        type: descriptorToGraphQLInput(
+          descriptor,
+          `${ownerName}${capitalizeName(fieldName)}${capitalizeName(name)}`,
+          cache,
+          false
+        ),
+        description: getSchemaDescription(jsonSchema),
+      }
+    }
+  }
+
+  if (inputConfig) {
+    const descriptor = getDescriptorForSchema(inputConfig)
+    const { schema: jsonSchema } = unwrapNullableSchema(descriptor.jsonSchema)
+    args.input = {
+      type: descriptorToGraphQLInput(
+        descriptor,
+        `${ownerName}${capitalizeName(fieldName)}Input`,
+        cache,
+        true
+      ),
+      description: getSchemaDescription(jsonSchema),
+    }
+  }
+
+  return Object.keys(args).length > 0 ? args : undefined
+}
+
+type GraphQLResourcePaginationConfig = NonNullable<GraphQLResourceRootFieldConfig['pagination']>
+
+interface ResolvedGraphQLResourcePaginationConfig {
+  style: 'offset' | 'cursor'
+  defaultLimit: number
+  maxLimit: number
+  cursorField?: string
+}
+
+function resolveGraphQLResourcePagination(
+  config: GraphQLResourceRootFieldConfig['pagination']
+): ResolvedGraphQLResourcePaginationConfig | null {
+  if (!config) return null
+  const options: GraphQLResourcePaginationConfig = config === true ? {} : config
+  return {
+    style: options.style ?? 'offset',
+    defaultLimit: options.defaultLimit ?? 20,
+    maxLimit: options.maxLimit ?? 100,
+    ...(options.cursorField ? { cursorField: options.cursorField } : {}),
+  }
+}
+
+function addPaginationArg(
+  args: Record<string, { type: GraphQLInputType; description?: string }>,
+  fieldName: string,
+  argName: string,
+  type: GraphQLInputType,
+  description: string
+): void {
+  if (args[argName]) {
+    throw new Error(`GraphQL field "${fieldName}" declares pagination but already has an "${argName}" argument`)
+  }
+  args[argName] = { type, description }
+}
+
+function buildRootArgsFromConfig(
+  ownerName: string,
+  fieldName: string,
+  field: GraphQLResourceRootFieldConfig,
+  cache: TypeCache
+): Record<string, { type: GraphQLInputType; description?: string }> | undefined {
+  const args = buildArgsFromConfig(ownerName, fieldName, field.args, field.input, cache) ?? {}
+  const pagination = resolveGraphQLResourcePagination(field.pagination)
+
+  if (pagination) {
+    if (pagination.style === 'cursor') {
+      addPaginationArg(args, fieldName, 'first', GraphQLInt, 'Maximum number of records to return')
+      addPaginationArg(args, fieldName, 'after', GraphQLString, 'Opaque cursor to continue after')
+    } else {
+      addPaginationArg(args, fieldName, 'limit', GraphQLInt, 'Maximum number of records to return')
+      addPaginationArg(args, fieldName, 'offset', GraphQLInt, 'Number of records to skip')
+    }
+  }
+
+  return Object.keys(args).length > 0 ? args : undefined
+}
+
+function clampPaginationLimit(value: unknown, fallback: number, max: number): number {
+  const candidate = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
+  return Math.max(0, Math.min(candidate, max))
+}
+
+function applyPaginationDefaults(
+  rawArgs: Record<string, unknown>,
+  config: GraphQLResourceRootFieldConfig['pagination']
+): Record<string, unknown> {
+  const pagination = resolveGraphQLResourcePagination(config)
+  if (!pagination) return rawArgs
+
+  const args = { ...rawArgs }
+  if (pagination.style === 'cursor') {
+    args.first = clampPaginationLimit(args.first, pagination.defaultLimit, pagination.maxLimit)
+    if (args.after !== undefined && args.after !== null && typeof args.after !== 'string') {
+      args.after = String(args.after)
+    }
+    return args
+  }
+
+  args.limit = clampPaginationLimit(args.limit, pagination.defaultLimit, pagination.maxLimit)
+  args.offset = typeof args.offset === 'number' && Number.isFinite(args.offset)
+    ? Math.max(0, Math.floor(args.offset))
+    : 0
+  return args
+}
+
+function getGraphQLPolicyBridge(ctx: unknown): GraphQLPolicyBridge | undefined {
+  const context = ctx as ContextLike
+  return context?.extensions instanceof Map
+    ? context.extensions.get(GRAPHQL_POLICY_BRIDGE_KEY) as GraphQLPolicyBridge | undefined
+    : undefined
+}
+
+interface ContextLike {
+  extensions?: Map<unknown, unknown>
+}
+
+interface ServicesContextLike {
+  services?: Record<string, unknown>
+}
+
+function resolveServiceByKey(ctx: unknown, key: string): unknown {
+  const services = (ctx as ServicesContextLike | null | undefined)?.services
+  if (!services) return undefined
+  if (Object.prototype.hasOwnProperty.call(services, key)) return services[key]
+
+  let current: unknown = services
+  for (const segment of key.split('.')) {
+    if (!current || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+async function resolveRelationLoader(
+  relationName: string,
+  relation: GraphQLResourceRelationConfig,
+  parent: unknown,
+  args: Record<string, unknown>,
+  ctx: unknown,
+  info: GraphQLResolveInfo
+): Promise<unknown> {
+  if (!relation.loader) return undefined
+  if (!relation.batchKey) {
+    throw new GraphQLError(`GraphQL relation "${relationName}" declares loader without batchKey`, {
+      extensions: { code: 'INVALID_ARGUMENT' },
+    })
+  }
+
+  const loader = resolveServiceByKey(ctx, relation.loader)
+  if (!loader) {
+    throw new GraphQLError(`GraphQL relation loader "${relation.loader}" was not found in ctx.services`, {
+      extensions: { code: 'FAILED_PRECONDITION' },
+    })
+  }
+
+  const key = relation.batchKey(parent)
+  if (typeof loader === 'function') {
+    return loader(key, args, ctx, info)
+  }
+
+  if (loader && typeof loader === 'object') {
+    const loadMany = (loader as { loadMany?: unknown }).loadMany
+    if (relation.many && Array.isArray(key) && typeof loadMany === 'function') {
+      return loadMany.call(loader, key)
+    }
+
+    const load = (loader as { load?: unknown }).load
+    if (typeof load === 'function') {
+      return load.call(loader, key)
+    }
+  }
+
+  throw new GraphQLError(`GraphQL relation loader "${relation.loader}" must be a function or DataLoader-like object`, {
+    extensions: { code: 'FAILED_PRECONDITION' },
+  })
+}
+
+async function evaluateFieldAuthz(
+  ctx: unknown,
+  authz: GraphQLResourceFieldAuthz,
+  value: unknown,
+  args: Record<string, unknown>,
+  parent?: unknown
+): Promise<boolean> {
+  const bridge = getGraphQLPolicyBridge(ctx)
+  if (!bridge) {
+    throw new GraphQLError('GraphQL field authorization requires Raffel policy configuration', {
+      extensions: { code: 'PERMISSION_DENIED' },
+    })
+  }
+  const decision = await bridge.evaluate(ctx as never, authz, value, args, parent)
+  return decision.allowed
+}
+
+async function applyAuthzToResolvedValue(
+  value: unknown,
+  authz: GraphQLResourceFieldAuthz | undefined,
+  args: Record<string, unknown>,
+  ctx: unknown,
+  parent: unknown,
+  nullable: boolean | undefined
+): Promise<unknown> {
+  if (!authz) return value
+  if (value == null) return value
+  const onDeny = authz.onDeny ?? 'throw'
+
+  if (Array.isArray(value)) {
+    if (onDeny === 'filter') {
+      const allowed: unknown[] = []
+      for (const item of value) {
+        if (item == null) {
+          allowed.push(item)
+          continue
+        }
+        if (await evaluateFieldAuthz(ctx, authz, item, args, parent)) {
+          allowed.push(item)
+        }
+      }
+      return allowed
+    }
+
+    for (const item of value) {
+      if (item == null) continue
+      if (!await evaluateFieldAuthz(ctx, authz, item, args, parent)) {
+        if (onDeny === 'null' && nullable !== false) return null
+        throw new GraphQLError('Policy denied', { extensions: { code: 'PERMISSION_DENIED' } })
+      }
+    }
+    return value
+  }
+
+  if (!await evaluateFieldAuthz(ctx, authz, value, args, parent)) {
+    if (onDeny === 'null' && nullable !== false) return null
+    throw new GraphQLError('Policy denied', { extensions: { code: 'PERMISSION_DENIED' } })
+  }
+  return value
+}
+
+interface ResourceSchemaContext {
+  resourcesByName: Map<string, LoadedGraphQLResource>
+  cache: TypeCache
+}
+
+function createResourceObjectType(
+  resource: LoadedGraphQLResource,
+  resourceCtx: ResourceSchemaContext
+): GraphQLObjectType {
+  const typeName = resourceTypeName(resource)
+  const cached = resourceCtx.cache.output.get(typeName)
+  if (cached instanceof GraphQLObjectType) return cached
+
+  const objectType = new GraphQLObjectType({
+    name: typeName,
+    description: resource.description,
+    fields: () => createResourceObjectFields(resource, resourceCtx),
+  })
+  resourceCtx.cache.output.set(typeName, objectType)
+  return objectType
+}
+
+function createResourceObjectFields(
+  resource: LoadedGraphQLResource,
+  resourceCtx: ResourceSchemaContext
+): Record<string, GraphQLFieldConfig<unknown, unknown>> {
+  const typeName = resourceTypeName(resource)
+  const descriptor = getDescriptorForSchema(resource.schema)
+  const { schema } = unwrapNullableSchema(descriptor.jsonSchema)
+  const properties = getObjectProperties(schema) ?? {}
+  const required = getRequiredFields(schema)
+  const fields: Record<string, GraphQLFieldConfig<unknown, unknown>> = {}
+
+  for (const [key, propertySchema] of Object.entries(properties)) {
+    fields[key] = {
+      type: descriptorToGraphQLOutput(
+        { ...descriptor, jsonSchema: propertySchema, diagnostics: [] },
+        `${typeName}${capitalizeName(key)}`,
+        resourceCtx.cache,
+        required.has(key)
+      ),
+      description: getSchemaDescription(propertySchema),
+    }
+  }
+
+  for (const [name, relation] of Object.entries(resource.relations ?? {})) {
+    fields[name] = createRelationField(typeName, name, relation, resourceCtx)
+  }
+
+  return fields
+}
+
+function createRelationField(
+  ownerName: string,
+  relationName: string,
+  relation: GraphQLResourceRelationConfig,
+  resourceCtx: ResourceSchemaContext
+): GraphQLFieldConfig<unknown, unknown> {
+  const target = resourceCtx.resourcesByName.get(relation.type)
+  const targetType = target ? createResourceObjectType(target, resourceCtx) : GraphQLJSON
+  const baseType = relation.many ? new GraphQLList(targetType) : targetType
+  const type = relation.nullable === false ? new GraphQLNonNull(baseType) : baseType
+  const args = buildArgsFromConfig(ownerName, relationName, relation.args, undefined, resourceCtx.cache)
+
+  return {
+    type,
+    args,
+    description: relation.description,
+    resolve: async (parent, rawArgs, ctx, info) => {
+      const args = rawArgs as Record<string, unknown>
+      const value = relation.resolver
+        ? await relation.resolver(parent, args, ctx as never, info as GraphQLResolveInfo)
+        : relation.loader
+          ? await resolveRelationLoader(relationName, relation, parent, args, ctx, info as GraphQLResolveInfo)
+        : (parent as Record<string, unknown> | null | undefined)?.[relationName]
+      return applyAuthzToResolvedValue(value, relation.authz, args, ctx, parent, relation.nullable)
+    },
+  }
+}
+
+function createRootResourceField(
+  resource: LoadedGraphQLResource,
+  fieldKey: string,
+  field: GraphQLResourceRootFieldConfig,
+  resourceCtx: ResourceSchemaContext
+): GraphQLFieldConfig<unknown, unknown> {
+  const typeName = resourceTypeName(resource)
+  const resourceType = createResourceObjectType(resource, resourceCtx)
+  const outputType = field.output
+    ? descriptorToGraphQLOutput(
+        getDescriptorForSchema(field.output),
+        `${typeName}${capitalizeName(fieldKey)}Output`,
+        resourceCtx.cache,
+        field.nullable !== true
+      )
+    : (field.many ?? (fieldKey === 'list' || Boolean(field.pagination)))
+      ? new GraphQLList(resourceType)
+      : resourceType
+  const type = field.nullable === false && !(outputType instanceof GraphQLNonNull)
+    ? new GraphQLNonNull(outputType)
+    : outputType
+  const fieldName = field.field ?? fieldKey
+  const args = buildRootArgsFromConfig(typeName, fieldName, field, resourceCtx.cache)
+
+  return {
+    type,
+    args,
+    description: field.description ?? `${resource.name}.${fieldKey}`,
+    resolve: async (parent, rawArgs, ctx, info) => {
+      const args = applyPaginationDefaults(rawArgs as Record<string, unknown>, field.pagination)
+      if (field.authorize && !await evaluateFieldAuthz(ctx, field.authorize, parent, args, parent)) {
+        throw new GraphQLError('Policy denied', { extensions: { code: 'PERMISSION_DENIED' } })
+      }
+      const value = await field.resolver(parent, args, ctx as never, info as GraphQLResolveInfo)
+      return applyAuthzToResolvedValue(value, field.authz, args, ctx, parent, field.nullable)
+    },
+  }
+}
+
+function addGraphQLResourceFields(
+  graphqlResources: LoadedGraphQLResource[],
+  queries: Record<string, GraphQLFieldConfig<unknown, unknown>>,
+  mutations: Record<string, GraphQLFieldConfig<unknown, unknown>>,
+  queryNames: string[],
+  mutationNames: string[],
+  cache: TypeCache
+): void {
+  if (graphqlResources.length === 0) return
+
+  const resourcesByName = new Map<string, LoadedGraphQLResource>()
+  for (const resource of graphqlResources) {
+    const existing = resourcesByName.get(resource.name)
+    if (existing) {
+      throw new Error(`Duplicate GraphQL resource name "${resource.name}" from ${resource.filePath}`)
+    }
+    resourcesByName.set(resource.name, resource)
+  }
+
+  const resourceCtx: ResourceSchemaContext = { resourcesByName, cache }
+  for (const resource of graphqlResources) {
+    createResourceObjectType(resource, resourceCtx)
+
+    for (const [key, field] of Object.entries(resource.queries ?? {})) {
+      const name = toGraphQLName(field.field ?? key, 'field')
+      if (queries[name]) throw new Error(`Duplicate GraphQL query field "${name}" from ${resource.filePath}`)
+      queries[name] = createRootResourceField(resource, key, field, resourceCtx)
+      queryNames.push(name)
+    }
+
+    for (const [key, field] of Object.entries(resource.mutations ?? {})) {
+      const name = toGraphQLName(field.field ?? key, 'field')
+      if (mutations[name]) throw new Error(`Duplicate GraphQL mutation field "${name}" from ${resource.filePath}`)
+      mutations[name] = createRootResourceField(resource, key, field, resourceCtx)
+      mutationNames.push(name)
+    }
+  }
+}
+
 // === Schema Generation ===
 
 export interface GenerateSchemaParams {
   registry: Registry
   schemaRegistry: SchemaRegistry
+  graphqlResources?: LoadedGraphQLResource[]
   options?: SchemaGenerationOptions
 }
 
 export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSchemaInfo {
-  const { registry, schemaRegistry, options: userOptions } = params
+  const { registry, schemaRegistry, graphqlResources = [], options: userOptions } = params
   const options = { ...DEFAULT_OPTIONS, ...userOptions }
 
   const typeCache: TypeCache = {
@@ -533,6 +976,15 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
       mutationNames.push(meta.name)
     }
   }
+
+  addGraphQLResourceFields(
+    graphqlResources,
+    queries,
+    mutations,
+    queryNames,
+    mutationNames,
+    typeCache
+  )
 
   // Build schema
   const queryType = Object.keys(queries).length > 0

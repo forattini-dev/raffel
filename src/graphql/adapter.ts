@@ -29,6 +29,7 @@ import type {
   GeneratedSchemaInfo,
 } from './types.js'
 import { generateGraphQLSchema } from './schema-generator.js'
+import { GRAPHQL_POLICY_BRIDGE_KEY } from './resource.js'
 import { createLogger } from '../utils/logger.js'
 import { sid } from '../utils/id/index.js'
 import {
@@ -72,6 +73,8 @@ export interface GraphQLMiddlewareOptions {
   registry: Registry
   schemaRegistry: SchemaRegistry
   config: GraphQLAdapterOptions['config']
+  graphqlResources?: GraphQLAdapterOptions['graphqlResources']
+  policyBridge?: GraphQLAdapterOptions['policyBridge']
 }
 
 // === GraphiQL HTML ===
@@ -384,7 +387,9 @@ function createGraphQLHandlers(
   router: Router,
   registry: Registry,
   schemaRegistry: SchemaRegistry,
-  config: GraphQLAdapterOptions['config']
+  config: GraphQLAdapterOptions['config'],
+  graphqlResources: GraphQLAdapterOptions['graphqlResources'] = [],
+  policyBridge?: GraphQLAdapterOptions['policyBridge']
 ): GraphQLHandlers {
   let schema: GraphQLSchema
   let schemaInfo: GeneratedSchemaInfo | null = null
@@ -396,6 +401,7 @@ function createGraphQLHandlers(
     const generated = generateGraphQLSchema({
       registry,
       schemaRegistry,
+      graphqlResources,
       options: config.schemaOptions,
     })
     schema = generated.schema
@@ -490,6 +496,9 @@ function createGraphQLHandlers(
             operationName: gqlRequest.operationName,
           },
         })
+        if (policyBridge) {
+          ctx.extensions.set(GRAPHQL_POLICY_BRIDGE_KEY, policyBridge)
+        }
         if (timeoutMs > 0) {
           ctx.deadline = Date.now() + timeoutMs
         }
@@ -560,7 +569,8 @@ function createGraphQLHandlers(
         router,
         registry,
         schemaInfo!,
-        keepAliveInterval
+        keepAliveInterval,
+        policyBridge
       )
     })
 
@@ -582,7 +592,7 @@ function fieldName(handlerName: string): string {
 // === Adapter Implementation ===
 
 export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAdapter {
-  const { router, registry, schemaRegistry, config, host, port } = options
+  const { router, registry, schemaRegistry, config, host, port, graphqlResources, policyBridge } = options
 
   let server: Server | null = null
   let wss: WebSocketServer | null = null
@@ -592,7 +602,9 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
     router,
     registry,
     schemaRegistry,
-    config
+    config,
+    graphqlResources,
+    policyBridge
   )
 
   return {
@@ -657,12 +669,14 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
 }
 
 export function createGraphQLMiddleware(options: GraphQLMiddlewareOptions): GraphQLMiddleware {
-  const { router, registry, schemaRegistry, config } = options
+  const { router, registry, schemaRegistry, config, graphqlResources, policyBridge } = options
   const { schema, schemaInfo, handleRequest, createSubscriptionServer } = createGraphQLHandlers(
     router,
     registry,
     schemaRegistry,
-    config
+    config,
+    graphqlResources,
+    policyBridge
   )
 
   const middleware = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
@@ -757,7 +771,8 @@ function handleSubscriptionConnection(
   router: Router,
   registry: Registry,
   schemaInfo: GeneratedSchemaInfo,
-  keepAliveInterval?: number
+  keepAliveInterval?: number,
+  policyBridge?: GraphQLAdapterOptions['policyBridge']
 ): void {
   const subscriptions = new Map<string, AsyncIterator<unknown>>()
   const connectionMetadata = extractMetadataFromHeaders(req.headers)
@@ -802,6 +817,9 @@ function handleSubscriptionConnection(
               operationName,
             },
           })
+          if (policyBridge) {
+            ctx.extensions.set(GRAPHQL_POLICY_BRIDGE_KEY, policyBridge)
+          }
           if (connectionInitPayload !== undefined) {
             ctx.extensions.set(CONNECTION_INIT_KEY, connectionInitPayload)
           }

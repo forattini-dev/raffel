@@ -570,6 +570,7 @@ export {
   createGraphQLAdapter,
   createGraphQLMiddleware,
   generateGraphQLSchema,
+  graphqlResource,
   GraphQLJSON,
   GraphQLDateTime,
 } from './graphql/index.js'
@@ -582,6 +583,13 @@ export type {
   SchemaGenerationOptions,
   GeneratedSchemaInfo,
   GraphQLCorsConfig,
+  GraphQLResourceConfig,
+  LoadedGraphQLResource,
+  GraphQLResourceRootFieldConfig,
+  GraphQLResourceRelationConfig,
+  GraphQLResourceFieldAuthz,
+  GraphQLPolicyBridge,
+  GraphQLResourceResolver,
 } from './graphql/index.js'
 
 // === Cache (Pluggable Driver System) ===

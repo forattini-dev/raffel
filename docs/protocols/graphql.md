@@ -123,13 +123,101 @@ server.procedure('users.get').graphql('query')
 Field names are derived from handler names, splitting on `.`, `-`, and `_`.
 For example, `users.get-by-id` becomes `usersGetById`.
 
-## Resource discovery roadmap
+## Resource Discovery
 
-The current GraphQL adapter is operation-first: it generates fields from
-registered procedures, streams, and events. Resource-shaped GraphQL APIs need an
-additional discovery layer for object types, relations, batching, and field-level
-authorization.
+GraphQL can also be resource-first. Files named `*.graphql.ts` /
+`*.graphql.js` are loaded from `discovery.graphql` and contribute object types,
+root fields, relations, and resolver-level policy checks to the generated
+schema.
+
+```ts
+createServer({
+  discovery: {
+    graphql: [
+      { dir: './src/domains/leads/graphql', namespace: 'crm' },
+      { dir: './src/domains/users/graphql', namespace: 'identity' },
+    ],
+  },
+  graphql: {
+    path: '/graphql',
+    generateSchema: true,
+  },
+})
+```
+
+The default directory for `discovery: true` is `./src/graphql`.
+
+```ts
+// src/domains/leads/graphql/leads.graphql.ts
+import { z } from 'zod'
+import { graphqlResource } from 'raffel/graphql'
+
+const LeadSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  ownerId: z.string(),
+  tenantId: z.string(),
+})
+
+export default graphqlResource({
+  name: 'Lead',
+  schema: LeadSchema,
+
+  queries: {
+    list: {
+      field: 'leads',
+      many: true,
+      pagination: { style: 'offset', defaultLimit: 25, maxLimit: 100 },
+      resolver: (_parent, args, ctx) => ctx.services.leads.list(args),
+      authz: {
+        action: 'lead.read',
+        resource: (lead) => ({ type: 'lead', id: lead.id, tenantId: lead.tenantId }),
+        onDeny: 'filter',
+      },
+    },
+  },
+
+  mutations: {
+    create: {
+      field: 'createLead',
+      input: LeadSchema.omit({ id: true }),
+      authorize: {
+        action: 'lead.create',
+        resource: (_parent, args) => ({ type: 'lead', id: '*', tenantId: args.input.tenantId }),
+      },
+      resolver: (_parent, args, ctx) => ctx.services.leads.create(args.input),
+    },
+  },
+
+  relations: {
+    owner: {
+      type: 'User',
+      nullable: false,
+      loader: 'users.byId',
+      batchKey: (lead) => lead.ownerId,
+      authz: {
+        action: 'user.read',
+        resource: (user) => ({ type: 'user', id: user.id, tenantId: user.tenantId }),
+        onDeny: 'null',
+      },
+    },
+  },
+})
+```
+
+`pagination` is opt-in. Offset pagination adds `limit` and `offset` arguments;
+cursor pagination adds `first` and `after`. Raffel applies `defaultLimit` and
+caps requests at `maxLimit` before calling the resolver.
+
+GraphQL authorization uses the policy module. `authorize` runs before a root
+resolver and is suited to mutation guards. `authz` runs against the resolved
+value; lists can use `onDeny: 'filter'`, nullable fields can use
+`onDeny: 'null'`, and the default behavior is to throw `PERMISSION_DENIED`.
+
+Relations are explicit. Use `resolver` for custom logic, or `loader` +
+`batchKey` to resolve a DataLoader-like service from `ctx.services`:
+`loader: 'users.byId'` accepts either `ctx.services['users.byId']` or
+`ctx.services.users.byId`.
 
 See [GraphQL Resource Discovery](/spec/graphql-resource-discovery.md) for the
-draft architecture covering file-system discovery, relationships between
-resources, and policy checks inside schema resolvers.
+full architecture notes.

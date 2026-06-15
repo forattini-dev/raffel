@@ -40,6 +40,12 @@ export {
   type GenerateSchemaParams,
 } from './schema-generator.js'
 
+// === Resource Discovery Helpers ===
+export {
+  graphqlResource,
+  GRAPHQL_POLICY_BRIDGE_KEY,
+} from './resource.js'
+
 // === Types ===
 export type {
   GraphQLOptions,
@@ -53,3 +59,14 @@ export type {
   CorsConfig as GraphQLCorsConfig,
 } from './types.js'
 export type { GraphQLMiddleware } from './adapter.js'
+export type {
+  GraphQLPolicyBridge,
+  GraphQLResourceConfig,
+  GraphQLResourceFieldAuthz,
+  GraphQLResourceRelationConfig,
+  GraphQLResourceRootFieldConfig,
+  GraphQLResourceResolver,
+  GraphQLResourcePolicyMode,
+  GraphQLResourcePolicyDenyBehavior,
+  LoadedGraphQLResource,
+} from './resource.js'

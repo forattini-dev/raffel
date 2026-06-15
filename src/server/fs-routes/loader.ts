@@ -20,10 +20,12 @@ import {
 } from './discovery-sources.js'
 import { createLoadedRestResourceFromExports, loadRestResources } from './rest/loader.js'
 import { createLoadedResourceFromExports, generateResourceRoutes, loadResources } from './resources/loader.js'
+import { loadGraphQLResources } from './graphql/loader.js'
 import { loadTcpHandlers } from './tcp/loader.js'
 import { loadUdpHandlers } from './udp/loader.js'
 import type { LoadedRestResource, RestActionConfig, RestExports } from './rest/types.js'
 import type { LoadedResource, ResourceAction, ResourceExports, ResourceMiddleware } from './resources/types.js'
+import type { LoadedGraphQLResource } from '../../graphql/resource.js'
 import type { LoadedTcpHandler } from './tcp/types.js'
 import type { LoadedUdpHandler } from './udp/types.js'
 import type {
@@ -234,12 +236,14 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   const channels: LoadedChannel[] = []
   const restResources: LoadedRestResource[] = []
   const resources: LoadedResource[] = []
+  const graphqlResources: LoadedGraphQLResource[] = []
   const tcpHandlers: LoadedTcpHandler[] = []
   const udpHandlers: LoadedUdpHandler[] = []
   const diagnostics: DiscoveryDiagnostic[] = []
   const stats: DiscoveryStats = {
     routes: 0,
     http: 0,
+    graphql: 0,
     channels: 0,
     rpc: 0,
     streams: 0,
@@ -387,6 +391,22 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     logger.info({ count: loaded.stats.resources, dir: src.dir, prefix: src.prefix || undefined }, 'Loaded resources')
   }
 
+  // Load GraphQL resources
+  for (const src of resolveSources(baseDir, config.graphql, DEFAULTS.graphql)) {
+    if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'graphql'); continue }
+    const loaded = await loadGraphQLResources({
+      baseDir,
+      graphqlDir: src.dir,
+      namespace: src.namespace || src.prefix || undefined,
+      extensions,
+      source,
+    })
+    graphqlResources.push(...loaded.resources)
+    stats.graphql += loaded.stats.resources
+    warnEmptyDiscoverySource(src, 'graphql', loaded.stats.resources)
+    logger.info({ count: loaded.stats.resources, dir: src.dir, namespace: src.namespace || src.prefix || undefined }, 'Loaded GraphQL resources')
+  }
+
   // Load TCP handlers (prefix has no semantic effect — handlers route by port)
   for (const src of resolveSources(baseDir, config.tcp, DEFAULTS.tcp)) {
     if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'tcp'); continue }
@@ -419,7 +439,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     })
   }
 
-  stats.total = stats.routes + stats.http + stats.rpc + stats.streams + stats.channels + stats.rest + stats.resources + stats.tcp + stats.udp
+  stats.total = stats.routes + stats.http + stats.rpc + stats.streams + stats.channels + stats.rest + stats.resources + stats.graphql + stats.tcp + stats.udp
   stats.duration = Date.now() - startTime
 
   if (options.onLoad) {
@@ -431,6 +451,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
     channels,
     restResources,
     resources,
+    graphqlResources,
     tcpHandlers,
     udpHandlers,
     stats,
@@ -556,6 +577,7 @@ export interface DiscoveryResult {
   channels: LoadedChannel[]
   restResources: LoadedRestResource[]
   resources: LoadedResource[]
+  graphqlResources: LoadedGraphQLResource[]
   tcpHandlers: LoadedTcpHandler[]
   udpHandlers: LoadedUdpHandler[]
   stats: DiscoveryStats

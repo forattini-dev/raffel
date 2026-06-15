@@ -675,6 +675,24 @@ describe('loadDiscovery with DiscoverySource', () => {
           list: async () => [],
         },
       },
+      '/app/src/graphql/leads.graphql.js': {
+        module: {
+          default: {
+            name: 'Lead',
+            schema: z.object({
+              id: z.string(),
+              title: z.string(),
+            }),
+            queries: {
+              list: {
+                field: 'leads',
+                many: true,
+                resolver: async () => [],
+              },
+            },
+          },
+        },
+      },
       '/app/src/tcp/game.js': {
         module: {
           onData: async () => {},
@@ -704,6 +722,7 @@ describe('loadDiscovery with DiscoverySource', () => {
     expect(result.channels.map((channel) => channel.name)).toEqual(['room'])
     expect(result.restResources.map((resource) => resource.name)).toEqual(['users'])
     expect(result.resources.map((resource) => resource.name)).toEqual(['projects'])
+    expect(result.graphqlResources.map((resource) => resource.name)).toEqual(['Lead'])
     expect(result.tcpHandlers.map((handler) => handler.name)).toEqual(['game'])
     expect(result.udpHandlers.map((handler) => handler.name)).toEqual(['metrics'])
     expect(result.stats).toMatchObject({
@@ -713,12 +732,56 @@ describe('loadDiscovery with DiscoverySource', () => {
       channels: 1,
       rest: 1,
       resources: 1,
+      graphql: 1,
       tcp: 1,
       udp: 1,
-      total: 8,
+      total: 9,
     })
-    expect(result.sourceStats.modulesImported).toBeGreaterThanOrEqual(9)
+    expect(result.sourceStats.modulesImported).toBeGreaterThanOrEqual(10)
     expect(result.failures).toEqual([])
+  })
+
+  it('loads GraphQL resources from multiple source directories with namespaces', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/graphql/leads.graphql.js': {
+        module: {
+          default: {
+            name: 'Lead',
+            schema: z.object({ id: z.string() }),
+          },
+        },
+      },
+      '/app/src/domains/users/graphql/users.graphql.js': {
+        module: {
+          resource: {
+            name: 'User',
+            schema: z.object({ id: z.string() }),
+          },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        graphql: [
+          { dir: './src/domains/leads/graphql', namespace: 'crm' },
+          { dir: './src/domains/users/graphql', prefix: 'identity' },
+        ],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    expect(result.graphqlResources.map((resource) => ({
+      name: resource.name,
+      namespace: resource.namespace,
+    }))).toEqual([
+      { name: 'Lead', namespace: 'crm' },
+      { name: 'User', namespace: 'identity' },
+    ])
+    expect(result.stats.graphql).toBe(2)
+    expect(result.stats.total).toBe(2)
   })
 
   it('reports import failures through DiscoverySource without aborting discovery', async () => {

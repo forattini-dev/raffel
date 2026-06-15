@@ -1,6 +1,6 @@
 # GraphQL Resource Discovery
 
-> Status: draft
+> Status: baseline implemented; advanced inspection and connection helpers remain planned
 > Scope: GraphQL schema generation, file-system discovery, resource relations, and field-level authorization
 
 ---
@@ -18,7 +18,7 @@ That is enough for operation-first GraphQL, but not enough for resource-shaped
 GraphQL APIs. Resource GraphQL needs a first-class catalog of object types,
 root fields, relations, computed fields, batching, and field-level policy checks.
 
-This proposal adds a GraphQL Resource Discovery layer without replacing the
+This design adds a GraphQL Resource Discovery layer without replacing the
 existing procedure-based GraphQL adapter.
 
 ---
@@ -87,7 +87,8 @@ createServer({
 ```
 
 Unlike HTTP Routes Roots, GraphQL discovery does not need a public path prefix.
-It needs a namespace for operation/type collision handling and for diagnostics.
+`namespace` is stored with the resource for diagnostics and future inspection;
+GraphQL type and root field names still come from the resource file itself.
 
 ---
 
@@ -117,11 +118,12 @@ export default graphqlResource({
       resolver: (_parent, args, ctx) => ctx.services.leads.list(args),
       authz: {
         action: 'lead.read',
-        resource: (_parent, _args, ctx) => ({
+        resource: (lead) => ({
           type: 'lead',
-          id: '*',
-          tenantId: ctx.auth?.tenantId,
+          id: lead.id,
+          tenantId: lead.tenantId,
         }),
+        onDeny: 'filter',
       },
     },
     get: {
@@ -130,7 +132,7 @@ export default graphqlResource({
       resolver: (_parent, { id }, ctx) => ctx.services.leads.get(id),
       authz: {
         action: 'lead.read',
-        resource: (_parent, args) => ({ type: 'lead', id: args.id }),
+        resource: (lead) => ({ type: 'lead', id: lead.id, tenantId: lead.tenantId }),
       },
     },
   },
@@ -139,8 +141,15 @@ export default graphqlResource({
     create: {
       field: 'createLead',
       input: LeadSchema.omit({ id: true }),
+      authorize: {
+        action: 'lead.create',
+        resource: (_parent, args) => ({
+          type: 'lead',
+          id: '*',
+          tenantId: args.input.tenantId,
+        }),
+      },
       resolver: (_parent, args, ctx) => ctx.services.leads.create(args.input),
-      authz: { action: 'lead.create', resource: () => ({ type: 'lead', id: '*' }) },
     },
   },
 
@@ -175,32 +184,34 @@ export default graphqlResource({
 })
 ```
 
-The API name `graphqlResource` is illustrative. The important boundary is that
-GraphQL resources describe GraphQL shape. They may import schemas/adapters shared
-with REST resources, but they are not automatically inferred from `.rest.ts`.
+GraphQL resources describe GraphQL shape. They may import schemas/adapters
+shared with REST resources, but they are not automatically inferred from
+`.rest.ts`.
 
 ---
 
 ## Relation Contract
 
-Relations should be explicit. Raffel should support these resolver modes:
+Relations are explicit. Raffel supports these resolver modes:
 
 | Mode | Use case |
 | --- | --- |
 | `resolver` | Custom relation logic. |
 | `loader` + `batchKey` | DataLoader-style batching for one-to-one/many-to-one relations. |
-| `connection` | Cursor-paginated one-to-many relations. |
+| parent property fallback | Omit both and Raffel reads `parent[relationName]`. |
 
-Generated relation resolvers must receive:
+`connection` helpers for cursor-paginated one-to-many relations are still a
+planned extension. Current relation resolvers receive:
 
 - `parent`
 - `args`
 - `ctx`
 - `info`
-- request-scoped loaders
 
-Request-scoped loaders prevent N+1 queries and keep batching tied to the
-GraphQL request lifecycle.
+`loader` resolves against `ctx.services`: `loader: 'users.byId'` accepts either
+`ctx.services['users.byId']` or `ctx.services.users.byId`. The resolved loader
+may be a function `(key, args, ctx, info) => value` or a DataLoader-like object
+with `.load(key)` / `.loadMany(keys)`.
 
 ---
 
@@ -214,16 +225,19 @@ There are two authorization levels:
 Root fields that call Raffel procedures can continue using existing procedure
 interceptors and `.authz()` metadata.
 
-Field-level resolvers need policy helpers even when no procedure interceptor ran.
-The GraphQL adapter should attach policy helpers at request creation when the
-server has policy configured:
+Field-level resolvers need policy access even when no procedure interceptor ran.
+The GraphQL adapter attaches a policy bridge at request creation when the server
+has policy configured. Resource files declare the action/resource tuple; the
+policy engine decides.
 
 ```ts
-ctx.policy.evaluate(action, resource)
-ctx.policy.filterResources(action, resources)
+authorize: {
+  action: 'lead.create',
+  resource: (_parent, args) => ({ type: 'lead', id: '*', tenantId: args.input.tenantId }),
+}
 ```
 
-Resolver `authz` should support:
+`authz` runs after the resolver and supports:
 
 ```ts
 authz: {
@@ -242,6 +256,10 @@ Recommended behavior:
 Policies remain the source of authorization. GraphQL resource files only declare
 which action/resource a resolver asks the policy engine to evaluate.
 
+`authorize` is separate from `authz`: use `authorize` for pre-resolver gates,
+especially mutations; use `authz` for resolved objects, relations, and list
+filtering.
+
 ---
 
 ## Interaction With Existing GraphQL Generation
@@ -257,42 +275,26 @@ diagnostic unless the resource field explicitly declares an override.
 
 ---
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Catalog And Discovery
+Implemented:
 
-- Add `discovery.graphql` source normalization.
-- Add `loadGraphQLResources`.
-- Define `GraphQLResource`, `GraphQLRelation`, `GraphQLFieldAuthz` types.
-- Add diagnostics for duplicate type names and duplicate root fields.
+- `discovery.graphql` source normalization, including multiple roots.
+- `loadGraphQLResources` for `*.graphql.ts/js` files.
+- `graphqlResource` helper and resource/relation/authz types.
+- Resource object type, Query, Mutation, relation, and pagination arg
+  composition.
+- Operation-first generation and resource-first generation in the same schema.
+- Duplicate GraphQL type/root field startup errors.
+- Policy bridge for HTTP GraphQL and subscriptions.
+- Resolver-level `authorize` / `authz` with `throw`, `null`, and `filter`.
+- `loader + batchKey` relation resolution through `ctx.services`.
 
-### Phase 2: Schema Composition
-
-- Extend `generateGraphQLSchema` to accept resource catalog contributions.
-- Generate object types from resource schemas.
-- Generate Query/Mutation fields from resource root field configs.
-- Keep procedure-based generation working unchanged.
-
-### Phase 3: Resolver Runtime
-
-- Add request-scoped loader registry to GraphQL execution context.
-- Execute resource resolvers directly for fields that do not route through
-  procedures.
-- Normalize resolver errors into GraphQL errors with Raffel error extensions.
-
-### Phase 4: Policy Bridge
-
-- Pass policy bootstrap into GraphQL middleware/adapter.
-- Attach `ctx.policy` helpers for GraphQL requests when policy is configured.
-- Enforce resolver-level `authz` with `throw`, `null`, and `filter` modes.
-- Add tests for root policy, relation policy, sensitive field policy, and list
-  filtering.
-
-### Phase 5: Docs And Inspection
+Planned:
 
 - Expose GraphQL resources in runtime preview/inspect.
 - Surface resource fields and policy metadata in USD.
-- Document FS layouts, relation resolvers, batching, and policy behavior.
+- Add connection helpers for cursor-paginated one-to-many relations.
 
 ---
 
@@ -300,9 +302,7 @@ diagnostic unless the resource field explicitly declares an override.
 
 - Should `.rest.ts` support an optional `graphql` export as a convenience, or
   should GraphQL always live in dedicated `.graphql.ts` files?
-- Should GraphQL resources be exported from `raffel/graphql` only, or from the
-  main package entrypoint as well?
-- Should relationship loaders be string keys into `ctx.services`, or should
-  they be functions registered directly on the resource?
-- Should field-level denies default to `throw` globally, with explicit `null` or
-  `filter` per field?
+- Should `namespace` eventually participate in generated type names, or remain
+  diagnostics-only?
+- Should connection helpers return Relay-style edges/nodes, or a Raffel-native
+  lightweight page shape?

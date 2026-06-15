@@ -17,6 +17,7 @@ import type { RecordProtocolFusionDecisionInput } from '../protocol-fusion-diagn
 import type {
   DiscoveryResult,
   LoadedChannel,
+  LoadedGraphQLResource,
   LoadedRestResource,
   LoadedTcpHandler,
   LoadedUdpHandler,
@@ -84,6 +85,7 @@ export interface ServerLifecycleContext {
   getDocsState?: () => Record<string, unknown>
   channelRegistry: Map<string, LoadedChannel>
   restResourceRegistry: LoadedRestResource[]
+  graphqlResourceRegistry: LoadedGraphQLResource[]
   tcpHandlers: LoadedTcpHandler[]
   udpHandlers: LoadedUdpHandler[]
   tcpServers: TcpServerInstance[]
@@ -103,6 +105,7 @@ export interface ServerLifecycleContext {
   getWsMessageHandler: () => WebSocketMessageHandler | null | undefined
   getWsUnsubscribeHandler: () => WebSocketUnsubscribeHandler | null | undefined
   channelCoLocatedPolicyEnforcer?: import('../channel-utils.js').ChannelCoLocatedPolicyEnforcer
+  graphqlPolicyBridge?: import('../../graphql/index.js').GraphQLPolicyBridge
 }
 
 export function createServerLifecycle(context: ServerLifecycleContext) {
@@ -124,6 +127,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     getDocsState,
     channelRegistry,
     restResourceRegistry,
+    graphqlResourceRegistry,
     tcpHandlers,
     udpHandlers,
     tcpServers,
@@ -140,6 +144,7 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     getWsMessageHandler,
     getWsUnsubscribeHandler,
     channelCoLocatedPolicyEnforcer,
+    graphqlPolicyBridge,
     router,
   } = context
   const lifecycleLogger = logger as unknown as Logger
@@ -159,6 +164,8 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       schemaRegistry,
       router,
       globalInterceptors,
+      graphqlResources: graphqlResourceRegistry,
+      graphqlPolicyBridge,
       getAuthzSnapshot,
       getApiDocumentationRevision,
       markApiDocumentationMounted,

@@ -6,7 +6,7 @@ into literal handler names and registers procedures and streams for you.
 Important notes:
 - Route names are literal strings; dynamic segments are converted (e.g. `[id]` -> `:id`) but not extracted at runtime.
 - Discovery registers procedures and streams. Events are still manual.
-- Channels, REST resources, resources, TCP, and UDP handlers are auto-registered when you use server discovery or `addDiscovery`.
+- Channels, REST resources, resource handlers, GraphQL resources, TCP, and UDP handlers are auto-registered when you use server discovery or `addDiscovery`.
 - `_middleware` `matcher`/`exclude` patterns are applied with a simple `*` wildcard.
 
 ## Quick start
@@ -35,6 +35,7 @@ src/
   channels/    # WebSocket channel configs
   rest/        # REST resources
   resources/   # Resource handlers
+  graphql/     # GraphQL resource files (*.graphql.ts)
   tcp/         # TCP handlers
   udp/         # UDP handlers
 ```
@@ -107,6 +108,56 @@ shadow a generated REST operation. Set `config.compose = false` in the
 Use composed actions as an escape hatch for commands or state transitions.
 Prefer subresources when the domain concept is a noun; use actions for commands
 such as `archive`, `retry`, `publish`, or `cancel`.
+
+## GraphQL Resources
+
+GraphQL resource discovery is independent from REST resource discovery. A
+`leads.rest.ts` file generates RESTful HTTP endpoints; a `leads.graphql.ts`
+file contributes GraphQL object types, root fields, relations, pagination args,
+and policy checks to the generated GraphQL schema.
+
+```ts
+const server = createServer({
+  discovery: {
+    graphql: [
+      { dir: './src/domains/leads/graphql', namespace: 'crm' },
+      { dir: './src/domains/users/graphql', namespace: 'identity' },
+    ],
+  },
+  graphql: '/graphql',
+})
+```
+
+`discovery: true` scans `./src/graphql` by default. For domain-driven projects,
+configure multiple `discovery.graphql` entries. `namespace` is logical metadata
+for diagnostics and future inspection; it is not a public URL prefix.
+
+GraphQL resource files use the `graphqlResource` helper:
+
+```ts
+import { z } from 'zod'
+import { graphqlResource } from 'raffel/graphql'
+
+export default graphqlResource({
+  name: 'Lead',
+  schema: z.object({
+    id: z.string(),
+    title: z.string(),
+    tenantId: z.string(),
+  }),
+  queries: {
+    list: {
+      field: 'leads',
+      many: true,
+      pagination: { style: 'offset', defaultLimit: 25, maxLimit: 100 },
+      resolver: (_parent, args, ctx) => ctx.services.leads.list(args),
+    },
+  },
+})
+```
+
+See [GraphQL Adapter](/protocols/graphql.md#resource-discovery) for relations,
+policy integration, and pagination behavior.
 
 ## Route naming
 

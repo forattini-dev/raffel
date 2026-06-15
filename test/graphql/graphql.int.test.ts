@@ -9,11 +9,13 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { z } from 'zod'
+import { graphql as executeGraphQLQuery } from 'graphql'
 import { createRegistry } from '../../src/core/registry.js'
 import { createRouter } from '../../src/core/router.js'
 import { createSchemaRegistry } from '../../src/validation/index.js'
 import { generateGraphQLSchema, GraphQLJSON, GraphQLDateTime } from '../../src/graphql/schema-generator.js'
 import { createGraphQLAdapter, createGraphQLMiddleware } from '../../src/graphql/adapter.js'
+import { graphqlResource } from '../../src/graphql/index.js'
 import type { GraphQLAdapterOptions } from '../../src/graphql/types.js'
 import type { IncomingMessage, ServerResponse, Server } from 'node:http'
 import { createServer as createHttpServer } from 'node:http'
@@ -379,6 +381,88 @@ describe('GraphQL Schema Generator', () => {
       expect(result.queries).toContain('_health')
     })
   })
+
+  describe('resource discovery schema composition', () => {
+    it('should generate resource root fields, opt-in pagination args, and relation resolvers', async () => {
+      const usersById = new Map([
+        ['u1', { id: 'u1', name: 'Ada' }],
+      ])
+
+      const result = generateGraphQLSchema({
+        registry,
+        schemaRegistry,
+        graphqlResources: [
+          {
+            ...graphqlResource<{ id: string; name: string }>({
+              name: 'User',
+              schema: z.object({
+                id: z.string(),
+                name: z.string(),
+              }),
+            }),
+            filePath: '/virtual/users.graphql.ts',
+          },
+          {
+            ...graphqlResource<{ id: string; title: string; ownerId: string }>({
+              name: 'Lead',
+              schema: z.object({
+                id: z.string(),
+                title: z.string(),
+                ownerId: z.string(),
+              }),
+              queries: {
+                list: {
+                  field: 'leads',
+                  many: true,
+                  pagination: { style: 'offset', defaultLimit: 2, maxLimit: 3 },
+                  resolver: async (_parent, args) => [
+                    {
+                      id: `limit-${args.limit}-offset-${args.offset}`,
+                      title: 'Qualified lead',
+                      ownerId: 'u1',
+                    },
+                  ],
+                },
+              },
+              relations: {
+                owner: {
+                  type: 'User',
+                  nullable: false,
+                  loader: 'users.byId',
+                  batchKey: (lead) => lead.ownerId,
+                },
+              },
+            }),
+            filePath: '/virtual/leads.graphql.ts',
+          },
+        ],
+      })
+
+      const response = await executeGraphQLQuery({
+        schema: result.schema,
+        source: '{ leads(limit: 99, offset: 4) { id title owner { id name } } }',
+        contextValue: {
+          extensions: new Map(),
+          services: {
+            users: {
+              byId: {
+                load: async (id: string) => usersById.get(id),
+              },
+            },
+          },
+        },
+      })
+
+      expect(response.errors).toBeUndefined()
+      expect(response.data?.leads).toEqual([
+        {
+          id: 'limit-3-offset-4',
+          title: 'Qualified lead',
+          owner: { id: 'u1', name: 'Ada' },
+        },
+      ])
+    })
+  })
 })
 
 // =============================================================================
@@ -558,6 +642,79 @@ describe('GraphQL Adapter', () => {
         protocol: 'graphql',
         operation: 'graphql',
       })
+    })
+
+    it('should filter resource query results through the GraphQL policy bridge', async () => {
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG },
+        graphqlResources: [
+          {
+            ...graphqlResource<{ id: string; title: string; tenantId: string }>({
+              name: 'Lead',
+              schema: z.object({
+                id: z.string(),
+                title: z.string(),
+                tenantId: z.string(),
+              }),
+              queries: {
+                list: {
+                  field: 'leads',
+                  many: true,
+                  resolver: async () => [
+                    { id: 'l1', title: 'Visible', tenantId: 't1' },
+                    { id: 'l2', title: 'Hidden', tenantId: 't2' },
+                  ],
+                  authz: {
+                    action: 'lead.read',
+                    resource: (lead) => ({
+                      type: 'lead',
+                      id: lead.id,
+                      tenantId: lead.tenantId,
+                    }),
+                    onDeny: 'filter',
+                  },
+                },
+              },
+            }),
+            filePath: '/virtual/leads.graphql.ts',
+          },
+        ],
+        policyBridge: {
+          evaluate: async (_ctx, _authz, value) => {
+            const tenantId = (value as { tenantId?: string }).tenantId
+            const allowed = tenantId === 't1'
+            return {
+              allowed,
+              reason: allowed ? 'allow' : 'tenant_mismatch',
+              matchedPolicyIds: allowed ? ['allow-same-tenant'] : [],
+              auditedPolicyIds: [],
+              candidatePolicies: [],
+            }
+          },
+        },
+      })
+
+      await adapter.start()
+
+      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: '{ leads { id title } }',
+        }),
+      })
+
+      expect(response.status).toBe(200)
+      const result = await response.json() as GraphQLResponse
+      expect(result.errors).toBeUndefined()
+      expect(result.data?.leads).toEqual([
+        { id: 'l1', title: 'Visible' },
+      ])
     })
 
     it('should handle _health query when no other queries exist', async () => {
