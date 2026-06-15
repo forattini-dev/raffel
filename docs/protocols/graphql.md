@@ -122,3 +122,14 @@ server.procedure('users.get').graphql('query')
 
 Field names are derived from handler names, splitting on `.`, `-`, and `_`.
 For example, `users.get-by-id` becomes `usersGetById`.
+
+## Resource discovery roadmap
+
+The current GraphQL adapter is operation-first: it generates fields from
+registered procedures, streams, and events. Resource-shaped GraphQL APIs need an
+additional discovery layer for object types, relations, batching, and field-level
+authorization.
+
+See [GraphQL Resource Discovery](/spec/graphql-resource-discovery.md) for the
+draft architecture covering file-system discovery, relationships between
+resources, and policy checks inside schema resolvers.
