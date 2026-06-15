@@ -6,6 +6,83 @@ import type {
 } from './types.js'
 
 // =============================================================================
+// GraphQL Extension (x-usd.graphql)
+// =============================================================================
+
+export interface USDGraphQL {
+  /** GraphQL endpoint path */
+  endpoint?: string
+
+  /** Content types for GraphQL requests/responses */
+  contentTypes?: USDContentTypes
+
+  /** Resource-first GraphQL object/resource definitions */
+  resources?: Record<string, USDGraphQLResource>
+
+  /** Query root fields */
+  queries?: Record<string, USDGraphQLOperation>
+
+  /** Mutation root fields */
+  mutations?: Record<string, USDGraphQLOperation>
+
+  /** Subscription root fields */
+  subscriptions?: Record<string, USDGraphQLOperation>
+}
+
+export interface USDGraphQLResource {
+  /** GraphQL object type name */
+  name: string
+  pluralName?: string
+  namespace?: string
+  description?: string
+  schema: USDSchema | { $ref: string }
+  idField?: string
+  source?: string
+  policies?: string[]
+  relations?: Record<string, USDGraphQLRelation>
+}
+
+export interface USDGraphQLRelation {
+  type: string
+  description?: string
+  many?: boolean
+  nullable?: boolean
+  args?: USDSchema | { $ref: string }
+  loader?: string
+  batchKey?: boolean
+  authz?: USDGraphQLAuthz
+}
+
+export interface USDGraphQLOperation {
+  field: string
+  kind: 'query' | 'mutation' | 'subscription'
+  description?: string
+  resource?: string
+  source?: 'procedure' | 'stream' | 'event' | 'resource'
+  args?: USDSchema | { $ref: string }
+  input?: USDSchema | { $ref: string }
+  output?: USDSchema | { $ref: string }
+  many?: boolean
+  nullable?: boolean
+  pagination?: false | {
+    style: 'offset' | 'cursor'
+    defaultLimit?: number
+    maxLimit?: number
+    cursorField?: string
+  }
+  authorize?: USDGraphQLAuthz
+  authz?: USDGraphQLAuthz
+  tags?: string[]
+}
+
+export interface USDGraphQLAuthz {
+  action: string
+  mode: 'all' | 'any'
+  onDeny?: 'throw' | 'null' | 'filter'
+  'has-resource-resolver': boolean
+}
+
+// =============================================================================
 // WebSocket Extension (x-usd.websocket)
 // =============================================================================
 

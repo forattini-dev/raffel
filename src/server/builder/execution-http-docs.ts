@@ -21,6 +21,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
     getApiDocumentationRevision,
     markApiDocumentationMounted,
     getDocsState,
+    graphqlResources,
   } = context.core
   const {
     channelRegistry,
@@ -42,6 +43,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         schemaRegistry,
         channels: channelRegistry,
         restResources: restResourceRegistry,
+        graphqlResources,
         tcpHandlers,
         udpHandlers,
         protocolConfig: runtimePlan.protocols,
@@ -66,6 +68,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         includeErrorSchemas: docsConfig.includeErrorSchemas,
         includeStreamEventSchemas: docsConfig.includeStreamEventSchemas,
         jsonrpc: docsConfig.jsonrpc,
+        graphql: docsConfig.graphql,
         grpc: docsConfig.grpc,
       }
     )

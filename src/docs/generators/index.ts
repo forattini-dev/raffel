@@ -67,6 +67,14 @@ export {
   type JsonRpcGeneratorResult,
 } from './jsonrpc-generator.js'
 
+// GraphQL generator (procedures/resources → x-usd.graphql)
+export {
+  generateGraphQL,
+  type GraphQLGeneratorOptions,
+  type GraphQLGeneratorContext,
+  type GraphQLGeneratorResult,
+} from './graphql-generator.js'
+
 // gRPC generator (procedures → x-usd.grpc)
 export {
   generateGrpc,

@@ -29,7 +29,7 @@ import type {
 import { DEFAULT_USD_CONTENT_TYPES } from '../../usd/index.js'
 import type { Registry } from '../../core/registry.js'
 import type { SchemaRegistry } from '../../validation/index.js'
-import type { LoadedChannel, LoadedRestResource } from '../../server/fs-routes/index.js'
+import type { LoadedChannel, LoadedGraphQLResource, LoadedRestResource } from '../../server/fs-routes/index.js'
 
 import { generateHttpPaths, type HttpGeneratorOptions } from './http-generator.js'
 import { generateWebSocket, type WebSocketGeneratorOptions } from './websocket-generator.js'
@@ -38,6 +38,7 @@ import { generateTcp, generateTcpSchemas, type TcpGeneratorOptions, type LoadedT
 import { generateUdp, generateUdpSchemas, type UdpGeneratorOptions, type LoadedUdpHandler } from './udp-generator.js'
 import { generateJsonRpc, type JsonRpcGeneratorOptions } from './jsonrpc-generator.js'
 import { generateGrpc, type GrpcGeneratorOptions } from './grpc-generator.js'
+import { generateGraphQL, type GraphQLGeneratorOptions } from './graphql-generator.js'
 import { createUSDAssemblyContext } from './usd-assembly-context.js'
 
 // =============================================================================
@@ -84,6 +85,9 @@ export interface USDGeneratorOptions {
 
   /** Streams generation options */
   streams?: StreamsGeneratorOptions
+
+  /** GraphQL generation options */
+  graphql?: GraphQLGeneratorOptions
 
   /** JSON-RPC generation options */
   jsonrpc?: JsonRpcGeneratorOptions
@@ -156,6 +160,9 @@ export interface USDGeneratorContext {
   /** REST resources (from discovery or manual registration) */
   restResources?: LoadedRestResource[]
 
+  /** GraphQL resources (from discovery or manual registration) */
+  graphqlResources?: LoadedGraphQLResource[]
+
   /** TCP handlers (from discovery or manual registration) */
   tcpHandlers?: LoadedTcpHandler[]
 
@@ -185,6 +192,12 @@ export interface USDGeneratorContext {
 }
 
 export interface USDGeneratorProtocolConfig {
+  graphql?: {
+    enabled?: boolean
+    options?: {
+      path?: string
+    }
+  }
   jsonrpc?: {
     enabled?: boolean
     options?: {
@@ -250,6 +263,7 @@ export function generateUSD(
     http: httpOptions = {},
     websocket: wsOptions = {},
     streams: streamsOptions = {},
+    graphql: graphqlOptions = {},
     jsonrpc,
     grpc,
     tcp: tcpOptions = {},
@@ -376,6 +390,34 @@ export function generateUSD(
         const streamTags = extractStreamTags(meta.name)
         assembly.addTags(streamTags)
       }
+    }
+  }
+
+  // Generate GraphQL specification
+  if (detectedProtocols.includes('graphql')) {
+    const endpoint = graphqlOptions.endpoint ?? ctx.protocolConfig?.graphql?.options?.path
+    const graphqlResult = generateGraphQL(
+      {
+        registry: ctx.registry,
+        schemaRegistry: ctx.schemaRegistry,
+        graphqlResources: ctx.graphqlResources,
+      },
+      {
+        ...graphqlOptions,
+        endpoint: endpoint ?? graphqlOptions.endpoint,
+      },
+    )
+
+    const hasGraphQLContent =
+      Object.keys(graphqlResult.graphql.resources ?? {}).length > 0
+      || Object.keys(graphqlResult.graphql.queries ?? {}).length > 0
+      || Object.keys(graphqlResult.graphql.mutations ?? {}).length > 0
+      || Object.keys(graphqlResult.graphql.subscriptions ?? {}).length > 0
+
+    if (hasGraphQLContent) {
+      assembly.setProtocolBlock('graphql', graphqlResult.graphql)
+      assembly.addSchemas(graphqlResult.schemas)
+      assembly.addTags(graphqlResult.tags)
     }
   }
 
@@ -562,6 +604,12 @@ function detectProtocols(
   const hasStreams = ctx.registry.listStreams().length > 0
   if (hasStreams) {
     protocols.push('streams')
+  }
+
+  // Check for GraphQL
+  const hasGraphQLResources = (ctx.graphqlResources?.length ?? 0) > 0
+  if (ctx.protocolConfig?.graphql?.enabled || hasGraphQLResources) {
+    protocols.push('graphql')
   }
 
   // Check for JSON-RPC

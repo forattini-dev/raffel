@@ -196,6 +196,10 @@ export const USD_PROTOCOL_CONTENT_TYPES: Record<USDProtocol, USDContentTypes> = 
     default: CONTENT_TYPES.JSON,
     supported: [CONTENT_TYPES.JSON, CONTENT_TYPES.BINARY],
   },
+  graphql: {
+    default: CONTENT_TYPES.JSON,
+    supported: [CONTENT_TYPES.JSON, 'application/graphql'],
+  },
   streams: {
     default: CONTENT_TYPES.JSON,
     supported: [CONTENT_TYPES.JSON],

@@ -21,6 +21,7 @@ export interface ApiDocsState extends DocsSurfaceState {
   routeCounts: {
     procedures: number
     restRoutes: number
+    graphqlResources?: number
     total: number
   }
 }

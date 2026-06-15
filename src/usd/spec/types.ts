@@ -12,6 +12,7 @@ import type {
   USDGrpc,
   USDJsonRpc,
   USDMessage,
+  USDGraphQL,
   USDStreams,
   USDTcp,
   USDUdp,
@@ -89,6 +90,9 @@ export interface USDX {
 
   /** WebSocket channels */
   websocket?: USDWebSocket
+
+  /** GraphQL schema/resource fields */
+  graphql?: USDGraphQL
 
   /** Stream endpoints */
   streams?: USDStreams
@@ -346,7 +350,7 @@ export interface USDInfo {
   summary?: string
 }
 
-export type USDProtocol = 'http' | 'websocket' | 'streams' | 'jsonrpc' | 'grpc' | 'tcp' | 'udp'
+export type USDProtocol = 'http' | 'websocket' | 'graphql' | 'streams' | 'jsonrpc' | 'grpc' | 'tcp' | 'udp'
 
 export interface USDContentTypes {
   /** Default content type when unspecified */

@@ -210,6 +210,15 @@ export interface USDDocsConfig {
     groupByNamespace?: boolean
   }
 
+  /** GraphQL generation options */
+  graphql?: {
+    endpoint?: string
+    contentTypes?: {
+      default?: string
+      supported?: string[]
+    }
+  }
+
   /** gRPC generation options */
   grpc?: {
     package?: string

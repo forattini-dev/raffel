@@ -29,7 +29,7 @@ import type {
 } from '../../usd/index.js'
 import { DEFAULT_USD_CONTENT_TYPES } from '../../usd/index.js'
 
-export type USDProtocolBlockName = 'websocket' | 'streams' | 'jsonrpc' | 'grpc' | 'tcp' | 'udp' | 'errors'
+export type USDProtocolBlockName = 'websocket' | 'graphql' | 'streams' | 'jsonrpc' | 'grpc' | 'tcp' | 'udp' | 'errors'
 
 export interface USDAssemblyComponents {
   [key: string]: Record<string, unknown> | undefined

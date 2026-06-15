@@ -296,11 +296,12 @@ Implemented:
 - Policy bridge for HTTP GraphQL and subscriptions.
 - Resolver-level `authorize` / `authz` with `throw`, `null`, and `filter`.
 - `loader + batchKey` relation resolution through `ctx.services`.
+- GraphQL resources, root fields, relations, and resolver authz metadata in
+  `x-usd.graphql` when USD docs are enabled.
 
 Planned:
 
 - Expose GraphQL resources in runtime preview/inspect.
-- Surface resource fields and policy metadata in USD.
 - Add connection helpers for cursor-paginated one-to-many relations.
 
 ---

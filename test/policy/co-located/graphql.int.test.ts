@@ -34,6 +34,20 @@ type GraphQLResponse = {
   errors?: unknown[]
 }
 
+type USDDoc = {
+  'x-usd'?: {
+    protocols?: string[]
+    graphql?: {
+      endpoint?: string
+      resources?: Record<string, { policies?: string[]; schema?: unknown }>
+      queries?: Record<string, { authz?: { action?: string }; output?: unknown }>
+    }
+  }
+  'x-raffel-authz'?: {
+    policies?: Array<{ id: string; actions: string[]; resources: string[] }>
+  }
+}
+
 let dir: string
 let server: ReturnType<typeof createServer> | null = null
 
@@ -114,6 +128,7 @@ resources:
         policies: [],
       },
     })
+    server.enableUSD({ basePath: '/docs', info: { title: 'GraphQL API', version: '1' } })
     await server.start()
 
     const response = await fetch(`http://127.0.0.1:${port}/graphql`, {
@@ -130,5 +145,20 @@ resources:
     expect(result.data?.leads).toEqual([
       { id: 'l1', title: 'Visible' },
     ])
+
+    const usd = await fetch(`http://127.0.0.1:${port}/docs/usd.json`)
+    expect(usd.status).toBe(200)
+    const doc = await usd.json() as USDDoc
+    expect(doc['x-usd']?.protocols).toContain('graphql')
+    expect(doc['x-usd']?.graphql?.endpoint).toBe('/graphql')
+    expect(doc['x-usd']?.graphql?.resources?.Lead?.policies).toEqual(['lead-read'])
+    expect(doc['x-usd']?.graphql?.queries?.leads?.authz).toMatchObject({
+      action: 'lead.read',
+    })
+    expect(doc['x-raffel-authz']?.policies?.some((policy) =>
+      policy.id.endsWith(':lead-read')
+      && policy.actions.includes('lead.read')
+      && policy.resources.includes('lead:*')
+    )).toBe(true)
   })
 })

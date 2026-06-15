@@ -10,7 +10,7 @@
 
 import type { Registry } from '../core/index.js'
 import type { SchemaRegistry } from '../validation/index.js'
-import type { LoadedChannel, LoadedRestResource } from '../server/fs-routes/index.js'
+import type { LoadedChannel, LoadedGraphQLResource, LoadedRestResource } from '../server/fs-routes/index.js'
 import type {
   USDDocument, USDDocumentation, USDTagGroup,
   USDPathItem, USDSchema, USDSecurityScheme, USDParameter, USDResponse, USDRequestBody, USDExample,
@@ -260,6 +260,9 @@ export interface USDMiddlewareConfig {
   /** JSON-RPC generation options */
   jsonrpc?: USDGeneratorOptions['jsonrpc']
 
+  /** GraphQL generation options */
+  graphql?: USDGeneratorOptions['graphql']
+
   /** gRPC generation options */
   grpc?: USDGeneratorOptions['grpc']
 
@@ -352,6 +355,8 @@ export interface USDMiddlewareContext {
   channels?: Map<string, LoadedChannel>
   /** REST resources */
   restResources?: LoadedRestResource[]
+  /** GraphQL resources */
+  graphqlResources?: LoadedGraphQLResource[]
   /** TCP handlers */
   tcpHandlers?: LoadedTcpHandler[]
   /** UDP handlers */
@@ -442,6 +447,7 @@ export function createUSDHandlers(
   const getDefaultDocsState = (): DocsState => {
     const procedures = ctx.registry.listProcedures().length
     const restRoutes = (ctx.restResources ?? []).reduce((sum, resource) => sum + resource.routes.length, 0)
+    const graphqlResources = ctx.graphqlResources?.length ?? 0
     return {
       generatedAt: new Date().toISOString(),
       api: {
@@ -460,7 +466,8 @@ export function createUSDHandlers(
         routeCounts: {
           procedures,
           restRoutes,
-          total: procedures + restRoutes,
+          graphqlResources,
+          total: procedures + restRoutes + graphqlResources,
         },
         updatedAt: null,
         mountedAt: docsHandlersCreatedAt,
@@ -481,6 +488,7 @@ export function createUSDHandlers(
         schemaRegistry: ctx.schemaRegistry,
         channels: ctx.channels,
         restResources: ctx.restResources,
+        graphqlResources: ctx.graphqlResources,
         tcpHandlers: ctx.tcpHandlers,
         udpHandlers: ctx.udpHandlers,
         protocolConfig: ctx.protocolConfig,
@@ -506,6 +514,7 @@ export function createUSDHandlers(
         documentation: mergedDocumentation,
         tagGroups: config.tagGroups,
         jsonrpc,
+        graphql: config.graphql,
         grpc,
         includeErrorSchemas,
         includeStreamEventSchemas,

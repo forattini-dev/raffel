@@ -135,7 +135,7 @@ const breadcrumbsConfig = (data.breadcrumbsConfig && typeof data.breadcrumbsConf
   : { enabled: true, hideOnHome: true }
 const pageNavConfig: { enabled?: boolean; hide?: string[] } = data.pageNavConfig ?? { enabled: true, hide: [] }
 const xUsd = spec['x-usd'] ?? {}
-const { websocket: wsSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
+const { websocket: wsSpec = {}, graphql: graphqlSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
 const docsRouteBase = String(xUsd.documentation?.routeBase ?? '').replace(/^#/, '').replace(/\/+$/, '')
 const protocolData = detectProtocols()
 const protocols = Object.keys(protocolData)
@@ -922,6 +922,13 @@ function detectProtocols(): Record<string, number> {
     if (count > 0) out.http = count
   }
   if (wsSpec.channels) out.websocket = Object.keys(wsSpec.channels).length
+  if (graphqlSpec.queries || graphqlSpec.mutations || graphqlSpec.subscriptions || graphqlSpec.resources) {
+    const operationCount =
+      Object.keys(graphqlSpec.queries ?? {}).length
+      + Object.keys(graphqlSpec.mutations ?? {}).length
+      + Object.keys(graphqlSpec.subscriptions ?? {}).length
+    out.graphql = operationCount || Object.keys(graphqlSpec.resources ?? {}).length
+  }
   if (streamsSpec.endpoints) out.streams = Object.keys(streamsSpec.endpoints).length
   if (jsonrpcSpec.methods) out.jsonrpc = Object.keys(jsonrpcSpec.methods).length
   if (grpcSpec.services) {
@@ -953,6 +960,14 @@ function getEndpointsForProtocol(protocol: string): Endpoint[] {
     }
   }
   if (protocol === 'websocket') forEntries(wsSpec.channels, (name, channel) => add(name, 'WS', channel))
+  if (protocol === 'graphql') {
+    forEntries(graphqlSpec.queries, (name, query) => add(name, 'QUERY', query))
+    forEntries(graphqlSpec.mutations, (name, mutation) => add(name, 'MUTATION', mutation))
+    forEntries(graphqlSpec.subscriptions, (name, subscription) => add(name, 'SUBSCRIPTION', subscription))
+    if (endpoints.length === 0) {
+      forEntries(graphqlSpec.resources, (name, resource) => add(name, 'TYPE', resource))
+    }
+  }
   if (protocol === 'streams') forEntries(streamsSpec.endpoints, (name, endpoint) => add(name, endpoint.direction ?? 'STREAM', endpoint))
   if (protocol === 'jsonrpc') forEntries(jsonrpcSpec.methods, (name, method) => add(name, 'RPC', method))
   if (protocol === 'grpc' && grpcSpec.services) {
@@ -1277,6 +1292,10 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   if (activeProtocol === 'websocket') {
     appendInfoGrid(container, [['Channel Type', data.type], ['Path', endpoint.path]])
     appendMany([['Parameters', parameterMapToSchema(data.parameters)], ['Subscribe Message', resolveMessagePayload(data.subscribe?.message)], ['Publish Message', resolveMessagePayload(data.publish?.message)]])
+  }
+  if (activeProtocol === 'graphql') {
+    appendInfoGrid(container, [['Endpoint', graphqlSpec.endpoint], ['Kind', data.kind], ['Resource', data.resource ?? data.name], ['Source', data.source]])
+    appendMany([['Arguments', data.args], ['Input', data.input], ['Output', data.output], ['Schema', data.schema], ['Relations', data.relations], ['Authorize', data.authorize], ['Authorization', data.authz], ['Policies', data.policies]])
   }
   if (activeProtocol === 'streams') {
     appendInfoGrid(container, [['Direction', data.direction], ['Path', endpoint.path]])

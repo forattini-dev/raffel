@@ -220,6 +220,11 @@ ancestor `_policy.yaml`, to provide the rules evaluated by `authorize`/`authz`.
 Those policies are registered after route loading and scoped to the GraphQL
 protocol unless they declare their own `scope.protocols`.
 
+When USD docs are enabled, resource-first GraphQL metadata appears under
+`x-usd.graphql` in `/docs/usd.json` and in the GraphQL tab of the docs UI.
+The document includes the GraphQL endpoint, discovered resources, root fields,
+relations, pagination settings, and sanitized `authorize`/`authz` metadata.
+
 Relations are explicit. Use `resolver` for custom logic, or `loader` +
 `batchKey` to resolve a DataLoader-like service from `ctx.services`:
 `loader: 'users.byId'` accepts either `ctx.services['users.byId']` or

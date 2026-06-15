@@ -426,7 +426,8 @@ export function createServer(options: ServerOptions): RaffelServer {
     const mounted = Boolean(serverState.usdDocsHandlers.value)
     const base = normalizeDocsBasePath(docsConfig?.basePath ?? '/docs')
     const apiRouteCount = registry.listProcedures().length +
-      restResourceRegistry.reduce((sum, resource) => sum + resource.routes.length, 0)
+      restResourceRegistry.reduce((sum, resource) => sum + resource.routes.length, 0) +
+      graphqlResourceRegistry.length
     const markdown = serverState.usdDocsHandlers.value?.getMarkdownDocsState?.()
       ?? createMarkdownDocsState({
         basePath: base,
@@ -456,6 +457,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         routeCounts: {
           procedures: registry.listProcedures().length,
           restRoutes: restResourceRegistry.reduce((sum, resource) => sum + resource.routes.length, 0),
+          graphqlResources: graphqlResourceRegistry.length,
           total: apiRouteCount,
         },
         updatedAt: apiDocumentationUpdatedAt,
@@ -1025,6 +1027,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         includeErrorSchemas: config.includeErrorSchemas,
         includeStreamEventSchemas: config.includeStreamEventSchemas,
         jsonrpc: config.jsonrpc,
+        graphql: config.graphql,
         grpc: config.grpc,
       }
       logger.info({ basePath: usdDocsConfig.basePath, protocols: usdDocsConfig.protocols ?? 'auto' }, 'USD Documentation enabled')
