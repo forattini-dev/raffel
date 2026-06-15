@@ -214,6 +214,12 @@ resolver and is suited to mutation guards. `authz` runs against the resolved
 value; lists can use `onDeny: 'filter'`, nullable fields can use
 `onDeny: 'null'`, and the default behavior is to throw `PERMISSION_DENIED`.
 
+When the resource is loaded through FS discovery, co-located policy files are
+loaded too. Use `leads.graphql.policy.yaml` next to `leads.graphql.ts`, or an
+ancestor `_policy.yaml`, to provide the rules evaluated by `authorize`/`authz`.
+Those policies are registered after route loading and scoped to the GraphQL
+protocol unless they declare their own `scope.protocols`.
+
 Relations are explicit. Use `resolver` for custom logic, or `loader` +
 `batchKey` to resolve a DataLoader-like service from `ctx.services`:
 `loader: 'users.byId'` accepts either `ctx.services['users.byId']` or

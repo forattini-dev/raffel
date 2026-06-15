@@ -80,7 +80,12 @@ import {
   joinHandlerName,
 } from './handler-builders.js'
 import { createResourceBuilder } from './resource-builder.js'
-import { buildCoLocatedAuthzInterceptorsForName, registerDiscoveredHandlers, resolveHooksForProcedure } from './discovery-utils.js'
+import {
+  addCoLocatedPoliciesToEngine,
+  buildCoLocatedAuthzInterceptorsForName,
+  registerDiscoveredHandlers,
+  resolveHooksForProcedure,
+} from './discovery-utils.js'
 import { createRegistrationService } from './orchestration/registration.js'
 import { createRuntimePreviewService } from './orchestration/runtime-preview.js'
 import { normalizeInterceptors as normalizeInterceptorsShared } from './interceptor-utils.js'
@@ -508,12 +513,13 @@ export function createServer(options: ServerOptions): RaffelServer {
         policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
       )
     },
-    buildAuthzInterceptorsForOperation: (operationName, coLocatedPolicies, diagnosticsFilePath) =>
+    buildAuthzInterceptorsForOperation: (operationName, coLocatedPolicies, diagnosticsFilePath, policyConfig) =>
       buildCoLocatedAuthzInterceptorsForName(
         operationName,
         coLocatedPolicies,
         policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
         diagnosticsFilePath,
+        policyConfig,
       ),
   })
 
@@ -526,6 +532,13 @@ export function createServer(options: ServerOptions): RaffelServer {
   }
 
   function registerGraphQLResource(resource: LoadedGraphQLResource): void {
+    addCoLocatedPoliciesToEngine(
+      `graphql:${resource.name}`,
+      resource.coLocatedPolicies,
+      policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
+      resource.filePath,
+      { protocol: 'graphql' },
+    )
     graphqlResourceRegistry.push(resource)
     logger.debug({ name: resource.name, filePath: resource.filePath }, 'GraphQL resource registered')
   }
@@ -709,9 +722,13 @@ export function createServer(options: ServerOptions): RaffelServer {
     getWsUnsubscribeHandler: () => wsUnsubscribeHandler,
     channelCoLocatedPolicyEnforcer: policyBootstrap
       ? async (channelName, policies, ctx) => {
-          if (typeof policyBootstrap.engine.addPolicies === 'function') {
-            policyBootstrap.engine.addPolicies(policies)
-          }
+          addCoLocatedPoliciesToEngine(
+            channelName,
+            policies,
+            { bootstrap: policyBootstrap },
+            undefined,
+            { route: channelName },
+          )
           const principal = await policyBootstrap.resolvePrincipal(ctx)
           const ctxProtocol = (ctx as { protocol?: unknown }).protocol
           const decision = await policyBootstrap.engine.evaluate({

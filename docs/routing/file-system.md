@@ -159,6 +159,13 @@ export default graphqlResource({
 See [GraphQL Adapter](/protocols/graphql.md#resource-discovery) for relations,
 policy integration, and pagination behavior.
 
+GraphQL resources can also carry co-located policies. Place
+`<resource>.graphql.policy.yaml` next to `<resource>.graphql.ts`, or use
+`_policy.yaml` higher in the GraphQL discovery tree. The policy file is loaded
+into Raffel's policy engine; each GraphQL field still opts into enforcement
+with `authorize` or `authz` so the resolver can provide the exact
+`action`/`resource` pair.
+
 ## Route naming
 
 Routes are derived from the file path and are **not** transformed. The adapter

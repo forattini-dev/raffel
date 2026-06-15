@@ -12,7 +12,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createDiscoveryWatcher } from '../../../src/server/fs-routes/watcher.js'
+import {
+  createDiscoveryWatcher,
+  isDiscoveryWatchFile,
+} from '../../../src/server/fs-routes/watcher.js'
 
 async function tmpRoot(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'raffel-watcher-'))
@@ -141,5 +144,13 @@ export const list = async () => []
     const result = await watcher.start()
     expect(result.routes.map((r) => r.name).sort()).toEqual(['b/y/get', 'x/get'])
     expect(watcher.isWatching).toBe(true)
+  })
+
+  it('treats co-located policy files as discovery reload inputs', () => {
+    expect(isDiscoveryWatchFile('_policy.yaml', ['.ts', '.js'])).toBe(true)
+    expect(isDiscoveryWatchFile('leads.policy.yml', ['.ts', '.js'])).toBe(true)
+    expect(isDiscoveryWatchFile('leads.policy.json', ['.ts', '.js'])).toBe(true)
+    expect(isDiscoveryWatchFile('notes.yaml', ['.ts', '.js'])).toBe(false)
+    expect(isDiscoveryWatchFile('leads.ts', ['.ts', '.js'])).toBe(true)
   })
 })

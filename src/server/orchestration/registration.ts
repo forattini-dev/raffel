@@ -11,11 +11,18 @@ import type { LoggerPort } from '../../ports/outbound/logger.js'
 import type { Interceptor } from '../../types/index.js'
 import type { SchemaRegistry } from '../../validation/schema.js'
 import type { HandlerSchema } from '../../validation/types.js'
+import type {
+  Policy,
+  Principal,
+  ProcedurePolicyConfig,
+  Resource,
+  ResourceResolver,
+} from '../../middleware/policy/types.js'
 
 export interface LoadedChannelLike {
   name: string
   filePath?: string
-  coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
+  coLocatedPolicies?: readonly Policy[]
 }
 
 export interface LoadedRestRouteLike {
@@ -30,8 +37,12 @@ export interface LoadedRestRouteLike {
 export interface LoadedRestResourceLike {
   name: string
   filePath: string
+  config?: {
+    primaryKey?: string
+    policyResource?: ResourceResolver
+  }
   routes: LoadedRestRouteLike[]
-  coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
+  coLocatedPolicies?: readonly Policy[]
   directoryMeta?: {
     tag?: string
     description?: string
@@ -41,7 +52,11 @@ export interface LoadedRestResourceLike {
 export interface LoadedResourceLike {
   name: string
   filePath: string
-  coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
+  config?: {
+    idField?: string
+    policyResource?: ResourceResolver
+  }
+  coLocatedPolicies?: readonly Policy[]
   directoryMeta?: {
     tag?: string
     description?: string
@@ -120,9 +135,146 @@ export interface RegistrationContext<
    */
   buildAuthzInterceptorsForOperation?: (
     operationName: string,
-    coLocatedPolicies: readonly import('../../middleware/policy/types.js').Policy[] | undefined,
+    coLocatedPolicies: readonly Policy[] | undefined,
     diagnosticsFilePath?: string,
+    policyConfig?: ProcedurePolicyConfig,
   ) => Interceptor[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function stringValue(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  return undefined
+}
+
+function nullableStringValue(value: unknown): string | null | undefined {
+  if (value === null) return null
+  return stringValue(value)
+}
+
+function readRecordField(value: unknown, field: string): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined
+  const next = value[field]
+  return isRecord(next) ? next : undefined
+}
+
+function readPrincipal(ctx: unknown): Principal | undefined {
+  if (!isRecord(ctx)) return undefined
+  const principal = ctx.principal
+  return isRecord(principal) && typeof principal.id === 'string'
+    ? principal as unknown as Principal
+    : undefined
+}
+
+function readInputData(input: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(input)) return undefined
+  const data = input.data
+  return isRecord(data) ? data : input
+}
+
+function readPolicyResourceId(
+  input: unknown,
+  ctx: unknown,
+  idField: string,
+  collectionRoute: boolean,
+): string {
+  if (collectionRoute) return '*'
+
+  const inputRecord = isRecord(input) ? input : undefined
+  const data = readInputData(input)
+  const params = readRecordField(ctx, 'params')
+
+  return stringValue(params?.[idField])
+    ?? stringValue(params?.id)
+    ?? stringValue(inputRecord?.[idField])
+    ?? stringValue(inputRecord?.id)
+    ?? stringValue(data?.[idField])
+    ?? stringValue(data?.id)
+    ?? '*'
+}
+
+function readPolicyResourceTenantId(input: unknown, ctx: unknown): string | null {
+  const data = readInputData(input)
+  const inputRecord = isRecord(input) ? input : undefined
+  const ctxRecord = isRecord(ctx) ? ctx : undefined
+  const params = readRecordField(ctx, 'params')
+  const query = readRecordField(ctx, 'query')
+  const filters = readRecordField(query, 'filters')
+  const principal = readPrincipal(ctx)
+
+  return nullableStringValue(data?.tenantId)
+    ?? nullableStringValue(inputRecord?.tenantId)
+    ?? nullableStringValue(params?.tenantId)
+    ?? nullableStringValue(filters?.tenantId)
+    ?? nullableStringValue(query?.tenantId)
+    ?? nullableStringValue(ctxRecord?.tenantId)
+    ?? principal?.tenantId
+    ?? null
+}
+
+function createPolicyResourceAttrs(
+  input: unknown,
+  ctx: unknown,
+  operation: string,
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = { operation }
+  const data = readInputData(input)
+  if (data) Object.assign(attrs, data)
+
+  const params = readRecordField(ctx, 'params')
+  if (params && Object.keys(params).length > 0) attrs.params = params
+
+  const query = readRecordField(ctx, 'query')
+  if (query && Object.keys(query).length > 0) attrs.query = query
+
+  return attrs
+}
+
+function withResourcePolicyContext(
+  ctx: unknown,
+  resourceName: string,
+  operation: string,
+): unknown {
+  return isRecord(ctx)
+    ? { ...ctx, resource: resourceName, operation }
+    : ctx
+}
+
+function createDefaultPolicyResourceResolver(
+  resourceName: string,
+  operation: string,
+  idField: string,
+  collectionRoute: boolean,
+): ResourceResolver {
+  return (input, ctx): Resource => ({
+    type: resourceName,
+    id: readPolicyResourceId(input, ctx, idField, collectionRoute),
+    tenantId: readPolicyResourceTenantId(input, ctx),
+    attrs: createPolicyResourceAttrs(input, ctx, operation),
+  })
+}
+
+function createResourcePolicyConfig(
+  resourceName: string,
+  operation: string,
+  idField: string,
+  collectionRoute: boolean,
+  configuredResolver: ResourceResolver | undefined,
+): ProcedurePolicyConfig {
+  if (configuredResolver) {
+    return {
+      resource: (input, ctx) =>
+        configuredResolver(input, withResourcePolicyContext(ctx, resourceName, operation)),
+    }
+  }
+
+  return {
+    resource: createDefaultPolicyResourceResolver(resourceName, operation, idField, collectionRoute),
+  }
 }
 
 export function createRegistrationService<
@@ -146,12 +298,13 @@ export function createRegistrationService<
 
   function combineInterceptors(
     operationName: string,
-    coLocatedPolicies: readonly import('../../middleware/policy/types.js').Policy[] | undefined,
+    coLocatedPolicies: readonly Policy[] | undefined,
     diagnosticsFilePath?: string,
     extras?: Interceptor[],
+    policyConfig?: ProcedurePolicyConfig,
   ): Interceptor[] | undefined {
     const authz = buildAuthzInterceptorsForOperation
-      ? buildAuthzInterceptorsForOperation(operationName, coLocatedPolicies, diagnosticsFilePath)
+      ? buildAuthzInterceptorsForOperation(operationName, coLocatedPolicies, diagnosticsFilePath, policyConfig)
       : []
     const combined = [...globalInterceptors, ...authz, ...(extras ?? [])]
     return combined.length > 0 ? combined : undefined
@@ -165,7 +318,7 @@ export function createRegistrationService<
       // Build the synth interceptors solely for the side-effect of pushing
       // the channel's co-located policies into the engine — channel-utils
       // evaluates them at subscribe time, not via interceptor.
-      buildAuthzInterceptorsForOperation?.(`channel:${channel.name}`, channel.coLocatedPolicies, channel.filePath)
+      buildAuthzInterceptorsForOperation?.(channel.name, channel.coLocatedPolicies, channel.filePath)
     }
     channelRegistry.set(channel.name, channel)
   }
@@ -193,7 +346,19 @@ export function createRegistrationService<
       }
 
       registry.procedure(name, route.handler as never, {
-        interceptors: combineInterceptors(name, resource.coLocatedPolicies, resource.filePath, route.middleware),
+        interceptors: combineInterceptors(
+          name,
+          resource.coLocatedPolicies,
+          resource.filePath,
+          route.middleware,
+          createResourcePolicyConfig(
+            resource.name,
+            route.operation,
+            resource.config?.primaryKey ?? 'id',
+            route.isCollection,
+            resource.config?.policyResource,
+          ),
+        ),
         description: resource.directoryMeta?.description,
         tags: resource.directoryMeta?.tag ? [resource.directoryMeta.tag] : undefined,
       })
@@ -226,6 +391,13 @@ export function createRegistrationService<
           resource.coLocatedPolicies,
           resource.filePath,
           route.middleware,
+          createResourcePolicyConfig(
+            resource.name,
+            route.operation,
+            resource.config?.idField ?? 'id',
+            !route.path?.includes(':id'),
+            resource.config?.policyResource,
+          ),
         ),
         httpPath: route.path,
         httpMethod: route.method as never,

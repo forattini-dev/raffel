@@ -260,6 +260,13 @@ which action/resource a resolver asks the policy engine to evaluate.
 especially mutations; use `authz` for resolved objects, relations, and list
 filtering.
 
+When a GraphQL resource is discovered from the filesystem, sibling
+`<resource>.graphql.policy.{yaml,yml,json}` files and ancestor `_policy.*`
+files are loaded through the same co-located policy resolver used by REST
+resources and procedures. The policies are registered into the policy engine
+after route loading and before resolver evaluation, and are protocol-scoped to
+GraphQL unless the policy declares its own `scope.protocols`.
+
 ---
 
 ## Interaction With Existing GraphQL Generation
@@ -282,8 +289,8 @@ Implemented:
 - `discovery.graphql` source normalization, including multiple roots.
 - `loadGraphQLResources` for `*.graphql.ts/js` files.
 - `graphqlResource` helper and resource/relation/authz types.
-- Resource object type, Query, Mutation, relation, and pagination arg
-  composition.
+- Resource object type, Query, Mutation, relation, and pagination arg composition.
+- Co-located policy loading for GraphQL resources.
 - Operation-first generation and resource-first generation in the same schema.
 - Duplicate GraphQL type/root field startup errors.
 - Policy bridge for HTTP GraphQL and subscriptions.

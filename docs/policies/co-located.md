@@ -171,6 +171,81 @@ Operation names follow the standard registry convention: `<resource>.<operation>
 
 Folder cascade applies the same way: a `_policy.yaml` directly inside `src/resources/` covers every resource folder beneath it.
 
+The synthesized authz bridge now resolves a real policy resource instead of the
+old action-only placeholder:
+
+- Collection routes (`list`, `create`, collection `head/options`) use
+  `{ type: '<resource>', id: '*', tenantId: principal.tenantId }`.
+- Item routes (`get`, `update`, `patch`, `delete`, item `head/options`, item
+  actions) use `{ type: '<resource>', id: '<route id>', tenantId: ... }`.
+- `attrs` includes the operation plus available input, params, and query data.
+
+For domain rules that need loaded-record fields such as owner, assignee, or a
+tenant resolved from storage, export `config.policyResource` from the resource
+file:
+
+```ts
+export const config = {
+  policyResource: async (input, ctx) => {
+    const lead = await ctx.services.leads.get(input.id)
+    return {
+      type: 'lead',
+      id: lead.id,
+      tenantId: lead.tenantId,
+      attrs: { ownerId: lead.ownerId },
+    }
+  },
+}
+```
+
+---
+
+## GraphQL resource scope
+
+GraphQL resource files participate in the same convention:
+
+```text
+src/graphql/leads.graphql.ts
+src/graphql/leads.graphql.policy.yaml
+src/graphql/_policy.yaml
+```
+
+Co-located GraphQL policies are registered into the same policy engine after
+FS discovery and before GraphQL resolvers evaluate field authorization. The
+resource file still declares *where* to enforce policy through `authorize` and
+`authz`; the policy file supplies the rules:
+
+```ts
+export default graphqlResource({
+  name: 'Lead',
+  schema,
+  queries: {
+    list: {
+      field: 'leads',
+      many: true,
+      resolver: (_parent, args, ctx) => ctx.services.leads.list(args),
+      authz: {
+        action: 'lead.read',
+        resource: (lead) => ({ type: 'lead', id: lead.id, tenantId: lead.tenantId }),
+        onDeny: 'filter',
+      },
+    },
+  },
+})
+```
+
+```yaml
+# src/graphql/leads.graphql.policy.yaml
+id: lead-read
+effect: allow
+principals: [scope:lead.read]
+actions: [lead.read]
+resources: [lead:*]
+```
+
+GraphQL co-located policies are automatically scoped to the `graphql` protocol
+unless the policy already declares `scope.protocols`.
+
 ---
 
 ## Channel scope (#95)
@@ -386,6 +461,12 @@ Useful when migrating off a co-located convention to a centralised policy direct
 
 The bridge calls `engine.addPolicies(policies)` to register discovered rules after engine construction. The default in-process engine implements it. Custom drivers may omit `addPolicies` from their `PolicyEnginePort` — the bridge logs a structured warning per route and skips co-located bridging for that surface (the engine continues to evaluate any policies it was constructed with).
 
+Co-located policy ids are materialized before they enter the global engine:
+the author-facing `id` is preserved in the suffix, but Raffel prefixes it with
+a stable source/scope key. This keeps `id: read` in two sibling files from
+overwriting each other while preserving local cascade semantics where a closer
+policy with the same id replaces a broader one for that operation.
+
 If you implement a custom driver and want co-location to work end-to-end:
 
 ```ts
@@ -414,13 +495,23 @@ The principle: misconfiguration fails the boot, not the request.
 
 ---
 
+## Hot reload
+
+When FS discovery hot reload is enabled, co-located policy files are watched
+alongside handler files. Changes to `_policy.yaml`, `_policy.yml`,
+`_policy.json`, `<handler>.policy.yaml`, `<handler>.policy.yml`, and
+`<handler>.policy.json` trigger a discovery reload and re-register the API
+policy surface. Markdown documentation files have their own reload rules and
+are not coupled to policy reloads.
+
+---
+
 ## Out of scope
 
 Things this convention deliberately doesn't try to do (see the linked issues for context):
 
 - **TCP/UDP** — connection-based protocols. Co-location semantics for raw sockets need a different model (per-connection IP allow/deny vs. per-request principal/action). Not in #92–#97.
 - **Per-message publish authorization on channels** — the bridge enforces at subscribe time. Per-message rules belong in the channel handler, which can call the engine via `ctx.policy.evaluate(...)` directly.
-- **Hot reload of co-located files** — same hot-reload story as the rest of FS discovery. If hot-reload is enabled for handlers, policy files are re-read on the same trigger.
 - **Auto-generated CRUD policies** — there's no codegen that produces a baseline `_policy.yaml` for a resource. Author it once, deploy.
 - **TypeScript inference for `.authz({ resource: ... })`** — separate work; today the resource callback is `any`.
 

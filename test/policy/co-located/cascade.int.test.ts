@@ -177,6 +177,70 @@ resources:
     expect(res.status).toBe(200)
   })
 
+  it('scopes cascaded policies per discovered operation after local overrides', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-cascade-scoped-'))
+    const httpDir = path.join(dir, 'http')
+    await mkdir(path.join(httpDir, 'admin'), { recursive: true })
+    await mkdir(path.join(httpDir, 'public'), { recursive: true })
+
+    await writeFile(
+      path.join(httpDir, '_policy.yaml'),
+      `
+id: rule-x
+effect: deny
+principals:
+  - "*"
+actions:
+  - "**"
+resources:
+  - "**"
+`.trim(),
+    )
+
+    await writeFile(
+      path.join(httpDir, 'admin', '_policy.yaml'),
+      `
+id: rule-x
+effect: allow
+principals:
+  - scope:admin
+actions:
+  - "**"
+resources:
+  - "**"
+`.trim(),
+    )
+
+    await writeFile(path.join(httpDir, 'admin', 'reset.ts'), HANDLER_TS)
+    await writeFile(path.join(httpDir, 'public', 'health.ts'), HANDLER_TS)
+
+    const port = await getFreePort()
+    const principal: Principal = { id: 'u', tenantId: 't', scopes: ['admin'], groups: [] }
+    server = createServer({
+      port,
+      discovery: { http: httpDir },
+      policy: {
+        principal: { from: 'custom', map: () => principal },
+        policies: [],
+      },
+    })
+    await server.start()
+
+    const publicRes = await fetch(`http://127.0.0.1:${port}/public/health`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(publicRes.status).toBe(403)
+
+    const adminRes = await fetch(`http://127.0.0.1:${port}/admin/reset`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(adminRes.status).toBe(200)
+  })
+
   it('does not read _policy.* outside the discovery root', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-cascade-root-'))
     const httpDir = path.join(dir, 'http')

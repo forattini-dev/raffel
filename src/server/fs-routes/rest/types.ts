@@ -6,6 +6,7 @@
 
 import type { z } from 'zod'
 import type { Context, Interceptor } from '../../../types/index.js'
+import type { ResourceResolver } from '../../../middleware/policy/types.js'
 import type { DirectoryMeta } from '../types.js'
 
 // === REST Operations ===
@@ -158,6 +159,12 @@ export interface RestConfig {
 
   /** Soft delete field (enables soft delete) */
   softDelete?: string | false
+
+  /**
+   * Resolve the policy resource used by co-located REST policies. Defaults to
+   * `{ type: resourceName, id: routeIdOr "*", tenantId: ctx.principal?.tenantId }`.
+   */
+  policyResource?: ResourceResolver
 
   /** Timestamp fields */
   timestamps?: {
@@ -415,9 +422,10 @@ export interface LoadedRestResource {
   directoryMeta?: DirectoryMeta
 }
 
-export interface ResolvedRestConfig extends Omit<Required<Omit<RestConfig, 'exclude' | 'auth' | 'defaultAuth'>>, 'pagination'> {
+export interface ResolvedRestConfig extends Omit<Required<Omit<RestConfig, 'exclude' | 'auth' | 'defaultAuth' | 'policyResource'>>, 'pagination'> {
   auth: Record<RestOperation, RestAuthConfig>
   pagination: false | ResolvedPaginationConfig
+  policyResource?: ResourceResolver
 }
 
 export interface RestRoute {

@@ -41,6 +41,7 @@ const DEFAULT_CONFIG: ResolvedResourceConfig = {
   idField: 'id',
   idType: 'string',
   softDelete: false,
+  policyResource: undefined,
   timestamps: {},
   middleware: [],
   rateLimit: {},
@@ -169,6 +170,7 @@ function resolveConfig(config?: ResourceConfig, name?: string): ResolvedResource
     middleware: config?.middleware ?? DEFAULT_CONFIG.middleware,
     rateLimit: config?.rateLimit ?? DEFAULT_CONFIG.rateLimit,
     compose: config?.compose ?? DEFAULT_CONFIG.compose,
+    policyResource: config?.policyResource ?? DEFAULT_CONFIG.policyResource,
   }
 }
 

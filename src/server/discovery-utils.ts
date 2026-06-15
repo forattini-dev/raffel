@@ -4,6 +4,7 @@
  * Helper functions for file-system route discovery and hook resolution.
  */
 
+import { createHash } from 'node:crypto'
 import type { Registry } from '../core/registry.js'
 import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from '../types/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
@@ -12,11 +13,106 @@ import type { DiscoveryResult, LoadedRoute } from './fs-routes/index.js'
 import { createRouteInterceptors } from './fs-routes/index.js'
 import { createLogger } from '../utils/logger.js'
 import type { PolicyBootstrap } from '../middleware/policy/bootstrap.js'
+import type { Policy, ProcedurePolicyConfig } from '../middleware/policy/types.js'
 
 const logger = createLogger('server')
 
 export interface DiscoveryRegistrationPolicyHook {
   bootstrap: PolicyBootstrap
+}
+
+export interface CoLocatedPolicyAutoScope {
+  route?: string
+  channel?: string
+  protocol?: string
+}
+
+function policySourceKey(policy: Policy, automaticScopeKey: string): string {
+  const source = policy._source ?? 'inline'
+  const index = policy._index ?? 0
+  return createHash('sha1').update(`${source}:${index}:${automaticScopeKey}`).digest('hex').slice(0, 12)
+}
+
+function applyAutomaticScope(
+  policy: Policy,
+  autoScope: CoLocatedPolicyAutoScope | undefined,
+): { scope: Policy['scope']; key: string } {
+  let scope = policy.scope ? { ...policy.scope } : undefined
+  const keyParts: string[] = []
+
+  if (autoScope?.route && !policy.scope?.routes?.length) {
+    scope ??= {}
+    scope.routes = [autoScope.route]
+    keyParts.push(`route:${autoScope.route}`)
+  }
+  if (autoScope?.channel && !policy.scope?.channels?.length) {
+    scope ??= {}
+    scope.channels = [autoScope.channel]
+    keyParts.push(`channel:${autoScope.channel}`)
+  }
+  if (autoScope?.protocol && !policy.scope?.protocols?.length) {
+    scope ??= {}
+    scope.protocols = [autoScope.protocol]
+    keyParts.push(`protocol:${autoScope.protocol}`)
+  }
+
+  return {
+    scope,
+    key: keyParts.join('|'),
+  }
+}
+
+function materializeCoLocatedPolicies(
+  policies: readonly Policy[],
+  autoScope?: CoLocatedPolicyAutoScope,
+): Policy[] {
+  const byOriginalId = new Map<string, Policy>()
+  for (const policy of policies) {
+    // Policies are resolved broader -> closer -> sibling. Collapsing by the
+    // author-facing id here preserves the local "nearer wins" rule before
+    // namespacing prevents unrelated files from colliding globally.
+    byOriginalId.set(policy.id, policy)
+  }
+
+  return [...byOriginalId.values()].map((policy) => {
+    const {
+      _compiled: _dropCompiled,
+      _compiledMatch: _dropCompiledMatch,
+      ...rest
+    } = policy
+    const { scope, key } = applyAutomaticScope(policy, autoScope)
+    return {
+      ...rest,
+      ...(scope ? { scope } : {}),
+      id: `co:${policySourceKey(policy, key)}:${policy.id}`,
+    }
+  })
+}
+
+/**
+ * Register co-located policies in the global engine. Policy IDs are
+ * namespaced by source file/index after local cascade overrides are resolved,
+ * so `id: read` in two unrelated directories cannot replace each other.
+ */
+export function addCoLocatedPoliciesToEngine(
+  name: string,
+  policies: readonly Policy[] | undefined,
+  policyHook: DiscoveryRegistrationPolicyHook | undefined,
+  diagnosticsFilePath?: string,
+  autoScope?: CoLocatedPolicyAutoScope,
+): boolean {
+  if (!policyHook) return false
+  if (!policies || policies.length === 0) return false
+  const engine = policyHook.bootstrap.engine
+  if (typeof engine.addPolicies !== 'function') {
+    logger.warn(
+      { name, filePath: diagnosticsFilePath },
+      'Co-located policies present but engine driver does not support addPolicies(); skipping bridge',
+    )
+    return false
+  }
+  engine.addPolicies(materializeCoLocatedPolicies(policies, autoScope))
+  return true
 }
 
 /**
@@ -26,22 +122,13 @@ export interface DiscoveryRegistrationPolicyHook {
  */
 export function buildCoLocatedAuthzInterceptorsForName(
   name: string,
-  policies: readonly import('../middleware/policy/types.js').Policy[] | undefined,
+  policies: readonly Policy[] | undefined,
   policyHook: DiscoveryRegistrationPolicyHook | undefined,
   diagnosticsFilePath?: string,
+  policyConfig?: ProcedurePolicyConfig,
 ): Interceptor[] {
-  if (!policyHook) return []
-  if (!policies || policies.length === 0) return []
-  const engine = policyHook.bootstrap.engine
-  if (typeof engine.addPolicies !== 'function') {
-    logger.warn(
-      { name, filePath: diagnosticsFilePath },
-      'Co-located policies present but engine driver does not support addPolicies(); skipping bridge',
-    )
-    return []
-  }
-  engine.addPolicies(policies)
-  return [policyHook.bootstrap.interceptorFactory(name, { action: name })]
+  if (!addCoLocatedPoliciesToEngine(name, policies, policyHook, diagnosticsFilePath, { route: name })) return []
+  return [policyHook!.bootstrap.interceptorFactory(name, { action: name, ...policyConfig })]
 }
 
 function buildCoLocatedAuthzInterceptors(

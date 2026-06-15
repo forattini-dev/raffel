@@ -54,6 +54,7 @@ const DEFAULT_CONFIG: ResolvedRestConfig = {
   sortable: true,
   searchable: [],
   softDelete: false,
+  policyResource: undefined,
   timestamps: {},
   interceptors: [],
   basePath: '',
@@ -235,6 +236,7 @@ function resolveConfig(config?: RestConfig, defaults?: Partial<RestConfig>): Res
     ...merged,
     auth,
     pagination: resolvePaginationConfig(defaults?.pagination, config?.pagination),
+    policyResource: config?.policyResource ?? defaults?.policyResource,
     timestamps: { ...defaults?.timestamps, ...config?.timestamps },
   } as ResolvedRestConfig
 }

@@ -1,7 +1,7 @@
 import type { GraphQLResolveInfo } from 'graphql'
 import type { z } from 'zod'
 import type { Context } from '../types/context.js'
-import type { Decision, Resource } from '../middleware/policy/types.js'
+import type { Decision, Policy, Resource } from '../middleware/policy/types.js'
 
 export const GRAPHQL_POLICY_BRIDGE_KEY = Symbol.for('raffel.graphql.policyBridge')
 
@@ -106,6 +106,11 @@ export interface GraphQLResourceConfig<TRecord = unknown> {
 export interface LoadedGraphQLResource<TRecord = unknown> extends GraphQLResourceConfig<TRecord> {
   filePath: string
   namespace?: string
+  /**
+   * Co-located policies discovered next to the resource file or via folder
+   * cascade. Registered into the policy engine before GraphQL authz resolves.
+   */
+  coLocatedPolicies?: Policy[]
 }
 
 export function graphqlResource<TRecord = unknown>(

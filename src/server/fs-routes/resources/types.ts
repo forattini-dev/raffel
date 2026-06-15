@@ -7,6 +7,7 @@
 
 import type { z } from 'zod'
 import type { Context } from '../../../types/index.js'
+import type { ResourceResolver } from '../../../middleware/policy/types.js'
 import type { DirectoryMeta } from '../types.js'
 
 // === Resource Configuration ===
@@ -23,6 +24,12 @@ export interface ResourceConfig {
 
   /** Enable soft deletes */
   softDelete?: boolean
+
+  /**
+   * Resolve the policy resource used by co-located resource policies. Defaults
+   * to `{ type: resourceName, id: routeIdOr "*", tenantId: ctx.principal?.tenantId }`.
+   */
+  policyResource?: ResourceResolver
 
   /** Timestamp fields to auto-set */
   timestamps?: {
@@ -391,6 +398,7 @@ export interface ResolvedResourceConfig {
   middleware: ResourceMiddleware[]
   rateLimit: Partial<Record<ResourceOperation, RateLimitConfig>>
   compose: boolean
+  policyResource?: ResourceResolver
 }
 
 // === Resource Loader Options ===

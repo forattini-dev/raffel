@@ -5,7 +5,7 @@
  */
 
 import { watch, type FSWatcher } from 'node:fs'
-import { join, extname, isAbsolute } from 'node:path'
+import { basename, join, extname, isAbsolute } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../../utils/logger.js'
 import { loadDiscovery, clearModuleCache, type DiscoveryResult } from './loader.js'
@@ -17,6 +17,7 @@ import {
 import type { DiscoveryLoaderOptions, RoutesRootConfig } from './types.js'
 
 const logger = createLogger('fs-watcher')
+const POLICY_FILE_RE = /(?:^_policy|\.policy)\.(yaml|yml|json)$/i
 
 export interface DiscoveryWatcherOptions extends DiscoveryLoaderOptions {
   /** Debounce delay in ms (default: 100) */
@@ -41,6 +42,15 @@ export interface DiscoveryWatcher {
 
   /** Get current discovery result */
   readonly result: DiscoveryResult | null
+}
+
+export function isDiscoveryWatchFile(
+  filename: string,
+  sourceExtensions: readonly string[],
+): boolean {
+  const ext = extname(filename)
+  if (sourceExtensions.includes(ext)) return true
+  return POLICY_FILE_RE.test(basename(filename))
 }
 
 /**
@@ -162,8 +172,7 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
     if (!filename) return
 
     // Check if it's a relevant file
-    const ext = extname(filename)
-    if (!extensions.includes(ext)) return
+    if (!isDiscoveryWatchFile(filename, extensions)) return
 
     const fullPath = join(dir, filename)
     scheduleReload(fullPath)

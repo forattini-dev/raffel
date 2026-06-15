@@ -401,6 +401,9 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
       extensions,
       source,
     })
+    if (coLocatedEnabled) {
+      await attachCoLocatedPoliciesToFileItems(source, loaded.resources, coLocatedCustomConditions, src.dir)
+    }
     graphqlResources.push(...loaded.resources)
     stats.graphql += loaded.stats.resources
     warnEmptyDiscoverySource(src, 'graphql', loaded.stats.resources)

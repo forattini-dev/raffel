@@ -784,6 +784,39 @@ describe('loadDiscovery with DiscoverySource', () => {
     expect(result.stats.total).toBe(2)
   })
 
+  it('attaches co-located policies to GraphQL resources', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/graphql/_policy.json': {
+        text: JSON.stringify({
+          id: 'graphql-read',
+          effect: 'allow',
+          principals: ['scope:lead.read'],
+          actions: ['lead.read'],
+          resources: ['lead:*'],
+        }),
+      },
+      '/app/src/graphql/leads.graphql.js': {
+        module: {
+          default: {
+            name: 'Lead',
+            schema: z.object({ id: z.string() }),
+          },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: { graphql: true },
+      extensions: ['.js'],
+      source,
+    })
+
+    expect(result.graphqlResources[0]?.coLocatedPolicies?.map((policy) => policy.id)).toEqual([
+      'graphql-read',
+    ])
+  })
+
   it('reports import failures through DiscoverySource without aborting discovery', async () => {
     const source = createInMemoryDiscoverySource({
       '/app/src/http/broken.js': {
