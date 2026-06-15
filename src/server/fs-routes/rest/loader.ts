@@ -22,8 +22,10 @@ import type {
   RestLoaderResult,
   LoadedRestResource,
   ResolvedRestConfig,
+  ResolvedPaginationConfig,
   RestRoute,
   RestActionConfig,
+  AdapterQuery,
   DatabaseClient,
 } from './types.js'
 import {
@@ -36,16 +38,18 @@ import {
 
 const logger = createLogger('rest-loader')
 
+const DEFAULT_PAGINATION: ResolvedPaginationConfig = {
+  defaultLimit: 20,
+  maxLimit: 100,
+  style: 'offset',
+}
+
 // === Default Configuration ===
 
 const DEFAULT_CONFIG: ResolvedRestConfig = {
   primaryKey: 'id',
   operations: [...REST_OPERATIONS],
-  pagination: {
-    defaultLimit: 20,
-    maxLimit: 100,
-    style: 'offset',
-  },
+  pagination: false,
   filterable: true,
   sortable: true,
   searchable: [],
@@ -230,9 +234,25 @@ function resolveConfig(config?: RestConfig, defaults?: Partial<RestConfig>): Res
   return {
     ...merged,
     auth,
-    pagination: { ...DEFAULT_CONFIG.pagination, ...defaults?.pagination, ...config?.pagination },
+    pagination: resolvePaginationConfig(defaults?.pagination, config?.pagination),
     timestamps: { ...defaults?.timestamps, ...config?.timestamps },
   } as ResolvedRestConfig
+}
+
+function resolvePaginationConfig(
+  defaults?: RestConfig['pagination'],
+  config?: RestConfig['pagination']
+): false | ResolvedPaginationConfig {
+  const value = config ?? defaults
+  if (value === undefined || value === false) return false
+
+  const defaultsObject = typeof defaults === 'object' ? defaults : {}
+  const configObject = typeof config === 'object' ? config : {}
+  return {
+    ...DEFAULT_PAGINATION,
+    ...defaultsObject,
+    ...configObject,
+  }
 }
 
 // === Adapter Resolution ===
@@ -335,15 +355,53 @@ function createListHandler(
       ? { [query.sort]: query.order ?? 'asc' }
       : undefined
 
-    // Execute query
+    const baseQuery: AdapterQuery = {
+      where,
+      orderBy,
+      select: query.fields ? buildSelect(query.fields) : undefined,
+      include: query.include ? buildInclude(query.include) : undefined,
+    }
+
+    if (!pagination) {
+      return adapter.findMany(baseQuery)
+    }
+
+    const limit = resolveLimit(query.limit, pagination)
+
+    if (pagination.style === 'cursor') {
+      const cursorField = pagination.cursorField ?? config.primaryKey
+      const rawItems = await adapter.findMany({
+        ...baseQuery,
+        take: limit + 1,
+        ...(query.cursor ? {
+          cursor: { [cursorField]: query.cursor },
+          skip: 1,
+        } : {}),
+      })
+      const items = rawItems.slice(0, limit)
+      const hasMore = rawItems.length > limit
+      const nextCursor = hasMore ? readCursorValue(items[items.length - 1], cursorField) : undefined
+
+      return {
+        data: items,
+        meta: {
+          limit,
+          ...(nextCursor ? { nextCursor } : {}),
+          hasMore,
+        },
+      }
+    }
+
+    if (query.page !== undefined && query.offset !== undefined) {
+      throw Errors.badRequest('Use either page or offset for pagination, not both')
+    }
+
+    const offset = resolveOffset(query.offset, query.page, limit)
     const [items, total] = await Promise.all([
       adapter.findMany({
-        where,
-        orderBy,
-        take: Math.min(query.limit ?? pagination.defaultLimit, pagination.maxLimit),
-        skip: query.offset ?? 0,
-        select: query.fields ? buildSelect(query.fields) : undefined,
-        include: query.include ? buildInclude(query.include) : undefined,
+        ...baseQuery,
+        take: limit,
+        skip: offset,
       }),
       adapter.count({ where }),
     ])
@@ -352,12 +410,49 @@ function createListHandler(
       data: items,
       meta: {
         total,
-        limit: query.limit ?? pagination.defaultLimit,
-        offset: query.offset ?? 0,
-        hasMore: (query.offset ?? 0) + items.length < total,
+        limit,
+        offset,
+        page: Math.floor(offset / limit) + 1,
+        hasMore: offset + items.length < total,
       },
     }
   }
+}
+
+function resolveLimit(value: unknown, pagination: ResolvedPaginationConfig): number {
+  const limit = value === undefined ? pagination.defaultLimit : toInteger(value, 'limit')
+  if (limit <= 0) throw Errors.badRequest('Pagination limit must be greater than 0')
+  return Math.min(limit, pagination.maxLimit)
+}
+
+function resolveOffset(offset: unknown, page: unknown, limit: number): number {
+  if (offset !== undefined) {
+    const value = toInteger(offset, 'offset')
+    if (value < 0) throw Errors.badRequest('Pagination offset must be greater than or equal to 0')
+    return value
+  }
+
+  if (page !== undefined) {
+    const value = toInteger(page, 'page')
+    if (value <= 0) throw Errors.badRequest('Pagination page must be greater than 0')
+    return (value - 1) * limit
+  }
+
+  return 0
+}
+
+function toInteger(value: unknown, name: string): number {
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(number)) {
+    throw Errors.badRequest(`Pagination ${name} must be an integer`)
+  }
+  return number
+}
+
+function readCursorValue(item: unknown, field: string): string | undefined {
+  if (!item || typeof item !== 'object') return undefined
+  const value = (item as Record<string, unknown>)[field]
+  return value === undefined || value === null ? undefined : String(value)
 }
 
 function createGetHandler(
@@ -533,7 +628,7 @@ function createDeleteHandler(
       })
     }
 
-    return { success: true }
+    return undefined
   }
 }
 

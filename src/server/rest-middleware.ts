@@ -52,6 +52,71 @@ function defaultRestSuccessStatus(operation: string): number | undefined {
   return undefined
 }
 
+const REST_QUERY_RESERVED_KEYS = new Set([
+  'page',
+  'limit',
+  'offset',
+  'cursor',
+  'sort',
+  'order',
+  'fields',
+  'include',
+  'search',
+  'filters',
+])
+
+function parseRestQueryParams(params: URLSearchParams): Record<string, unknown> {
+  const query: Record<string, unknown> = {}
+  const filters: Record<string, unknown> = {}
+
+  for (const [key, rawValue] of params) {
+    const value = parseQueryValue(rawValue)
+    switch (key) {
+      case 'page':
+      case 'limit':
+      case 'offset':
+        query[key] = Number(rawValue)
+        break
+      case 'cursor':
+      case 'sort':
+      case 'order':
+      case 'search':
+        query[key] = rawValue
+        break
+      case 'fields':
+      case 'include':
+        query[key] = rawValue.split(',').map((part) => part.trim()).filter(Boolean)
+        break
+      case 'filters':
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          Object.assign(filters, value)
+        } else {
+          query[key] = value
+        }
+        break
+      default:
+        query[key] = value
+        if (!REST_QUERY_RESERVED_KEYS.has(key)) {
+          filters[key] = value
+        }
+    }
+  }
+
+  if (Object.keys(filters).length > 0) {
+    query.filters = filters
+  }
+
+  return query
+}
+
+function parseQueryValue(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
 export interface HttpOverrideMiddlewareOptions {
   router: Router
   registry: Registry
@@ -99,15 +164,7 @@ export function createRestMiddleware(
             params[name] = match[i + 1]
           })
 
-          // Parse query string
-          const query: Record<string, any> = {}
-          for (const [key, value] of url.searchParams) {
-            if (key === 'page' || key === 'limit') {
-              query[key] = parseInt(value, 10)
-            } else {
-              query[key] = value
-            }
-          }
+          const query = parseRestQueryParams(url.searchParams)
 
           const responseCodec = resolveHttpResponseCodec(req, res, codecs)
           if (!responseCodec) {

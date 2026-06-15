@@ -43,19 +43,77 @@ DELETE /users/:id       → delete
 export const config = {
   primaryKey: 'id',
   operations: ['list', 'get', 'create', 'update', 'delete'],
-  pagination: { defaultLimit: 20, maxLimit: 100 },
+  pagination: true,
   searchable: ['name', 'email'],
   filterable: ['email'],
   sortable: ['name', 'createdAt'],
   auth: {
     list: 'none',
     create: 'required',
-    delete: { roles: ['admin'] },
+    delete: 'required',
   },
   softDelete: 'deletedAt',
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' },
 }
 ```
+
+`auth` controls authentication only: `none`, `optional`, or `required`.
+Authorization belongs in Raffel policies/authz, including roles, permissions,
+tenant checks, and resource ownership.
+
+---
+
+## Pagination
+
+Pagination is opt-in per resource. Without `pagination`, `GET /users` returns a
+plain array:
+
+```json
+[
+  { "id": "usr_1", "name": "Ada" }
+]
+```
+
+Use `pagination: true` for offset pagination defaults:
+
+```typescript
+export const config = {
+  operations: ['list', 'get'],
+  pagination: true,
+}
+```
+
+That enables `limit`, `page`, and `offset` query parameters and returns:
+
+```json
+{
+  "data": [{ "id": "usr_1", "name": "Ada" }],
+  "meta": {
+    "total": 42,
+    "limit": 20,
+    "offset": 0,
+    "page": 1,
+    "hasMore": true
+  }
+}
+```
+
+For high-write lists, configure cursor pagination explicitly:
+
+```typescript
+export const config = {
+  operations: ['list', 'get'],
+  pagination: {
+    style: 'cursor',
+    defaultLimit: 25,
+    maxLimit: 100,
+    cursorField: 'id',
+  },
+}
+```
+
+Cursor lists use `limit` and `cursor` query parameters and return
+`meta.nextCursor` only when another page exists.
 
 ---
 
@@ -84,7 +142,10 @@ export const delete = false
 
 ## Actions
 
-Add custom REST actions beyond CRUD:
+Add custom REST actions beyond CRUD as an escape hatch for commands and state
+transitions. Prefer normal REST subresources when the concept can be modeled as
+a noun; use actions for commands such as `archive`, `retry`, `publish`, or
+`cancel`.
 
 ```typescript
 export const actions = {

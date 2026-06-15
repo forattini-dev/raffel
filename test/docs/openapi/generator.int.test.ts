@@ -284,6 +284,110 @@ describe('OpenAPI Generator', () => {
     })
   })
 
+  describe('REST Resources', () => {
+    it('should document list responses as arrays by default and delete as 204', () => {
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+        restResources: [
+          {
+            name: 'users',
+            schema: z.object({ id: z.string(), name: z.string() }),
+            routes: [
+              { method: 'GET', path: '/users', operation: 'list' },
+              { method: 'DELETE', path: '/users/:id', operation: 'delete' },
+            ],
+          },
+        ],
+      })
+
+      const list = doc.paths['/users'].get
+      expect(list?.parameters).toBeUndefined()
+      expect(list?.description).toBe('Returns a list of users. Supports filtering and sorting via query parameters.')
+      expect(list?.responses['200'].content?.['application/json'].schema).toEqual({
+        type: 'array',
+        items: { $ref: '#/components/schemas/Users' },
+      })
+
+      const deletion = doc.paths['/users/{id}'].delete
+      expect(deletion?.responses['204']).toEqual({ description: 'Resource deleted' })
+      expect(deletion?.responses['200']).toBeUndefined()
+    })
+
+    it('should document offset pagination only when enabled', () => {
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+        restResources: [
+          {
+            name: 'users',
+            schema: z.object({ id: z.string(), name: z.string() }),
+            config: { pagination: true },
+            routes: [
+              { method: 'GET', path: '/users', operation: 'list' },
+            ],
+          },
+        ],
+      })
+
+      const list = doc.paths['/users'].get
+      expect(list?.parameters?.map((param) => param.name)).toEqual(['limit', 'page', 'offset'])
+      expect(list?.responses['200'].content?.['application/json'].schema).toMatchObject({
+        type: 'object',
+        required: ['data', 'meta'],
+        properties: {
+          data: { type: 'array' },
+          meta: {
+            type: 'object',
+            required: ['total', 'limit', 'offset', 'page', 'hasMore'],
+            properties: {
+              total: { type: 'integer' },
+              limit: { type: 'integer' },
+              offset: { type: 'integer' },
+              page: { type: 'integer' },
+              hasMore: { type: 'boolean' },
+            },
+          },
+        },
+      })
+    })
+
+    it('should document cursor pagination when configured', () => {
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+        restResources: [
+          {
+            name: 'users',
+            schema: z.object({ id: z.string(), name: z.string() }),
+            config: {
+              pagination: { style: 'cursor', defaultLimit: 10, maxLimit: 50, cursorField: 'id' },
+            },
+            routes: [
+              { method: 'GET', path: '/users', operation: 'list' },
+            ],
+          },
+        ],
+      })
+
+      const list = doc.paths['/users'].get
+      expect(list?.parameters?.map((param) => param.name)).toEqual(['limit', 'cursor'])
+      expect(list?.parameters?.[0].schema).toMatchObject({ default: 10, maximum: 50 })
+      expect(list?.responses['200'].content?.['application/json'].schema).toMatchObject({
+        type: 'object',
+        required: ['data', 'meta'],
+        properties: {
+          meta: {
+            type: 'object',
+            required: ['limit', 'hasMore'],
+            properties: {
+              limit: { type: 'integer' },
+              nextCursor: { type: 'string' },
+              hasMore: { type: 'boolean' },
+            },
+          },
+        },
+      })
+    })
+  })
+
   describe('Security Schemes', () => {
     it('should include security schemes', () => {
       registry.procedure('test', async () => ({ ok: true }))

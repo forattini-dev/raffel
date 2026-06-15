@@ -291,7 +291,29 @@ export function createArraySchema(itemSchema: USDSchema): USDSchema {
 /**
  * Create a paginated response schema
  */
-export function createPaginatedSchema(itemSchema: USDSchema): USDSchema {
+export function createPaginatedSchema(itemSchema: USDSchema, style: 'offset' | 'cursor' = 'offset'): USDSchema {
+  const meta: USDSchema = style === 'cursor'
+    ? {
+        type: 'object' as const,
+        properties: {
+          limit: { type: 'integer' as const, description: 'Items per page' },
+          nextCursor: { type: 'string' as const, description: 'Cursor for the next page' },
+          hasMore: { type: 'boolean' as const, description: 'Whether another page is available' },
+        },
+        required: ['limit', 'hasMore'],
+      }
+    : {
+        type: 'object' as const,
+        properties: {
+          total: { type: 'integer' as const, description: 'Total number of items' },
+          limit: { type: 'integer' as const, description: 'Items per page' },
+          offset: { type: 'integer' as const, description: 'Number of skipped items' },
+          page: { type: 'integer' as const, description: 'Current page number' },
+          hasMore: { type: 'boolean' as const, description: 'Whether another page is available' },
+        },
+        required: ['total', 'limit', 'offset', 'page', 'hasMore'],
+      }
+
   return {
     type: 'object',
     properties: {
@@ -299,12 +321,9 @@ export function createPaginatedSchema(itemSchema: USDSchema): USDSchema {
         type: 'array',
         items: itemSchema,
       },
-      total: { type: 'integer', description: 'Total number of items' },
-      page: { type: 'integer', description: 'Current page number' },
-      limit: { type: 'integer', description: 'Items per page' },
-      pages: { type: 'integer', description: 'Total number of pages' },
+      meta,
     },
-    required: ['data', 'total'],
+    required: ['data', 'meta'],
   }
 }
 

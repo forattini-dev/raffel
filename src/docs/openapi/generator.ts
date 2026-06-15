@@ -112,9 +112,27 @@ export interface OpenAPIRestRoute {
   /** Output schema (Zod) */
   outputSchema?: unknown
   /** Auth requirement */
-  auth?: 'none' | 'required' | 'optional' | string
+  auth?: 'none' | 'required' | 'optional' | string | Record<string, unknown>
   /** Operation ID for OpenAPI */
   operationId?: string
+}
+
+export interface OpenAPIRestPaginationConfig {
+  /** Default page size */
+  defaultLimit?: number
+  /** Maximum page size */
+  maxLimit?: number
+  /** Pagination style */
+  style?: 'offset' | 'cursor'
+  /** Cursor field, when using cursor pagination */
+  cursorField?: string
+}
+
+interface ResolvedOpenAPIRestPaginationConfig {
+  defaultLimit: number
+  maxLimit: number
+  style: 'offset' | 'cursor'
+  cursorField?: string
 }
 
 /**
@@ -125,6 +143,11 @@ export interface OpenAPIRestResource {
   name: string
   /** Schema for the resource entity */
   schema?: unknown
+  /** Resource-level REST configuration */
+  config?: {
+    /** Defaults to false. Use true for offset defaults or an object for explicit config. */
+    pagination?: boolean | OpenAPIRestPaginationConfig
+  }
   /** Generated routes */
   routes: OpenAPIRestRoute[]
 }
@@ -223,13 +246,16 @@ function getRestOperationSummary(resourceName: string, operation: string): strin
   return summaries[operation] || `${capitalizeFirst(operation)} ${singular}`
 }
 
-/**
- * Get description for REST operation
- */
-function getRestOperationDescription(resourceName: string, operation: string): string {
+function getRestOperationDescriptionForPagination(
+  resourceName: string,
+  operation: string,
+  paginated: boolean
+): string {
   const singular = resourceName.endsWith('s') ? resourceName.slice(0, -1) : resourceName
   const descriptions: Record<string, string> = {
-    list: `Returns a paginated list of ${resourceName}. Supports filtering, sorting, and pagination via query parameters.`,
+    list: paginated
+      ? `Returns a paginated list of ${resourceName}. Supports filtering, sorting, and pagination via query parameters.`
+      : `Returns a list of ${resourceName}. Supports filtering and sorting via query parameters.`,
     get: `Returns a single ${singular} by its unique identifier.`,
     create: `Creates a new ${singular} with the provided data. Returns the created resource.`,
     update: `Replaces all fields of an existing ${singular}. Requires the complete resource data.`,
@@ -247,7 +273,8 @@ function getRestOperationDescription(resourceName: string, operation: string): s
 function getRestResponses(
   route: { operation: string; outputSchema?: unknown },
   resourceName: string,
-  schemas: Record<string, unknown>
+  schemas: Record<string, unknown>,
+  pagination: false | ResolvedOpenAPIRestPaginationConfig = false
 ): Record<string, OpenAPIResponse> {
   const responses: Record<string, OpenAPIResponse> = {}
   const schemaRef = capitalizeFirst(resourceName)
@@ -255,22 +282,10 @@ function getRestResponses(
   switch (route.operation) {
     case 'list':
       responses['200'] = {
-        description: 'List of resources',
+        description: pagination ? 'Paginated list of resources' : 'List of resources',
         content: {
           'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                data: {
-                  type: 'array',
-                  items: { $ref: `#/components/schemas/${schemaRef}` },
-                },
-                total: { type: 'integer' },
-                page: { type: 'integer' },
-                limit: { type: 'integer' },
-                pages: { type: 'integer' },
-              },
-            },
+            schema: createRestListSchema(schemaRef, pagination),
           },
         },
       }
@@ -295,20 +310,7 @@ function getRestResponses(
       break
 
     case 'delete':
-      responses['200'] = {
-        description: 'Deletion confirmation',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                success: { type: 'boolean' },
-                id: { type: 'string' },
-              },
-            },
-          },
-        },
-      }
+      responses['204'] = { description: 'Resource deleted' }
       break
 
     case 'head':
@@ -388,6 +390,93 @@ function getRestResponses(
   return responses
 }
 
+const DEFAULT_REST_PAGINATION: ResolvedOpenAPIRestPaginationConfig = {
+  defaultLimit: 20,
+  maxLimit: 100,
+  style: 'offset',
+}
+
+function resolveRestPagination(
+  pagination: NonNullable<OpenAPIRestResource['config']>['pagination']
+): false | ResolvedOpenAPIRestPaginationConfig {
+  if (pagination === undefined || pagination === false) return false
+  if (pagination === true) return { ...DEFAULT_REST_PAGINATION }
+  return { ...DEFAULT_REST_PAGINATION, ...pagination }
+}
+
+function createRestListSchema(
+  schemaRef: string,
+  pagination: false | ResolvedOpenAPIRestPaginationConfig
+): unknown {
+  const itemSchema = { $ref: `#/components/schemas/${schemaRef}` }
+  if (!pagination) {
+    return {
+      type: 'array',
+      items: itemSchema,
+    }
+  }
+
+  const meta = pagination.style === 'cursor'
+    ? {
+        type: 'object',
+        required: ['limit', 'hasMore'],
+        properties: {
+          limit: { type: 'integer' },
+          nextCursor: { type: 'string' },
+          hasMore: { type: 'boolean' },
+        },
+      }
+    : {
+        type: 'object',
+        required: ['total', 'limit', 'offset', 'page', 'hasMore'],
+        properties: {
+          total: { type: 'integer' },
+          limit: { type: 'integer' },
+          offset: { type: 'integer' },
+          page: { type: 'integer' },
+          hasMore: { type: 'boolean' },
+        },
+      }
+
+  return {
+    type: 'object',
+    required: ['data', 'meta'],
+    properties: {
+      data: {
+        type: 'array',
+        items: itemSchema,
+      },
+      meta,
+    },
+  }
+}
+
+function createRestPaginationParameters(
+  pagination: ResolvedOpenAPIRestPaginationConfig
+): NonNullable<OpenAPIOperation['parameters']> {
+  const common: NonNullable<OpenAPIOperation['parameters']> = [
+    {
+      name: 'limit',
+      in: 'query',
+      required: false,
+      schema: { type: 'integer', default: pagination.defaultLimit, maximum: pagination.maxLimit },
+    },
+  ]
+
+  if (pagination.style === 'cursor') {
+    return [
+      ...common,
+      { name: 'cursor', in: 'query', required: false, schema: { type: 'string' } },
+    ]
+  }
+
+  return [
+    ...common,
+    { name: 'page', in: 'query', required: false, schema: { type: 'integer', default: 1 } },
+    { name: 'offset', in: 'query', required: false, schema: { type: 'integer', default: 0 } },
+  ]
+}
+
 /**
  * Generate OpenAPI document from Registry and SchemaRegistry
  */
@@ -463,6 +552,10 @@ export function generateOpenAPI(
       }
 
       for (const route of resource.routes) {
+        const pagination = route.operation === 'list'
+          ? resolveRestPagination(resource.config?.pagination)
+          : false
+
         // Convert path params from :id to {id} for OpenAPI
         const openApiPath = route.path.replace(/:(\w+)/g, '{$1}')
         const method = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete'
@@ -474,9 +567,13 @@ export function generateOpenAPI(
         const operation: OpenAPIOperation = {
           operationId,
           summary: getRestOperationSummary(resource.name, route.operation),
-          description: getRestOperationDescription(resource.name, route.operation),
+          description: getRestOperationDescriptionForPagination(
+            resource.name,
+            route.operation,
+            Boolean(pagination)
+          ),
           tags: [resource.name],
-          responses: getRestResponses(route, resource.name, schemas),
+          responses: getRestResponses(route, resource.name, schemas, pagination),
         }
 
         // Add security requirement if auth is required
@@ -523,13 +620,10 @@ export function generateOpenAPI(
         }
 
         // Add query parameters for GET list operation
-        if (method === 'get' && route.operation === 'list') {
+        if (method === 'get' && route.operation === 'list' && pagination) {
           operation.parameters = [
             ...(operation.parameters || []),
-            { name: 'page', in: 'query' as const, required: false, schema: { type: 'integer', default: 1 } },
-            { name: 'limit', in: 'query' as const, required: false, schema: { type: 'integer', default: 20 } },
-            { name: 'sort', in: 'query' as const, required: false, schema: { type: 'string' } },
-            { name: 'order', in: 'query' as const, required: false, schema: { type: 'string', enum: ['asc', 'desc'] } },
+            ...createRestPaginationParameters(pagination),
           ]
         }
 

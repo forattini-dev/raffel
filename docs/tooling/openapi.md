@@ -210,6 +210,9 @@ const document = generateOpenAPI(registry, schemaRegistry, {
     {
       name: 'users',
       schema: UserSchema,
+      // Omit config.pagination for plain array list responses.
+      // Use true or an object to document paginated list envelopes.
+      config: { pagination: true },
       routes: [
         { method: 'GET', path: '/users', operation: 'list' },
         { method: 'GET', path: '/users/:id', operation: 'get' },
@@ -237,15 +240,25 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
                   data:
                     type: array
                     items:
                       $ref: '#/components/schemas/Users'
-                  total:
-                    type: integer
-                  page:
-                    type: integer
+                  meta:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                      page:
+                        type: integer
+                      hasMore:
+                        type: boolean
     post:
       operationId: users_create
       summary: Create a new user
@@ -271,6 +284,24 @@ paths:
             type: string
 ```
 
+If `config.pagination` is omitted or `false`, the `list` response schema is a
+plain array and no pagination query parameters are emitted. `pagination: true`
+uses offset defaults (`limit`, `page`, `offset`). Cursor pagination documents
+`limit` and `cursor`:
+
+```ts
+restResources: [{
+  name: 'users',
+  schema: UserSchema,
+  config: {
+    pagination: { style: 'cursor', defaultLimit: 25, maxLimit: 100, cursorField: 'id' },
+  },
+  routes: [
+    { method: 'GET', path: '/users', operation: 'list' },
+  ],
+}]
+```
+
 ### REST Route Options
 
 ```ts
@@ -291,12 +322,12 @@ The generator provides automatic summaries and descriptions for standard operati
 
 | Operation | Summary | Description |
 |-----------|---------|-------------|
-| `list` | List all {resources} | Returns paginated list with filtering |
+| `list` | List all {resources} | Returns an array by default; paginated envelope only when resource pagination is enabled |
 | `get` | Get a {resource} by ID | Returns single resource |
 | `create` | Create a new {resource} | Creates and returns resource |
 | `update` | Update a {resource} | Full replacement |
 | `patch` | Partially update | Partial modification |
-| `delete` | Delete a {resource} | Permanent removal |
+| `delete` | Delete a {resource} | Permanent removal, documented as `204 No Content` |
 | `head` | Check if exists | Headers only |
 | `options` | Get allowed methods | CORS preflight |
 
@@ -342,7 +373,8 @@ const document = generateOpenAPI(registry, schemaRegistry, {
 
 ### Per-Route Security
 
-For REST resources, use the `auth` property:
+For REST resources, use the `auth` property to document authentication
+requirements:
 
 ```ts
 restResources: [{
@@ -357,6 +389,10 @@ restResources: [{
   ],
 }]
 ```
+
+`auth` is not an authorization model. Roles, permissions, tenancy, and resource
+ownership belong in Raffel policies/authz and are exposed through the policy
+metadata in USD/OpenAPI.
 
 ## Automatic Schema Generation
 

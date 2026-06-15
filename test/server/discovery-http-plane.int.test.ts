@@ -171,19 +171,240 @@ export const adapter = {
 
     const res = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications`)
     expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([{ id: 'n1', title: 'Welcome' }])
+
+    const openApi = server.getOpenAPIDocument()
+    expect(openApi?.paths['/api/v1/leads/notifications']?.get?.operationId).toBe('api.v1.leads.notifications_list')
+    expect(openApi?.paths['/api/v1/leads/notifications']?.get?.parameters).toBeUndefined()
+    expect(
+      openApi?.paths['/api/v1/leads/notifications']?.get?.responses['200'].content?.['application/json'].schema
+    ).toMatchObject({ type: 'array' })
+    expect(openApi?.paths['/api/v1/leads/notifications/{id}']?.get?.operationId).toBe('api.v1.leads.notifications_get')
+  })
+
+  it('serves schema-first .rest list pagination only when explicitly enabled', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-pagination-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(routesDir, { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `import { z } from 'zod'
+
+const notifications = [
+  { id: 'n1', title: 'Welcome' },
+  { id: 'n2', title: 'Follow up' },
+]
+
+export const schema = z.object({
+  id: z.string(),
+  title: z.string(),
+})
+
+export const config = { operations: ['list'], pagination: true }
+
+export const adapter = {
+  findMany: async (query = {}) => {
+    const skip = query.skip ?? 0
+    const take = query.take ?? notifications.length
+    return notifications.slice(skip, skip + take)
+  },
+  count: async () => notifications.length,
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST Pagination', version: '1.0.0' },
+    })
+    await server.start()
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications?limit=1&page=2`)
+    expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      data: [{ id: 'n1', title: 'Welcome' }],
+      data: [{ id: 'n2', title: 'Follow up' }],
       meta: {
-        total: 1,
-        limit: 20,
-        offset: 0,
+        total: 2,
+        limit: 1,
+        offset: 1,
+        page: 2,
         hasMore: false,
       },
     })
 
     const openApi = server.getOpenAPIDocument()
-    expect(openApi?.paths['/api/v1/leads/notifications']?.get?.operationId).toBe('api.v1.leads.notifications_list')
-    expect(openApi?.paths['/api/v1/leads/notifications/{id}']?.get?.operationId).toBe('api.v1.leads.notifications_get')
+    const listOperation = openApi?.paths['/api/v1/leads/notifications']?.get
+    expect(listOperation?.parameters?.map((param) => param.name)).toEqual(['limit', 'page', 'offset'])
+    expect(
+      listOperation?.responses['200'].content?.['application/json'].schema
+    ).toMatchObject({
+      type: 'object',
+      properties: {
+        data: { type: 'array' },
+        meta: {
+          type: 'object',
+          properties: {
+            total: { type: 'integer' },
+            limit: { type: 'integer' },
+            offset: { type: 'integer' },
+            page: { type: 'integer' },
+            hasMore: { type: 'boolean' },
+          },
+        },
+      },
+    })
+  })
+
+  it('serves cursor pagination for schema-first .rest resources when configured', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-cursor-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(routesDir, { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `import { z } from 'zod'
+
+const notifications = [
+  { id: 'n1', title: 'Welcome' },
+  { id: 'n2', title: 'Follow up' },
+]
+
+export const schema = z.object({
+  id: z.string(),
+  title: z.string(),
+})
+
+export const config = {
+  operations: ['list'],
+  pagination: { style: 'cursor', defaultLimit: 1, maxLimit: 10, cursorField: 'id' },
+}
+
+export const adapter = {
+  findMany: async (query = {}) => {
+    const cursorId = query.cursor?.id
+    const cursorIndex = cursorId ? notifications.findIndex((item) => item.id === cursorId) : -1
+    const start = cursorIndex >= 0 ? cursorIndex + (query.skip ?? 0) : 0
+    const take = query.take ?? notifications.length
+    return notifications.slice(start, start + take)
+  },
+  count: async () => notifications.length,
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST Cursor', version: '1.0.0' },
+    })
+    await server.start()
+
+    const first = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications`)
+    expect(first.status).toBe(200)
+    expect(await first.json()).toEqual({
+      data: [{ id: 'n1', title: 'Welcome' }],
+      meta: {
+        limit: 1,
+        nextCursor: 'n1',
+        hasMore: true,
+      },
+    })
+
+    const next = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications?cursor=n1`)
+    expect(next.status).toBe(200)
+    expect(await next.json()).toEqual({
+      data: [{ id: 'n2', title: 'Follow up' }],
+      meta: {
+        limit: 1,
+        hasMore: false,
+      },
+    })
+
+    const openApi = server.getOpenAPIDocument()
+    const listOperation = openApi?.paths['/api/v1/leads/notifications']?.get
+    expect(listOperation?.parameters?.map((param) => param.name)).toEqual(['limit', 'cursor'])
+    expect(
+      listOperation?.responses['200'].content?.['application/json'].schema
+    ).toMatchObject({
+      type: 'object',
+      properties: {
+        meta: {
+          type: 'object',
+          properties: {
+            limit: { type: 'integer' },
+            nextCursor: { type: 'string' },
+            hasMore: { type: 'boolean' },
+          },
+        },
+      },
+    })
+  })
+
+  it('serves schema-first .rest delete as 204 and documents 204', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-delete-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(routesDir, { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `import { z } from 'zod'
+
+const notifications = new Map([['n1', { id: 'n1', title: 'Welcome' }]])
+
+export const schema = z.object({
+  id: z.string(),
+  title: z.string(),
+})
+
+export const config = { operations: ['get', 'delete'] }
+
+export const adapter = {
+  findUnique: async ({ where }) => notifications.get(where.id) ?? null,
+  delete: async ({ where }) => { notifications.delete(where.id) },
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST Delete', version: '1.0.0' },
+    })
+    await server.start()
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications/n1`, {
+      method: 'DELETE',
+    })
+    expect(res.status).toBe(204)
+    expect(await res.text()).toBe('')
+
+    const openApi = server.getOpenAPIDocument()
+    const responses = openApi?.paths['/api/v1/leads/notifications/{id}']?.delete?.responses
+    expect(responses?.['204']).toBeDefined()
+    expect(responses?.['200']).toBeUndefined()
   })
 
   it('serves composed Resource Anchor actions from same-named directories', async () => {

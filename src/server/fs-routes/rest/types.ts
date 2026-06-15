@@ -137,8 +137,15 @@ export interface RestConfig {
   /** Global auth for all operations */
   defaultAuth?: RestAuthConfig
 
-  /** Pagination config */
-  pagination?: PaginationConfig
+  /**
+   * Pagination config for list operations.
+   *
+   * Defaults to `false`: list responses are returned as plain arrays and no
+   * pagination query parameters are documented. Use `true` for offset
+   * pagination defaults, or provide an object for explicit offset/cursor
+   * settings.
+   */
+  pagination?: boolean | PaginationConfig
 
   /** Filterable fields (default: all from schema) */
   filterable?: string[] | boolean
@@ -175,7 +182,15 @@ export type RestAuthConfig =
   | 'none'
   | 'optional'
   | 'required'
+  /**
+   * @deprecated Authorization belongs in Raffel policies/authz. Keep REST auth
+   * config limited to authentication requirements.
+   */
   | { roles: string[] }
+  /**
+   * @deprecated Authorization belongs in Raffel policies/authz. Keep REST auth
+   * config limited to authentication requirements.
+   */
   | { permissions: string[] }
 
 export interface PaginationConfig {
@@ -243,6 +258,7 @@ export interface RestContext extends Context {
 
 export interface RestQuery {
   /** Pagination */
+  page?: number
   limit?: number
   offset?: number
   cursor?: string
@@ -401,7 +417,7 @@ export interface LoadedRestResource {
 
 export interface ResolvedRestConfig extends Omit<Required<Omit<RestConfig, 'exclude' | 'auth' | 'defaultAuth'>>, 'pagination'> {
   auth: Record<RestOperation, RestAuthConfig>
-  pagination: ResolvedPaginationConfig
+  pagination: false | ResolvedPaginationConfig
 }
 
 export interface RestRoute {

@@ -120,7 +120,7 @@ export function generateHttpPaths(
         }
 
         const operation = createRestOperation(
-          resource.name,
+          resource,
           route,
           schemaRegistry,
           includeErrorResponses,
@@ -485,22 +485,24 @@ function createProcedureResponses(
  * Create operation for a REST route
  */
 function createRestOperation(
-  resourceName: string,
+  resource: LoadedRestResource,
   route: LoadedRestResource['routes'][number],
   schemaRegistry: ConvertedSchemaRegistry,
   includeErrorResponses: boolean,
   defaultSecurity?: Array<Record<string, string[]>>,
   tag?: string,
 ): USDOperation {
+  const resourceName = resource.name
   const operationId = `${resourceName}_${route.operation}`
   const schemaRef = capitalizeFirst(resourceName)
+  const pagination = route.operation === 'list' ? resource.config.pagination : false
 
   const operation: USDOperation = {
     operationId,
     summary: getRestOperationSummary(resourceName, route.operation),
-    description: getRestOperationDescription(resourceName, route.operation),
+    description: getRestOperationDescription(resourceName, route.operation, Boolean(pagination)),
     tags: [tag ?? resourceName],
-    responses: createRestResponses(resourceName, route, schemaRegistry, includeErrorResponses),
+    responses: createRestResponses(resourceName, route, schemaRegistry, includeErrorResponses, pagination),
   }
 
   // Add security if required
@@ -538,13 +540,10 @@ function createRestOperation(
   }
 
   // Add query parameters for list operations
-  if (method === 'get' && route.operation === 'list') {
+  if (method === 'get' && route.operation === 'list' && pagination) {
     operation.parameters = [
       ...(operation.parameters || []),
-      { name: 'page', in: 'query', required: false, schema: { type: 'integer', default: 1 } },
-      { name: 'limit', in: 'query', required: false, schema: { type: 'integer', default: 20 } },
-      { name: 'sort', in: 'query', required: false, schema: { type: 'string' } },
-      { name: 'order', in: 'query', required: false, schema: { type: 'string', enum: ['asc', 'desc'] } },
+      ...createPaginationParameters(pagination),
     ]
   }
 
@@ -558,7 +557,8 @@ function createRestResponses(
   resourceName: string,
   route: LoadedRestResource['routes'][number],
   schemaRegistry: ConvertedSchemaRegistry,
-  includeErrorResponses: boolean
+  includeErrorResponses: boolean,
+  pagination: LoadedRestResource['config']['pagination'] = false,
 ): USDResponses {
   const responses: USDResponses = {}
   const schemaRef = capitalizeFirst(resourceName)
@@ -566,10 +566,12 @@ function createRestResponses(
   switch (route.operation) {
     case 'list':
       responses['200'] = {
-        description: 'List of resources',
+        description: pagination ? 'Paginated list of resources' : 'List of resources',
         content: {
           'application/json': {
-            schema: createPaginatedSchema(createRef(schemaRef)),
+            schema: pagination
+              ? createPaginatedSchema(createRef(schemaRef), pagination.style)
+              : { type: 'array', items: createRef(schemaRef) },
           },
         },
       }
@@ -600,20 +602,7 @@ function createRestResponses(
       break
 
     case 'delete':
-      responses['200'] = {
-        description: 'Deletion confirmation',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                success: { type: 'boolean' },
-                id: { type: 'string' },
-              },
-            },
-          },
-        },
-      }
+      responses['204'] = { description: 'Resource deleted' }
       break
 
     case 'head':
@@ -689,6 +678,32 @@ function createRestResponses(
   }
 
   return responses
+}
+
+function createPaginationParameters(
+  pagination: Exclude<LoadedRestResource['config']['pagination'], false>
+): USDParameter[] {
+  const common: USDParameter[] = [
+    {
+      name: 'limit',
+      in: 'query',
+      required: false,
+      schema: { type: 'integer', default: pagination.defaultLimit, maximum: pagination.maxLimit },
+    },
+  ]
+
+  if (pagination.style === 'cursor') {
+    return [
+      ...common,
+      { name: 'cursor', in: 'query', required: false, schema: { type: 'string' } },
+    ]
+  }
+
+  return [
+    ...common,
+    { name: 'page', in: 'query', required: false, schema: { type: 'integer', default: 1 } },
+    { name: 'offset', in: 'query', required: false, schema: { type: 'integer', default: 0 } },
+  ]
 }
 
 // === Helper Functions ===
@@ -830,10 +845,12 @@ function generateValidationErrorExample(schema: USDSchema): Array<{ field: strin
 /**
  * Get description for REST operation
  */
-function getRestOperationDescription(resourceName: string, operation: string): string {
+function getRestOperationDescription(resourceName: string, operation: string, paginated = false): string {
   const singular = resourceName.endsWith('s') ? resourceName.slice(0, -1) : resourceName
   const descriptions: Record<string, string> = {
-    list: `Returns a paginated list of ${resourceName}. Supports filtering, sorting, and pagination.`,
+    list: paginated
+      ? `Returns a paginated list of ${resourceName}. Supports filtering, sorting, and pagination.`
+      : `Returns a list of ${resourceName}. Supports filtering and sorting.`,
     get: `Returns a single ${singular} by its unique identifier.`,
     create: `Creates a new ${singular} with the provided data.`,
     update: `Replaces all fields of an existing ${singular}.`,

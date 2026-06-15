@@ -69,6 +69,45 @@ deduplicating repeated segments. A prefix of `/` behaves as no prefix.
 `.rest.ts` is reserved for REST Resource Files and is not treated as an
 ordinary HTTP handler.
 
+Example:
+
+```
+src/
+  domains/
+    leads/
+      routes/
+        notifications.rest.ts
+```
+
+With `{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }`,
+`notifications.rest.ts` defines the `notifications` REST resource at
+`/api/v1/leads/notifications`. The filename is just the resource anchor; use
+any resource name that matches your domain.
+
+REST Resource Files can coexist with ordinary route files and same-named
+directories:
+
+```
+routes/
+  notifications.rest.ts
+  notifications.ts
+  notifications/
+    export/
+      get.ts
+    [id]/
+      archive/
+        post.ts
+```
+
+The REST resource operations take precedence for the same method/path. Same-name
+files or directories are composed as resource actions only when they do not
+shadow a generated REST operation. Set `config.compose = false` in the
+`.rest.ts` file to keep same-named files as ordinary discovered routes.
+
+Use composed actions as an escape hatch for commands or state transitions.
+Prefer subresources when the domain concept is a noun; use actions for commands
+such as `archive`, `retry`, `publish`, or `cancel`.
+
 ## Route naming
 
 Routes are derived from the file path and are **not** transformed. The adapter
