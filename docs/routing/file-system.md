@@ -65,7 +65,8 @@ for the first root above. The internal operation name is prefixed as well,
 for example `api/v1/leads/notifications/get`.
 
 Routes Root prefixes are concatenated with file-derived paths without
-deduplicating repeated segments. A prefix of `/` behaves as no prefix.
+deduplicating repeated segments for ordinary HTTP handlers. A prefix of `/`
+behaves as no prefix.
 
 `.rest.ts` is reserved for REST Resource Files and is not treated as an
 ordinary HTTP handler.
@@ -84,6 +85,19 @@ With `{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }`,
 `notifications.rest.ts` defines the `notifications` REST resource at
 `/api/v1/leads/notifications`. The filename is just the resource anchor; use
 any resource name that matches your domain.
+
+For domain roots where the prefix already ends in the resource segment, the
+REST anchor is mounted at the prefix root instead of repeating the segment:
+
+```ts
+discovery: {
+  routes: [{ dir: './src/domains/:domain/routes', prefix: '/api/v1/:domain' }],
+}
+```
+
+In that layout, `src/domains/leads/routes/leads.rest.ts` mounts at
+`/api/v1/leads`, not `/api/v1/leads/leads`. You can also use `index.rest.ts`
+to mount a REST Resource File at the Routes Root prefix.
 
 REST Resource Files can coexist with ordinary route files and same-named
 directories:

@@ -756,14 +756,15 @@ async function loadRoutesRootResourceAnchors(
       const exports = await source.importModule<ResourceExports & RestExports>(filePath)
       const routePath = stripRestSuffix(relativePath)
       const parsed = parseRoutePath(routePath)
-      const resourceName = [...root.namespaceSegments, ...parsed.segments]
+      const resourceSegments = getRoutesRootResourceSegments(root, parsed.segments)
+      const resourceName = [...root.namespaceSegments, ...resourceSegments]
         .map(toCamelCaseSegment)
         .filter(Boolean)
-        .join('.')
+        .join('.') || parsed.name
       const explicitBasePath = exports.config?.basePath
       const basePath = joinRoutePath([
         ...root.publicPrefixSegments,
-        ...(explicitBasePath ? splitRoutePrefix(explicitBasePath) : parsed.segments),
+        ...(explicitBasePath ? splitRoutePrefix(explicitBasePath) : resourceSegments),
       ])
 
       if (exports.schema) {
@@ -799,6 +800,18 @@ async function loadRoutesRootResourceAnchors(
   }
 
   return { restResources, resources, anchors }
+}
+
+function getRoutesRootResourceSegments(root: ResolvedRoutesRoot, routeSegments: string[]): string[] {
+  if (routeSegments.length !== 1) return routeSegments
+
+  const segment = routeSegments[0]
+  if (segment === 'index') return []
+
+  const lastPrefixSegment = root.publicPrefixSegments[root.publicPrefixSegments.length - 1]
+  if (lastPrefixSegment && segment === lastPrefixSegment) return []
+
+  return routeSegments
 }
 
 function stripRestSuffix(relativePath: string): string {

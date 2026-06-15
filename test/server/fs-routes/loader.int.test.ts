@@ -304,6 +304,80 @@ describe('loadDiscovery with DiscoverySource', () => {
     expect(result.stats.total).toBe(2)
   })
 
+  it('does not duplicate a Routes Root REST anchor when the prefix already ends with the resource segment', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/leads.rest.js': {
+        module: {
+          schema: z.object({ id: z.string() }),
+          config: { operations: ['list', 'get'] },
+          adapter: {
+            findMany: async () => [],
+            count: async () => 0,
+            findUnique: async () => null,
+            create: async ({ data }: { data: unknown }) => data,
+            update: async ({ data }: { data: unknown }) => data,
+            delete: async () => undefined,
+          },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/:domain/routes', prefix: '/api/v1/:domain' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const resource = result.restResources.find((item) => item.name === 'api.v1.leads')
+
+    expect(resource?.config.basePath).toBe('/api/v1/leads')
+    expect(resource?.routes.map((route) => `${route.method} ${route.path} ${route.operation}`)).toEqual([
+      'GET /api/v1/leads list',
+      'GET /api/v1/leads/:id get',
+    ])
+    expect(result.restResources.map((item) => item.name)).toEqual(['api.v1.leads'])
+  })
+
+  it('treats index.rest files in Routes Roots as resources mounted at the prefix root', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/accounts/routes/index.rest.js': {
+        module: {
+          schema: z.object({ id: z.string() }),
+          config: { operations: ['list', 'create'] },
+          adapter: {
+            findMany: async () => [],
+            count: async () => 0,
+            findUnique: async () => null,
+            create: async ({ data }: { data: unknown }) => data,
+            update: async ({ data }: { data: unknown }) => data,
+            delete: async () => undefined,
+          },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/:domain/routes', prefix: '/api/v1/:domain' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const resource = result.restResources.find((item) => item.name === 'api.v1.accounts')
+
+    expect(resource?.config.basePath).toBe('/api/v1/accounts')
+    expect(resource?.routes.map((route) => `${route.method} ${route.path} ${route.operation}`)).toEqual([
+      'GET /api/v1/accounts list',
+      'POST /api/v1/accounts create',
+    ])
+    expect(result.restResources.map((item) => item.name)).toEqual(['api.v1.accounts'])
+  })
+
   it('composes same-named files and directories into explicit resource actions', async () => {
     const source = createInMemoryDiscoverySource({
       '/app/src/domains/leads/routes/notifications.rest.js': {
