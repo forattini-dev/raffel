@@ -11,6 +11,7 @@ import type { LoggerPort } from '../../ports/outbound/logger.js'
 import type { Interceptor } from '../../types/index.js'
 import type { SchemaRegistry } from '../../validation/schema.js'
 import type { HandlerSchema } from '../../validation/types.js'
+import { createHttpAwareProcedureHandler } from '../http-lifecycle/index.js'
 import type {
   Policy,
   Principal,
@@ -345,7 +346,7 @@ export function createRegistrationService<
         schemaRegistry.register(name, schema)
       }
 
-      registry.procedure(name, route.handler as never, {
+      registry.procedure(name, createHttpAwareProcedureHandler(route.handler as never), {
         interceptors: combineInterceptors(
           name,
           resource.coLocatedPolicies,
@@ -385,7 +386,7 @@ export function createRegistrationService<
             ? 204
             : undefined
 
-      registry.procedure(name, route.handler as never, {
+      registry.procedure(name, createHttpAwareProcedureHandler(route.handler as never), {
         interceptors: combineInterceptors(
           name,
           resource.coLocatedPolicies,

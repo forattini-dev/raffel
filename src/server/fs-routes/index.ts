@@ -96,6 +96,9 @@ export type {
   // Handler exports
   HandlerExports,
   HandlerFunction,
+  ProcedureHandlerFunction,
+  HttpAwareHandlerInput,
+  HttpHandlerFunction,
   HandlerMeta,
   DirectoryMeta,
 

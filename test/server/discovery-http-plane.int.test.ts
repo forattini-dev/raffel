@@ -473,6 +473,92 @@ export const adapter = {
       .toEqual(['Leads'])
   })
 
+  it('supports HTTP-style c handlers beside and under .rest Routes Root anchors', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-http-style-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(path.join(routesDir, 'notifications', '[id]', 'archive'), { recursive: true })
+    await mkdir(path.join(routesDir, 'notifications', 'export'), { recursive: true })
+    await mkdir(path.join(routesDir, 'health'), { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `export const list = async (c) => c.json([{ id: 'n1', q: c.req.query('q') }], 202)
+export const get = async (c) => c.json({ id: c.req.param('id'), detail: true })
+`,
+    )
+    await writeFile(
+      path.join(routesDir, 'notifications', 'export', 'post.js'),
+      `export default async function (c) {
+  return c.json({ exported: true, format: c.req.query('format'), protocol: c.runtime.protocol })
+}
+`,
+    )
+    await writeFile(
+      path.join(routesDir, 'notifications', '[id]', 'archive', 'post.js'),
+      `export default async function (c) {
+  const body = await c.req.json()
+  return c.json({ id: c.req.param('id'), reason: body.reason })
+}
+`,
+    )
+    await writeFile(
+      path.join(routesDir, 'health', 'get.js'),
+      `export default async function (c) {
+  return c.json({ ok: true, source: c.req.query('source') })
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST HTTP Style', version: '1.0.0' },
+    })
+    await server.start()
+
+    const list = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications?q=ready`)
+    expect(list.status).toBe(202)
+    expect(await list.json()).toEqual([{ id: 'n1', q: 'ready' }])
+
+    const exported = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications/export?format=csv`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(exported.status).toBe(200)
+    expect(await exported.json()).toEqual({ exported: true, format: 'csv', protocol: 'http' })
+
+    const item = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications/n2`)
+    expect(item.status).toBe(200)
+    expect(await item.json()).toEqual({ id: 'n2', detail: true })
+
+    const archived = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications/n1/archive`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'done' }),
+    })
+    expect(archived.status).toBe(200)
+    expect(await archived.json()).toEqual({ id: 'n1', reason: 'done' })
+
+    const health = await fetch(`http://127.0.0.1:${port}/api/v1/leads/health?source=routes-root`)
+    expect(health.status).toBe(200)
+    expect(await health.json()).toEqual({ ok: true, source: 'routes-root' })
+
+    const openApi = server.getOpenAPIDocument()
+    expect(openApi?.paths['/api/v1/leads/notifications']?.get).toBeDefined()
+    expect(openApi?.paths['/api/v1/leads/notifications/:id']?.get).toBeDefined()
+    expect(openApi?.paths['/api/v1/leads/notifications/export']?.post).toBeDefined()
+    expect(openApi?.paths['/api/v1/leads/notifications/:id/archive']?.post).toBeDefined()
+    expect(openApi?.paths['/api/v1/leads/health']?.get).toBeDefined()
+  })
+
   it('forwards explicit `meta.httpPath` / `meta.httpMethod` from a discovered file', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-http-meta-'))
     const httpDir = path.join(dir, 'http')

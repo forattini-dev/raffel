@@ -15,6 +15,11 @@ import {
 import { extractMetadataFromHeaders, mergeMetadata } from '../../utils/header-metadata.js'
 import { sid } from '../../utils/id/index.js'
 
+export {
+  createHttpAwareInput,
+  createHttpAwareProcedureHandler,
+} from './http-aware-input.js'
+
 export class HttpBodyParseError extends Error {
   code: 'PAYLOAD_TOO_LARGE' | 'PARSE_ERROR'
 
@@ -125,6 +130,34 @@ export function sendEncodedResponse(
   } else {
     res.end()
   }
+}
+
+export async function sendFetchResponse(
+  res: ServerResponse,
+  response: Response,
+  includeBody = true
+): Promise<void> {
+  const headers: Record<string, string | string[]> = {}
+  response.headers.forEach((value, key) => {
+    const existing = headers[key]
+    if (existing === undefined) {
+      headers[key] = value
+    } else if (Array.isArray(existing)) {
+      existing.push(value)
+    } else {
+      headers[key] = [existing, value]
+    }
+  })
+
+  res.writeHead(response.status, headers)
+
+  if (!includeBody || response.status === 204 || response.status === 304) {
+    res.end()
+    return
+  }
+
+  const body = Buffer.from(await response.arrayBuffer())
+  res.end(body)
 }
 
 export function sendErrorResponse(
@@ -370,6 +403,15 @@ export async function dispatchHttpEnvelope(args: {
     }
 
     applyRateLimitHeaders(res, ctx)
+    if (resultEnvelope.payload instanceof Response) {
+      await sendFetchResponse(
+        res,
+        resultEnvelope.payload,
+        method !== 'HEAD'
+      )
+      return
+    }
+
     sendEncodedResponse(
       res,
       successStatus,
@@ -381,6 +423,15 @@ export async function dispatchHttpEnvelope(args: {
   }
 
   applyRateLimitHeaders(res, ctx)
+  if (result instanceof Response) {
+    await sendFetchResponse(
+      res,
+      result,
+      method !== 'HEAD'
+    )
+    return
+  }
+
   sendEncodedResponse(
     res,
     successStatus,

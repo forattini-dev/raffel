@@ -185,6 +185,9 @@ export type {
   // Handler Exports
   HandlerExports,
   HandlerFunction,
+  ProcedureHandlerFunction,
+  HttpAwareHandlerInput,
+  HttpHandlerFunction,
   HandlerMeta,
   MiddlewareExports,
   MiddlewareFunction,

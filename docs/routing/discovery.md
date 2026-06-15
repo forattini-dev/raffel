@@ -101,6 +101,19 @@ export default async function handler(input, ctx) {
 }
 ```
 
+For HTTP-discovered files (`src/http` or `discovery.routes`), the default export
+may instead use Raffel's HTTP context helpers:
+
+```ts
+import type { HttpHandlerFunction } from 'raffel'
+
+const handler: HttpHandlerFunction = async (c) => {
+  return c.json({ id: c.req.param('id') })
+}
+
+export default handler
+```
+
 ### Stream direction
 
 For stream handlers, set `meta.direction` to `server` (default), `client`, or `bidi`.

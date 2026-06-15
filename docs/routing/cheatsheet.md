@@ -48,6 +48,16 @@ export default async function handler(input, ctx) {
 }
 ```
 
+HTTP-discovered handlers can also use the HTTP context style:
+
+```ts
+import type { HttpHandlerFunction } from 'raffel'
+
+const handler: HttpHandlerFunction = async (c) => c.json({ ok: true })
+
+export default handler
+```
+
 ## Special files
 
 | File | Purpose |

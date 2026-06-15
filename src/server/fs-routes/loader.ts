@@ -34,7 +34,7 @@ import type {
   LoadedRoute,
   LoadedChannel,
   HandlerExports,
-  HandlerFunction,
+  ProcedureHandlerFunction,
   HandlerMeta,
   DirectoryMeta,
   MiddlewareExports,
@@ -942,7 +942,7 @@ function createComposedResourceAction(
   const middleware = route.middlewares.map<ResourceMiddleware>((mw) => {
     return async (ctx, next) => mw(ctx, next)
   })
-  const handler = route.handler as HandlerFunction
+  const handler = route.handler as ProcedureHandlerFunction
 
   const resourceAction: ResourceAction = {
     method,

@@ -11,6 +11,7 @@ import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
 import type { GlobalHooksConfig, BeforeHook, AfterHook, ErrorHook } from './types.js'
 import type { DiscoveryResult, LoadedRoute } from './fs-routes/index.js'
 import { createRouteInterceptors } from './fs-routes/index.js'
+import { createHttpAwareProcedureHandler } from './http-lifecycle/index.js'
 import { createLogger } from '../utils/logger.js'
 import type { PolicyBootstrap } from '../middleware/policy/bootstrap.js'
 import type { Policy, ProcedurePolicyConfig } from '../middleware/policy/types.js'
@@ -185,7 +186,10 @@ export function registerDiscoveredHandlers(
 
     // Register based on kind
     if (route.kind === 'procedure') {
-      registry.procedure(route.name, route.handler as ProcedureHandler, {
+      const handler = route.meta?.httpPath
+        ? createHttpAwareProcedureHandler(route.handler as ProcedureHandler)
+        : route.handler as ProcedureHandler
+      registry.procedure(route.name, handler, {
         description: route.meta?.description,
         graphql: route.meta?.graphql,
         httpPath: route.meta?.httpPath,

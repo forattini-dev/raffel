@@ -9,6 +9,7 @@ import { parse as parsePath } from 'node:path'
 import { createLogger } from '../../../utils/logger.js'
 import { createContext } from '../../../types/context.js'
 import { sid } from '../../../utils/id/index.js'
+import { createHttpAwareInput } from '../../http-lifecycle/index.js'
 import { createFileSystemDiscoverySource } from '../discovery-source.js'
 import type {
   ResourceConfig,
@@ -458,6 +459,32 @@ function parseQuery(input: unknown): ResourceQuery {
   return query
 }
 
+function createHandlerInput(input: unknown, ctx: ResourceContext, handler: Function): unknown {
+  return createHttpAwareInput(input, ctx, { preferFacadeKeys: handler.length <= 1 })
+}
+
+function getFirstParameterName(handler: Function): string | undefined {
+  const source = Function.prototype.toString.call(handler).trim()
+  const functionMatch = source.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/)
+  const arrowMatch = source.match(/^(?:async\s+)?(?:\(?\s*([^)=,\s]+)\s*\)?|\(([^)]*)\))\s*=>/)
+  const raw = functionMatch?.[1] ?? arrowMatch?.[1] ?? arrowMatch?.[2]
+  const first = raw?.split(',')[0]?.trim()
+  return first?.replace(/=.*$/, '').trim() || undefined
+}
+
+function usesHttpContextUnary(handler: Function): boolean {
+  if (handler.length > 1) return false
+  const first = getFirstParameterName(handler)
+  return first === 'c' || first === 'ctx' || first === 'context'
+}
+
+function withId(id: string, data: unknown): Record<string, unknown> {
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    return { id, ...(data as Record<string, unknown>) }
+  }
+  return { id, data }
+}
+
 function createListRoute(
   resource: string,
   handler: ListHandler,
@@ -466,7 +493,7 @@ function createListRoute(
   return async (input: unknown, baseCtx: ResourceContext) => {
     const query = parseQuery(input)
     const ctx = createResourceContext(resource, 'list', {}, query, baseCtx)
-    return handler(query, ctx)
+    return handler(createHandlerInput(query, ctx, handler) as ResourceQuery, ctx)
   }
 }
 
@@ -479,6 +506,12 @@ function createGetRoute(
     const params = (input as { id?: string }) ?? {}
     const id = params.id ?? ''
     const ctx = createResourceContext(resource, 'get', { id }, {}, baseCtx)
+    if (usesHttpContextUnary(handler)) {
+      return (handler as (input: unknown, ctx: ResourceContext) => Promise<unknown>)(
+        createHandlerInput({ id }, ctx, handler),
+        ctx
+      )
+    }
     return handler(id, ctx)
   }
 }
@@ -505,7 +538,7 @@ function createCreateRoute(
     }
 
     const ctx = createResourceContext(resource, 'create', {}, {}, baseCtx)
-    return handler(data, ctx)
+    return handler(createHandlerInput(data, ctx, handler), ctx)
   }
 }
 
@@ -531,6 +564,12 @@ function createUpdateRoute(
     }
 
     const ctx = createResourceContext(resource, 'update', { id }, {}, baseCtx)
+    if (usesHttpContextUnary(handler)) {
+      return (handler as (input: unknown, ctx: ResourceContext) => Promise<unknown>)(
+        createHandlerInput(withId(id, data), ctx, handler),
+        ctx
+      )
+    }
     return handler(id, data, ctx)
   }
 }
@@ -557,7 +596,13 @@ function createPatchRoute(
     }
 
     const ctx = createResourceContext(resource, 'patch', { id }, {}, baseCtx)
-    return handler(id, data as Record<string, unknown>, ctx)
+    if (usesHttpContextUnary(handler)) {
+      return (handler as unknown as (input: unknown, ctx: ResourceContext) => Promise<unknown>)(
+        createHandlerInput(withId(id, data), ctx, handler),
+        ctx
+      )
+    }
+    return handler(id, createHandlerInput(data, ctx, handler) as Record<string, unknown>, ctx)
   }
 }
 
@@ -578,6 +623,12 @@ function createDeleteRoute(
       // This just provides the context
     }
 
+    if (usesHttpContextUnary(handler)) {
+      return (handler as (input: unknown, ctx: ResourceContext) => Promise<unknown>)(
+        createHandlerInput({ id }, ctx, handler),
+        ctx
+      )
+    }
     return handler(id, ctx)
   }
 }
@@ -591,6 +642,12 @@ function createHeadRoute(
     const params = (input as { id?: string }) ?? {}
     const id = params.id ?? ''
     const ctx = createResourceContext(resource, 'head', { id }, {}, baseCtx)
+    if (usesHttpContextUnary(handler)) {
+      return (handler as (input: unknown, ctx: ResourceContext) => Promise<unknown>)(
+        createHandlerInput({ id }, ctx, handler),
+        ctx
+      )
+    }
     const exists = await handler(id, ctx)
     return { exists }
   }
@@ -650,7 +707,7 @@ function createActionRoute(
     }
 
     const ctx = createResourceContext(resource, actionName, id ? { id } : {}, {}, baseCtx)
-    return action.handler(data, id, ctx)
+    return action.handler(createHandlerInput(data, ctx, action.handler), id, ctx)
   }
 }
 

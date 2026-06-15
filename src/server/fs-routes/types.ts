@@ -14,6 +14,7 @@ import type {
   JsonRpcMeta,
   GrpcMeta,
 } from '../../types/index.js'
+import type { HttpContextInterface } from '../../http/context.js'
 
 // === Discovery Configuration ===
 
@@ -269,7 +270,18 @@ export interface HandlerExports {
   meta?: HandlerMeta
 }
 
-export type HandlerFunction = (input: unknown, ctx: Context, ack?: () => void) => unknown | Promise<unknown>
+export type ProcedureHandlerFunction = (input: unknown, ctx: Context, ack?: () => void) => unknown | Promise<unknown>
+
+export type HttpAwareHandlerInput = HttpContextInterface & {
+  /** Original procedure input/body/query object passed to the HTTP route. */
+  input: unknown
+  /** Canonical Raffel runtime context for auth, policies, tracing, and services. */
+  runtime: Context
+}
+
+export type HttpHandlerFunction = (c: HttpAwareHandlerInput) => unknown | Promise<unknown>
+
+export type HandlerFunction = ProcedureHandlerFunction | HttpHandlerFunction
 
 export interface HandlerMeta {
   /** Short summary for OpenAPI (one-liner, shown in endpoint cards) */

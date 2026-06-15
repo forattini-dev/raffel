@@ -108,7 +108,7 @@ routes/
   notifications.ts
   notifications/
     export/
-      get.ts
+      post.ts
     [id]/
       archive/
         post.ts
@@ -122,6 +122,38 @@ shadow a generated REST operation. Set `config.compose = false` in the
 Use composed actions as an escape hatch for commands or state transitions.
 Prefer subresources when the domain concept is a noun; use actions for commands
 such as `archive`, `retry`, `publish`, or `cancel`.
+
+Routes Root HTTP handlers, `.rest.ts` Resource Anchors, and composed actions can
+use either Raffel's procedure-style signature or the native HTTP-style context:
+
+```ts
+// routes/notifications/export/post.ts
+export default async function handler(input, ctx) {
+  return { exported: true, query: ctx.input.query }
+}
+
+// routes/notifications/[id]/archive/post.ts
+export default async function handler(c) {
+  const body = await c.req.json()
+  return c.json({ id: c.req.param('id'), reason: body.reason })
+}
+```
+
+The HTTP-style `c` exposes `c.req.param/query/header/json()` and response helpers
+such as `c.json()`, `c.text()`, `c.html()`, `c.redirect()`, and `c.newResponse()`.
+It also carries `c.runtime`, the canonical Raffel context used by auth,
+policies, tracing, deadlines, and providers. For TypeScript, annotate this style
+with `HttpHandlerFunction`:
+
+```ts
+import type { HttpHandlerFunction } from 'raffel'
+
+const handler: HttpHandlerFunction = async (c) => {
+  return c.json({ ok: true })
+}
+
+export default handler
+```
 
 ## GraphQL Resources
 
@@ -218,6 +250,19 @@ export const meta = {
 export default async function handler(input, ctx) {
   return { name: `user-${input.id}` }
 }
+```
+
+For HTTP routes discovered from `src/http` or `discovery.routes`, the default
+export may also be an HTTP-style handler:
+
+```ts
+import type { HttpHandlerFunction } from 'raffel'
+
+const handler: HttpHandlerFunction = async (c) => {
+  return c.json({ id: c.req.param('id') })
+}
+
+export default handler
 ```
 
 ### Schemas and validators
