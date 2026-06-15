@@ -174,6 +174,55 @@ graph TD
         },
       },
     },
+    graphql: {
+      endpoint: '/graphql',
+      resources: {
+        Lead: {
+          name: 'Lead',
+          pluralName: 'leads',
+          schema: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              email: { type: 'string' },
+            },
+          },
+          policies: ['lead-read'],
+          relations: {
+            owner: {
+              type: 'User',
+              authz: {
+                action: 'user.read',
+                mode: 'all',
+                'has-resource-resolver': true,
+              },
+            },
+          },
+        },
+      },
+      queries: {
+        leads: {
+          field: 'leads',
+          kind: 'query',
+          resource: 'Lead',
+          source: 'resource',
+          output: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/LeadGraphQLResource' },
+          },
+          pagination: {
+            style: 'offset',
+            defaultLimit: 20,
+            maxLimit: 100,
+          },
+          authz: {
+            action: 'lead.read',
+            mode: 'all',
+            'has-resource-resolver': true,
+          },
+        },
+      },
+    },
     streams: {
       endpoints: {
         events: {
@@ -262,9 +311,13 @@ const routeBaseDocs = {
 }
 
 function injectBrowserSmoke(html, assetMode = 'external') {
-  const runtimeTag = assetMode === 'external'
-    ? '<script type="module" data-raffel-runtime="external" src="/docs/-/raffel-docs.js"></script>'
-    : '<script type="module" data-raffel-runtime="inline">'
+  const runtimeTagPattern = assetMode === 'external'
+    ? /<script type="module" data-raffel-runtime="external" src="\/docs\/-\/raffel-docs\.js(?:\?v=[^"]+)?"><\/script>/
+    : /<script type="module" data-raffel-runtime="inline">/
+  const runtimeTag = html.match(runtimeTagPattern)?.[0]
+  if (!runtimeTag) {
+    throw new Error(`Generated HTML did not include the expected ${assetMode} runtime script tag`)
+  }
   const smoke = `<script>
 try { localStorage.setItem('raffel-docs-theme', 'dark') } catch {}
 window.__RAFFEL_DOCS_PLUGINS__ = [{
@@ -327,7 +380,7 @@ window.__runRaffelDocsSmoke = function () {
     document.documentElement.setAttribute('data-dark-markdown-vars-ok', String(
       rootStyle.getPropertyValue('--bg-tertiary').trim() === '#1e293b' &&
       rootStyle.getPropertyValue('--text-primary').trim() === '#f8fafc' &&
-      rootStyle.getPropertyValue('--border').trim() === '#334155'
+      rootStyle.getPropertyValue('--border').trim() === '#475569'
     ))
     document.getElementById('themeToggle')?.click()
     document.documentElement.setAttribute('data-theme-toggle-persisted-ok', String(
@@ -385,6 +438,7 @@ window.__runRaffelDocsSmoke = function () {
     window.__protocolSmokeRan = true
     const protocolChecks = [
       ['Websocket', 'chat', 'Chat channel'],
+      ['Graphql', 'leads', 'lead.read'],
       ['Streams', 'events', 'Event stream'],
       ['Jsonrpc', 'tasks.list', 'Result'],
       ['Grpc', 'TaskService/ListTasks', 'Response'],
@@ -410,7 +464,8 @@ window.__runRaffelDocsSmoke = function () {
   if (search && !window.location.hash.startsWith('#/') && !window.__searchSmokeRan) {
     window.__searchSmokeRan = true
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }))
-    document.documentElement.setAttribute('data-search-hotkey-ok', String(document.documentElement.getAttribute('data-search-focused') === 'true' || document.activeElement === search))
+    const searchModal = document.querySelector('.search-modal')
+    document.documentElement.setAttribute('data-search-hotkey-ok', String(Boolean(searchModal?.hasAttribute('open') || searchModal?.open === true)))
     search.value = 'install'
     search.dispatchEvent(new Event('input', { bubbles: true }))
     document.documentElement.setAttribute('data-search-results-ok', String(document.querySelectorAll('.docs-page-result').length > 0))
@@ -420,10 +475,6 @@ window.__runRaffelDocsSmoke = function () {
 }
 </script>
 ${runtimeTag}`
-
-  if (!html.includes(runtimeTag)) {
-    throw new Error(`Generated HTML did not include the expected ${assetMode} runtime script tag`)
-  }
   return html.replace(runtimeTag, smoke)
 }
 
@@ -447,6 +498,9 @@ async function assertBuildOutputExists() {
     await access(join(assetsDir, 'marked-renderer.js'))
     await access(join(assetsDir, 'protocol-console.js'))
     await access(join(assetsDir, 'sidebar-tree.js'))
+    await access(join(assetsDir, 'code-block-toolbar.js'))
+    await access(join(assetsDir, 'page-nav.js'))
+    await access(join(assetsDir, 'search-modal.js'))
     await access(join(assetsDir, 'marked.umd.js'))
     await access(join(assetsDir, 'prism.js'))
     await access(join(assetsDir, 'raffel-docs.css'))
@@ -473,6 +527,9 @@ async function createFixtureServer(html) {
   const markedRendererJs = await readFile(join(assetsDir, 'marked-renderer.js'))
   const protocolConsoleJs = await readFile(join(assetsDir, 'protocol-console.js'))
   const sidebarTreeJs = await readFile(join(assetsDir, 'sidebar-tree.js'))
+  const codeBlockToolbarJs = await readFile(join(assetsDir, 'code-block-toolbar.js'))
+  const pageNavJs = await readFile(join(assetsDir, 'page-nav.js'))
+  const searchModalJs = await readFile(join(assetsDir, 'search-modal.js'))
   const markedUmdJs = await readFile(join(assetsDir, 'marked.umd.js'))
   const prismJs = await readFile(join(assetsDir, 'prism.js'))
   const runtimeCss = await readFile(join(assetsDir, 'raffel-docs.css'))
@@ -504,6 +561,21 @@ async function createFixtureServer(html) {
     if (path === '/docs/-/sidebar-tree.js') {
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
       response.end(sidebarTreeJs)
+      return
+    }
+    if (path === '/docs/-/code-block-toolbar.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(codeBlockToolbarJs)
+      return
+    }
+    if (path === '/docs/-/page-nav.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(pageNavJs)
+      return
+    }
+    if (path === '/docs/-/search-modal.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+      response.end(searchModalJs)
       return
     }
     if (path === '/docs/-/marked.umd.js') {
@@ -675,12 +747,14 @@ async function run() {
     assertDom(searchDom, [
       { label: 'search smoke completion marker', needle: 'data-smoke-ready="yes"' },
       { label: 'auto-generated WebSocket docs', needle: 'data-protocol-websocket-ok="true"' },
+      { label: 'auto-generated GraphQL docs', needle: 'data-protocol-graphql-ok="true"' },
       { label: 'auto-generated stream docs', needle: 'data-protocol-streams-ok="true"' },
       { label: 'auto-generated JSON-RPC docs', needle: 'data-protocol-jsonrpc-ok="true"' },
       { label: 'auto-generated gRPC docs', needle: 'data-protocol-grpc-ok="true"' },
       { label: 'auto-generated TCP docs', needle: 'data-protocol-tcp-ok="true"' },
       { label: 'auto-generated UDP docs', needle: 'data-protocol-udp-ok="true"' },
       { label: 'WebSocket try panel', needle: 'data-protocol-try-websocket-ok="true"' },
+      { label: 'GraphQL try panel', needle: 'data-protocol-try-graphql-ok="true"' },
       { label: 'stream try panel', needle: 'data-protocol-try-streams-ok="true"' },
       { label: 'JSON-RPC try panel', needle: 'data-protocol-try-jsonrpc-ok="true"' },
       { label: 'gRPC try panel', needle: 'data-protocol-try-grpc-ok="true"' },
