@@ -94,7 +94,16 @@ export type DiscoverySourceValue =
  */
 export interface DiscoveryConfig {
   /**
-   * HTTP procedures source(s). Individual handler files with full control.
+   * Domain-oriented route roots.
+   * Files inside a routes root declare their kind by filename convention.
+   * This slice supports ordinary HTTP handlers; `.rest.ts` files are reserved
+   * for REST Resource Files.
+   */
+  routes?: RoutesRootConfig | RoutesRootConfig[]
+
+  /**
+   * HTTP procedures directory.
+   * Individual handler files with full control.
    * @default './src/http'
    */
   http?: DiscoverySourceValue
@@ -146,6 +155,17 @@ export interface DiscoveryConfig {
   udp?: DiscoverySourceValue
 }
 
+export interface RoutesRootConfig {
+  /** Directory or directory pattern to discover. */
+  dir: string
+
+  /** Explicit public path prefix for every discovered file in this root. */
+  prefix: string
+
+  /** Names for `*` pattern segments in `dir`, consumed left to right. */
+  params?: string[]
+}
+
 export interface DiscoveryLoaderOptions {
   /** Base directory (default: process.cwd()) */
   baseDir?: string
@@ -184,6 +204,7 @@ export interface DiscoveryLoaderOptions {
 }
 
 export interface DiscoveryStats {
+  routes: number
   http: number
   channels: number
   rpc: number
@@ -307,6 +328,12 @@ export interface HandlerMeta {
 
   /** HTTP success status override for procedures (e.g. 201 on create). */
   httpSuccessStatus?: number
+
+  /**
+   * Resource action name override when a route is composed under a same-named
+   * `.rest` Resource Anchor.
+   */
+  actionName?: string
 
   /** JSON-RPC metadata (for USD generation) */
   jsonrpc?: JsonRpcMeta

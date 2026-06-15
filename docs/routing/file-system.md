@@ -28,6 +28,7 @@ Default directories:
 
 ```
 src/
+  domains/*/routes/ # Routes Root entries for domain-owned handlers
   http/        # HTTP procedures
   rpc/         # JSON-RPC + gRPC procedures
   streams/     # Stream handlers
@@ -37,6 +38,36 @@ src/
   tcp/         # TCP handlers
   udp/         # UDP handlers
 ```
+
+## Routes Root
+
+Use `discovery.routes` when handlers live inside domain folders instead of
+protocol-specific top-level directories. Each Routes Root has an explicit
+`prefix`; the prefix is applied to public HTTP paths and also scopes internal
+operation names.
+
+```ts
+const server = createServer({
+  discovery: {
+    routes: [
+      { dir: './src/domains/leads/routes', prefix: '/api/v1/leads' },
+      { dir: './src/domains/:domain/routes', prefix: '/api/v1/:domain' },
+      { dir: './src/areas/*/routes', params: ['area'], prefix: '/admin/:area' },
+    ],
+  },
+})
+```
+
+Ordinary files in a Routes Root use the same HTTP verb convention as
+`src/http`: `notifications/get.ts` becomes `GET /api/v1/leads/notifications`
+for the first root above. The internal operation name is prefixed as well,
+for example `api/v1/leads/notifications/get`.
+
+Routes Root prefixes are concatenated with file-derived paths without
+deduplicating repeated segments. A prefix of `/` behaves as no prefix.
+
+`.rest.ts` is reserved for REST Resource Files and is not treated as an
+ordinary HTTP handler.
 
 ## Route naming
 

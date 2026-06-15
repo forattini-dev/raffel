@@ -99,7 +99,8 @@ export function generateHttpPaths(
   // Process REST resources first (they define proper HTTP paths)
   if (ctx.restResources) {
     for (const resource of ctx.restResources) {
-      tags.add(resource.name)
+      const resourceTag = resource.directoryMeta?.tag ?? resource.name
+      tags.add(resourceTag)
 
       // Add resource schema if defined
       if (resource.schema) {
@@ -123,7 +124,8 @@ export function generateHttpPaths(
           route,
           schemaRegistry,
           includeErrorResponses,
-          defaultSecurity
+          defaultSecurity,
+          resourceTag
         )
 
         // Initialize path if needed
@@ -487,7 +489,8 @@ function createRestOperation(
   route: LoadedRestResource['routes'][number],
   schemaRegistry: ConvertedSchemaRegistry,
   includeErrorResponses: boolean,
-  defaultSecurity?: Array<Record<string, string[]>>
+  defaultSecurity?: Array<Record<string, string[]>>,
+  tag?: string,
 ): USDOperation {
   const operationId = `${resourceName}_${route.operation}`
   const schemaRef = capitalizeFirst(resourceName)
@@ -496,7 +499,7 @@ function createRestOperation(
     operationId,
     summary: getRestOperationSummary(resourceName, route.operation),
     description: getRestOperationDescription(resourceName, route.operation),
-    tags: [resourceName],
+    tags: [tag ?? resourceName],
     responses: createRestResponses(resourceName, route, schemaRegistry, includeErrorResponses),
   }
 

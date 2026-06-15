@@ -7,6 +7,7 @@
 
 import type { z } from 'zod'
 import type { Context } from '../../../types/index.js'
+import type { DirectoryMeta } from '../types.js'
 
 // === Resource Configuration ===
 
@@ -35,6 +36,12 @@ export interface ResourceConfig {
 
   /** Rate limiting per operation */
   rateLimit?: Partial<Record<ResourceOperation, RateLimitConfig>>
+
+  /**
+   * Compose same-named route files/directories into this Resource Anchor.
+   * Set to false to keep same-named routes as ordinary discovered routes.
+   */
+  compose?: boolean
 }
 
 export interface RateLimitConfig {
@@ -199,10 +206,13 @@ export interface ResourceOptionsResult {
  */
 export interface ResourceAction<TInput = unknown, TOutput = unknown> {
   /** HTTP method (default: POST) */
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
 
   /** Is this a collection action (no :id)? */
   collection?: boolean
+
+  /** Relative path override under the resource base path. */
+  path?: string
 
   /** Input schema */
   input?: z.ZodType<TInput>
@@ -363,6 +373,9 @@ export interface LoadedResource {
    * cascade. Applied to every operation registered from this resource.
    */
   coLocatedPolicies?: import('../../../middleware/policy/types.js').Policy[]
+
+  /** Directory metadata cascaded from _meta files. */
+  directoryMeta?: DirectoryMeta
 }
 
 export interface ResolvedResourceConfig {
@@ -377,6 +390,7 @@ export interface ResolvedResourceConfig {
   }
   middleware: ResourceMiddleware[]
   rateLimit: Partial<Record<ResourceOperation, RateLimitConfig>>
+  compose: boolean
 }
 
 // === Resource Loader Options ===

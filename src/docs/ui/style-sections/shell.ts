@@ -260,6 +260,89 @@ export function generateShellStyles(
     .top-nav-actions {
       display: flex;
       align-items: center;
+      gap: 10px;
+    }
+
+    .docs-state-summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: min(44vw, 420px);
+      overflow: hidden;
+    }
+
+    .docs-state-summary[hidden] {
+      display: none;
+    }
+
+    .docs-state-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--surface-color) 84%, transparent);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .docs-state-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--text-muted);
+      flex: 0 0 auto;
+    }
+
+    .docs-state-pill[data-state="fresh"] .docs-state-dot {
+      background: var(--primary-color);
+    }
+
+    .docs-state-pill[data-state="stale"] .docs-state-dot {
+      background: #b45309;
+    }
+
+    .docs-state-pill[data-state="off"] .docs-state-dot,
+    .docs-state-pill[data-state="unknown"] .docs-state-dot {
+      background: var(--text-muted);
+    }
+
+    .docs-state-label {
+      color: var(--text-primary);
+    }
+
+    .docs-state-meta {
+      max-width: 92px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 500;
+    }
+
+    .docs-state-pill[data-updated="true"] {
+      border-color: var(--primary-color);
+      color: var(--text-primary);
+    }
+
+    @media (max-width: 760px) {
+      .docs-state-summary {
+        max-width: 38vw;
+      }
+
+      .docs-state-pill {
+        padding: 0 6px;
+      }
+
+      .docs-state-meta {
+        display: none;
+      }
     }
 
     /* ========== HERO SECTION — editorial-technical ========== */

@@ -19,6 +19,8 @@
 import { isAbsolute, join } from 'node:path'
 import type { DiscoveryConfig, DiscoverySourceEntry, DiscoverySourceValue } from './types.js'
 
+type DefaultDiscoverySlot = Exclude<keyof DiscoveryConfig, 'routes'>
+
 /** Resolved discovery source — what consumers iterate over. */
 export interface ResolvedDiscoverySource {
   dir: string
@@ -35,7 +37,7 @@ export interface ResolvedDiscoverySource {
 }
 
 /** Default directories used when a slot is `true`. */
-export const DISCOVERY_DEFAULTS: Record<keyof DiscoveryConfig, string> = {
+export const DISCOVERY_DEFAULTS: Record<DefaultDiscoverySlot, string> = {
   http: './src/http',
   channels: './src/channels',
   rpc: './src/rpc',

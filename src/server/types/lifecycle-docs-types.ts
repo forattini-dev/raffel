@@ -226,6 +226,8 @@ export interface USDDocsConfig {
 export interface USDDocsHandlers {
   /** Serve the main documentation UI */
   serveUI: () => Response
+  /** Serve Docs State as JSON */
+  serveDocsState: () => Response
   /** Serve USD document as JSON */
   serveUSD: () => Response
   /** Serve USD document as YAML */
@@ -244,6 +246,12 @@ export interface USDDocsHandlers {
   serveUIProtocolConsole: () => Response
   /** Serve reusable declarative sidebar runtime bridge */
   serveUISidebarTree: () => Response
+  /** Serve reusable code-block toolbar runtime bridge */
+  serveUICodeBlockToolbar: () => Response
+  /** Serve reusable page-nav runtime bridge */
+  serveUIPageNav: () => Response
+  /** Serve reusable cmd+K search modal runtime bridge */
+  serveUISearchModal: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
@@ -252,4 +260,6 @@ export interface USDDocsHandlers {
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */
   getOpenAPIDocument: () => OpenAPIDocument
+  /** Get the Markdown Documentation state slice */
+  getMarkdownDocsState: () => unknown
 }

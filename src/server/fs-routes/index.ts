@@ -88,6 +88,7 @@ export type {
   DiscoveryConfig,
   DiscoveryLoaderOptions,
   DiscoveryStats,
+  RoutesRootConfig,
 
   // Handler exports
   HandlerExports,

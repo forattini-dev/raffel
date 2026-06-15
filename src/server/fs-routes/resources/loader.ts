@@ -44,6 +44,7 @@ const DEFAULT_CONFIG: ResolvedResourceConfig = {
   timestamps: {},
   middleware: [],
   rateLimit: {},
+  compose: true,
 }
 
 // === Main Loader ===
@@ -86,26 +87,12 @@ export async function loadResources(options: ResourceLoaderOptions): Promise<Res
         if (aliased !== undefined) handlers.delete = aliased
       }
 
-      // Must have at least one handler
-      const hasHandler = handlers.list || handlers.get || handlers.create ||
-        handlers.update || handlers.patch || handlers.delete ||
-        handlers.head || handlers.options || handlers.actions
+      const resource = createLoadedResourceFromExports(name, filePath, handlers)
+      if (!resource) continue
 
-      if (!hasHandler) {
-        logger.warn({ filePath }, 'Resource file has no handlers')
-        continue
-      }
+      resources.push(resource)
 
-      const config = resolveConfig(handlers.config, name)
-
-      resources.push({
-        name,
-        filePath,
-        config,
-        handlers,
-      })
-
-      logger.info({ name, basePath: config.basePath }, 'Loaded resource')
+      logger.info({ name, basePath: resource.config.basePath }, 'Loaded resource')
     } catch (err) {
       logger.error({ err, filePath }, 'Failed to load resource')
     }
@@ -142,6 +129,36 @@ export async function loadResources(options: ResourceLoaderOptions): Promise<Res
 
 // === Config Resolution ===
 
+export function createLoadedResourceFromExports(
+  name: string,
+  filePath: string,
+  exports: ResourceExports,
+  options: { basePath?: string } = {},
+): LoadedResource | null {
+  const hasHandler = exports.list || exports.get || exports.create ||
+    exports.update || exports.patch || exports.delete ||
+    exports.head || exports.options || exports.actions
+
+  if (!hasHandler) {
+    logger.warn({ filePath }, 'Resource file has no handlers')
+    return null
+  }
+
+  const config = resolveConfig(
+    options.basePath
+      ? { ...(exports.config ?? {}), basePath: options.basePath }
+      : exports.config,
+    name
+  )
+
+  return {
+    name,
+    filePath,
+    config,
+    handlers: exports,
+  }
+}
+
 function resolveConfig(config?: ResourceConfig, name?: string): ResolvedResourceConfig {
   return {
     basePath: config?.basePath ?? `/${name ?? 'resource'}`,
@@ -151,6 +168,7 @@ function resolveConfig(config?: ResourceConfig, name?: string): ResolvedResource
     timestamps: config?.timestamps ?? DEFAULT_CONFIG.timestamps,
     middleware: config?.middleware ?? DEFAULT_CONFIG.middleware,
     rateLimit: config?.rateLimit ?? DEFAULT_CONFIG.rateLimit,
+    compose: config?.compose ?? DEFAULT_CONFIG.compose,
   }
 }
 
@@ -343,9 +361,12 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
     if (handlers.actions) {
       for (const [actionName, action] of Object.entries(handlers.actions)) {
         const method = action.method ?? 'POST'
-        const path = action.collection
-          ? `${basePath}/${actionName}`
-          : `${basePath}/:id/${actionName}`
+        const actionPath = action.path !== undefined
+          ? normalizeResourceActionPath(action.path)
+          : action.collection
+            ? `/${actionName}`
+            : `/:id/${actionName}`
+        const path = `${basePath}${actionPath}`
 
         routes.push({
           method,
@@ -616,7 +637,9 @@ function createActionRoute(
 ) {
   return async (input: unknown, baseCtx: ResourceContext) => {
     const raw = input as { id?: string; data?: unknown }
-    const id = action.collection ? null : (raw.id ?? '')
+    const actionPath = action.path !== undefined ? normalizeResourceActionPath(action.path) : undefined
+    const collection = action.collection ?? (actionPath ? !actionPath.includes(':id') : false)
+    const id = collection ? null : (raw.id ?? '')
     let data: unknown = raw.data ?? raw
 
     // Validate input if schema provided
@@ -627,4 +650,9 @@ function createActionRoute(
     const ctx = createResourceContext(resource, actionName, id ? { id } : {}, {}, baseCtx)
     return action.handler(data, id, ctx)
   }
+}
+
+function normalizeResourceActionPath(path: string): string {
+  if (path === '' || path === '/') return ''
+  return path.startsWith('/') ? path : `/${path}`
 }

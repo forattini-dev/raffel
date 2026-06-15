@@ -53,6 +53,7 @@ const DEFAULT_CONFIG: ResolvedRestConfig = {
   timestamps: {},
   interceptors: [],
   basePath: '',
+  compose: true,
   auth: {
     list: 'none',
     get: 'none',
@@ -100,7 +101,9 @@ export async function loadRestResources(options: RestLoaderOptions): Promise<Res
         continue
       }
 
-      const resource = createRestResource(name, filePath, exports, options.defaults)
+      const resource = createLoadedRestResourceFromExports(name, filePath, exports, {
+        defaults: options.defaults,
+      })
       resources.push(resource)
 
       logger.info(
@@ -133,13 +136,18 @@ export async function loadRestResources(options: RestLoaderOptions): Promise<Res
 /**
  * Create a REST resource from exports.
  */
-function createRestResource(
+export function createLoadedRestResourceFromExports(
   name: string,
   filePath: string,
   exports: RestExports,
-  defaults?: Partial<RestConfig>
+  options: { basePath?: string; defaults?: Partial<RestConfig> } = {},
 ): LoadedRestResource {
-  const config = resolveConfig(exports.config, defaults)
+  const config = resolveConfig(
+    options.basePath
+      ? { ...(exports.config ?? {}), basePath: options.basePath }
+      : exports.config,
+    options.defaults
+  )
   const adapter = resolveAdapter(exports.adapter)
   const handlers = new Map<RestOperation, RestHandler>()
   const actions = new Map<string, RestActionConfig>()
@@ -628,16 +636,17 @@ function createRoutes(
 
   // Collection operations
   if (COLLECTION_OPERATIONS.includes(operation) && operation !== 'head') {
-    routes.push({
-      method,
-      path: basePath,
-      operation,
-      handler,
-      inputSchema,
-      outputSchema,
-      auth,
-      isCollection: true,
-    })
+      routes.push({
+        method,
+        path: basePath,
+        operation,
+        handler,
+        inputSchema,
+        outputSchema,
+        auth,
+        isCollection: true,
+        middleware: config.interceptors,
+      })
   }
 
   // Item operations
@@ -653,6 +662,7 @@ function createRoutes(
         handler,
         auth,
         isCollection: true,
+        middleware: config.interceptors,
       })
     }
 
@@ -665,6 +675,7 @@ function createRoutes(
       outputSchema,
       auth,
       isCollection: false,
+      middleware: config.interceptors,
     })
   }
 
@@ -691,6 +702,7 @@ function createActionRoute(
     outputSchema: action.output,
     auth: action.auth ?? 'required',
     isCollection: !action.path.includes(':'),
+    middleware: [...config.interceptors, ...(action.middleware ?? [])],
   }
 }
 

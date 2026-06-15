@@ -50,6 +50,208 @@ afterEach(async () => {
 })
 
 describe('discovery.http plane (issue #110)', () => {
+  it('serves ordinary Routes Root HTTP handlers with public prefix and internal namespace', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-http-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(path.join(routesDir, 'notifications'), { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications', 'get.js'),
+      `export default async function () { return [{ id: 'n1' }] }`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never)
+    await server.start()
+
+    const proc = server.registry.listProcedures().find((p) => p.name === 'api/v1/leads/notifications/get')
+    expect(proc?.httpMethod).toBe('GET')
+    expect(proc?.httpPath).toBe('/api/v1/leads/notifications')
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([{ id: 'n1' }])
+  })
+
+  it('serves explicit .rest resource anchors from Routes Root and includes them in OpenAPI docs', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(routesDir, { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `const notifications = new Map([['n1', { id: 'n1', title: 'Welcome' }]])
+
+export const list = async () => Array.from(notifications.values())
+export const get = async (id) => notifications.get(id) ?? null
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST', version: '1.0.0' },
+    })
+    await server.start()
+
+    const list = server.registry.listProcedures().find((p) => p.name === 'api.v1.leads.notifications.list')
+    const get = server.registry.listProcedures().find((p) => p.name === 'api.v1.leads.notifications.get')
+    expect(list?.httpMethod).toBe('GET')
+    expect(list?.httpPath).toBe('/api/v1/leads/notifications')
+    expect(get?.httpMethod).toBe('GET')
+    expect(get?.httpPath).toBe('/api/v1/leads/notifications/:id')
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([{ id: 'n1', title: 'Welcome' }])
+
+    const openApi = server.getOpenAPIDocument()
+    expect(openApi?.paths['/api/v1/leads/notifications']?.get?.operationId).toBe('apiV1LeadsNotificationsList')
+    expect(openApi?.paths['/api/v1/leads/notifications/:id']?.get?.operationId).toBe('apiV1LeadsNotificationsGet')
+  })
+
+  it('serves schema-first .rest resource anchors from Routes Root and includes them in OpenAPI docs', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-schema-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(routesDir, { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `import { z } from 'zod'
+
+const notifications = new Map([['n1', { id: 'n1', title: 'Welcome' }]])
+
+export const schema = z.object({
+  id: z.string(),
+  title: z.string(),
+})
+
+export const config = { operations: ['list', 'get'] }
+
+export const adapter = {
+  findMany: async () => Array.from(notifications.values()),
+  count: async () => notifications.size,
+  findUnique: async ({ where }) => notifications.get(where.id) ?? null,
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST Schema', version: '1.0.0' },
+    })
+    await server.start()
+
+    const list = server.registry.listProcedures().find((p) => p.name === 'api.v1.leads.notifications.list')
+    const get = server.registry.listProcedures().find((p) => p.name === 'api.v1.leads.notifications.get')
+    expect(list).toBeDefined()
+    expect(get).toBeDefined()
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      data: [{ id: 'n1', title: 'Welcome' }],
+      meta: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      },
+    })
+
+    const openApi = server.getOpenAPIDocument()
+    expect(openApi?.paths['/api/v1/leads/notifications']?.get?.operationId).toBe('api.v1.leads.notifications_list')
+    expect(openApi?.paths['/api/v1/leads/notifications/{id}']?.get?.operationId).toBe('api.v1.leads.notifications_get')
+  })
+
+  it('serves composed Resource Anchor actions from same-named directories', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-actions-'))
+    const routesDir = path.join(dir, 'domains', 'leads', 'routes')
+    await mkdir(path.join(routesDir, 'notifications', '[id]', 'archive'), { recursive: true })
+    await mkdir(path.join(routesDir, 'notifications', 'export'), { recursive: true })
+
+    await writeFile(
+      path.join(routesDir, 'notifications.rest.js'),
+      `export const list = async () => [{ id: 'n1' }]`,
+    )
+    await writeFile(
+      path.join(routesDir, '_meta.js'),
+      `export default { tag: 'Leads', description: 'Lead domain routes' }`,
+    )
+    await writeFile(
+      path.join(routesDir, 'notifications', 'export', 'get.js'),
+      `export default async function () { return { exported: true } }`,
+    )
+    await writeFile(
+      path.join(routesDir, 'notifications', '[id]', 'archive', 'post.js'),
+      `export default async function (_input, ctx) { return { id: ctx.params.id, archived: true } }`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: {
+        routes: [{ dir: routesDir, prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Routes Root REST Actions', version: '1.0.0' },
+    })
+    await server.start()
+
+    const procedures = server.registry.listProcedures()
+    expect(procedures.find((p) => p.name === 'api.v1.leads.notifications.export')?.httpPath)
+      .toBe('/api/v1/leads/notifications/export')
+    expect(procedures.find((p) => p.name === 'api.v1.leads.notifications.archive')?.httpPath)
+      .toBe('/api/v1/leads/notifications/:id/archive')
+
+    const exported = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications/export`)
+    expect(exported.status).toBe(200)
+    expect(await exported.json()).toEqual({ exported: true })
+
+    const archived = await fetch(`http://127.0.0.1:${port}/api/v1/leads/notifications/n1/archive`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(archived.status).toBe(200)
+    expect(await archived.json()).toEqual({ id: 'n1', archived: true })
+
+    const openApi = server.getOpenAPIDocument()
+    expect(openApi?.paths['/api/v1/leads/notifications/export']?.get?.operationId)
+      .toBe('apiV1LeadsNotificationsExport')
+    expect(openApi?.paths['/api/v1/leads/notifications/export']?.get?.tags)
+      .toEqual(['Leads'])
+    expect(openApi?.paths['/api/v1/leads/notifications/:id/archive']?.post?.operationId)
+      .toBe('apiV1LeadsNotificationsArchive')
+    expect(openApi?.paths['/api/v1/leads/notifications/:id/archive']?.post?.tags)
+      .toEqual(['Leads'])
+  })
+
   it('forwards explicit `meta.httpPath` / `meta.httpMethod` from a discovered file', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-http-meta-'))
     const httpDir = path.join(dir, 'http')

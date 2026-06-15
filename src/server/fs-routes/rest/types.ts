@@ -6,6 +6,7 @@
 
 import type { z } from 'zod'
 import type { Context, Interceptor } from '../../../types/index.js'
+import type { DirectoryMeta } from '../types.js'
 
 // === REST Operations ===
 
@@ -162,6 +163,12 @@ export interface RestConfig {
 
   /** Base path override (default: resource name) */
   basePath?: string
+
+  /**
+   * Compose same-named route files/directories into this Resource Anchor.
+   * Set to false to keep same-named routes as ordinary discovered routes.
+   */
+  compose?: boolean
 }
 
 export type RestAuthConfig =
@@ -261,7 +268,7 @@ export interface RestQuery {
 
 export interface RestActionConfig {
   /** HTTP method */
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
 
   /** Path (relative to resource, e.g., '/:id/activate') */
   path: string
@@ -274,6 +281,9 @@ export interface RestActionConfig {
 
   /** Auth config */
   auth?: RestAuthConfig
+
+  /** Route-specific interceptors. */
+  middleware?: Interceptor[]
 
   /** Handler */
   handler: RestHandler
@@ -384,6 +394,9 @@ export interface LoadedRestResource {
    * cascade. Applied to every operation registered from this resource.
    */
   coLocatedPolicies?: import('../../../middleware/policy/types.js').Policy[]
+
+  /** Directory metadata cascaded from _meta files. */
+  directoryMeta?: DirectoryMeta
 }
 
 export interface ResolvedRestConfig extends Omit<Required<Omit<RestConfig, 'exclude' | 'auth' | 'defaultAuth'>>, 'pagination'> {
@@ -415,6 +428,9 @@ export interface RestRoute {
 
   /** Is collection route */
   isCollection: boolean
+
+  /** Interceptors applied only to this generated REST route. */
+  middleware?: Interceptor[]
 }
 
 // === REST Loader Options ===

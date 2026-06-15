@@ -24,6 +24,7 @@ export interface LoadedRestRouteLike {
   inputSchema?: unknown
   outputSchema?: unknown
   isCollection: boolean
+  middleware?: Interceptor[]
 }
 
 export interface LoadedRestResourceLike {
@@ -31,12 +32,20 @@ export interface LoadedRestResourceLike {
   filePath: string
   routes: LoadedRestRouteLike[]
   coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
+  directoryMeta?: {
+    tag?: string
+    description?: string
+  }
 }
 
 export interface LoadedResourceLike {
   name: string
   filePath: string
   coLocatedPolicies?: readonly import('../../middleware/policy/types.js').Policy[]
+  directoryMeta?: {
+    tag?: string
+    description?: string
+  }
 }
 
 export interface GeneratedResourceRouteLike {
@@ -184,7 +193,9 @@ export function createRegistrationService<
       }
 
       registry.procedure(name, route.handler as never, {
-        interceptors: combineInterceptors(name, resource.coLocatedPolicies, resource.filePath),
+        interceptors: combineInterceptors(name, resource.coLocatedPolicies, resource.filePath, route.middleware),
+        description: resource.directoryMeta?.description,
+        tags: resource.directoryMeta?.tag ? [resource.directoryMeta.tag] : undefined,
       })
       recordOperationRegistration(name, {
         source: {
@@ -219,6 +230,8 @@ export function createRegistrationService<
         httpPath: route.path,
         httpMethod: route.method as never,
         httpSuccessStatus,
+        description: resource.directoryMeta?.description,
+        tags: resource.directoryMeta?.tag ? [resource.directoryMeta.tag] : undefined,
       })
       recordOperationRegistration(name, {
         source: {

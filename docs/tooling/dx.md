@@ -48,6 +48,25 @@ Use this workflow in that order:
 
 ---
 
+## Coverage Gate
+
+```bash
+pnpm run test:coverage:full
+```
+
+The full gate runs unit and integration tests together and applies a 90%
+threshold to statements, branches, functions, and lines. Its include list is
+explicit: deterministic core/runtime modules such as router/registry, policy
+matching, runtime planning, validation, sanitizers, JSON server storage, docs UI
+helpers, and shared utilities.
+
+Use source-wide coverage reports for audit and prioritization. Do not treat
+optional adapters, CLI tooling, protocol servers, or external-service
+integrations as part of the release coverage gate unless their test environment
+is also provisioned.
+
+---
+
 ## Inspect
 
 `raffel inspect` renders the canonical runtime preview:

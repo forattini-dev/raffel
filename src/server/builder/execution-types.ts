@@ -77,6 +77,9 @@ export interface ServerLifecycleExecutionCoreContext {
       match?: unknown
     }>
   } | null
+  getApiDocumentationRevision?: () => number
+  markApiDocumentationMounted?: () => void
+  getDocsState?: () => Record<string, unknown>
 }
 
 export interface ServerLifecycleExecutionHttpContext {

@@ -5,7 +5,7 @@
  */
 
 import { watch, type FSWatcher } from 'node:fs'
-import { join, extname } from 'node:path'
+import { join, extname, isAbsolute } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../../utils/logger.js'
 import { loadDiscovery, clearModuleCache, type DiscoveryResult } from './loader.js'
@@ -14,7 +14,7 @@ import {
   normalizeDiscoveryConfig,
   resolveDiscoverySources,
 } from './discovery-sources.js'
-import type { DiscoveryConfig, DiscoveryLoaderOptions } from './types.js'
+import type { DiscoveryLoaderOptions, RoutesRootConfig } from './types.js'
 
 const logger = createLogger('fs-watcher')
 
@@ -73,14 +73,48 @@ export function createDiscoveryWatcher(options: DiscoveryWatcherOptions): Discov
     const config = normalizeDiscoveryConfig(loaderOptions.discovery)
     const dirs: string[] = []
 
-    for (const key of Object.keys(DISCOVERY_DEFAULTS) as Array<keyof DiscoveryConfig>) {
+    for (const key of Object.keys(DISCOVERY_DEFAULTS) as Array<keyof typeof DISCOVERY_DEFAULTS>) {
       const sources = resolveDiscoverySources(baseDir, config[key], DISCOVERY_DEFAULTS[key])
       for (const { dir } of sources) {
         if (existsSync(dir)) dirs.push(dir)
       }
     }
 
+    if (config.routes) {
+      for (const dir of getRoutesRootWatchDirs(baseDir, config.routes)) {
+        if (existsSync(dir)) {
+          dirs.push(dir)
+        }
+      }
+    }
+
+    return Array.from(new Set(dirs))
+  }
+
+  function getRoutesRootWatchDirs(
+    baseDir: string,
+    config: RoutesRootConfig | RoutesRootConfig[],
+  ): string[] {
+    const entries = Array.isArray(config) ? config : [config]
+    const dirs: string[] = []
+
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || !('dir' in entry)) continue
+      const dir = entry.dir
+      const firstPatternIndex = firstRoutesRootPatternIndex(dir)
+      const watchDir = firstPatternIndex === -1
+        ? dir
+        : dir.slice(0, firstPatternIndex).replace(/\/+$/, '') || '.'
+      dirs.push(isAbsolute(watchDir) ? watchDir : join(baseDir, watchDir))
+    }
+
     return dirs
+  }
+
+  function firstRoutesRootPatternIndex(pattern: string): number {
+    const normalized = pattern.replace(/\\/g, '/')
+    const match = normalized.match(/(^|\/)(:[^/]+|\*)(?=\/|$)/)
+    return match?.index ?? -1
   }
 
   /**

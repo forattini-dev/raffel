@@ -58,6 +58,28 @@ type MarkdownAttributes = {
 }
 type DocsRuntimeState = { activePagePath: string; activeHeadingId: string; activeProtocol: string; searchQuery: string }
 type DocsPluginContext = DocsRuntimeState & { pagePath?: string; headingId?: string }
+type DocsSurfaceState = {
+  enabled?: boolean
+  mounted?: boolean
+  fresh?: boolean
+  revision?: number | null
+  counts?: Record<string, unknown>
+  routeCounts?: Record<string, unknown>
+  staleReasons?: string[]
+  updatedAt?: string | null
+  mountedAt?: string | null
+}
+type DocsStatePayload = {
+  generatedAt?: string
+  api?: DocsSurfaceState
+  markdown?: DocsSurfaceState
+}
+type DocsStateRuntimeSnapshot = {
+  state: DocsStatePayload | null
+  apiRevision: number | null
+  apiRevisionChangedAt: number
+  error: string
+}
 type DocsRuntimePlugin = {
   name?: string
   beforeMarkdown?: (markdown: string, context: DocsPluginContext) => string | undefined
@@ -86,6 +108,8 @@ const win = globalThis as unknown as {
   document?: any; location?: any; history?: any
   scrollTo?: (options: unknown) => void
   addEventListener?: (...args: unknown[]) => void
+  fetch?: typeof fetch
+  setInterval?: typeof setInterval
   navigator?: any; localStorage?: any; mermaid?: any; marked?: any; Prism?: any
   __RAFFEL_DOCS__?: any; __RAFFEL_DOCS_PLUGINS__?: unknown[]; RaffelDocs?: any
 }
@@ -121,6 +145,14 @@ let routeState = parseRouteHash()
 let activePagePath = resolveDocsAlias(routeState.pagePath)
 let activeHeadingId = routeState.headingId
 const docsPlugins: DocsRuntimePlugin[] = [], themeStorageKey = 'raffel-docs-theme'
+const docsStatePollMs = 10000
+const docsStateRevisionNoticeMs = 15000
+let docsStateSnapshot: DocsStateRuntimeSnapshot = {
+  state: null,
+  apiRevision: null,
+  apiRevisionChangedAt: 0,
+  error: '',
+}
 function getDocsRuntimeState(): DocsRuntimeState { return { activePagePath, activeHeadingId, activeProtocol, searchQuery } }
 
 function getPluginContext(extra: Partial<DocsPluginContext> = {}): DocsPluginContext {
@@ -146,6 +178,8 @@ function installDocsPluginApi(): void {
     apiVersion: 1,
     use: registerDocsPlugin, plugins: docsPlugins,
     getState: getDocsRuntimeState,
+    getDocsState: () => docsStateSnapshot.state,
+    refreshDocsState: () => fetchDocsState(),
   }
 }
 
@@ -1558,6 +1592,116 @@ function scrollToEndpoint(id: string): void {
   byId(id)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
 }
 
+function getDocsStateEndpoint(): string {
+  const assetBase = String(docsAssetBasePath ?? '').replace(/\/+$/, '')
+  const marker = '/-/assets'
+  const markerIndex = assetBase.lastIndexOf(marker)
+  if (markerIndex >= 0) {
+    const base = assetBase.slice(0, markerIndex) || '/'
+    return `${base === '/' ? '' : base}/state.json`
+  }
+  const pathname = String(win.location?.pathname ?? '/docs').replace(/\/+$/, '') || '/docs'
+  return `${pathname}/state.json`
+}
+
+function docsSurfaceStatus(surface: DocsSurfaceState | undefined): 'fresh' | 'stale' | 'off' | 'unknown' {
+  if (!surface) return 'unknown'
+  if (!surface.enabled || !surface.mounted) return 'off'
+  return surface.fresh === false ? 'stale' : 'fresh'
+}
+
+function docsSurfaceTitle(label: string, surface: DocsSurfaceState | undefined): string {
+  if (!surface) return `${label}: state unavailable`
+  const stale = Array.isArray(surface.staleReasons) && surface.staleReasons.length > 0
+    ? `, stale reasons ${surface.staleReasons.join(', ')}`
+    : ''
+  return `${label}: enabled ${surface.enabled ? 'yes' : 'no'}, mounted ${surface.mounted ? 'yes' : 'no'}, fresh ${surface.fresh ? 'yes' : 'no'}${stale}`
+}
+
+function docsStateMeta(kind: 'api' | 'markdown', surface: DocsSurfaceState | undefined, changed: boolean): string {
+  const status = docsSurfaceStatus(surface)
+  if (status === 'unknown') return 'unknown'
+  if (status === 'off') return surface?.enabled ? 'not mounted' : 'off'
+  if (status === 'stale') return 'stale'
+  if (kind === 'api' && typeof surface?.revision === 'number') return changed ? `r${surface.revision} updated` : `r${surface.revision}`
+  const pages = Number(surface?.counts?.pages ?? 0)
+  return pages > 0 ? `${pages} pages` : 'fresh'
+}
+
+function renderDocsStatePill(kind: 'api' | 'markdown', label: string, surface: DocsSurfaceState | undefined, changed = false): any {
+  const pill = doc.createElement('span')
+  const status = docsSurfaceStatus(surface)
+  pill.className = 'docs-state-pill'
+  pill.dataset.state = status
+  if (changed) pill.dataset.updated = 'true'
+  pill.title = docsSurfaceTitle(label === 'MD' ? 'Markdown Documentation' : 'API Documentation', surface)
+  pill.innerHTML = `<span class="docs-state-dot" aria-hidden="true"></span><span class="docs-state-label">${esc(label)}</span><span class="docs-state-meta">${esc(docsStateMeta(kind, surface, changed))}</span>`
+  return pill
+}
+
+function renderDocsStatePanel(): void {
+  const panel = byId('docsStateSummary')
+  if (!panel) return
+  const state = docsStateSnapshot.state
+  if (!state && !docsStateSnapshot.error) {
+    panel.hidden = true
+    return
+  }
+
+  panel.hidden = false
+  panel.textContent = ''
+  const apiChanged = docsStateSnapshot.apiRevisionChangedAt > 0 &&
+    Date.now() - docsStateSnapshot.apiRevisionChangedAt < docsStateRevisionNoticeMs
+  if (state) {
+    panel.dataset.apiRevision = state.api?.revision == null ? '' : String(state.api.revision)
+    panel.dataset.apiRevisionChanged = apiChanged ? 'true' : 'false'
+    panel.appendChild(renderDocsStatePill('api', 'API', state.api, apiChanged))
+    panel.appendChild(renderDocsStatePill('markdown', 'MD', state.markdown))
+    return
+  }
+
+  panel.dataset.apiRevisionChanged = 'false'
+  panel.appendChild(renderDocsStatePill('api', 'State', undefined))
+}
+
+async function fetchDocsState(): Promise<void> {
+  const request = win.fetch ?? globalThis.fetch
+  if (!request) return
+  try {
+    const response = await request(getDocsStateEndpoint(), {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const next = await response.json() as DocsStatePayload
+    const nextRevision = typeof next.api?.revision === 'number' ? next.api.revision : null
+    const previousRevision = docsStateSnapshot.apiRevision
+    docsStateSnapshot = {
+      state: next,
+      apiRevision: nextRevision,
+      apiRevisionChangedAt: previousRevision !== null && nextRevision !== null && previousRevision !== nextRevision
+        ? Date.now()
+        : docsStateSnapshot.apiRevisionChangedAt,
+      error: '',
+    }
+  } catch (error) {
+    docsStateSnapshot = {
+      ...docsStateSnapshot,
+      state: null,
+      error: error instanceof Error ? error.message : 'Unable to load docs state',
+    }
+  }
+  renderDocsStatePanel()
+}
+
+function startDocsStatePolling(): void {
+  void fetchDocsState()
+  const schedule = win.setInterval ?? globalThis.setInterval
+  schedule?.(() => {
+    void fetchDocsState()
+  }, docsStatePollMs)
+}
+
 /**
  * Lazy-load the Mermaid renderer the first time a page with diagrams is
  * visited. Cached: subsequent route transitions inside the SPA reuse the
@@ -1909,6 +2053,7 @@ function init(): void {
   bindEvents()
   renderFooter()
   render()
+  startDocsStatePolling()
   // Mount cmd+K / ctrl+K search modal (skipped when sidebar search is disabled).
   const modal = createDocsSearchModal({
     doc, win, enabled: sidebarConfig?.search !== false,

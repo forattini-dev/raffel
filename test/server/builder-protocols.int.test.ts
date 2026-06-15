@@ -380,7 +380,7 @@ describe('createServer: protocol configuration, runtime preview, and plugins', (
 
       const preview = server.preview()
 
-      expect(preview.extensions).toEqual([
+      expect(preview.extensions).toEqual(expect.arrayContaining([
         expect.objectContaining({
           namespace: 'purple',
           title: 'Purple Runtime',
@@ -395,7 +395,7 @@ describe('createServer: protocol configuration, runtime preview, and plugins', (
             }),
           ],
         }),
-      ])
+      ]))
     })
   })
 

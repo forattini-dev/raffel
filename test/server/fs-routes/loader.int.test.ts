@@ -8,6 +8,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { z } from 'zod'
 import { loadDiscovery } from '../../../src/server/fs-routes/loader.js'
+import { generateResourceRoutes } from '../../../src/server/fs-routes/resources/loader.js'
 import { createInMemoryDiscoverySource } from '../../../src/server/fs-routes/discovery-source.js'
 
 async function createTempDir(): Promise<string> {
@@ -79,6 +80,552 @@ export default async function middleware(ctx, next) { return next() }
 })
 
 describe('loadDiscovery with DiscoverySource', () => {
+  it('loads ordinary HTTP handlers from an explicit Routes Root with prefix scoping', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/_middleware.js': {
+        module: {
+          default: async (_ctx: unknown, next: () => unknown) => next(),
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/get.js': {
+        module: {
+          default: async () => [{ id: 'n1' }],
+        },
+      },
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          config: { basePath: '/ignored-without-handlers' },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    expect(result.routes.map((route) => route.name)).toEqual([
+      'api/v1/leads/notifications/get',
+    ])
+    expect(result.routes[0]?.meta?.httpMethod).toBe('GET')
+    expect(result.routes[0]?.meta?.httpPath).toBe('/api/v1/leads/notifications')
+    expect(result.routes[0]?.middlewares).toHaveLength(1)
+    expect(result.stats.routes).toBe(1)
+    expect(result.stats.total).toBe(1)
+  })
+
+  it('loads parameterized Routes Roots with :param prefixes and camelCase namespaces', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/crm-admin/routes/notifications/get.js': {
+        module: {
+          default: async () => [{ id: 'n1' }],
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/:domain/routes', prefix: '/api/:domain' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    expect(result.routes.map((route) => route.name)).toEqual([
+      'api/crmAdmin/notifications/get',
+    ])
+    expect(result.routes[0]?.meta?.httpMethod).toBe('GET')
+    expect(result.routes[0]?.meta?.httpPath).toBe('/api/crm-admin/notifications')
+  })
+
+  it('loads parameterized Routes Roots with * and params aliases', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/areas/sales-ops/routes/reports/get.js': {
+        module: {
+          default: async () => [{ id: 'r1' }],
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/areas/*/routes', params: ['area'], prefix: '/admin/:area' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    expect(result.routes.map((route) => route.name)).toEqual([
+      'admin/salesOps/reports/get',
+    ])
+    expect(result.routes[0]?.meta?.httpPath).toBe('/admin/sales-ops/reports')
+  })
+
+  it('treats / as no prefix and does not deduplicate repeated prefix segments', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/root-routes/health/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+      '/app/src/dup-routes/notifications/get.js': {
+        module: {
+          default: async () => [{ id: 'n1' }],
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [
+          { dir: './src/root-routes', prefix: '/' },
+          { dir: './src/dup-routes', prefix: '/notifications' },
+        ],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const byName = new Map(result.routes.map((route) => [route.name, route]))
+
+    expect(byName.get('health/get')?.meta?.httpPath).toBe('/health')
+    expect(byName.get('notifications/notifications/get')?.meta?.httpPath).toBe('/notifications/notifications')
+  })
+
+  it('loads explicit-handler .rest files from Routes Root as resources', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          list: async () => [{ id: 'n1' }],
+          get: async (id: string) => ({ id }),
+        },
+      },
+      '/app/src/resources/projects.js': {
+        module: {
+          list: async () => [],
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+        resources: true,
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const routesRootResource = result.resources.find((resource) => resource.name === 'api.v1.leads.notifications')
+
+    expect(routesRootResource?.config.basePath).toBe('/api/v1/leads/notifications')
+    expect(routesRootResource?.handlers.list).toBeTypeOf('function')
+    expect(routesRootResource?.handlers.get).toBeTypeOf('function')
+    expect(result.resources.map((resource) => resource.name).sort()).toEqual([
+      'api.v1.leads.notifications',
+      'projects',
+    ])
+    expect(result.routes).toHaveLength(0)
+    expect(result.stats.resources).toBe(2)
+    expect(result.stats.total).toBe(2)
+  })
+
+  it('loads schema-first .rest files from Routes Root as REST resources', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          schema: z.object({
+            id: z.string(),
+            title: z.string(),
+          }),
+          config: {
+            operations: ['list', 'get', 'create', 'delete'],
+          },
+          adapter: {
+            findMany: async () => [],
+            count: async () => 0,
+            findUnique: async () => null,
+            create: async ({ data }: { data: unknown }) => data,
+            update: async ({ data }: { data: unknown }) => data,
+            delete: async () => undefined,
+          },
+          list: async () => ({ data: [], meta: { total: 0 } }),
+          delete: false,
+        },
+      },
+      '/app/src/rest/projects.js': {
+        module: {
+          schema: z.object({ id: z.string() }),
+          adapter: {
+            findMany: async () => [],
+            count: async () => 0,
+            findUnique: async () => null,
+            create: async ({ data }: { data: unknown }) => data,
+            update: async ({ data }: { data: unknown }) => data,
+            delete: async () => undefined,
+          },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+        rest: true,
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const routesRootResource = result.restResources.find((resource) => resource.name === 'api.v1.leads.notifications')
+
+    expect(routesRootResource?.config.basePath).toBe('/api/v1/leads/notifications')
+    expect(routesRootResource?.routes.map((route) => `${route.method} ${route.path} ${route.operation}`)).toEqual([
+      'GET /api/v1/leads/notifications list',
+      'POST /api/v1/leads/notifications create',
+      'GET /api/v1/leads/notifications/:id get',
+    ])
+    expect(routesRootResource?.handlers.has('list')).toBe(true)
+    expect(routesRootResource?.handlers.has('delete')).toBe(false)
+    expect(result.restResources.map((resource) => resource.name).sort()).toEqual([
+      'api.v1.leads.notifications',
+      'projects',
+    ])
+    expect(result.stats.rest).toBe(2)
+    expect(result.stats.total).toBe(2)
+  })
+
+  it('composes same-named files and directories into explicit resource actions', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          list: async () => [{ id: 'n1' }],
+        },
+      },
+      '/app/src/domains/leads/routes/notifications.js': {
+        module: {
+          default: async () => ({ ok: true }),
+          meta: { httpMethod: 'POST', actionName: 'bulkRefresh' },
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/export/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/[id]/archive/post.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+      '/app/src/domains/leads/routes/orphans/export/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const resource = result.resources.find((entry) => entry.name === 'api.v1.leads.notifications')
+    expect(Object.keys(resource?.handlers.actions ?? {}).sort()).toEqual([
+      'archive',
+      'bulkRefresh',
+      'export',
+    ])
+
+    const actionRoutes = generateResourceRoutes(resource ? [resource] : [])
+      .filter((route) => route.isAction)
+      .map((route) => `${route.method} ${route.path} ${route.operation}`)
+      .sort()
+
+    expect(actionRoutes).toEqual([
+      'GET /api/v1/leads/notifications/export export',
+      'POST /api/v1/leads/notifications bulkRefresh',
+      'POST /api/v1/leads/notifications/:id/archive archive',
+    ])
+    expect(result.routes.map((route) => route.name)).toEqual([
+      'api/v1/leads/orphans/export/get',
+    ])
+    expect(result.routes[0]?.meta?.httpPath).toBe('/api/v1/leads/orphans/export')
+    expect(result.stats.routes).toBe(1)
+  })
+
+  it('composes same-named directories into schema-first REST resource actions', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          schema: z.object({
+            id: z.string(),
+            title: z.string(),
+          }),
+          config: { operations: ['list'] },
+          adapter: {
+            findMany: async () => [],
+            count: async () => 0,
+          },
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/export/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/[id]/archive/post.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const resource = result.restResources.find((entry) => entry.name === 'api.v1.leads.notifications')
+    expect(Array.from(resource?.actions.keys() ?? []).sort()).toEqual(['archive', 'export'])
+    expect(resource?.routes.map((route) => `${route.method} ${route.path} ${route.operation}`).sort()).toEqual([
+      'GET /api/v1/leads/notifications list',
+      'GET /api/v1/leads/notifications/export export',
+      'POST /api/v1/leads/notifications/:id/archive archive',
+    ])
+    expect(result.routes).toHaveLength(0)
+  })
+
+  it('lets Resource Anchors opt out of same-named endpoint composition', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          config: { compose: false },
+          list: async () => [{ id: 'n1' }],
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/export/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const resource = result.resources.find((entry) => entry.name === 'api.v1.leads.notifications')
+    expect(resource?.handlers.actions).toBeUndefined()
+    expect(result.routes.map((route) => route.name)).toEqual([
+      'api/v1/leads/notifications/export/get',
+    ])
+    expect(result.routes[0]?.meta?.httpPath).toBe('/api/v1/leads/notifications/export')
+  })
+
+  it('shadows composed endpoints when a Resource Anchor operation has the same method and path', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          list: async () => [{ id: 'n1' }],
+          get: async (id: string) => ({ id }),
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/get.js': {
+        module: {
+          default: async () => ({ from: 'shadowed-list' }),
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/[id]/get.js': {
+        module: {
+          default: async () => ({ from: 'shadowed-get' }),
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const resource = result.resources.find((entry) => entry.name === 'api.v1.leads.notifications')
+    expect(resource?.handlers.actions).toBeUndefined()
+    expect(result.routes).toHaveLength(0)
+    expect(result.diagnostics).toHaveLength(2)
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'ROUTES_ROOT_RESOURCE_ACTION_SHADOWED',
+        severity: 'warning',
+        shadowing: expect.objectContaining({
+          operation: 'api.v1.leads.notifications.list',
+          method: 'GET',
+          path: '/api/v1/leads/notifications',
+        }),
+        shadowed: expect.objectContaining({
+          filePath: '/app/src/domains/leads/routes/notifications/get.js',
+          method: 'GET',
+          path: '/api/v1/leads/notifications',
+        }),
+      }),
+      expect.objectContaining({
+        code: 'ROUTES_ROOT_RESOURCE_ACTION_SHADOWED',
+        shadowing: expect.objectContaining({
+          operation: 'api.v1.leads.notifications.get',
+          method: 'GET',
+          path: '/api/v1/leads/notifications/:id',
+        }),
+        shadowed: expect.objectContaining({
+          filePath: '/app/src/domains/leads/routes/notifications/[id]/get.js',
+          method: 'GET',
+          path: '/api/v1/leads/notifications/:id',
+        }),
+      }),
+    ]))
+  })
+
+  it('reports Routes Root overlap with legacy HTTP discovery as a configuration error', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/http/api/leads/ping/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+      '/app/src/domains/leads/routes/ping/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+    })
+
+    await expect(loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        http: true,
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })).rejects.toThrow(/discovery\.routes overlaps an existing discovered operation/)
+  })
+
+  it('reports Routes Root resource overlap with legacy resource discovery as a configuration error', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          list: async () => [{ id: 'n1' }],
+        },
+      },
+      '/app/src/resources/api.v1.leads.notifications.js': {
+        module: {
+          list: async () => [],
+        },
+      },
+    })
+
+    await expect(loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+        resources: true,
+      },
+      extensions: ['.js'],
+      source,
+    })).rejects.toThrow(/discovery\.routes resource overlaps an existing discovered operation: api\.v1\.leads\.notifications\.list/)
+  })
+
+  it('cascades middleware, metadata, and policies onto Resource Anchors and composed actions', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/domains/leads/routes/_middleware.js': {
+        module: {
+          default: async (_ctx: unknown, next: () => unknown) => next(),
+        },
+      },
+      '/app/src/domains/leads/routes/_meta.js': {
+        module: {
+          default: { tag: 'Leads', description: 'Lead domain routes' },
+        },
+      },
+      '/app/src/domains/leads/routes/_policy.json': {
+        text: JSON.stringify({
+          id: 'leads-read',
+          effect: 'allow',
+          principals: ['*'],
+          actions: ['*'],
+          resources: ['lead:*'],
+        }),
+      },
+      '/app/src/domains/leads/routes/notifications.rest.js': {
+        module: {
+          list: async () => [{ id: 'n1' }],
+        },
+      },
+      '/app/src/domains/leads/routes/notifications/export/get.js': {
+        module: {
+          default: async () => ({ ok: true }),
+        },
+      },
+      '/app/src/domains/leads/routes/reports.rest.js': {
+        module: {
+          schema: z.object({ id: z.string() }),
+          config: { operations: ['list'] },
+          adapter: {
+            findMany: async () => [],
+            count: async () => 0,
+          },
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: {
+        routes: [{ dir: './src/domains/leads/routes', prefix: '/api/v1/leads' }],
+      },
+      extensions: ['.js'],
+      source,
+    })
+
+    const explicit = result.resources.find((resource) => resource.name === 'api.v1.leads.notifications')
+    expect(explicit?.config.middleware).toHaveLength(1)
+    expect(explicit?.directoryMeta).toMatchObject({ tag: 'Leads', description: 'Lead domain routes' })
+    expect(explicit?.coLocatedPolicies?.map((policy) => policy.id)).toEqual(['leads-read'])
+
+    const explicitAction = generateResourceRoutes(explicit ? [explicit] : [])
+      .find((route) => route.operation === 'export')
+    expect(explicitAction?.middleware.length).toBeGreaterThanOrEqual(1)
+
+    const schemaFirst = result.restResources.find((resource) => resource.name === 'api.v1.leads.reports')
+    expect(schemaFirst?.directoryMeta).toMatchObject({ tag: 'Leads', description: 'Lead domain routes' })
+    expect(schemaFirst?.coLocatedPolicies?.map((policy) => policy.id)).toEqual(['leads-read'])
+    expect(schemaFirst?.routes[0]?.middleware).toHaveLength(1)
+  })
+
   it('maps in-memory route, channel, REST, resource, TCP, and UDP modules', async () => {
     const source = createInMemoryDiscoverySource({
       '/app/src/http/_middleware.js': {

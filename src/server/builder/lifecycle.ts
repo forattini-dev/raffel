@@ -79,6 +79,9 @@ export interface ServerLifecycleContext {
       match?: unknown
     }>
   }
+  getApiDocumentationRevision?: () => number
+  markApiDocumentationMounted?: () => void
+  getDocsState?: () => Record<string, unknown>
   channelRegistry: Map<string, LoadedChannel>
   restResourceRegistry: LoadedRestResource[]
   tcpHandlers: LoadedTcpHandler[]
@@ -116,6 +119,9 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
     getRuntimePlan,
     globalInterceptors,
     getAuthzSnapshot,
+    getApiDocumentationRevision,
+    markApiDocumentationMounted,
+    getDocsState,
     channelRegistry,
     restResourceRegistry,
     tcpHandlers,
@@ -154,6 +160,9 @@ export function createServerLifecycle(context: ServerLifecycleContext) {
       router,
       globalInterceptors,
       getAuthzSnapshot,
+      getApiDocumentationRevision,
+      markApiDocumentationMounted,
+      getDocsState,
     },
     http: {
       channelRegistry,

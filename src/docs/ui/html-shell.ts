@@ -145,6 +145,7 @@ export function generateTopNavigation(
     </a>
     <div class="top-nav-links">${links}</div>
     <div class="top-nav-actions">
+      <div class="docs-state-summary" id="docsStateSummary" data-docs-state-panel hidden aria-live="polite"></div>
       <button type="button" class="icon-button" id="themeToggle" aria-label="Toggle theme">Theme</button>
     </div>
   </nav>

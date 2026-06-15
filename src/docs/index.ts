@@ -129,6 +129,16 @@ export {
   type USDMiddlewareContext,
 } from './usd-middleware.js'
 
+export {
+  createMarkdownDocsState,
+  joinDocsEndpoint,
+  normalizeDocsBasePath,
+  type ApiDocsState,
+  type DocsState,
+  type DocsSurfaceState,
+  type MarkdownDocsState,
+} from './docs-state.js'
+
 // =============================================================================
 // OpenAPI Generator
 // =============================================================================

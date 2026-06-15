@@ -84,6 +84,26 @@ describe('mountUSDDocs (issue #111)', () => {
     expect(openapi.headers.get('content-type')).toMatch(/json/)
     const usd = await fetch(`${base}/coding/usd.json`)
     expect(usd.status).toBe(200)
+    const state = await fetch(`${base}/coding/state.json`)
+    expect(state.status).toBe(200)
+    expect(state.headers.get('content-type')).toMatch(/json/)
+    await expect(state.json()).resolves.toMatchObject({
+      api: {
+        enabled: true,
+        mounted: true,
+        fresh: true,
+        basePath: '/coding',
+        endpoints: {
+          state: '/coding/state.json',
+          openApiJson: '/coding/openapi.json',
+        },
+      },
+      markdown: {
+        enabled: false,
+        mounted: false,
+        fresh: true,
+      },
+    })
 
     // SPA wildcard catches everything else and returns the UI shell.
     const spa = await fetch(`${base}/coding/anything-else`)

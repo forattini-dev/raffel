@@ -34,6 +34,13 @@ import type { LoadedUdpHandler } from './generators/udp-generator.js'
 import { exportOpenAPI } from '../usd/export/openapi.js'
 import { dump as yamlStringify } from 'js-yaml'
 import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from './ui/index.js'
+import {
+  createMarkdownDocsState,
+  joinDocsEndpoint,
+  normalizeDocsBasePath,
+  type DocsState,
+  type MarkdownDocsState,
+} from './docs-state.js'
 
 function readBuiltDocsRuntime(): string | null {
   return readBuiltDocsUIAsset('raffel-docs.js')
@@ -99,6 +106,15 @@ function contentTypeForAsset(filePath: string): string {
     default:
       return 'application/octet-stream'
   }
+}
+
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data, null, 2), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  })
 }
 
 // =============================================================================
@@ -286,6 +302,8 @@ export interface USDMiddlewareConfig {
 export interface USDHandlers {
   /** Serve the main documentation UI */
   serveUI: () => Response
+  /** Serve Docs State as JSON */
+  serveDocsState: () => Response
   /** Serve USD document as JSON */
   serveUSD: () => Response
   /** Serve USD document as YAML */
@@ -318,6 +336,8 @@ export interface USDHandlers {
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */
   getOpenAPIDocument: () => OpenAPIDocument
+  /** Get the Markdown Documentation state slice without regenerating API docs */
+  getMarkdownDocsState: () => MarkdownDocsState
 }
 
 /**
@@ -352,6 +372,10 @@ export interface USDMiddlewareContext {
       match?: unknown
     }>
   }
+  /** API contract revision used to invalidate generated docs caches. */
+  getApiDocumentationRevision?: () => number
+  /** Complete Docs State supplier owned by the server builder when available. */
+  getDocsState?: () => Record<string, unknown>
 }
 
 // =============================================================================
@@ -386,6 +410,8 @@ export function createUSDHandlers(
     externalComponents,
   } = config
 
+  const docsHandlersCreatedAt = new Date().toISOString()
+  const normalizedBasePath = normalizeDocsBasePath(basePath)
   const loadedMarkdownDocs = docsDir ? loadMarkdownDocs(docsDir) : undefined
   const markdownDocsSource = docsDir ? resolveMarkdownDocsSource(docsDir) : undefined
   const mergedDocumentation = mergeMarkdownDocumentation(documentation, loadedMarkdownDocs?.documentation)
@@ -396,10 +422,58 @@ export function createUSDHandlers(
   // Cache for generated documents
   let cachedUSD: USDDocument | null = null
   let cachedOpenAPI: OpenAPIDocument | null = null
+  let cachedUSDRevision = -1
+  let cachedOpenAPIRevision = -1
+
+  const currentApiRevision = () => ctx.getApiDocumentationRevision?.() ?? 0
+
+  const getMarkdownDocsState = (): MarkdownDocsState => createMarkdownDocsState({
+    basePath: normalizedBasePath,
+    docsDir,
+    documentation,
+    loadedMarkdownDocs,
+    markdownDocsSource,
+    mergedDocumentation,
+    mounted: true,
+    loadedAt: docsHandlersCreatedAt,
+    mountedAt: docsHandlersCreatedAt,
+  })
+
+  const getDefaultDocsState = (): DocsState => {
+    const procedures = ctx.registry.listProcedures().length
+    const restRoutes = (ctx.restResources ?? []).reduce((sum, resource) => sum + resource.routes.length, 0)
+    return {
+      generatedAt: new Date().toISOString(),
+      api: {
+        enabled: true,
+        mounted: true,
+        fresh: true,
+        revision: currentApiRevision(),
+        basePath: normalizedBasePath,
+        endpoints: {
+          ui: normalizedBasePath,
+          usdJson: joinDocsEndpoint(normalizedBasePath, '/usd.json'),
+          usdYaml: joinDocsEndpoint(normalizedBasePath, '/usd.yaml'),
+          openApiJson: joinDocsEndpoint(normalizedBasePath, '/openapi.json'),
+          state: joinDocsEndpoint(normalizedBasePath, '/state.json'),
+        },
+        routeCounts: {
+          procedures,
+          restRoutes,
+          total: procedures + restRoutes,
+        },
+        updatedAt: null,
+        mountedAt: docsHandlersCreatedAt,
+        staleReasons: [],
+      },
+      markdown: getMarkdownDocsState(),
+    }
+  }
 
   // Generate USD document (lazy)
   const getUSD = (): USDDocument => {
-    if (cachedUSD) return cachedUSD
+    const revision = currentApiRevision()
+    if (cachedUSD && cachedUSDRevision === revision) return cachedUSD
 
     const result = generateUSD(
       {
@@ -441,12 +515,14 @@ export function createUSDHandlers(
     )
 
     cachedUSD = result.document
+    cachedUSDRevision = revision
     return cachedUSD
   }
 
   // Generate OpenAPI document (lazy)
   const getOpenAPI = (): OpenAPIDocument => {
-    if (cachedOpenAPI) return cachedOpenAPI
+    const revision = currentApiRevision()
+    if (cachedOpenAPI && cachedOpenAPIRevision === revision) return cachedOpenAPI
 
     const usd = getUSD()
     cachedOpenAPI = exportOpenAPI(usd, {
@@ -455,6 +531,7 @@ export function createUSDHandlers(
       includeRpcAsEndpoints: false,
       includeStreamsAsEndpoints: false,
     })
+    cachedOpenAPIRevision = revision
 
     return cachedOpenAPI
   }
@@ -474,6 +551,8 @@ export function createUSDHandlers(
         },
       })
     },
+
+    serveDocsState: () => jsonResponse(ctx.getDocsState?.() ?? getDefaultDocsState()),
 
     serveUSD: () => {
       const doc = getUSD()
@@ -595,6 +674,7 @@ export function createUSDHandlers(
 
     getUSDDocument: getUSD,
     getOpenAPIDocument: getOpenAPI,
+    getMarkdownDocsState,
   }
 }
 
@@ -664,6 +744,7 @@ export function mountUSDDocs(
   app.get(`${basePath}/-/search-modal.js`, reply(() => handlers.serveUISearchModal()))
 
   // Spec endpoints.
+  app.get(`${basePath}/state.json`, reply(() => handlers.serveDocsState()))
   app.get(`${basePath}/openapi.json`, reply(() => handlers.serveOpenAPI()))
   app.get(`${basePath}/usd.json`, reply(() => handlers.serveUSD()))
   app.get(`${basePath}/usd.yaml`, reply(() => handlers.serveUSDYaml()))

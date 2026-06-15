@@ -14,7 +14,14 @@ type DocsHttpMiddlewareStep = Extract<
 
 export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext) {
   const { logger, state } = context
-  const { registry, schemaRegistry, getAuthzSnapshot } = context.core
+  const {
+    registry,
+    schemaRegistry,
+    getAuthzSnapshot,
+    getApiDocumentationRevision,
+    markApiDocumentationMounted,
+    getDocsState,
+  } = context.core
   const {
     channelRegistry,
     restResourceRegistry,
@@ -38,6 +45,8 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         tcpHandlers,
         udpHandlers,
         protocolConfig: runtimePlan.protocols,
+        getApiDocumentationRevision,
+        getDocsState,
         ...(authzSnapshot ? { authz: authzSnapshot } : {}),
       },
       {
@@ -60,12 +69,14 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         grpc: docsConfig.grpc,
       }
     )
+    markApiDocumentationMounted?.()
 
     httpMiddleware.push(createDocsRouteMiddleware([
       { method: 'GET', path: docsBasePath, handler: state.usdDocsHandlers.value.serveUI },
       { method: 'GET', path: `${docsBasePath}/usd.json`, handler: state.usdDocsHandlers.value.serveUSD },
       { method: 'GET', path: `${docsBasePath}/usd.yaml`, handler: state.usdDocsHandlers.value.serveUSDYaml },
       { method: 'GET', path: `${docsBasePath}/openapi.json`, handler: state.usdDocsHandlers.value.serveOpenAPI },
+      { method: 'GET', path: `${docsBasePath}/state.json`, handler: state.usdDocsHandlers.value.serveDocsState },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.js`, handler: state.usdDocsHandlers.value.serveUIRuntime },
       { method: 'GET', path: `${docsBasePath}/-/marked.umd.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownEngine },
       { method: 'GET', path: `${docsBasePath}/-/prism.js`, handler: state.usdDocsHandlers.value.serveUISyntaxHighlighter },

@@ -111,7 +111,7 @@ function readOptionalDependency(specifier: string): string {
 function generateSharedRuntimeScript(): string | null {
   const runtimeDir = findRuntimeDir()
   if (!runtimeDir) return null
-  const extension = existsSync(join(runtimeDir, 'index.js')) ? '.js' : '.ts'
+  const extension = existsSync(join(runtimeDir, 'index.ts')) ? '.ts' : '.js'
   const modules = ['marked-renderer', 'protocol-console', 'sidebar-tree', 'code-block-toolbar', 'page-nav', 'search-modal', 'index']
   const chunks: string[] = []
   for (const moduleName of modules) {
@@ -135,9 +135,10 @@ function findRuntimeDir(): string | null {
     join(here, '..', '..', '..', 'src', 'docs', 'ui', 'runtime'),
     join(here, '..', '..', '..', '..', 'src', 'docs', 'ui', 'runtime'),
   ]
-  return candidates.find(candidate => existsSync(join(candidate, 'index.js')))
-    ?? candidates.find(candidate => existsSync(join(candidate, 'index.ts')))
-    ?? null
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, 'index.ts')) || existsSync(join(candidate, 'index.js'))) return candidate
+  }
+  return null
 }
 
 function transpileRuntimeSource(source: string, fileName: string): string {

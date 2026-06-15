@@ -916,6 +916,28 @@ await suite.stop()
 
 ---
 
+## Quality Gates
+
+The primary release coverage gate is:
+
+```bash
+pnpm run test:coverage:full
+```
+
+`test:coverage:full` runs the complete unit + integration suite with V8
+coverage and a 90% global threshold for statements, branches, functions, and
+lines. The gate has an explicit scope for deterministic core/runtime modules
+that are stable under coverage instrumentation, including router/registry,
+policy matching, runtime planning, validation, sanitizers, JSON server storage,
+selected docs UI helpers, and shared utilities.
+
+Broader source-wide coverage is useful as an audit signal, but it is not the
+release gate because this package includes optional adapters, protocol servers,
+CLI tooling, and external-service integrations that need separate integration
+environments.
+
+---
+
 ## Spec-Driven Mock Server
 
 You can also stand up mock endpoints directly from OpenAPI or USD documents:

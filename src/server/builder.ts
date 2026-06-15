@@ -46,7 +46,12 @@ import type {
   ServerProfile,
 } from './types.js'
 import type { GraphQLOptions } from '../graphql/index.js'
-import type { USDHandlers } from '../docs/index.js'
+import {
+  createMarkdownDocsState,
+  joinDocsEndpoint,
+  normalizeDocsBasePath,
+  type USDHandlers,
+} from '../docs/index.js'
 import type { USDDocsConfig } from './types.js'
 import {
   createRouteInterceptors,
@@ -118,6 +123,12 @@ import { createProcedureOperationRegistrar } from './builder/operation-registrar
 const logger = createLogger('server')
 const loggerPort = adaptPinoLogger(logger)
 
+function discoveryMayLoadRestResources(discovery: ServerOptions['discovery']): boolean {
+  if (discovery === true) return true
+  if (!discovery) return false
+  return Boolean(discovery.rest || discovery.routes)
+}
+
 /**
  * Create a unified Raffel server
  */
@@ -177,6 +188,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     onLoad: (stats) => {
       logger.info(
         {
+          routes: stats.routes,
           http: stats.http,
           rpc: stats.rpc,
           streams: stats.streams,
@@ -381,6 +393,68 @@ export function createServer(options: ServerOptions): RaffelServer {
 
   // REST resources for HTTP routing
   const restResourceRegistry: LoadedRestResource[] = []
+  let apiDocumentationRevision = 0
+  let apiDocumentationUpdatedAt: string | null = null
+  let apiDocumentationMountedAt: string | null = null
+
+  function advanceApiDocumentationRevision(): void {
+    apiDocumentationRevision++
+    apiDocumentationUpdatedAt = new Date().toISOString()
+  }
+
+  function getApiDocumentationRevision(): number {
+    return apiDocumentationRevision
+  }
+
+  function markApiDocumentationMounted(): void {
+    apiDocumentationMountedAt = new Date().toISOString()
+  }
+
+  function getDocsState(): Record<string, unknown> {
+    const docsConfig = usdDocsConfig
+    const enabled = Boolean(docsConfig)
+    const mounted = Boolean(serverState.usdDocsHandlers.value)
+    const base = normalizeDocsBasePath(docsConfig?.basePath ?? '/docs')
+    const apiRouteCount = registry.listProcedures().length +
+      restResourceRegistry.reduce((sum, resource) => sum + resource.routes.length, 0)
+    const markdown = serverState.usdDocsHandlers.value?.getMarkdownDocsState?.()
+      ?? createMarkdownDocsState({
+        basePath: base,
+        docsDir: docsConfig?.docsDir,
+        documentation: docsConfig?.documentation,
+        mounted,
+        mountedAt: apiDocumentationMountedAt,
+      })
+
+    return {
+      generatedAt: new Date().toISOString(),
+      api: {
+        enabled,
+        mounted,
+        fresh: enabled ? mounted : true,
+        revision: apiDocumentationRevision,
+        basePath: base,
+        endpoints: enabled
+          ? {
+              ui: base,
+              usdJson: joinDocsEndpoint(base, '/usd.json'),
+              usdYaml: joinDocsEndpoint(base, '/usd.yaml'),
+              openApiJson: joinDocsEndpoint(base, '/openapi.json'),
+              state: joinDocsEndpoint(base, '/state.json'),
+            }
+          : {},
+        routeCounts: {
+          procedures: registry.listProcedures().length,
+          restRoutes: restResourceRegistry.reduce((sum, resource) => sum + resource.routes.length, 0),
+          total: apiRouteCount,
+        },
+        updatedAt: apiDocumentationUpdatedAt,
+        mountedAt: apiDocumentationMountedAt,
+        staleReasons: enabled && !mounted ? ['not-mounted'] : [],
+      },
+      markdown,
+    }
+  }
 
   function recordOperationRegistration(
     name: string,
@@ -466,6 +540,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       tcpHandlers,
       udpHandlers
     )
+    advanceApiDocumentationRevision()
   }
 
   const previewContext = serverPlanner.createPreviewContext({
@@ -480,7 +555,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     httpOptions,
     getUsdDocsConfig: () => usdDocsConfig,
     getMcpOptions: () => mcpOptions,
-    hasRestResources: () => restResourceRegistry.length > 0,
+    hasRestResources: () => restResourceRegistry.length > 0 || discoveryMayLoadRestResources(discovery),
     getProtocolExtensionConfigs: () => protocolExtensionConfigs,
     getTcpHandlers: () => tcpHandlers,
     getUdpHandlers: () => udpHandlers,
@@ -499,7 +574,16 @@ export function createServer(options: ServerOptions): RaffelServer {
     udpHandlers,
     operationRegistrations,
     getRuntimePlan,
-    getInspectionExtensions: pluginRuntime.getInspectionExtensions,
+    getInspectionExtensions: (preview) => [
+      ...(pluginRuntime.getInspectionExtensions(preview) ?? []),
+      {
+        namespace: 'docs-state',
+        title: 'Docs State',
+        summary: 'Documentation enablement, mount, freshness, and revision state.',
+        data: getDocsState(),
+        nodes: [],
+      },
+    ],
     logger: loggerPort,
   })
 
@@ -538,6 +622,9 @@ export function createServer(options: ServerOptions): RaffelServer {
     router,
     globalInterceptors,
     getAuthzSnapshot,
+    getApiDocumentationRevision,
+    markApiDocumentationMounted,
+    getDocsState,
     channelRegistry,
     restResourceRegistry,
     tcpHandlers,
