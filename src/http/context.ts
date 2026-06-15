@@ -10,6 +10,12 @@
 import type { Context as RuntimeContext } from '../types/context.js'
 import type { BodyInit, HeadersInit, FetchEvent, ExecutionContext } from './web-types.js'
 
+type FetchResponseBody = ConstructorParameters<typeof Response>[0]
+
+function toFetchResponseBody(data: BodyInit | null): FetchResponseBody {
+  return data as unknown as FetchResponseBody
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -462,7 +468,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
       }
     })
 
-    return new Response(data, {
+    return new Response(toFetchResponseBody(data), {
       status: status ?? this.responseStatus,
       headers: responseHeaders,
     })
@@ -516,7 +522,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
       }
     })
 
-    return new Response(body, {
+    return new Response(toFetchResponseBody(body), {
       ...init,
       headers: responseHeaders,
     })

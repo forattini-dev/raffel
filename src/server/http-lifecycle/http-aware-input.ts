@@ -6,6 +6,9 @@ type HttpFacadeOptions = {
   preferFacadeKeys?: boolean
 }
 
+type FetchRequestInit = ConstructorParameters<typeof Request>[1]
+type FetchResponseBody = ConstructorParameters<typeof Response>[0]
+
 const HTTP_FACADE_KEYS = new Set<PropertyKey>([
   'req',
   'res',
@@ -77,14 +80,18 @@ function encodeBodyAsArrayBuffer(value: unknown, rawBody: Buffer | undefined): A
   return arrayBuffer
 }
 
+function toFetchResponseBody(data: BodyInit): FetchResponseBody {
+  return data as unknown as FetchResponseBody
+}
+
 function createRawRequest(ctx: Context, headers: Record<string, string>, rawBody: Buffer | undefined): Request {
   const method = ctx.http?.method ?? 'GET'
-  const init: { method: string; headers: Record<string, string>; body?: Uint8Array } = {
+  const init: FetchRequestInit = {
     method,
     headers,
   }
   if (rawBody && method !== 'GET' && method !== 'HEAD') {
-    init.body = new Uint8Array(rawBody)
+    init.body = encodeBodyAsArrayBuffer('', rawBody)
   }
   return new Request(ctx.http?.url ?? 'http://localhost/', init)
 }
@@ -187,7 +194,7 @@ function createHttpFacade(input: unknown, ctx: Context): Record<PropertyKey, unk
       return new Response(data, { status: status ?? responseStatus, headers: merged })
     },
     body(data: BodyInit, status?: number, headers?: HeadersInit): Response {
-      return new Response(data, {
+      return new Response(toFetchResponseBody(data), {
         status: status ?? responseStatus,
         headers: mergeResponseHeaders(responseHeaders, headers),
       })
@@ -199,7 +206,7 @@ function createHttpFacade(input: unknown, ctx: Context): Record<PropertyKey, unk
       return new Response('Not Found', { status: 404 })
     },
     newResponse(data: BodyInit, init?: ResponseInit): Response {
-      return new Response(data, {
+      return new Response(toFetchResponseBody(data), {
         ...init,
         headers: mergeResponseHeaders(responseHeaders, init?.headers as HeadersInit | undefined),
       })
