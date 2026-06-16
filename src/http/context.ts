@@ -499,7 +499,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
       }
     })
 
-    return new Response(data, {
+    return new Response(toFetchResponseBody(data), {
       status: status ?? this.responseStatus,
       headers: responseHeaders,
     })
