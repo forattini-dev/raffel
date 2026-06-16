@@ -99,6 +99,7 @@ export type {
   ProcedureHandlerFunction,
   HttpAwareHandlerInput,
   HttpHandlerFunction,
+  DiscoveredHandlerFunction,
   HandlerMeta,
   DirectoryMeta,
 

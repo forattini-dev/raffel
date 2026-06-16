@@ -288,12 +288,16 @@ export function createHttpOverrideMiddleware(
         payload = parsed.payload
         rawBody = parsed.raw
       }
+      const requestBody = payload
 
       // Merge URL params into the dispatched payload so resource-style
       // handlers that read `input.id` keep working alongside `ctx.params`.
+      // Path params are authoritative identifiers; keep them separate on
+      // `ctx.input.params` and make them win over body/query keys when the
+      // flattened procedure input collides.
       if (paramNames.length > 0) {
         if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-          payload = { ...params, ...(payload as Record<string, unknown>) }
+          payload = { ...(payload as Record<string, unknown>), ...params }
         } else if (payload === undefined || payload === null || (typeof payload === 'object' && Object.keys(payload as object).length === 0)) {
           payload = { ...params }
         }
@@ -306,7 +310,7 @@ export function createHttpOverrideMiddleware(
         method,
         url,
         input: {
-          body: payload,
+          body: requestBody,
           params,
           query,
         },

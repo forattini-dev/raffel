@@ -142,18 +142,36 @@ export default async function handler(c) {
 The HTTP-style `c` exposes `c.req.param/query/header/json()` and response helpers
 such as `c.json()`, `c.text()`, `c.html()`, `c.redirect()`, and `c.newResponse()`.
 It also carries `c.runtime`, the canonical Raffel context used by auth,
-policies, tracing, deadlines, and providers. For TypeScript, annotate this style
-with `HttpHandlerFunction`:
+policies, tracing, deadlines, and providers. For TypeScript, annotate procedure-style
+handlers with `ProcedureHandlerFunction` (or the backwards-compatible
+`HandlerFunction` alias) and HTTP-style handlers with `HttpHandlerFunction`:
 
 ```ts
-import type { HttpHandlerFunction } from 'raffel'
+import type { HttpHandlerFunction, ProcedureHandlerFunction } from 'raffel'
 
-const handler: HttpHandlerFunction = async (c) => {
+const procedureHandler: ProcedureHandlerFunction = async (input, ctx) => {
+  return { ok: true, query: ctx.input.query }
+}
+
+const httpHandler: HttpHandlerFunction = async (c) => {
   return c.json({ ok: true })
 }
 
-export default handler
+export default procedureHandler
 ```
+
+Do not annotate a concrete function with a union of both signatures. TypeScript
+cannot contextually type parameters against incompatible call-signature unions
+under `strict`/`noImplicitAny`, so a single-parameter procedure handler should use
+`ProcedureHandlerFunction`/`HandlerFunction`, and an HTTP-facade handler should
+use `HttpHandlerFunction`.
+
+For HTTP path overrides and Routes Root resource/action routes, path params are
+available separately as `ctx.input.params` (and `ctx.params` on HTTP contexts).
+Raffel also flattens path params into the procedure `input` for compatibility
+with resource-style handlers. If a request body/query key collides with a path
+param, the path param wins in the flattened `input`; the original request body
+stays available as `ctx.input.body` or `c.req.json()` in HTTP-style handlers.
 
 ## GraphQL Resources
 

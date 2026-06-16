@@ -134,4 +134,33 @@ describe('server.http.* namespace path matching', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ id: 'abc' })
   })
+
+  it('keeps route params authoritative when body keys collide', async () => {
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' })
+
+    server.http.patch('/items/:id', async (input: any, ctx: any) => ({
+      inputId: input.id,
+      bodyName: input.name,
+      ctxParamId: ctx.params?.id,
+      ctxInputParamId: ctx.input.params.id,
+      ctxInputBodyId: (ctx.input.body as any).id,
+    }))
+
+    await server.start()
+
+    const response = await fetch(`http://127.0.0.1:${port}/items/abc`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'from-body', name: 'x' }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      inputId: 'abc',
+      bodyName: 'x',
+      ctxParamId: 'abc',
+      ctxInputParamId: 'abc',
+      ctxInputBodyId: 'from-body',
+    })
+  })
 })

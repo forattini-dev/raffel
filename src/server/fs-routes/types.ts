@@ -258,7 +258,7 @@ export interface DiscoveryStats {
  */
 export interface HandlerExports {
   /** Default export: the handler function */
-  default: HandlerFunction
+  default: DiscoveredHandlerFunction
 
   /** Input schema (Zod) */
   input?: z.ZodType
@@ -281,7 +281,17 @@ export type HttpAwareHandlerInput = HttpContextInterface & {
 
 export type HttpHandlerFunction = (c: HttpAwareHandlerInput) => unknown | Promise<unknown>
 
-export type HandlerFunction = ProcedureHandlerFunction | HttpHandlerFunction
+/**
+ * Backwards-compatible alias for the classic procedure-style discovered handler.
+ *
+ * Use this for handlers written as `(input, ctx, ack?) => ...`. HTTP-style
+ * handlers written as `(c) => c.json(...)` should use `HttpHandlerFunction`.
+ * Raffel discovery accepts both through `DiscoveredHandlerFunction`.
+ */
+export type HandlerFunction = ProcedureHandlerFunction
+
+/** Any handler shape accepted by file-system discovery. */
+export type DiscoveredHandlerFunction = ProcedureHandlerFunction | HttpHandlerFunction
 
 export interface HandlerMeta {
   /** Short summary for OpenAPI (one-liner, shown in endpoint cards) */
@@ -627,7 +637,7 @@ export interface LoadedRoute {
   filePath: string
 
   /** Handler function */
-  handler: HandlerFunction | StreamHandlerFunction
+  handler: DiscoveredHandlerFunction | StreamHandlerFunction
 
   /** Input schema */
   inputSchema?: z.ZodType

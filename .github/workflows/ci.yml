@@ -223,6 +223,28 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Verify NPM Publish (Stable)
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$PACKAGE_VERSION" != "$VERSION" ]; then
+            echo "::error::Git tag v$VERSION does not match package.json version $PACKAGE_VERSION"
+            exit 1
+          fi
+
+          for attempt in 1 2 3 4 5 6; do
+            PUBLISHED=$(npm view raffel@$VERSION version 2>/dev/null || true)
+            if [ "$PUBLISHED" = "$VERSION" ]; then
+              echo "Verified npm package raffel@$VERSION"
+              exit 0
+            fi
+            echo "raffel@$VERSION not visible on npm yet (attempt $attempt/6); retrying..."
+            sleep 10
+          done
+
+          echo "::error::Git tag v$VERSION did not produce a visible npm package raffel@$VERSION"
+          exit 1
+
       - name: Setup Node.js (GitHub Packages)
         uses: actions/setup-node@v4
         with:
