@@ -25,6 +25,7 @@ const server = createServer({
   port,
   host: '127.0.0.1',
   cors: false,
+  discovery: true, // Enable file-system discovery for all protocols
 })
 
 // === Enable Multi-Protocol Support ===
