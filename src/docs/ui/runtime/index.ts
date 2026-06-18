@@ -1464,6 +1464,23 @@ function renderCodeExamples(endpoint: any, data: any): any {
 }
 
 // Append a JSON example block to a container.
+// Syntax-highlight a JSON value into HTML using the .sample-json token classes.
+function highlightJsonHtml(value: any): string {
+  let json = JSON.stringify(value, null, 2)
+  if (json === undefined) return ''
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return json.replace(
+    /("(?:\\.|[^"\\])*"(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (match: string, _token: string, colon: string) => {
+      let cls = 'json-number'
+      if (match[0] === '"') cls = colon ? 'json-key' : 'json-string'
+      else if (match === 'true' || match === 'false') cls = 'json-boolean'
+      else if (match === 'null') cls = 'json-null'
+      return `<span class="${cls}">${match}</span>`
+    }
+  )
+}
+
 function appendJsonExample(container: any, value: any, label = 'Example'): void {
   if (value === null || value === undefined) return
   const head = doc.createElement('div')
@@ -1472,10 +1489,8 @@ function appendJsonExample(container: any, value: any, label = 'Example'): void 
   head.textContent = label
   container.appendChild(head)
   const pre = doc.createElement('pre')
-  pre.className = 'http-code-sample-pre'
-  pre.style.border = '1px solid var(--border-color)'
-  pre.style.borderRadius = '8px'
-  pre.textContent = JSON.stringify(value, null, 2)
+  pre.className = 'sample-json'
+  pre.innerHTML = highlightJsonHtml(value)
   container.appendChild(pre)
 }
 
