@@ -104,8 +104,8 @@ importers:
         version: 4.4.3
     optionalDependencies:
       marked:
-        specifier: ^17.0.5
-        version: 17.0.6
+        specifier: ^18.0.5
+        version: 18.0.5
       prismjs:
         specifier: ^1.30.0
         version: 1.30.0
@@ -1210,8 +1210,8 @@ packages:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
 
-  marked@17.0.6:
-    resolution: {integrity: sha512-gB0gkNafnonOw0obSTEGZTT86IuhILt2Wfx0mWH/1Au83kybTayroZ/V6nS25mN7u8ASy+5fMhgB3XPNrOZdmA==}
+  marked@18.0.5:
+    resolution: {integrity: sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -2672,7 +2672,7 @@ snapshots:
     dependencies:
       semver: 7.8.4
 
-  marked@17.0.6:
+  marked@18.0.5:
     optional: true
 
   maxmind@5.0.6:
