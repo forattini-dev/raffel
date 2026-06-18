@@ -782,4 +782,37 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .http-code-copy:hover { color: var(--text-color); border-color: var(--text-muted); }
 
+    /* Right panel (third column): keep request/response samples dark & legible
+       regardless of the active theme, matching ReDoc's sample column. */
+    .endpoint-right .endpoint-right-section + .endpoint-right-section {
+      margin-top: 24px;
+    }
+
+    .endpoint-right .http-code-samples {
+      background: rgba(0,0,0,0.25);
+      border-color: rgba(255,255,255,0.1);
+    }
+
+    .endpoint-right .http-code-samples .code-tabs {
+      background: rgba(0,0,0,0.2);
+      border-color: rgba(255,255,255,0.1);
+    }
+
+    .endpoint-right .http-code-sample-pre {
+      color: var(--code-panel-text);
+    }
+
+    .endpoint-right .code-tab {
+      color: #90a4ae;
+    }
+
+    .endpoint-right .code-tab.active {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+    }
+
+    .endpoint-right .response-subhead {
+      color: #90a4ae;
+    }
+
 `

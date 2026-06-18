@@ -1481,17 +1481,58 @@ function highlightJsonHtml(value: any): string {
   )
 }
 
-function appendJsonExample(container: any, value: any, label = 'Example'): void {
-  if (value === null || value === undefined) return
-  const head = doc.createElement('div')
-  head.className = 'response-subhead'
-  head.style.marginTop = '12px'
-  head.textContent = label
-  container.appendChild(head)
-  const pre = doc.createElement('pre')
-  pre.className = 'sample-json'
-  pre.innerHTML = highlightJsonHtml(value)
-  container.appendChild(pre)
+// Right-panel response samples: one status tab per response, each showing the
+// generated JSON example (colorized) — ReDoc's response sample switcher.
+function renderResponseSamples(responses: Record<string, any>): any {
+  const wrap = doc.createElement('div')
+  const tabs = doc.createElement('div')
+  tabs.className = 'sample-tabs'
+  const contents = doc.createElement('div')
+  contents.className = 'sample-contents'
+  const entries = Object.entries(responses) as Array<[string, any]>
+  entries.forEach(([status, resp], index) => {
+    const statusClass = status.startsWith('2') ? 'status-2xx'
+      : status.startsWith('4') ? 'status-4xx'
+      : status.startsWith('5') ? 'status-5xx'
+      : ''
+    const tab = doc.createElement('button')
+    tab.type = 'button'
+    tab.className = `sample-tab ${statusClass}${index === 0 ? ' active' : ''}`
+    tab.textContent = status
+    const content = doc.createElement('div')
+    content.className = `sample-content${index === 0 ? ' active' : ''}`
+    const ct = resp.content ? Object.keys(resp.content)[0] : null
+    const schema = ct ? resp.content[ct]?.schema : null
+    const example = schema ? generateExampleFromSchema(schema) : null
+    if (example !== null && example !== undefined) {
+      if (ct) {
+        const typeLine = doc.createElement('div')
+        typeLine.className = 'sample-content-type'
+        typeLine.textContent = ct
+        content.appendChild(typeLine)
+      }
+      const pre = doc.createElement('pre')
+      pre.className = 'sample-json'
+      pre.innerHTML = highlightJsonHtml(example)
+      content.appendChild(pre)
+    } else {
+      const empty = doc.createElement('div')
+      empty.className = 'no-example'
+      empty.textContent = resp.description || 'No response body.'
+      content.appendChild(empty)
+    }
+    tab.onclick = () => {
+      tabs.querySelectorAll('.sample-tab').forEach((t: any) => t.classList.remove('active'))
+      contents.querySelectorAll('.sample-content').forEach((c: any) => c.classList.remove('active'))
+      tab.classList.add('active')
+      content.classList.add('active')
+    }
+    tabs.appendChild(tab)
+    contents.appendChild(content)
+  })
+  wrap.appendChild(tabs)
+  wrap.appendChild(contents)
+  return wrap
 }
 
 function renderSchemaTree(parent: any, schema: any, depth = 0): void {
@@ -1637,7 +1678,6 @@ function renderResponseAccordion(status: string, resp: any, openByDefault: boole
     sub.textContent = `Response Body${contentType ? ` · ${contentType}` : ''}`
     block.appendChild(sub)
     renderSchemaTree(block, schema)
-    appendJsonExample(block, generateExampleFromSchema(schema))
     body.appendChild(block)
   }
 
@@ -1661,6 +1701,16 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   appendProtocolConsole(container, { doc, spec, wsSpec, streamsSpec, jsonrpcSpec, activeProtocol, endpoint, data, esc, escapeAttr })
   const appendMany = (items: Array<[string, unknown]>) => items.forEach(([title, value]) => appendSchemaSubsection(container, title, value))
   if (activeProtocol === 'http') {
+    // Two-column operation layout (ReDoc-style): the left column carries the
+    // contract (params + schemas + responses); the right column is a sticky
+    // dark panel with the request samples and response examples.
+    const content = doc.createElement('div')
+    content.className = 'endpoint-content'
+    const left = doc.createElement('div')
+    left.className = 'endpoint-left'
+    const right = doc.createElement('div')
+    right.className = 'endpoint-right'
+
     const params = (data.parameters ?? []) as any[]
     if (params.length > 0) {
       const section = doc.createElement('div')
@@ -1676,7 +1726,7 @@ function renderEndpointDetails(endpoint: Endpoint): any {
         const inGroup = params.filter(p => (p.in || 'query') === location)
         if (inGroup.length > 0) section.appendChild(renderParamGroup(title, inGroup))
       })
-      container.appendChild(section)
+      left.appendChild(section)
     }
     const reqBody = data.requestBody
     if (reqBody?.content) {
@@ -1684,12 +1734,9 @@ function renderEndpointDetails(endpoint: Endpoint): any {
       section.className = 'endpoint-subsection'
       const contentType = Object.keys(reqBody.content)[0]
       section.innerHTML = `<div class="subsection-label">REQUEST BODY${reqBody.required ? ' <span style="color:#ef4444">required</span>' : ''}${contentType ? ` · ${esc(contentType)}` : ''}</div>`
-      const content = reqBody.content[contentType]
-      if (content?.schema) {
-        renderSchemaTree(section, content.schema)
-        appendJsonExample(section, generateExampleFromSchema(content.schema))
-      }
-      container.appendChild(section)
+      const bodyContent = reqBody.content[contentType]
+      if (bodyContent?.schema) renderSchemaTree(section, bodyContent.schema)
+      left.appendChild(section)
     }
     const responses = data.responses
     if (responses && Object.keys(responses).length > 0) {
@@ -1707,15 +1754,28 @@ function renderEndpointDetails(endpoint: Endpoint): any {
         const first = section.querySelector('.response-accordion')
         if (first) first.classList.add('open')
       }
-      container.appendChild(section)
+      left.appendChild(section)
     }
 
-    // Request samples (cURL / JavaScript / Python / Rust)
-    const examplesSection = doc.createElement('div')
-    examplesSection.className = 'endpoint-subsection'
-    examplesSection.innerHTML = '<div class="subsection-label">REQUEST SAMPLES</div>'
-    examplesSection.appendChild(renderCodeExamples(endpoint, data))
-    container.appendChild(examplesSection)
+    // Right column: request samples (cURL / JavaScript / Python / Rust).
+    const samplesSection = doc.createElement('div')
+    samplesSection.className = 'endpoint-right-section'
+    samplesSection.innerHTML = '<div class="endpoint-right-header">Request samples</div>'
+    samplesSection.appendChild(renderCodeExamples(endpoint, data))
+    right.appendChild(samplesSection)
+
+    // Right column: response samples (JSON examples per status code).
+    if (responses && Object.keys(responses).length > 0) {
+      const respSamples = doc.createElement('div')
+      respSamples.className = 'endpoint-right-section'
+      respSamples.innerHTML = '<div class="endpoint-right-header">Response samples</div>'
+      respSamples.appendChild(renderResponseSamples(responses))
+      right.appendChild(respSamples)
+    }
+
+    content.appendChild(left)
+    content.appendChild(right)
+    container.appendChild(content)
   }
   if (activeProtocol === 'websocket') {
     appendInfoGrid(container, [['Channel Type', data.type], ['Path', endpoint.path]])
@@ -1992,19 +2052,25 @@ function pageNavCard(entry: PageNavEntry, label: string, direction: 'prev' | 'ne
   return button
 }
 
+function setTocColumn(visible: boolean): void {
+  const shell = doc.querySelector?.('.main-shell')
+  if (shell) shell.classList.toggle('main-shell-no-toc', !visible)
+}
+
 function renderToc(root: any): void {
   const toc = byId('pageToc')
   if (!toc) return
   toc.textContent = ''
-  if (tocConfig.enabled === false) return
-  if (root.querySelector?.('[data-markdown-ignore-all="true"]')) return
+  if (tocConfig.enabled === false) { setTocColumn(false); return }
+  if (root.querySelector?.('[data-markdown-ignore-all="true"]')) { setTocColumn(false); return }
   const min = Number(tocConfig.minLevel ?? 2)
   const max = Number(tocConfig.maxLevel ?? 3)
   const headings = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6') ?? []).filter((heading: any) => {
     const level = Number(heading.tagName.slice(1))
     return heading.id && level >= min && level <= max && heading.dataset?.markdownIgnore !== 'true'
   }) as any[]
-  if (headings.length === 0) return
+  if (headings.length === 0) { setTocColumn(false); return }
+  setTocColumn(true)
   const title = doc.createElement('div')
   title.className = 'toc-title'
   title.textContent = 'On this page'

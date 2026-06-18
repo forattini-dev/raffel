@@ -39,6 +39,16 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       gap: 0;
     }
 
+    /* Drop the (empty) TOC gutter on endpoint views so the operation's
+       two-column content — docs + samples panel — can use the full width. */
+    .main-shell.main-shell-no-toc {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .main-shell.main-shell-no-toc .toc {
+      display: none;
+    }
+
     /* ========== SIDEBAR ========== */
     .sidebar {
       background: var(--sidebar-bg);
