@@ -510,6 +510,20 @@ export const navigationClientScript = String.raw`    // Search functionality
             data: endpoint
           });
         });
+      } else if (protocol === 'graphql' && (spec.components?.schemas?.Query || spec['x-usd']?.graphql?.types)) {
+        const graphqlSpec = spec['x-usd']?.graphql;
+        if (graphqlSpec?.types) {
+          Object.entries(graphqlSpec.types).forEach(([name, type]) => {
+            endpoints.push({
+              id: 'ep-' + (id++),
+              path: name,
+              method: 'GQL',
+              summary: type.description,
+              tags: type.tags || [],
+              data: type
+            });
+          });
+        }
       }
 
       return endpoints;

@@ -33,9 +33,10 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .main-shell {
       display: grid;
-      grid-template-columns: 1fr 220px;
-      align-items: start;
+      grid-template-columns: 1fr 380px;
+      align-items: stretch;
       min-width: 0;
+      gap: 0;
     }
 
     /* ========== SIDEBAR ========== */
@@ -444,17 +445,25 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       opacity: 0.7;
     }
 
-    /* ========== TOC (On this page) — editorial sidenote ========== */
+    /* ========== TOC / TRY IT OUT PANEL (ReDoc-style right panel) ========== */
     .toc {
-      align-self: start;
+      align-self: stretch;
       position: sticky;
-      top: 24px;
-      padding: 8px 0 8px 16px;
+      top: 0;
+      padding: 24px;
       border-left: 1px solid var(--border-color);
       font-size: var(--font-size-small);
       line-height: 1.5;
-      max-height: calc(100vh - 48px);
+      max-height: 100vh;
       overflow-y: auto;
+      background: #263238;
+      color: #eceff1;
+    }
+
+    [data-theme="light"] .toc {
+      background: #f5f7fa;
+      color: #263238;
+      border-left-color: #e0e0e0;
     }
 
     .toc:empty {
@@ -463,40 +472,61 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .toc-title {
-      color: var(--text-muted);
+      color: #90caf9;
       font-size: var(--font-size-xs);
       font-weight: 600;
       letter-spacing: 0.04em;
-      margin: 0 0 8px;
+      margin: 0 0 16px;
       text-transform: uppercase;
+    }
+
+    [data-theme="light"] .toc-title {
+      color: #1976d2;
     }
 
     .toc-link {
       display: block;
-      padding: 3px 0;
-      color: var(--text-secondary);
+      padding: 6px 0;
+      color: #b0bec5;
       text-decoration: none;
-      border-left: 2px solid transparent;
-      margin-left: -16px;
-      padding-left: 14px;
+      border-left: 3px solid transparent;
+      margin-left: -24px;
+      padding-left: 21px;
       transition: color 0.15s, border-color 0.15s;
+      font-family: 'SF Mono', 'Monaco', monospace;
+      font-size: 12px;
     }
 
     .toc-link:hover {
-      color: var(--text-primary);
+      color: #e0e0e0;
+      border-left-color: #90caf9;
+    }
+
+    [data-theme="light"] .toc-link {
+      color: #666;
+    }
+
+    [data-theme="light"] .toc-link:hover {
+      color: #263238;
+      border-left-color: #1976d2;
     }
 
     .toc-link.active {
-      color: var(--text-primary);
-      border-left-color: var(--primary-color);
+      color: #e0e0e0;
+      border-left-color: #90caf9;
       font-weight: 600;
     }
 
-    .toc-level-2 { padding-left: 14px; }
-    .toc-level-3 { padding-left: 26px; }
-    .toc-level-4 { padding-left: 38px; }
-    .toc-level-5 { padding-left: 50px; }
-    .toc-level-6 { padding-left: 62px; }
+    [data-theme="light"] .toc-link.active {
+      color: #263238;
+      border-left-color: #1976d2;
+    }
+
+    .toc-level-2 { padding-left: 27px; }
+    .toc-level-3 { padding-left: 39px; }
+    .toc-level-4 { padding-left: 51px; }
+    .toc-level-5 { padding-left: 63px; }
+    .toc-level-6 { padding-left: 75px; }
     /* ========== SEARCH MODAL (cmd+K) ========== */
     dialog.search-modal {
       padding: 0;
