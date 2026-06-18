@@ -2311,6 +2311,9 @@ function init(): void {
   render()
   startDocsStatePolling()
   // Mount cmd+K / ctrl+K search modal (skipped when sidebar search is disabled).
+  // Dispose any previously-mounted modal so a re-initialised runtime never
+  // leaves a duplicate dialog or a stale keydown listener behind.
+  win.RaffelDocs?.searchModal?.dispose?.()
   const modal = createDocsSearchModal({
     doc, win, enabled: sidebarConfig?.search !== false,
     altShortcut: typeof sidebarConfig?.searchModalAltShortcut === 'string' ? String(sidebarConfig.searchModalAltShortcut) : '',
