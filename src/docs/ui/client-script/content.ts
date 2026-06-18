@@ -312,6 +312,66 @@ export const contentClientScript = String.raw`    function renderContent() {
       footer.innerHTML = parseMarkdown(footerMarkdown);
     }
 
+    function renderTryItOut(endpoint) {
+      const toc = document.getElementById('pageToc');
+      if (!toc) return;
+      toc.textContent = '';
+
+      const title = document.createElement('div');
+      title.className = 'toc-title';
+      title.innerHTML = '▶ Try it out';
+      toc.appendChild(title);
+
+      const info = document.createElement('div');
+      info.style.fontSize = '12px';
+      info.style.lineHeight = '1.6';
+      info.style.marginBottom = '12px';
+
+      // Method + Path
+      if (endpoint.method && endpoint.path) {
+        const methodEl = document.createElement('div');
+        methodEl.style.marginBottom = '8px';
+        methodEl.innerHTML = '<span style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">' +
+          esc(endpoint.method) + '</span> ' +
+          '<span style="font-family: monospace; color: #90caf9;">' + esc(endpoint.path) + '</span>';
+        info.appendChild(methodEl);
+      }
+
+      // Description
+      if (endpoint.summary) {
+        const descEl = document.createElement('div');
+        descEl.style.marginBottom = '12px';
+        descEl.style.color = '#b0bec5';
+        descEl.textContent = endpoint.summary;
+        info.appendChild(descEl);
+      }
+
+      // cURL example for HTTP
+      if (activeProtocol === 'http' && endpoint.method && endpoint.path) {
+        const curlTitle = document.createElement('div');
+        curlTitle.className = 'toc-title';
+        curlTitle.style.marginTop = '16px';
+        curlTitle.style.fontSize = '11px';
+        curlTitle.textContent = 'Example cURL';
+        info.appendChild(curlTitle);
+
+        const curlCode = document.createElement('div');
+        curlCode.style.background = 'rgba(0,0,0,0.3)';
+        curlCode.style.padding = '8px';
+        curlCode.style.borderRadius = '4px';
+        curlCode.style.fontFamily = 'monospace';
+        curlCode.style.fontSize = '10px';
+        curlCode.style.color = '#a1d82f';
+        curlCode.style.overflow = 'auto';
+        curlCode.style.whiteSpace = 'pre-wrap';
+        curlCode.textContent = 'curl -X ' + endpoint.method + ' \\\n  ' +
+          (window.location.origin || 'http://localhost:3000') + endpoint.path + ' \\\n  -H "Content-Type: application/json"';
+        info.appendChild(curlCode);
+      }
+
+      toc.appendChild(info);
+    }
+
     function renderTableOfContents(root) {
       const toc = document.getElementById('pageToc');
       if (!toc) return;

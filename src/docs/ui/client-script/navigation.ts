@@ -535,6 +535,12 @@ export const navigationClientScript = String.raw`    // Search functionality
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         el.classList.add('expanded');
+        // Render "Try it Out" in right panel when endpoint is selected
+        const endpoints = getEndpointsForProtocol(activeProtocol);
+        const endpoint = endpoints.find(ep => ep.id === id);
+        if (endpoint && renderTryItOut) {
+          renderTryItOut(endpoint);
+        }
       }
     }
 
