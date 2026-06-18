@@ -1306,68 +1306,177 @@ function generateExampleFromSchema(schema: any): any {
   }
 }
 
-function renderCodeExamples(endpoint: any, data: any): any {
-  const container = doc.createElement('div')
-  container.style.marginTop = '20px'
-  container.style.paddingTop = '16px'
-  container.style.borderTop = '1px solid var(--border-color)'
+function httpBaseUrl(): string {
+  return String(spec?.servers?.[0]?.url ?? 'http://localhost:3000').replace(/\/$/, '')
+}
 
-  // cURL example
-  const method = endpoint.method?.toUpperCase() || 'GET'
-  const path = endpoint.path || '/'
-  const baseUrl = 'http://localhost:3000'
+// Collect JSON-Schema validation constraints as readable chips.
+function schemaConstraintChips(schema: any): string[] {
+  if (!schema || typeof schema !== 'object') return []
+  const chips: string[] = []
+  if (schema.format) chips.push(`format: ${schema.format}`)
+  if (typeof schema.minLength === 'number') chips.push(`min length: ${schema.minLength}`)
+  if (typeof schema.maxLength === 'number') chips.push(`max length: ${schema.maxLength}`)
+  if (typeof schema.minimum === 'number') chips.push(`>= ${schema.minimum}`)
+  if (typeof schema.exclusiveMinimum === 'number') chips.push(`> ${schema.exclusiveMinimum}`)
+  if (typeof schema.maximum === 'number') chips.push(`<= ${schema.maximum}`)
+  if (typeof schema.exclusiveMaximum === 'number') chips.push(`< ${schema.exclusiveMaximum}`)
+  if (typeof schema.multipleOf === 'number') chips.push(`multiple of ${schema.multipleOf}`)
+  if (typeof schema.minItems === 'number') chips.push(`min items: ${schema.minItems}`)
+  if (typeof schema.maxItems === 'number') chips.push(`max items: ${schema.maxItems}`)
+  if (schema.uniqueItems) chips.push('unique items')
+  if (typeof schema.pattern === 'string') chips.push(`pattern: ${schema.pattern}`)
+  if (schema.nullable) chips.push('nullable')
+  if (schema.readOnly) chips.push('read-only')
+  if (schema.writeOnly) chips.push('write-only')
+  return chips
+}
 
-  const curlSection = doc.createElement('div')
-  curlSection.style.marginBottom = '20px'
-  curlSection.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">cURL EXAMPLE</div>'
-  const curlCode = doc.createElement('pre')
-  curlCode.style.backgroundColor = 'var(--bg-secondary)'
-  curlCode.style.padding = '12px'
-  curlCode.style.borderRadius = '4px'
-  curlCode.style.fontSize = '12px'
-  curlCode.style.overflow = 'auto'
-
-  let curlCmd = `curl -X ${method} "${baseUrl}${path}"`
-  const reqBody = data.requestBody?.content?.[Object.keys(data.requestBody.content)[0]]
-  if (reqBody && ['POST', 'PUT', 'PATCH'].includes(method)) {
-    const example = generateExampleFromSchema(reqBody.schema)
-    curlCmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(example, null, 2).split('\n').join('\n  ')}'`
+// Append constraint / default / enum chips to a row element.
+function appendConstraintChips(row: any, schema: any): void {
+  if (!schema || typeof schema !== 'object') return
+  const chips = schemaConstraintChips(schema)
+  const hasDefault = schema.default !== undefined
+  const enumValues: any[] = Array.isArray(schema.enum) ? schema.enum : []
+  if (!chips.length && !hasDefault && enumValues.length === 0) return
+  const wrap = doc.createElement('div')
+  wrap.className = 'constraint-chips'
+  if (hasDefault) {
+    const chip = doc.createElement('span')
+    chip.className = 'constraint-chip'
+    chip.textContent = `default: ${JSON.stringify(schema.default)}`
+    wrap.appendChild(chip)
   }
+  chips.forEach(text => {
+    const chip = doc.createElement('span')
+    chip.className = 'constraint-chip'
+    chip.textContent = text
+    wrap.appendChild(chip)
+  })
+  enumValues.forEach(value => {
+    const chip = doc.createElement('span')
+    chip.className = 'constraint-chip constraint-enum'
+    chip.textContent = String(value)
+    wrap.appendChild(chip)
+  })
+  row.appendChild(wrap)
+}
 
-  curlCode.textContent = curlCmd
-  curlSection.appendChild(curlCode)
-  container.appendChild(curlSection)
+// Render a JSON value as a Python literal (for the Python request sample).
+function pyLiteral(value: any): string {
+  if (value === null || value === undefined) return 'None'
+  if (value === true) return 'True'
+  if (value === false) return 'False'
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(pyLiteral).join(', ')}]`
+  if (typeof value === 'object') {
+    return `{${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${pyLiteral(v)}`).join(', ')}}`
+  }
+  return 'None'
+}
 
-  // Response example
-  if (data.responses) {
-    const responses = Object.entries(data.responses)
-    if (responses.length > 0) {
-      const [status, resp]: [string, any] = responses[0]
-      const respSection = doc.createElement('div')
-      respSection.innerHTML = `<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">RESPONSE ${status}</div>`
+// Build request samples in cURL, JavaScript, Python and Rust.
+function buildHttpSamples(method: string, url: string, body: any): Record<string, string> {
+  const hasBody = body !== null && body !== undefined && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+  const jsonPretty = hasBody ? JSON.stringify(body, null, 2) : ''
+  const samples: Record<string, string> = {}
 
-      const respCode = doc.createElement('pre')
-      respCode.style.backgroundColor = 'var(--bg-secondary)'
-      respCode.style.padding = '12px'
-      respCode.style.borderRadius = '4px'
-      respCode.style.fontSize = '12px'
-      respCode.style.overflow = 'auto'
+  let curl = `curl -X ${method} "${url}"`
+  if (hasBody) curl += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body)}'`
+  samples.curl = curl
 
-      if (resp.content) {
-        const contentType = Object.keys(resp.content)[0]
-        const schema = resp.content[contentType]?.schema
-        const example = generateExampleFromSchema(schema)
-        respCode.textContent = JSON.stringify(example, null, 2)
-      } else {
-        respCode.textContent = `{}`
-      }
+  let js = `const res = await fetch(${JSON.stringify(url)}, {\n  method: ${JSON.stringify(method)},`
+  if (hasBody) js += `\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(${jsonPretty.split('\n').join('\n  ')}),`
+  js += `\n});\nconst data = await res.json();\nconsole.log(data);`
+  samples.javascript = js
 
-      respSection.appendChild(respCode)
-      container.appendChild(respSection)
+  let py = `import requests\n\nres = requests.${method.toLowerCase()}(\n    ${JSON.stringify(url)},`
+  if (hasBody) py += `\n    json=${pyLiteral(body)},`
+  py += `\n)\nprint(res.json())`
+  samples.python = py
+
+  let rust = `use reqwest::Client;\n\nlet client = Client::new();\nlet res = client\n    .${method.toLowerCase()}(${JSON.stringify(url)})`
+  if (hasBody) rust += `\n    .json(&serde_json::json!(${jsonPretty.split('\n').join('\n    ')}))`
+  rust += `\n    .send()\n    .await?;\nlet body = res.text().await?;\nprintln!("{}", body);`
+  samples.rust = rust
+
+  return samples
+}
+
+function renderCodeExamples(endpoint: any, data: any): any {
+  const method = (endpoint.method || 'GET').toUpperCase()
+  const url = `${httpBaseUrl()}${endpoint.path || '/'}`
+  const reqContent = data.requestBody?.content
+  const reqSchema = reqContent ? reqContent[Object.keys(reqContent)[0]]?.schema : null
+  const bodyExample = reqSchema ? generateExampleFromSchema(reqSchema) : null
+  const samples = buildHttpSamples(method, url, bodyExample)
+  const langs: Array<[string, string]> = [['curl', 'cURL'], ['javascript', 'JavaScript'], ['python', 'Python'], ['rust', 'Rust']]
+
+  const wrap = doc.createElement('div')
+  wrap.className = 'http-code-samples'
+  const tabs = doc.createElement('div')
+  tabs.className = 'code-tabs'
+  const contents = doc.createElement('div')
+  contents.className = 'code-contents'
+
+  langs.forEach(([key, label], index) => {
+    const tab = doc.createElement('button')
+    tab.type = 'button'
+    tab.className = `code-tab${index === 0 ? ' active' : ''}`
+    tab.textContent = label
+    const content = doc.createElement('div')
+    content.className = `code-content${index === 0 ? ' active' : ''}`
+    const pre = doc.createElement('pre')
+    pre.className = 'http-code-sample-pre'
+    pre.textContent = samples[key]
+    content.appendChild(pre)
+    tab.onclick = () => {
+      tabs.querySelectorAll('.code-tab').forEach((t: any) => t.classList.remove('active'))
+      contents.querySelectorAll('.code-content').forEach((c: any) => c.classList.remove('active'))
+      tab.classList.add('active')
+      content.classList.add('active')
+    }
+    tabs.appendChild(tab)
+    contents.appendChild(content)
+  })
+
+  const copy = doc.createElement('button')
+  copy.type = 'button'
+  copy.className = 'http-code-copy'
+  copy.textContent = 'Copy'
+  copy.onclick = () => {
+    const active = contents.querySelector('.code-content.active pre')
+    const text = active?.textContent ?? ''
+    const clip = (globalThis as any).navigator?.clipboard
+    if (clip?.writeText) {
+      clip.writeText(text).then(() => {
+        copy.textContent = 'Copied'
+        setTimeout(() => { copy.textContent = 'Copy' }, 1200)
+      })
     }
   }
+  tabs.appendChild(copy)
 
-  return container
+  wrap.appendChild(tabs)
+  wrap.appendChild(contents)
+  return wrap
+}
+
+// Append a JSON example block to a container.
+function appendJsonExample(container: any, value: any, label = 'Example'): void {
+  if (value === null || value === undefined) return
+  const head = doc.createElement('div')
+  head.className = 'response-subhead'
+  head.style.marginTop = '12px'
+  head.textContent = label
+  container.appendChild(head)
+  const pre = doc.createElement('pre')
+  pre.className = 'http-code-sample-pre'
+  pre.style.border = '1px solid var(--border-color)'
+  pre.style.borderRadius = '8px'
+  pre.textContent = JSON.stringify(value, null, 2)
+  container.appendChild(pre)
 }
 
 function renderSchemaTree(parent: any, schema: any, depth = 0): void {
@@ -1390,8 +1499,7 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
       row.style.paddingLeft = depth === 0 ? '8px' : '0'
       const type = (prop as any).type || 'any'
       const required = schema.required?.includes(key) ? '<span style="color: #ef4444; margin-left: 4px;">*</span>' : ''
-      const format = (prop as any).format ? ` (${(prop as any).format})` : ''
-      row.innerHTML = `<div style="font-weight: 500; color: var(--text-primary); display: flex; align-items: center;">${esc(key)}${required} <span style="color: var(--text-secondary); font-weight: normal; margin-left: 8px;">${type}${format}</span></div>`
+      row.innerHTML = `<div style="font-weight: 500; color: var(--text-primary); display: flex; align-items: center;">${esc(key)}${required} <span class="schema-type type-${esc((prop as any).type || 'null')}" style="margin-left: 8px;">${esc(type)}</span></div>`
       if ((prop as any).description) {
         const desc = doc.createElement('div')
         desc.style.fontSize = '12px'
@@ -1400,32 +1508,18 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
         desc.textContent = (prop as any).description
         row.appendChild(desc)
       }
-      if ((prop as any).example !== undefined) {
-        const ex = doc.createElement('div')
-        ex.style.fontSize = '11px'
-        ex.style.color = '#888'
-        ex.style.marginTop = '2px'
-        ex.style.fontFamily = 'monospace'
-        ex.textContent = `Example: ${JSON.stringify((prop as any).example)}`
-        row.appendChild(ex)
-      }
-      if ((prop as any).enum) {
-        const en = doc.createElement('div')
-        en.style.fontSize = '11px'
-        en.style.color = '#888'
-        en.style.marginTop = '2px'
-        en.textContent = `Values: ${(prop as any).enum.join(', ')}`
-        row.appendChild(en)
-      }
+      appendConstraintChips(row, prop)
       div.appendChild(row)
-      if ((prop as any).properties) {
+      if ((prop as any).type === 'object' && (prop as any).properties) {
         renderSchemaTree(div, prop, depth + 1)
+      } else if ((prop as any).type === 'array' && (prop as any).items?.properties) {
+        renderSchemaTree(div, (prop as any).items, depth + 1)
       }
     })
   } else if (schema.type === 'array' && schema.items) {
     const row = doc.createElement('div')
     row.style.padding = '6px 0'
-    row.innerHTML = `<span style="color: var(--text-primary); font-weight: 500;">array</span> <span style="color: var(--text-secondary);">of ${(schema.items as any).type || 'object'}</span>`
+    row.innerHTML = `<span style="color: var(--text-primary); font-weight: 500;">array</span> <span style="color: var(--text-secondary);">of ${esc((schema.items as any).type || 'object')}</span>`
     div.appendChild(row)
     if ((schema.items as any).properties) {
       renderSchemaTree(div, schema.items, depth + 1)
@@ -1434,9 +1528,115 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
     const row = doc.createElement('div')
     row.style.padding = '6px 0'
     row.innerHTML = `<span style="color: var(--text-secondary);">${esc(schema.type || 'any')}</span>`
+    appendConstraintChips(row, schema)
     div.appendChild(row)
   }
   parent.appendChild(div)
+}
+
+// Render one HTTP parameter group (path/query/header/cookie) ReDoc-style.
+function renderParamGroup(title: string, params: any[]): any {
+  const group = doc.createElement('div')
+  group.className = 'http-param-group'
+  const heading = doc.createElement('div')
+  heading.className = 'http-param-group-title'
+  heading.textContent = title
+  group.appendChild(heading)
+  const list = doc.createElement('div')
+  list.className = 'http-params'
+  params.forEach(param => {
+    const item = doc.createElement('div')
+    item.className = 'http-param'
+    const schema = param.schema || {}
+    const typeName = schema.type === 'array' ? `${schema.items?.type || 'any'}[]` : (schema.type || 'string')
+    const head = doc.createElement('div')
+    head.className = 'http-param-head'
+    head.innerHTML = `<span class="http-param-name">${esc(param.name)}</span>` +
+      `<span class="schema-type type-${esc(schema.type || 'string')}">${esc(typeName)}</span>` +
+      (param.required ? '<span class="http-param-required">required</span>' : '') +
+      (param.deprecated ? '<span class="http-param-deprecated">deprecated</span>' : '')
+    item.appendChild(head)
+    const description = param.description || schema.description
+    if (description) {
+      const desc = doc.createElement('div')
+      desc.className = 'http-param-desc'
+      desc.textContent = description
+      item.appendChild(desc)
+    }
+    appendConstraintChips(item, schema)
+    list.appendChild(item)
+  })
+  group.appendChild(list)
+  return group
+}
+
+// Render a single response as a collapsible accordion (ReDoc-style).
+function renderResponseAccordion(status: string, resp: any, openByDefault: boolean): any {
+  const statusClass = status.startsWith('2') ? 'status-2xx'
+    : status.startsWith('3') ? 'status-3xx'
+    : status.startsWith('4') ? 'status-4xx'
+    : 'status-5xx'
+  const acc = doc.createElement('div')
+  acc.className = `response-accordion${openByDefault ? ' open' : ''}`
+
+  const header = doc.createElement('button')
+  header.type = 'button'
+  header.className = 'response-accordion-header'
+  header.innerHTML = `<span class="response-accordion-caret">▶</span>` +
+    `<span class="response-status-dot ${statusClass}"></span>` +
+    `<span class="response-status-code">${esc(status)}</span>` +
+    `<span class="response-status-desc">${esc(resp.description || '')}</span>`
+
+  const body = doc.createElement('div')
+  body.className = 'response-accordion-body'
+
+  if (resp.headers && Object.keys(resp.headers).length > 0) {
+    const block = doc.createElement('div')
+    block.className = 'response-block'
+    const sub = doc.createElement('div')
+    sub.className = 'response-subhead'
+    sub.textContent = 'Response Headers'
+    block.appendChild(sub)
+    const list = doc.createElement('div')
+    list.className = 'http-params'
+    Object.entries(resp.headers).forEach(([name, def]: [string, any]) => {
+      const item = doc.createElement('div')
+      item.className = 'http-param'
+      const hschema = (def as any).schema || {}
+      item.innerHTML = `<div class="http-param-head"><span class="http-param-name">${esc(name)}</span><span class="schema-type type-${esc(hschema.type || 'string')}">${esc(hschema.type || 'string')}</span></div>` +
+        ((def as any).description ? `<div class="http-param-desc">${esc((def as any).description)}</div>` : '')
+      list.appendChild(item)
+    })
+    block.appendChild(list)
+    body.appendChild(block)
+  }
+
+  const content = resp.content
+  const contentType = content ? Object.keys(content)[0] : null
+  const schema = contentType ? content[contentType]?.schema : null
+  if (schema) {
+    const block = doc.createElement('div')
+    block.className = 'response-block'
+    const sub = doc.createElement('div')
+    sub.className = 'response-subhead'
+    sub.textContent = `Response Body${contentType ? ` · ${contentType}` : ''}`
+    block.appendChild(sub)
+    renderSchemaTree(block, schema)
+    appendJsonExample(block, generateExampleFromSchema(schema))
+    body.appendChild(block)
+  }
+
+  if (!body.children.length) {
+    const empty = doc.createElement('div')
+    empty.className = 'response-desc-only'
+    empty.textContent = resp.description || 'No content.'
+    body.appendChild(empty)
+  }
+
+  header.onclick = () => acc.classList.toggle('open')
+  acc.appendChild(header)
+  acc.appendChild(body)
+  return acc
 }
 
 function renderEndpointDetails(endpoint: Endpoint): any {
@@ -1451,22 +1651,28 @@ function renderEndpointDetails(endpoint: Endpoint): any {
       const section = doc.createElement('div')
       section.className = 'endpoint-subsection'
       section.innerHTML = '<div class="subsection-label">PARAMETERS</div>'
-      const grid = doc.createElement('div')
-      grid.className = 'info-grid'
-      params.forEach(p => {
-        grid.innerHTML += `<div class="info-card"><div class="info-card-title">${esc(p.name)}</div><div class="info-card-value">${esc(p.in || 'query')} • ${esc(p.schema?.type || 'string')}${p.required ? ' *' : ''}</div></div>`
+      const groups: Array<[string, string]> = [
+        ['path', 'Path Parameters'],
+        ['query', 'Query Parameters'],
+        ['header', 'Header Parameters'],
+        ['cookie', 'Cookie Parameters'],
+      ]
+      groups.forEach(([location, title]) => {
+        const inGroup = params.filter(p => (p.in || 'query') === location)
+        if (inGroup.length > 0) section.appendChild(renderParamGroup(title, inGroup))
       })
-      section.appendChild(grid)
       container.appendChild(section)
     }
     const reqBody = data.requestBody
     if (reqBody?.content) {
       const section = doc.createElement('div')
       section.className = 'endpoint-subsection'
-      section.innerHTML = '<div class="subsection-label">REQUEST BODY</div>'
-      const content = reqBody.content[Object.keys(reqBody.content)[0]]
+      const contentType = Object.keys(reqBody.content)[0]
+      section.innerHTML = `<div class="subsection-label">REQUEST BODY${reqBody.required ? ' <span style="color:#ef4444">required</span>' : ''}${contentType ? ` · ${esc(contentType)}` : ''}</div>`
+      const content = reqBody.content[contentType]
       if (content?.schema) {
         renderSchemaTree(section, content.schema)
+        appendJsonExample(section, generateExampleFromSchema(content.schema))
       }
       container.appendChild(section)
     }
@@ -1475,54 +1681,24 @@ function renderEndpointDetails(endpoint: Endpoint): any {
       const section = doc.createElement('div')
       section.className = 'endpoint-subsection'
       section.innerHTML = '<div class="subsection-label">RESPONSES</div>'
-      Object.entries(responses).forEach(([status, resp]: [string, any]) => {
-        const statusClass = status.startsWith('2') ? 'status-2xx' : status.startsWith('4') ? 'status-4xx' : 'status-5xx'
-        const item = doc.createElement('div')
-        item.style.marginBottom = '16px'
-        item.style.padding = '12px'
-        item.style.borderRadius = '6px'
-        item.style.backgroundColor = 'var(--bg-secondary)'
-        item.innerHTML = `<div style="color: var(--text-secondary); font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><span class="badge badge-${statusClass}">${status}</span> <strong>${esc(resp.description || '')}</strong></div>`
-
-        // Headers
-        if (resp.headers && Object.keys(resp.headers).length > 0) {
-          const headersDiv = doc.createElement('div')
-          headersDiv.style.marginBottom = '12px'
-          headersDiv.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">HEADERS</div>'
-          const headersList = doc.createElement('div')
-          headersList.style.fontSize = '12px'
-          Object.entries(resp.headers).forEach(([headerName, headerDef]: [string, any]) => {
-            const headerRow = doc.createElement('div')
-            headerRow.style.padding = '4px 0'
-            headerRow.style.borderLeft = '2px solid var(--border-color)'
-            headerRow.style.paddingLeft = '8px'
-            const headerType = (headerDef as any).schema?.type || 'string'
-            headerRow.innerHTML = `<div style="font-weight: 500; color: var(--text-primary);">${esc(headerName)}</div><div style="color: var(--text-muted); font-size: 11px;">${headerType}</div>${(headerDef as any).description ? `<div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">${esc((headerDef as any).description)}</div>` : ''}`
-            headersList.appendChild(headerRow)
-          })
-          headersDiv.appendChild(headersList)
-          item.appendChild(headersDiv)
-        }
-
-        // Schema
-        if (resp.content) {
-          const contentType = Object.keys(resp.content)[0]
-          const schema = resp.content[contentType]?.schema
-          if (schema) {
-            const schemaDiv = doc.createElement('div')
-            schemaDiv.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">SCHEMA</div>'
-            renderSchemaTree(schemaDiv, schema)
-            item.appendChild(schemaDiv)
-          }
-        }
-        section.appendChild(item)
+      const entries = Object.entries(responses) as Array<[string, any]>
+      let opened = false
+      entries.forEach(([status, resp]) => {
+        const open = !opened && status.startsWith('2')
+        if (open) opened = true
+        section.appendChild(renderResponseAccordion(status, resp, open))
       })
+      if (!opened) {
+        const first = section.querySelector('.response-accordion')
+        if (first) first.classList.add('open')
+      }
       container.appendChild(section)
     }
 
-    // Code examples
+    // Request samples (cURL / JavaScript / Python / Rust)
     const examplesSection = doc.createElement('div')
     examplesSection.className = 'endpoint-subsection'
+    examplesSection.innerHTML = '<div class="subsection-label">REQUEST SAMPLES</div>'
     examplesSection.appendChild(renderCodeExamples(endpoint, data))
     container.appendChild(examplesSection)
   }

@@ -130,28 +130,35 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
 
     .try-it-actions {
       margin-top: 16px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .try-it-send {
-      width: 100%;
-      padding: 12px 20px;
-      background: var(--primary-color);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: auto;
+      padding: 6px 14px;
+      background: transparent;
+      color: var(--primary-color);
+      border: 1px solid var(--primary-color);
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.2px;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
 
     .try-it-send:hover:not(:disabled) {
-      background: var(--primary-hover);
-      transform: translateY(-1px);
+      background: var(--primary-color);
+      color: #fff;
     }
 
     .try-it-send:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
 

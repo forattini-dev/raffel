@@ -567,4 +567,219 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       animation: fadeIn 0.3s ease-out;
     }
 
+    /* ========== HTTP ENDPOINT (ReDoc-style) ========== */
+    .http-param-group {
+      margin-bottom: 20px;
+    }
+
+    .http-param-group-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .http-params {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .http-param {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .http-param:last-child { border-bottom: none; }
+
+    .http-param-head {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .http-param-name {
+      font-family: 'SF Mono', 'Monaco', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-color);
+    }
+
+    .http-param-required {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #ef4444;
+    }
+
+    .http-param-deprecated {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #f59e0b;
+    }
+
+    .http-param-desc {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    /* Validation constraint chips (reuses .schema-constraint look) */
+    .constraint-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .constraint-chip {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--code-bg);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      font-family: 'SF Mono', 'Monaco', monospace;
+    }
+
+    .constraint-chip.constraint-enum {
+      background: #fef3c7;
+      color: #92400e;
+      border-color: transparent;
+    }
+
+    [data-theme="dark"] .constraint-chip.constraint-enum {
+      background: #451a03;
+      color: #fbbf24;
+    }
+
+    /* Response accordions */
+    .response-accordion {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .response-accordion-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--code-bg);
+      border: none;
+      cursor: pointer;
+      text-align: left;
+      font-size: 13px;
+      color: var(--text-color);
+      transition: background 0.15s;
+    }
+
+    .response-accordion-header:hover { background: var(--hover-bg); }
+
+    .response-accordion-caret {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--text-muted);
+      transition: transform 0.2s ease;
+    }
+
+    .response-accordion.open .response-accordion-caret {
+      transform: rotate(90deg);
+    }
+
+    .response-status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .response-status-dot.status-2xx { background: #10b981; }
+    .response-status-dot.status-3xx { background: #3b82f6; }
+    .response-status-dot.status-4xx { background: #f59e0b; }
+    .response-status-dot.status-5xx { background: #ef4444; }
+
+    .response-status-code {
+      font-family: 'SF Mono', 'Monaco', monospace;
+      font-weight: 600;
+    }
+
+    .response-status-desc {
+      color: var(--text-muted);
+    }
+
+    .response-accordion-body {
+      padding: 14px;
+      border-top: 1px solid var(--border-color);
+      display: none;
+    }
+
+    .response-accordion.open .response-accordion-body { display: block; }
+
+    .response-subhead {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin: 0 0 8px;
+    }
+
+    .response-block + .response-block { margin-top: 16px; }
+
+    /* Multi-language code samples */
+    .http-code-samples {
+      margin-top: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--code-bg);
+    }
+
+    .http-code-samples .code-tabs {
+      flex-wrap: wrap;
+      background: rgba(0,0,0,0.04);
+    }
+
+    [data-theme="dark"] .http-code-samples .code-tabs {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .http-code-sample-pre {
+      margin: 0;
+      padding: 14px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text-color);
+      white-space: pre;
+    }
+
+    .http-code-copy {
+      margin-left: auto;
+      padding: 4px 10px;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .http-code-copy:hover { color: var(--text-color); border-color: var(--text-muted); }
+
 `
