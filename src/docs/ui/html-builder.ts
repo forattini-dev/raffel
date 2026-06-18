@@ -164,7 +164,7 @@ ${styles}
   <script src="${escapeHtml(assetBasePath)}/-/prism.js"></script>
   <script type="module" data-raffel-runtime="external" src="${escapeHtml(assetBasePath)}/-/raffel-docs.js?v=${_startupTs}"></script>`
     : `${generateInlineRuntimeDependencyScripts()}
-  <script type="module" data-raffel-runtime="inline">
+  <script data-raffel-runtime="inline">
 ${generateClientRuntimeScript()}
   </script>`
 
