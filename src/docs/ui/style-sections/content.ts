@@ -953,25 +953,35 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     /* ========== REDOC-STYLE PARAMETERS ========== */
     .param-row {
       display: flex;
-      padding: 16px 0;
-      border-bottom: 1px solid var(--border-color);
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--surface-color);
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .param-row:hover {
+      border-color: var(--primary-color);
+      background: var(--hover-bg);
     }
 
     .param-row:last-child {
-      border-bottom: none;
+      margin-bottom: 0;
     }
 
     .param-tree {
-      width: 24px;
+      width: 20px;
       display: flex;
       align-items: flex-start;
-      padding-top: 4px;
+      padding-top: 2px;
       color: var(--border-color);
+      margin-right: 8px;
     }
 
     .param-tree-line {
-      width: 12px;
-      height: 12px;
+      width: 10px;
+      height: 10px;
       border-left: 1px solid var(--border-color);
       border-bottom: 1px solid var(--border-color);
     }
@@ -982,9 +992,9 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .param-header {
       display: flex;
-      align-items: baseline;
-      gap: 8px;
-      margin-bottom: 4px;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
       flex-wrap: wrap;
     }
 
@@ -996,31 +1006,54 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .param-required-badge {
-      font-size: 11px;
-      font-weight: 600;
-      color: #ef4444;
-      text-transform: lowercase;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: #fee2e2;
+      color: #991b1b;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    [data-theme="dark"] .param-required-badge {
+      background: #7f1d1d;
+      color: #fca5a5;
     }
 
     .param-type-info {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 13px;
-      color: var(--text-muted);
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(99, 102, 241, 0.1);
+      color: #6366f1;
+    }
+
+    [data-theme="dark"] .param-type-info {
+      background: rgba(129, 140, 248, 0.15);
+      color: #a5b4fc;
     }
 
     .param-type-info .format {
       color: #8b5cf6;
     }
 
+    [data-theme="dark"] .param-type-info .format {
+      color: #c4b5fd;
+    }
+
     .param-constraint {
       display: inline-block;
-      font-size: 11px;
-      padding: 2px 6px;
+      font-size: 10px;
+      padding: 3px 8px;
       border-radius: 4px;
       background: #fef3c7;
       color: #92400e;
       font-family: 'SF Mono', 'Monaco', monospace;
       margin-left: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
 
     [data-theme="dark"] .param-constraint {
@@ -1029,53 +1062,61 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .param-default {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
-      margin-top: 4px;
+      margin-top: 6px;
     }
 
     .param-default code {
       background: var(--code-bg);
-      padding: 2px 6px;
-      border-radius: 4px;
+      padding: 3px 6px;
+      border-radius: 3px;
       font-family: 'SF Mono', 'Monaco', monospace;
+      font-size: 11px;
     }
 
     .param-example {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
-      margin-top: 4px;
+      margin-top: 6px;
     }
 
     .param-example code {
       background: var(--code-bg);
-      padding: 2px 6px;
-      border-radius: 4px;
+      padding: 3px 6px;
+      border-radius: 3px;
       font-family: 'SF Mono', 'Monaco', monospace;
+      font-size: 11px;
     }
 
     .param-description {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-color);
       line-height: 1.5;
-      margin-top: 6px;
+      margin-top: 8px;
     }
 
     /* ========== REDOC-STYLE RESPONSES ========== */
     .response-item {
       border: 1px solid var(--border-color);
-      border-radius: 4px;
-      margin-bottom: 8px;
+      border-radius: 6px;
+      margin-bottom: 12px;
       overflow: hidden;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .response-item:hover {
+      border-color: var(--primary-color);
     }
 
     .response-header {
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 12px 16px;
+      padding: 14px 16px;
       cursor: pointer;
       transition: background 0.15s;
+      background: var(--surface-color);
     }
 
     .response-header:hover {
@@ -1083,9 +1124,11 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-arrow {
-      font-size: 10px;
+      font-size: 11px;
       transition: transform 0.2s;
       color: var(--text-muted);
+      width: 16px;
+      text-align: center;
     }
 
     .response-item.expanded .response-arrow {
@@ -1093,13 +1136,45 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-status {
-      font-size: 14px;
-      font-weight: 600;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      min-width: 50px;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
-    .response-status.status-2xx { color: #10b981; }
-    .response-status.status-4xx { color: #f59e0b; }
-    .response-status.status-5xx { color: #ef4444; }
+    .response-status.status-2xx {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    [data-theme="dark"] .response-status.status-2xx {
+      background: #064e3b;
+      color: #86efac;
+    }
+
+    .response-status.status-4xx {
+      background: #fed7aa;
+      color: #92400e;
+    }
+
+    [data-theme="dark"] .response-status.status-4xx {
+      background: #78350f;
+      color: #fdba74;
+    }
+
+    .response-status.status-5xx {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    [data-theme="dark"] .response-status.status-5xx {
+      background: #7f1d1d;
+      color: #fca5a5;
+    }
 
     .response-desc {
       font-size: 14px;
