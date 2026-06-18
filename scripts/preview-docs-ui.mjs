@@ -27,11 +27,37 @@ const server = createServer({
   cors: false,
 })
 
-// A single sample procedure so the auto-generated reference has
-// something to render alongside the Markdown pages.
+// === HTTP RPC ===
 server
   .procedure('greet')
+  .input({ type: 'object', properties: { name: { type: 'string' } } })
+  .output({ type: 'object', properties: { hello: { type: 'string' } } })
   .handler(async (input) => ({ hello: input?.name ?? 'world' }))
+
+server
+  .procedure('add')
+  .input({ type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } })
+  .output({ type: 'object', properties: { sum: { type: 'number' } } })
+  .handler(async (input) => ({ sum: (input?.a ?? 0) + (input?.b ?? 0) }))
+
+// === Streams (Server-Sent Events) ===
+server
+  .stream('countdown')
+  .output({ type: 'object', properties: { count: { type: 'number' } } })
+  .handler(async function* (ctx) {
+    for (let i = 10; i >= 0; i--) {
+      yield { count: i }
+    }
+  })
+
+server
+  .stream('metrics')
+  .output({ type: 'object', properties: { value: { type: 'number' }, timestamp: { type: 'string' } } })
+  .handler(async function* (ctx) {
+    for (let i = 0; i < 50; i++) {
+      yield { value: Math.random() * 100, timestamp: new Date().toISOString() }
+    }
+  })
 
 server.enableUSD({
   basePath: '/docs',
