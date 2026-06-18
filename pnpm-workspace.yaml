@@ -1,16 +1,14 @@
 packages:
   - .
 
-allowBuilds:
-  cpu-features: set this to true or false
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
-  recker: set this to true or false
-  ssh2: set this to true or false
-
 onlyBuiltDependencies:
   - esbuild
   - protobufjs
+
+ignoredBuiltDependencies:
+  - cpu-features
+  - recker
+  - ssh2
 
 overrides:
   vite: ^7.3.2
