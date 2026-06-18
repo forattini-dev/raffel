@@ -27,6 +27,10 @@ const server = createServer({
   cors: false,
 })
 
+// === Enable Multi-Protocol Support ===
+server.websocket({ path: '/ws' })
+server.jsonrpc({ path: '/rpc' })
+
 // === HTTP RPC ===
 server
   .procedure('greet')
@@ -72,6 +76,173 @@ server.enableUSD({
     theme: 'auto',
     sidebar: { search: true, docsPages: true, subMaxLevel: 3, docsPagesGroup: 'Pages' },
     toc: { enabled: true, minLevel: 2, maxLevel: 4 },
+  },
+  // === WebSocket Channels ===
+  websocket: {
+    path: '/ws',
+    channels: {
+      'notifications': {
+        summary: 'Notifications channel',
+        description: 'Receive real-time notifications for events',
+        type: 'public',
+        subscribe: {
+          message: {
+            payload: {
+              type: 'object',
+              properties: {
+                type: { type: 'string' },
+                message: { type: 'string' },
+                timestamp: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      'presence-users': {
+        summary: 'Online users presence',
+        description: 'Track who is currently online',
+        type: 'presence',
+        subscribe: {
+          message: {
+            payload: {
+              type: 'object',
+              properties: {
+                userId: { type: 'string' },
+                status: { type: 'string' },
+                lastSeen: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  // === JSON-RPC Methods ===
+  jsonrpc: {
+    endpoint: '/rpc',
+    methods: {
+      'math.multiply': {
+        summary: 'Multiply two numbers',
+        params: {
+          type: 'object',
+          properties: {
+            a: { type: 'number' },
+            b: { type: 'number' },
+          },
+          required: ['a', 'b'],
+        },
+        result: {
+          type: 'object',
+          properties: {
+            product: { type: 'number' },
+          },
+        },
+      },
+    },
+  },
+  // === gRPC Services ===
+  grpc: {
+    services: {
+      'UserService': {
+        description: 'User management service',
+        methods: {
+          'GetUser': {
+            summary: 'Get user by ID',
+            request: {
+              type: 'object',
+              properties: {
+                userId: { type: 'string' },
+              },
+            },
+            response: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                email: { type: 'string' },
+              },
+            },
+          },
+          'ListUsers': {
+            summary: 'List all users with server streaming',
+            'x-usd-server-streaming': true,
+            request: {
+              type: 'object',
+              properties: {
+                limit: { type: 'integer', default: 10 },
+              },
+            },
+            response: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  // === TCP ===
+  tcp: {
+    servers: {
+      'telemetry': {
+        summary: 'Telemetry ingestion',
+        description: 'TCP socket for telemetry data',
+        port: 9000,
+        host: '127.0.0.1',
+        framing: {
+          type: 'length-prefixed',
+          lengthBytes: 4,
+          byteOrder: 'big-endian',
+        },
+        messages: {
+          inbound: {
+            payload: {
+              type: 'object',
+              properties: {
+                metric: { type: 'string' },
+                value: { type: 'number' },
+                timestamp: { type: 'string' },
+              },
+            },
+          },
+          outbound: {
+            payload: {
+              type: 'object',
+              properties: {
+                ack: { type: 'boolean' },
+                id: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  // === UDP ===
+  udp: {
+    endpoints: {
+      'metrics': {
+        summary: 'Metrics collection',
+        description: 'UDP endpoint for lightweight metrics',
+        port: 5000,
+        host: '0.0.0.0',
+        maxPacketSize: 65507,
+        messages: {
+          inbound: {
+            payload: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                value: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 })
 
