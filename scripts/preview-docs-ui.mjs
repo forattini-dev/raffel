@@ -42,7 +42,7 @@ server.enableUSD({
   },
   docsDir,
   ui: {
-    assets: { mode: 'external' },
+    assets: { mode: 'inline' },
     theme: 'auto',
     sidebar: { search: true, docsPages: true, subMaxLevel: 3, docsPagesGroup: 'Pages' },
     toc: { enabled: true, minLevel: 2, maxLevel: 4 },
