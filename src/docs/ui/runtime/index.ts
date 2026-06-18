@@ -1282,13 +1282,250 @@ function appendSidebarGroup(
   nav.appendChild(group)
 }
 
+function generateExampleFromSchema(schema: any): any {
+  if (!schema) return null
+  if (schema.$ref) return { $ref: schema.$ref }
+  if (schema.example !== undefined) return schema.example
+  if (schema.default !== undefined) return schema.default
+  if (schema.enum && schema.enum.length > 0) return schema.enum[0]
+
+  switch (schema.type) {
+    case 'string': return schema.format === 'email' ? 'user@example.com' : 'string'
+    case 'number': return 0
+    case 'integer': return 0
+    case 'boolean': return true
+    case 'array': return schema.items ? [generateExampleFromSchema(schema.items)] : []
+    case 'object':
+      if (!schema.properties) return {}
+      const obj: any = {}
+      Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
+        obj[key] = generateExampleFromSchema(prop)
+      })
+      return obj
+    default: return null
+  }
+}
+
+function renderCodeExamples(endpoint: any, data: any): any {
+  const container = doc.createElement('div')
+  container.style.marginTop = '20px'
+  container.style.paddingTop = '16px'
+  container.style.borderTop = '1px solid var(--border-color)'
+
+  // cURL example
+  const method = endpoint.method?.toUpperCase() || 'GET'
+  const path = endpoint.path || '/'
+  const baseUrl = 'http://localhost:3000'
+
+  const curlSection = doc.createElement('div')
+  curlSection.style.marginBottom = '20px'
+  curlSection.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">cURL EXAMPLE</div>'
+  const curlCode = doc.createElement('pre')
+  curlCode.style.backgroundColor = 'var(--bg-secondary)'
+  curlCode.style.padding = '12px'
+  curlCode.style.borderRadius = '4px'
+  curlCode.style.fontSize = '12px'
+  curlCode.style.overflow = 'auto'
+
+  let curlCmd = `curl -X ${method} "${baseUrl}${path}"`
+  const reqBody = data.requestBody?.content?.[Object.keys(data.requestBody.content)[0]]
+  if (reqBody && ['POST', 'PUT', 'PATCH'].includes(method)) {
+    const example = generateExampleFromSchema(reqBody.schema)
+    curlCmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(example, null, 2).split('\n').join('\n  ')}'`
+  }
+
+  curlCode.textContent = curlCmd
+  curlSection.appendChild(curlCode)
+  container.appendChild(curlSection)
+
+  // Response example
+  if (data.responses) {
+    const responses = Object.entries(data.responses)
+    if (responses.length > 0) {
+      const [status, resp]: [string, any] = responses[0]
+      const respSection = doc.createElement('div')
+      respSection.innerHTML = `<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">RESPONSE ${status}</div>`
+
+      const respCode = doc.createElement('pre')
+      respCode.style.backgroundColor = 'var(--bg-secondary)'
+      respCode.style.padding = '12px'
+      respCode.style.borderRadius = '4px'
+      respCode.style.fontSize = '12px'
+      respCode.style.overflow = 'auto'
+
+      if (resp.content) {
+        const contentType = Object.keys(resp.content)[0]
+        const schema = resp.content[contentType]?.schema
+        const example = generateExampleFromSchema(schema)
+        respCode.textContent = JSON.stringify(example, null, 2)
+      } else {
+        respCode.textContent = `{}`
+      }
+
+      respSection.appendChild(respCode)
+      container.appendChild(respSection)
+    }
+  }
+
+  return container
+}
+
+function renderSchemaTree(parent: any, schema: any, depth = 0): void {
+  if (!schema) return
+  const div = doc.createElement('div')
+  div.style.paddingLeft = depth > 0 ? `${depth * 12}px` : '0'
+  div.style.marginTop = depth === 0 ? '8px' : '0'
+
+  if (schema.$ref) {
+    const refName = String(schema.$ref).split('/').pop()
+    const row = doc.createElement('div')
+    row.style.padding = '4px 0'
+    row.innerHTML = `<span style="color: #888; font-style: italic;">$ref: ${esc(refName)}</span>`
+    div.appendChild(row)
+  } else if (schema.type === 'object' && schema.properties) {
+    Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
+      const row = doc.createElement('div')
+      row.style.padding = '6px 0'
+      row.style.borderLeft = depth === 0 ? '2px solid var(--border-color)' : 'none'
+      row.style.paddingLeft = depth === 0 ? '8px' : '0'
+      const type = (prop as any).type || 'any'
+      const required = schema.required?.includes(key) ? '<span style="color: #ef4444; margin-left: 4px;">*</span>' : ''
+      const format = (prop as any).format ? ` (${(prop as any).format})` : ''
+      row.innerHTML = `<div style="font-weight: 500; color: var(--text-primary); display: flex; align-items: center;">${esc(key)}${required} <span style="color: var(--text-secondary); font-weight: normal; margin-left: 8px;">${type}${format}</span></div>`
+      if ((prop as any).description) {
+        const desc = doc.createElement('div')
+        desc.style.fontSize = '12px'
+        desc.style.color = 'var(--text-muted)'
+        desc.style.marginTop = '4px'
+        desc.textContent = (prop as any).description
+        row.appendChild(desc)
+      }
+      if ((prop as any).example !== undefined) {
+        const ex = doc.createElement('div')
+        ex.style.fontSize = '11px'
+        ex.style.color = '#888'
+        ex.style.marginTop = '2px'
+        ex.style.fontFamily = 'monospace'
+        ex.textContent = `Example: ${JSON.stringify((prop as any).example)}`
+        row.appendChild(ex)
+      }
+      if ((prop as any).enum) {
+        const en = doc.createElement('div')
+        en.style.fontSize = '11px'
+        en.style.color = '#888'
+        en.style.marginTop = '2px'
+        en.textContent = `Values: ${(prop as any).enum.join(', ')}`
+        row.appendChild(en)
+      }
+      div.appendChild(row)
+      if ((prop as any).properties) {
+        renderSchemaTree(div, prop, depth + 1)
+      }
+    })
+  } else if (schema.type === 'array' && schema.items) {
+    const row = doc.createElement('div')
+    row.style.padding = '6px 0'
+    row.innerHTML = `<span style="color: var(--text-primary); font-weight: 500;">array</span> <span style="color: var(--text-secondary);">of ${(schema.items as any).type || 'object'}</span>`
+    div.appendChild(row)
+    if ((schema.items as any).properties) {
+      renderSchemaTree(div, schema.items, depth + 1)
+    }
+  } else {
+    const row = doc.createElement('div')
+    row.style.padding = '6px 0'
+    row.innerHTML = `<span style="color: var(--text-secondary);">${esc(schema.type || 'any')}</span>`
+    div.appendChild(row)
+  }
+  parent.appendChild(div)
+}
+
 function renderEndpointDetails(endpoint: Endpoint): any {
   const container = doc.createElement('div')
   container.className = 'endpoint-details'
   const data = (endpoint.data ?? {}) as any
   appendProtocolConsole(container, { doc, spec, wsSpec, streamsSpec, jsonrpcSpec, activeProtocol, endpoint, data, esc, escapeAttr })
   const appendMany = (items: Array<[string, unknown]>) => items.forEach(([title, value]) => appendSchemaSubsection(container, title, value))
-  if (activeProtocol === 'http') appendMany([['Parameters', data.parameters], ['Request Body', getFirstContentSchema(data.requestBody?.content)], ['Responses', data.responses]])
+  if (activeProtocol === 'http') {
+    const params = (data.parameters ?? []) as any[]
+    if (params.length > 0) {
+      const section = doc.createElement('div')
+      section.className = 'endpoint-subsection'
+      section.innerHTML = '<div class="subsection-label">PARAMETERS</div>'
+      const grid = doc.createElement('div')
+      grid.className = 'info-grid'
+      params.forEach(p => {
+        grid.innerHTML += `<div class="info-card"><div class="info-card-title">${esc(p.name)}</div><div class="info-card-value">${esc(p.in || 'query')} • ${esc(p.schema?.type || 'string')}${p.required ? ' *' : ''}</div></div>`
+      })
+      section.appendChild(grid)
+      container.appendChild(section)
+    }
+    const reqBody = data.requestBody
+    if (reqBody?.content) {
+      const section = doc.createElement('div')
+      section.className = 'endpoint-subsection'
+      section.innerHTML = '<div class="subsection-label">REQUEST BODY</div>'
+      const content = reqBody.content[Object.keys(reqBody.content)[0]]
+      if (content?.schema) {
+        renderSchemaTree(section, content.schema)
+      }
+      container.appendChild(section)
+    }
+    const responses = data.responses
+    if (responses && Object.keys(responses).length > 0) {
+      const section = doc.createElement('div')
+      section.className = 'endpoint-subsection'
+      section.innerHTML = '<div class="subsection-label">RESPONSES</div>'
+      Object.entries(responses).forEach(([status, resp]: [string, any]) => {
+        const statusClass = status.startsWith('2') ? 'status-2xx' : status.startsWith('4') ? 'status-4xx' : 'status-5xx'
+        const item = doc.createElement('div')
+        item.style.marginBottom = '16px'
+        item.style.padding = '12px'
+        item.style.borderRadius = '6px'
+        item.style.backgroundColor = 'var(--bg-secondary)'
+        item.innerHTML = `<div style="color: var(--text-secondary); font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><span class="badge badge-${statusClass}">${status}</span> <strong>${esc(resp.description || '')}</strong></div>`
+
+        // Headers
+        if (resp.headers && Object.keys(resp.headers).length > 0) {
+          const headersDiv = doc.createElement('div')
+          headersDiv.style.marginBottom = '12px'
+          headersDiv.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">HEADERS</div>'
+          const headersList = doc.createElement('div')
+          headersList.style.fontSize = '12px'
+          Object.entries(resp.headers).forEach(([headerName, headerDef]: [string, any]) => {
+            const headerRow = doc.createElement('div')
+            headerRow.style.padding = '4px 0'
+            headerRow.style.borderLeft = '2px solid var(--border-color)'
+            headerRow.style.paddingLeft = '8px'
+            const headerType = (headerDef as any).schema?.type || 'string'
+            headerRow.innerHTML = `<div style="font-weight: 500; color: var(--text-primary);">${esc(headerName)}</div><div style="color: var(--text-muted); font-size: 11px;">${headerType}</div>${(headerDef as any).description ? `<div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">${esc((headerDef as any).description)}</div>` : ''}`
+            headersList.appendChild(headerRow)
+          })
+          headersDiv.appendChild(headersList)
+          item.appendChild(headersDiv)
+        }
+
+        // Schema
+        if (resp.content) {
+          const contentType = Object.keys(resp.content)[0]
+          const schema = resp.content[contentType]?.schema
+          if (schema) {
+            const schemaDiv = doc.createElement('div')
+            schemaDiv.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">SCHEMA</div>'
+            renderSchemaTree(schemaDiv, schema)
+            item.appendChild(schemaDiv)
+          }
+        }
+        section.appendChild(item)
+      })
+      container.appendChild(section)
+    }
+
+    // Code examples
+    const examplesSection = doc.createElement('div')
+    examplesSection.className = 'endpoint-subsection'
+    examplesSection.appendChild(renderCodeExamples(endpoint, data))
+    container.appendChild(examplesSection)
+  }
   if (activeProtocol === 'websocket') {
     appendInfoGrid(container, [['Channel Type', data.type], ['Path', endpoint.path]])
     appendMany([['Parameters', parameterMapToSchema(data.parameters)], ['Subscribe Message', resolveMessagePayload(data.subscribe?.message)], ['Publish Message', resolveMessagePayload(data.publish?.message)]])
