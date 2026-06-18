@@ -25,6 +25,8 @@ import {
   GraphQLInputFieldConfig,
   GraphQLOutputType,
   GraphQLInputType,
+  type GraphQLNullableOutputType,
+  type GraphQLNullableInputType,
   GraphQLError,
   type GraphQLResolveInfo,
   Kind,
@@ -130,8 +132,8 @@ function defaultFieldNameGenerator(handlerName: string): string {
 // === Schema Descriptor to GraphQL Type Conversion ===
 
 interface TypeCache {
-  output: Map<string, GraphQLOutputType>
-  input: Map<string, GraphQLInputType>
+  output: Map<string, GraphQLNullableOutputType>
+  input: Map<string, GraphQLNullableInputType>
 }
 
 type JsonSchemaObject = Record<string, unknown>
@@ -239,7 +241,7 @@ function descriptorToGraphQLOutput(
   const type = getJsonSchemaType(schema)
   const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined
 
-  let baseType: GraphQLOutputType
+  let baseType: GraphQLNullableOutputType
 
   if (schema['x-raffel-opaque'] === true || schema.oneOf || schema.anyOf || schema.allOf) {
     baseType = GraphQLJSON
@@ -342,7 +344,7 @@ function descriptorToGraphQLInput(
   const type = getJsonSchemaType(schema)
   const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined
 
-  let baseType: GraphQLInputType
+  let baseType: GraphQLNullableInputType
 
   if (schema['x-raffel-opaque'] === true || schema.oneOf || schema.anyOf || schema.allOf) {
     baseType = GraphQLJSON
