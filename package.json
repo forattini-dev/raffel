@@ -1,6 +1,6 @@
 {
   "name": "raffel",
-  "version": "1.1.50",
+  "version": "1.1.51",
   "description": "Unified multi-protocol server runtime. One core, multiple transports.",
   "type": "module",
   "packageManager": "pnpm@11.3.0",
@@ -275,6 +275,7 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
+    "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "cli-args-parser": "^1.0.6",
     "graphql": "^17.0.1",
@@ -299,7 +300,6 @@
     "@types/ssh2": "^1.15.5",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.9",
-    "ajv": "^8.18.0",
     "fastest-validator": "^1.19.1",
     "joi": "^18.2.3",
     "jsdom": "^29.1.1",
@@ -312,16 +312,12 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "ajv": "^8.0.0",
     "fastest-validator": "^1.17.0",
     "joi": "^17.0.0",
     "yup": "^1.0.0",
     "zod": "^3.0.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
-    "ajv": {
-      "optional": true
-    },
     "fastest-validator": {
       "optional": true
     },
