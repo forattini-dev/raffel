@@ -136,11 +136,23 @@ function buildCoLocatedAuthzInterceptors(
   route: LoadedRoute,
   policyHook: DiscoveryRegistrationPolicyHook | undefined,
 ): Interceptor[] {
+  // Routes declared as public (`meta.auth: 'none'`) must not have their
+  // co-located policy enforced: an anonymous K8s probe (or any unauthenticated
+  // request) would otherwise flow into the policy interceptor with no
+  // principal context. Forwarding `public: true` here matches the author's
+  // explicit intent — they opted the route out of authentication, so the
+  // policy engine treats it as public too. Authors that still want policy
+  // enforcement on an auth-free route can call `.authz({ public: false })`
+  // explicitly via the builder API to override.
+  const policyConfig: ProcedurePolicyConfig | undefined =
+    route.meta?.auth === 'none' ? { public: true } : undefined
+
   return buildCoLocatedAuthzInterceptorsForName(
     route.name,
     route.coLocatedPolicies,
     policyHook,
     route.filePath,
+    policyConfig,
   )
 }
 

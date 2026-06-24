@@ -17,14 +17,17 @@ import type { Context, AuthContext } from '../../../types/context.js'
 import { derivePolicyPrincipalFromAuth } from '../../../auth/principal.js'
 import type { Principal, PrincipalConfig } from '../types.js'
 import type { PrincipalResolver } from './index.js'
+import { ANONYMOUS_PRINCIPAL } from './anonymous.js'
 
 function defaultMap(ctx: Context): Principal {
   const auth = ctx.auth as AuthContext | undefined
   if (!auth?.authenticated) {
-    throw new Error(
-      "policy.principal.from === 'oauth2': ctx.auth.authenticated is false — " +
-        'configure the OAuth2 interceptor before the policy interceptor.',
-    )
+    // Unauthenticated request → anonymous principal. Policies that want to
+    // restrict to authenticated callers must filter via their own patterns
+    // (e.g. explicit allow rules or `defaultMode: 'deny'`). Throwing here
+    // would surface as HTTP 500 INTERNAL_ERROR and break K8s probes against
+    // `meta.auth: 'none'` routes that still carry co-located policies.
+    return ANONYMOUS_PRINCIPAL
   }
 
   try {
