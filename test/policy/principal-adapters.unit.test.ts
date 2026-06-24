@@ -38,17 +38,24 @@ describe('principal adapters — session', () => {
     })
   })
 
-  it('throws helpful error when session.data.user.id missing', async () => {
+  it('returns anonymous principal when session.data.user.id missing', async () => {
     const resolver = createSessionPrincipalResolver({ from: 'session' })
     const ctx = fakeCtx({ session: { data: {} } })
 
-    await expect(resolver(ctx)).rejects.toThrow(/ctx\.session\.data\.user\.id missing/)
+    const principal = await resolver(ctx)
+    expect(principal.id).toBe('anonymous')
+    expect(principal.tenantId).toBeNull()
+    expect(principal.scopes).toEqual([])
+    expect(principal.groups).toEqual([])
+    expect(principal.attrs).toEqual({ anonymous: true })
   })
 
-  it('throws when no session at all', async () => {
+  it('returns anonymous principal when no session at all', async () => {
     const resolver = createSessionPrincipalResolver({ from: 'session' })
     const ctx = fakeCtx({})
-    await expect(resolver(ctx)).rejects.toThrow()
+    const principal = await resolver(ctx)
+    expect(principal.id).toBe('anonymous')
+    expect(principal.attrs).toEqual({ anonymous: true })
   })
 
   it('custom map override', async () => {
@@ -124,11 +131,21 @@ describe('principal adapters — oauth2', () => {
     expect(principal.tenantId).toBe('tenant-from-jwt')
   })
 
-  it('throws when not authenticated', async () => {
+  it('returns anonymous principal when not authenticated', async () => {
     const resolver = createOAuth2PrincipalResolver({ from: 'oauth2' })
-    await expect(resolver(fakeCtx({ auth: { authenticated: false } }))).rejects.toThrow(
-      /authenticated is false/,
-    )
+    const principal = await resolver(fakeCtx({ auth: { authenticated: false } }))
+    expect(principal.id).toBe('anonymous')
+    expect(principal.tenantId).toBeNull()
+    expect(principal.scopes).toEqual([])
+    expect(principal.groups).toEqual([])
+    expect(principal.attrs).toEqual({ anonymous: true })
+  })
+
+  it('returns anonymous principal for OIDC when not authenticated', async () => {
+    const resolver = createOidcPrincipalResolver({ from: 'oidc' })
+    const principal = await resolver(fakeCtx({ auth: { authenticated: false } }))
+    expect(principal.id).toBe('anonymous')
+    expect(principal.attrs).toEqual({ anonymous: true })
   })
 
   it('throws when no id derivable', async () => {

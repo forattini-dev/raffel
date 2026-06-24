@@ -17,14 +17,15 @@ import type { Context, AuthContext } from '../../../types/context.js'
 import { derivePolicyPrincipalFromAuth } from '../../../auth/principal.js'
 import type { Principal, PrincipalConfig } from '../types.js'
 import type { PrincipalResolver } from './index.js'
+import { ANONYMOUS_PRINCIPAL } from './anonymous.js'
 
 function defaultMap(ctx: Context): Principal {
   const auth = ctx.auth as AuthContext | undefined
   if (!auth?.authenticated) {
-    throw new Error(
-      "policy.principal.from === 'oidc': ctx.auth.authenticated is false — " +
-        'configure the OIDC interceptor before the policy interceptor.',
-    )
+    // See oauth2.ts — unauthenticated requests resolve to the anonymous
+    // principal so co-located policies can decide what to do instead of the
+    // request crashing the principal resolver with an HTTP 500.
+    return ANONYMOUS_PRINCIPAL
   }
 
   try {

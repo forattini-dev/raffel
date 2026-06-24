@@ -43,3 +43,4 @@ export function createPrincipalResolver(config: PrincipalConfig): PrincipalResol
 export { createSessionPrincipalResolver } from './session.js'
 export { createOAuth2PrincipalResolver } from './oauth2.js'
 export { createOidcPrincipalResolver } from './oidc.js'
+export { ANONYMOUS_PRINCIPAL, isAnonymousPrincipal } from './anonymous.js'
