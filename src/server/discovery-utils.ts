@@ -158,6 +158,12 @@ function buildCoLocatedAuthzInterceptors(
 
 /**
  * Register discovered handlers from file-system
+ *
+ * On a hot reload (`previouslyDiscovered` is provided) the function first
+ * drops every name that was registered by the previous load and is no
+ * longer present in the new result, then re-registers everything that
+ * remains. Programmatic registrations (builder API) are tracked by the
+ * caller via `previouslyDiscovered` and are therefore never removed.
  */
 export function registerDiscoveredHandlers(
   result: DiscoveryResult,
@@ -170,8 +176,33 @@ export function registerDiscoveredHandlers(
     filePath: string
   }) => void,
   policyHook?: DiscoveryRegistrationPolicyHook,
-): void {
+  previouslyDiscovered?: ReadonlySet<string>,
+): { discoveredNames: Set<string> } {
+  const newNames = new Set<string>()
+
+  // Hot-reload cleanup: drop routes that were registered by the previous
+  // discovery load but no longer appear in this result. Names that exist
+  // in the registry but were NOT tracked as discovery-registered
+  // (programmatic registrations) are preserved by definition — they
+  // were not in `previouslyDiscovered`.
+  if (previouslyDiscovered) {
+    const incomingNames = new Set(result.routes.map((r) => r.name))
+    for (const name of previouslyDiscovered) {
+      if (incomingNames.has(name)) continue
+      if (registry.remove(name)) {
+        logger.debug({ name }, 'Removed stale discovered route on hot reload')
+      }
+    }
+  }
+
   for (const route of result.routes) {
+    // On hot reload, drop a route that was previously discovery-registered
+    // before the explicit-wins check below. Otherwise the route stays in
+    // the registry across reloads and the new handler is silently ignored.
+    if (previouslyDiscovered?.has(route.name)) {
+      registry.remove(route.name)
+    }
+
     // Skip handlers already registered programmatically — explicit builder
     // calls (`server.procedure('x').authz(...)`) take precedence over any
     // co-located policy from discovery (issue #92 AC: explicit-wins).
@@ -182,6 +213,8 @@ export function registerDiscoveredHandlers(
       )
       continue
     }
+
+    newNames.add(route.name)
 
     // Create interceptors from route config
     const routeInterceptors = createRouteInterceptors(route)
@@ -232,6 +265,8 @@ export function registerDiscoveredHandlers(
 
     logger.debug({ name: route.name, kind: route.kind }, 'Registered handler')
   }
+
+  return { discoveredNames: newNames }
 }
 
 /**

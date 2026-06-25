@@ -209,7 +209,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       )
     },
     onReload: async (result) => {
-      applyDiscoveryResult(result)
+      applyDiscoveryResult(result, true)
       logger.info({ total: result.stats.total }, 'Handlers hot-reloaded')
     },
     onError: (err) => {
@@ -505,14 +505,15 @@ export function createServer(options: ServerOptions): RaffelServer {
     logger: loggerPort,
     recordOperationRegistration,
     generateResourceRoutes: generateResourceRoutesWithInterceptors,
-    registerDiscoveredHandlers: (result, targetRegistry, targetSchemaRegistry, interceptors, onRegistered) => {
-      registerDiscoveredHandlers(
+    registerDiscoveredHandlers: (result, targetRegistry, targetSchemaRegistry, interceptors, onRegistered, previouslyDiscovered) => {
+      return registerDiscoveredHandlers(
         result as import('./fs-routes/index.js').DiscoveryResult,
         targetRegistry,
         targetSchemaRegistry,
         interceptors,
         onRegistered,
         policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
+        previouslyDiscovered,
       )
     },
     buildAuthzInterceptorsForOperation: (operationName, coLocatedPolicies, diagnosticsFilePath, policyConfig) =>
@@ -557,14 +558,26 @@ export function createServer(options: ServerOptions): RaffelServer {
     registrationService.registerUdpHandler(udpHandlers, handler)
   }
 
-  function applyDiscoveryResult(result: DiscoveryResult): void {
-    registrationService.applyDiscoveryResult(
+  // Track names of procedures/streams/events that the discovery layer
+  // registered, so a subsequent hot reload can drop the ones that
+  // disappeared and re-register the rest. Programmatic registrations
+  // (via `server.procedure(...)`) are never in this set, so they are
+  // protected from the cleanup pass.
+  let discoveredRoutes: Set<string> = new Set()
+
+  function applyDiscoveryResult(
+    result: DiscoveryResult,
+    isReload: boolean = true
+  ): void {
+    const { discoveredNames } = registrationService.applyDiscoveryResult(
       result,
       channelRegistry,
       restResourceRegistry,
       tcpHandlers,
-      udpHandlers
+      udpHandlers,
+      isReload ? discoveredRoutes : undefined
     )
+    discoveredRoutes = discoveredNames
     for (const resource of result.graphqlResources) {
       registerGraphQLResource(resource)
     }
@@ -1516,7 +1529,15 @@ export function createServer(options: ServerOptions): RaffelServer {
     },
 
     addDiscovery(result: DiscoveryResult) {
-      applyDiscoveryResult(result)
+      // `addDiscovery` accepts a complete view of the discovered surface.
+      // Whether this is the initial load or a subsequent re-application
+      // (e.g. from a watcher), the caller is asserting "this is the new
+      // state" — so treat it as a reload: drop previously-discovered
+      // names that disappeared, re-register what remains, and keep
+      // programmatic registrations untouched. The first invocation has
+      // no `previouslyDiscovered` set yet, so the cleanup pass is a
+      // no-op and we just register everything fresh.
+      applyDiscoveryResult(result, true)
       logger.debug(
         {
           routes: result.routes.length,
