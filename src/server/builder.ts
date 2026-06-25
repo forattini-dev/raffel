@@ -14,7 +14,6 @@ import type { TcpAdapter, TcpConnectionHandler } from '../adapters/tcp.js'
 import type { GrpcAdapter } from '../adapters/grpc.js'
 import type { JsonRpcAdapter } from '../adapters/jsonrpc.js'
 import type { GraphQLAdapter, GraphQLMiddleware, GraphQLPolicyBridge } from '../graphql/index.js'
-import { getRouterModuleDefinition } from './router-module.js'
 import { createSchemaRegistry } from '../validation/index.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
 import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from '../types/index.js'
@@ -30,11 +29,6 @@ import type {
   ServerPreset,
   ServerPresetOptions,
   RaffelServer,
-  RouterModule,
-  MountOptions,
-  AddProcedureInput,
-  AddStreamInput,
-  AddEventInput,
   ProviderFactory,
   ProviderDefinition,
   ResolvedProviders,
@@ -54,7 +48,6 @@ import {
 } from '../docs/index.js'
 import type { USDDocsConfig } from './types.js'
 import {
-  createRouteInterceptors,
   isDevelopment,
   generateResourceRoutes,
   type DiscoveryResult,
@@ -77,7 +70,6 @@ import {
   createStreamBuilder,
   createEventBuilder,
   createGroupBuilder,
-  joinHandlerName,
 } from './handler-builders.js'
 import { createResourceBuilder } from './resource-builder.js'
 import {
@@ -93,6 +85,11 @@ import { createFrontDoorBootstrap } from './front-door.js'
 import { createProtocolFusionDiagnosticsStore } from './protocol-fusion-diagnostics.js'
 import { createDiscoveryBootstrap } from './discovery-bootstrap.js'
 import { createServerLifecycle } from './builder/lifecycle.js'
+import {
+  createGraphQLPolicyBridge,
+  createChannelCoLocatedPolicyEnforcer,
+} from './builder/policy-bridges.js'
+import { createProgrammaticRegistration } from './builder/programmatic-registration.js'
 import {
   configureMetrics,
   configureTracing,
@@ -120,7 +117,6 @@ import { applyExtendedProtocolConfig } from './builder/with-protocols.js'
 import { applyResourceMap } from './builder/resources.js'
 import {
   createEnvelopeInterceptorFromOptions,
-  policyMetadataFromRouteMeta,
   programmaticSource,
 } from './builder/metadata.js'
 import { createServerPluginRuntime } from './builder/plugin-runtime.js'
@@ -569,6 +565,13 @@ export function createServer(options: ServerOptions): RaffelServer {
     result: DiscoveryResult,
     isReload: boolean = true
   ): void {
+    // Hot reload: drop the previous load's accumulation so the next
+    // flush only contains policies for routes that survived. The
+    // engine entries themselves are overwritten by the engine's
+    // replace-in-place semantics on the next flush.
+    if (isReload) {
+      policyBootstrap?.coLocatedAccumulator.reset()
+    }
     const { discoveredNames } = registrationService.applyDiscoveryResult(
       result,
       channelRegistry,
@@ -578,8 +581,21 @@ export function createServer(options: ServerOptions): RaffelServer {
       isReload ? discoveredRoutes : undefined
     )
     discoveredRoutes = discoveredNames
+
+    // GraphQL resources also accumulate their co-located policies via
+    // `registerGraphQLResource` → `addCoLocatedPoliciesToEngine`, so
+    // they must run BEFORE the flush. Otherwise their accumulated
+    // policies are dropped because the flush already happened.
     for (const resource of result.graphqlResources) {
       registerGraphQLResource(resource)
+    }
+
+    // Once every route, channel, and GraphQL resource in the load has
+    // been registered (and its co-located policies accumulated),
+    // materialise the union into the engine. One policy per
+    // (source, index), regardless of how many routes referenced it.
+    if (policyBootstrap) {
+      policyBootstrap.coLocatedAccumulator.flush()
     }
     advanceApiDocumentationRevision()
   }
@@ -650,56 +666,6 @@ export function createServer(options: ServerOptions): RaffelServer {
       })
     : undefined
 
-  function createGraphQLPolicyBridge(
-    bootstrap: PolicyBootstrap | null
-  ): GraphQLPolicyBridge | undefined {
-    if (!bootstrap) return undefined
-
-    return {
-      async evaluate(ctx, authz, value, args, parent) {
-        const principal = await bootstrap.resolvePrincipal(ctx)
-        const rawResource = await authz.resource(value, args, ctx, parent)
-        const resources = rawResource == null
-          ? [{ type: '*', id: '*', tenantId: principal.tenantId }]
-          : Array.isArray(rawResource)
-            ? rawResource
-            : [rawResource]
-        if (resources.length === 0) {
-          resources.push({ type: '*', id: '*', tenantId: principal.tenantId })
-        }
-        const protocol = (ctx as { protocol?: unknown }).protocol
-        const protocolValue = typeof protocol === 'string' ? protocol : 'graphql'
-
-        let lastDecision: Awaited<ReturnType<PolicyEnginePort['evaluate']>> | undefined
-        if (authz.mode === 'any') {
-          for (const resource of resources) {
-            const decision = await bootstrap.engine.evaluate({
-              principal,
-              action: authz.action,
-              resource,
-              protocol: protocolValue,
-            })
-            lastDecision = decision
-            if (decision.allowed) return decision
-          }
-          return lastDecision!
-        }
-
-        for (const resource of resources) {
-          const decision = await bootstrap.engine.evaluate({
-            principal,
-            action: authz.action,
-            resource,
-            protocol: protocolValue,
-          })
-          lastDecision = decision
-          if (!decision.allowed) return decision
-        }
-        return lastDecision!
-      },
-    }
-  }
-
   const serverLifecycle = createServerLifecycle({
     logger,
     state: serverState,
@@ -735,26 +701,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     getWsSubscribeHandler: () => wsSubscribeHandler,
     getWsMessageHandler: () => wsMessageHandler,
     getWsUnsubscribeHandler: () => wsUnsubscribeHandler,
-    channelCoLocatedPolicyEnforcer: policyBootstrap
-      ? async (channelName, policies, ctx) => {
-          addCoLocatedPoliciesToEngine(
-            channelName,
-            policies,
-            { bootstrap: policyBootstrap },
-            undefined,
-            { route: channelName },
-          )
-          const principal = await policyBootstrap.resolvePrincipal(ctx)
-          const ctxProtocol = (ctx as { protocol?: unknown }).protocol
-          const decision = await policyBootstrap.engine.evaluate({
-            principal,
-            action: channelName,
-            resource: { type: 'channel', id: channelName, tenantId: principal.tenantId },
-            protocol: typeof ctxProtocol === 'string' ? ctxProtocol : 'websocket',
-          })
-          return decision.allowed
-        }
-      : undefined,
+    channelCoLocatedPolicyEnforcer: createChannelCoLocatedPolicyEnforcer(policyBootstrap),
     graphqlPolicyBridge: createGraphQLPolicyBridge(policyBootstrap),
   })
 
@@ -812,6 +759,29 @@ export function createServer(options: ServerOptions): RaffelServer {
         },
       })
     : undefined
+
+  // Programmatic registration methods (mount + addX + registerHandler)
+  // are produced by a factory and spread into the server object below.
+  // `getServer` is a thunk because the methods return `server` for
+  // chaining, and `server` is defined immediately after this call.
+  const programmaticRegistration = createProgrammaticRegistration({
+    registry,
+    schemaRegistry,
+    globalInterceptors,
+    normalizeInterceptors,
+    policyInterceptorFactory,
+    policyDefaultMode,
+    noPolicyDeclaredFactory,
+    recordOperationRegistration,
+    registerProcedureOperation,
+    registerChannel,
+    registerRestResource,
+    registerResource,
+    registerTcpHandler,
+    registerUdpHandler,
+    logger,
+    getServer: () => server,
+  })
 
   const server: RaffelServer = {
     // === Authorization (policies) ===
@@ -1260,273 +1230,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       )
     },
 
-    mount(prefix: string, module: RouterModule, options: MountOptions = {}) {
-      const definition = getRouterModuleDefinition(module)
-      const mountInterceptors = options.interceptors ?? []
-
-      for (const route of definition.routes) {
-        const fullName = joinHandlerName(prefix, route.name)
-        const routeSchema = route.kind === 'procedure' ? route.schema : undefined
-
-        // Synthesize policy interceptor at mount-time using the host server's
-        // factory. Module routes carry `route.authz` (resolved from per-procedure
-        // .authz() or module's defaultAuthz). When defaultMode is 'deny' and
-        // no authz was declared, inject the no-policy-declared deny.
-        const authzInterceptors: Interceptor[] = []
-        if (route.kind === 'procedure') {
-          if (route.authz && policyInterceptorFactory) {
-            authzInterceptors.push(policyInterceptorFactory(fullName, route.authz))
-          } else if (
-            !route.authz &&
-            policyDefaultMode === 'deny' &&
-            noPolicyDeclaredFactory
-          ) {
-            authzInterceptors.push(noPolicyDeclaredFactory(fullName))
-          }
-        }
-
-        const interceptors = normalizeInterceptors(
-          [
-            ...globalInterceptors,
-            ...mountInterceptors,
-            ...route.moduleInterceptors,
-            ...authzInterceptors,
-            ...route.interceptors,
-          ],
-          routeSchema
-        )
-
-        if (route.schema) {
-          schemaRegistry.register(fullName, route.schema)
-        }
-
-        if (route.kind === 'procedure') {
-          registry.procedure(fullName, route.handler as ProcedureHandler, {
-            summary: route.summary,
-            description: route.description,
-            tags: route.tags,
-            graphql: route.graphql,
-            httpPath: route.httpPath,
-            httpMethod: route.httpMethod,
-            jsonrpc: route.jsonrpc,
-            grpc: route.grpc,
-            authz: route.authz,
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
-          })
-        } else if (route.kind === 'stream') {
-          registry.stream(fullName, route.handler as StreamHandler, {
-            description: route.description,
-            direction: route.streamDirection,
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
-          })
-        } else {
-          registry.event(fullName, route.handler as EventHandler, {
-            description: route.description,
-            delivery: route.delivery,
-            retryPolicy: route.retryPolicy,
-            deduplicationWindow: route.deduplicationWindow,
-            interceptors: interceptors.length > 0 ? interceptors : undefined,
-          })
-        }
-      }
-
-      return server
-    },
-
-    // === Programmatic Registration ===
-
-    addProcedure(input: AddProcedureInput | LoadedRoute) {
-      // Normalize input (LoadedRoute has 'handler' directly, AddProcedureInput also has 'handler')
-      const name = input.name
-      const handler = input.handler as ProcedureHandler
-      const inputSchema = input.inputSchema
-      const outputSchema = input.outputSchema
-      const summary = 'meta' in input ? input.meta?.summary : (input as AddProcedureInput).summary
-      const description = 'meta' in input ? input.meta?.description : (input as AddProcedureInput).description
-      const tags = 'meta' in input ? input.meta?.tags : (input as AddProcedureInput).tags
-      const graphql = 'meta' in input ? input.meta?.graphql : (input as AddProcedureInput).graphql
-      const httpPath = 'meta' in input ? input.meta?.httpPath : (input as AddProcedureInput).httpPath
-      const httpMethod = 'meta' in input ? input.meta?.httpMethod : (input as AddProcedureInput).httpMethod
-      const jsonrpc = 'meta' in input ? input.meta?.jsonrpc : (input as AddProcedureInput).jsonrpc
-      const grpc = 'meta' in input ? input.meta?.grpc : (input as AddProcedureInput).grpc
-      const policies = 'meta' in input
-        ? policyMetadataFromRouteMeta(input.meta)
-        : (input as AddProcedureInput).policies
-      const routeInterceptors = 'middlewares' in input ? createRouteInterceptors(input as LoadedRoute) : []
-      const inputInterceptors = 'interceptors' in input ? (input as AddProcedureInput).interceptors ?? [] : []
-
-      registerProcedureOperation({
-        name,
-        handler,
-        inputSchema,
-        outputSchema,
-        summary,
-        description,
-        tags,
-        graphql,
-        httpPath,
-        httpMethod,
-        jsonrpc,
-        grpc,
-        policies,
-        interceptors: [...routeInterceptors, ...inputInterceptors],
-        registration: {
-          source: 'filePath' in input
-            ? { kind: 'discovery', location: input.filePath }
-            : programmaticSource(),
-        },
-      })
-
-      logger.debug({ name }, 'Added procedure')
-      return server
-    },
-
-    addStream(input: AddStreamInput | LoadedRoute) {
-      const name = input.name
-      const handler = input.handler as StreamHandler
-      const inputSchema = input.inputSchema
-      const outputSchema = input.outputSchema
-      const description = 'meta' in input ? input.meta?.description : (input as AddStreamInput).description
-      const direction = 'meta' in input ? input.meta?.direction : (input as AddStreamInput).direction
-      const policies = 'meta' in input
-        ? policyMetadataFromRouteMeta(input.meta)
-        : (input as AddStreamInput).policies
-      const routeInterceptors = 'middlewares' in input ? createRouteInterceptors(input as LoadedRoute) : []
-      const inputInterceptors = 'interceptors' in input ? (input as AddStreamInput).interceptors ?? [] : []
-
-      const interceptors = [...globalInterceptors, ...routeInterceptors, ...inputInterceptors]
-
-      if (inputSchema || outputSchema) {
-        const schema: HandlerSchema = {}
-        if (inputSchema) schema.input = inputSchema
-        if (outputSchema) schema.output = outputSchema
-        schemaRegistry.register(name, schema)
-      }
-
-      registry.stream(name, handler as any, {
-        description,
-        direction,
-        policies,
-        interceptors: interceptors.length > 0 ? interceptors : undefined,
-      })
-      recordOperationRegistration(name, {
-        source: 'filePath' in input
-          ? { kind: 'discovery', location: input.filePath }
-          : programmaticSource(),
-      })
-
-      logger.debug({ name }, 'Added stream')
-      return server
-    },
-
-    addEvent(input: AddEventInput | LoadedRoute) {
-      const name = input.name
-      const handler = input.handler as EventHandler
-      const inputSchema = input.inputSchema
-      const description = 'meta' in input ? input.meta?.description : (input as AddEventInput).description
-      const delivery = 'meta' in input ? input.meta?.delivery : (input as AddEventInput).delivery
-      const retryPolicy = 'meta' in input ? input.meta?.retryPolicy : (input as AddEventInput).retryPolicy
-      const deduplicationWindow = 'meta' in input ? input.meta?.deduplicationWindow : (input as AddEventInput).deduplicationWindow
-      const policies = 'meta' in input
-        ? policyMetadataFromRouteMeta(input.meta)
-        : (input as AddEventInput).policies
-      const routeInterceptors = 'middlewares' in input ? createRouteInterceptors(input as LoadedRoute) : []
-      const inputInterceptors = 'interceptors' in input ? (input as AddEventInput).interceptors ?? [] : []
-
-      const interceptors = [...globalInterceptors, ...routeInterceptors, ...inputInterceptors]
-
-      if (inputSchema) {
-        schemaRegistry.register(name, { input: inputSchema })
-      }
-
-      registry.event(name, handler as any, {
-        description,
-        delivery,
-        retryPolicy,
-        deduplicationWindow,
-        policies,
-        interceptors: interceptors.length > 0 ? interceptors : undefined,
-      })
-      recordOperationRegistration(name, {
-        source: 'filePath' in input
-          ? { kind: 'discovery', location: input.filePath }
-          : programmaticSource(),
-      })
-
-      logger.debug({ name }, 'Added event')
-      return server
-    },
-
-    addChannel(channel: LoadedChannel) {
-      registerChannel(channel)
-      logger.debug({ name: channel.name }, 'Channel configuration registered')
-      return server
-    },
-
-    addRest(resource: LoadedRestResource) {
-      registerRestResource(resource)
-      return server
-    },
-
-    addResource(resource: LoadedResource) {
-      registerResource(resource)
-      return server
-    },
-
-    addTcpHandler(handler: LoadedTcpHandler) {
-      registerTcpHandler(handler)
-      return server
-    },
-
-    addUdpHandler(handler: LoadedUdpHandler) {
-      registerUdpHandler(handler)
-      return server
-    },
-
-    registerHandler(name: string, handler: any, opts?: any) {
-      const kind = opts?.kind ?? 'procedure'
-      if (kind === 'stream') {
-        return server.addStream({
-          name,
-          handler: handler as StreamHandler,
-          inputSchema: opts?.input,
-          outputSchema: opts?.output,
-          direction: opts?.direction,
-          description: opts?.description,
-          policies: opts?.policies,
-          interceptors: opts?.interceptors,
-        } as AddStreamInput)
-      }
-      if (kind === 'event') {
-        return server.addEvent({
-          name,
-          handler: handler as EventHandler,
-          inputSchema: opts?.input,
-          description: opts?.description,
-          delivery: opts?.delivery,
-          retryPolicy: opts?.retryPolicy,
-          deduplicationWindow: opts?.deduplicationWindow,
-          policies: opts?.policies,
-          interceptors: opts?.interceptors,
-        } as AddEventInput)
-      }
-      return server.addProcedure({
-        name,
-        handler: handler as ProcedureHandler,
-        inputSchema: opts?.input,
-        outputSchema: opts?.output,
-        summary: opts?.summary,
-        description: opts?.description,
-        tags: opts?.tags,
-        graphql: opts?.graphql,
-        httpPath: opts?.httpPath,
-        httpMethod: opts?.httpMethod,
-        jsonrpc: opts?.jsonrpc,
-        grpc: opts?.grpc,
-        policies: opts?.policies,
-        interceptors: opts?.interceptors,
-      } as AddProcedureInput)
-    },
+    ...programmaticRegistration,
 
     addDiscovery(result: DiscoveryResult) {
       // `addDiscovery` accepts a complete view of the discovered surface.

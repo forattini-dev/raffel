@@ -4,7 +4,6 @@
  * Helper functions for file-system route discovery and hook resolution.
  */
 
-import { createHash } from 'node:crypto'
 import type { Registry } from '../core/registry.js'
 import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from '../types/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
@@ -28,72 +27,21 @@ export interface CoLocatedPolicyAutoScope {
   protocol?: string
 }
 
-function policySourceKey(policy: Policy, automaticScopeKey: string): string {
-  const source = policy._source ?? 'inline'
-  const index = policy._index ?? 0
-  return createHash('sha1').update(`${source}:${index}:${automaticScopeKey}`).digest('hex').slice(0, 12)
-}
-
-function applyAutomaticScope(
-  policy: Policy,
-  autoScope: CoLocatedPolicyAutoScope | undefined,
-): { scope: Policy['scope']; key: string } {
-  let scope = policy.scope ? { ...policy.scope } : undefined
-  const keyParts: string[] = []
-
-  if (autoScope?.route && !policy.scope?.routes?.length) {
-    scope ??= {}
-    scope.routes = [autoScope.route]
-    keyParts.push(`route:${autoScope.route}`)
-  }
-  if (autoScope?.channel && !policy.scope?.channels?.length) {
-    scope ??= {}
-    scope.channels = [autoScope.channel]
-    keyParts.push(`channel:${autoScope.channel}`)
-  }
-  if (autoScope?.protocol && !policy.scope?.protocols?.length) {
-    scope ??= {}
-    scope.protocols = [autoScope.protocol]
-    keyParts.push(`protocol:${autoScope.protocol}`)
-  }
-
-  return {
-    scope,
-    key: keyParts.join('|'),
-  }
-}
-
-function materializeCoLocatedPolicies(
-  policies: readonly Policy[],
-  autoScope?: CoLocatedPolicyAutoScope,
-): Policy[] {
-  const byOriginalId = new Map<string, Policy>()
-  for (const policy of policies) {
-    // Policies are resolved broader -> closer -> sibling. Collapsing by the
-    // author-facing id here preserves the local "nearer wins" rule before
-    // namespacing prevents unrelated files from colliding globally.
-    byOriginalId.set(policy.id, policy)
-  }
-
-  return [...byOriginalId.values()].map((policy) => {
-    const {
-      _compiled: _dropCompiled,
-      _compiledMatch: _dropCompiledMatch,
-      ...rest
-    } = policy
-    const { scope, key } = applyAutomaticScope(policy, autoScope)
-    return {
-      ...rest,
-      ...(scope ? { scope } : {}),
-      id: `co:${policySourceKey(policy, key)}:${policy.id}`,
-    }
-  })
-}
-
 /**
  * Register co-located policies in the global engine. Policy IDs are
  * namespaced by source file/index after local cascade overrides are resolved,
  * so `id: read` in two unrelated directories cannot replace each other.
+ *
+ * (1.1.60+ fix) The previous implementation materialised one policy
+ * per `(source, index, route)` triple and called
+ * `engine.addPolicies()` per route. With N routes under the same
+ * cascade `_policy.yaml` this produced N copies in the engine, each
+ * with `scope.routes = [singleRoute]`. The engine's `addPolicies`
+ * dedupes by id and replaces in place, so only the LAST route's scope
+ * survived. The fix is to record `(source, index) → routes` in the
+ * per-bootstrap accumulator and flush ONE policy per (source, index)
+ * with `scope.routes` set to the union — see
+ * `co-located-accumulator.ts`.
  */
 export function addCoLocatedPoliciesToEngine(
   name: string,
@@ -104,15 +52,48 @@ export function addCoLocatedPoliciesToEngine(
 ): boolean {
   if (!policyHook) return false
   if (!policies || policies.length === 0) return false
-  const engine = policyHook.bootstrap.engine
-  if (typeof engine.addPolicies !== 'function') {
+  // A custom engine without `addPolicies` cannot accept co-located
+  // policies. Match the old behaviour: warn once and return false so
+  // the caller skips synthesising an interceptor that would gate the
+  // route against a policy the engine never received.
+  if (typeof policyHook.bootstrap.engine.addPolicies !== 'function') {
     logger.warn(
       { name, filePath: diagnosticsFilePath },
       'Co-located policies present but engine driver does not support addPolicies(); skipping bridge',
     )
     return false
   }
-  engine.addPolicies(materializeCoLocatedPolicies(policies, autoScope))
+  // `policies` is this route's full cascade chain in broader→closer
+  // order. Resolve "nearest-wins" per route HERE: collapse by the
+  // author-facing id keeping the closest (last) declaration. This is
+  // the per-route resolution the old `materializeCoLocatedPolicies`
+  // used to do; doing it before the accumulator means two unrelated
+  // sibling files that happen to share an `id` (e.g. `users.policy.yaml`
+  // and `projects.policy.yaml` both declaring `id: read`) stay
+  // separate — they never appear in the same route's chain, so they
+  // never collapse into each other.
+  const byOriginalId = new Map<string, Policy>()
+  for (const policy of policies) {
+    byOriginalId.set(policy.id, policy)
+  }
+
+  // Feed the per-bootstrap accumulator instead of pushing to the
+  // engine directly. The actual `engine.addPolicies()` call happens
+  // once per load in `applyDiscoveryResult`'s flush step. Procedure
+  // routes (HTTP) get `applyRouteScope: true` — the accumulator
+  // fills `scope.routes` with the route name so the engine scopes
+  // the policy per route. Protocol-bound surfaces (GraphQL, channels)
+  // pass `false` so the accumulator doesn't add a route filter (the
+  // engine action there is independent of the route name).
+  const isRouteScoped = autoScope?.protocol === undefined
+  for (const policy of byOriginalId.values()) {
+    policyHook.bootstrap.coLocatedAccumulator.add(
+      policy,
+      name,
+      policy.condition,
+      isRouteScoped,
+    )
+  }
   return true
 }
 
