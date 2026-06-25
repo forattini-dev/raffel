@@ -138,7 +138,15 @@ const xUsd = spec['x-usd'] ?? {}
 const { websocket: wsSpec = {}, graphql: graphqlSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
 const docsRouteBase = String(xUsd.documentation?.routeBase ?? '').replace(/^#/, '').replace(/\/+$/, '')
 const protocolData = detectProtocols()
-const protocols = Object.keys(protocolData)
+// Logical priority for which protocol the docs open on (and the tab order):
+// what a consumer of *this* API most likely came to read first. HTTP wins
+// when present, then GraphQL, then realtime/RPC, then raw sockets.
+const PROTOCOL_PRIORITY = ['http', 'graphql', 'websocket', 'jsonrpc', 'grpc', 'streams', 'tcp', 'udp']
+const protocolRank = (name: string): number => {
+  const i = PROTOCOL_PRIORITY.indexOf(name)
+  return i === -1 ? PROTOCOL_PRIORITY.length : i
+}
+const protocols = Object.keys(protocolData).sort((a, b) => protocolRank(a) - protocolRank(b))
 let activeProtocol = protocols[0] ?? 'http'
 let searchQuery = ''
 let routeState = parseRouteHash()
@@ -1003,9 +1011,10 @@ function renderProtocolTabs(): void {
   const container = byId('protocolTabs')
   if (!container) return
   container.textContent = ''
+  const isRoot = !activePagePath || activePagePath === '/'
   for (const protocol of protocols) {
     const button = doc.createElement('button')
-    button.className = `protocol-tab${!activePagePath && protocol === activeProtocol ? ' active' : ''}`
+    button.className = `protocol-tab${isRoot && protocol === activeProtocol ? ' active' : ''}`
     button.innerHTML = `${esc(protocol.charAt(0).toUpperCase() + protocol.slice(1))}${sidebarConfig.showCounts !== false ? `<span class="count">${protocolData[protocol]}</span>` : ''}`
     button.onclick = () => {
       activeProtocol = protocol
@@ -1121,7 +1130,14 @@ function renderSidebar(): void {
   if (!nav) return
   nav.textContent = ''
   renderDocsPagesNav(nav)
-  if (activePagePath) return
+  // A real doc page (or a genuine non-root 404) shows the docs nav only.
+  // The docs root (`/`) is NOT a page — it's the overview, so it must list
+  // the active protocol's endpoints, expanded, like the old empty-path state.
+  const matchedPage = activePagePath
+    ? getDocsPageViews().some((p) => p.path === activePagePath)
+    : false
+  const isRoot = !activePagePath || activePagePath === '/'
+  if (matchedPage || !isRoot) return
 
   const endpoints = getEndpointsForProtocol(activeProtocol).filter(endpoint =>
     !searchQuery ||
