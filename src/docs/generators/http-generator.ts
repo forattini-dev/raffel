@@ -236,7 +236,7 @@ function createProcedureOperation(
 
   const operation: USDOperation = {
     operationId,
-    summary: meta.summary ?? meta.description ?? `Call ${meta.name}`,
+    summary: meta.summary ?? meta.description ?? `Call ${stripTrailingHttpVerb(meta.name, httpMethod)}`,
     description: meta.description,
     tags,
     responses: createProcedureResponses(meta.name, handlerSchema, schemaRegistry, includeErrorResponses),
@@ -757,6 +757,25 @@ function nameToOperationId(name: string): string {
     .split('.')
     .map((part, index) => (index === 0 ? part : capitalizeFirst(part)))
     .join('')
+}
+
+/**
+ * Strip the trailing HTTP-verb segment from a discovered route name for
+ * display. The FS verb convention maps `users/[id]/get.ts` → name
+ * `users/:id/get` with `httpMethod: GET`. The method badge already conveys
+ * the verb, so the human-facing "Call ..." label drops the redundant
+ * `/get` tail — `Call users/:id`, not `Call users/:id/get`. Only strips
+ * when the last segment is exactly this route's HTTP method and there is a
+ * non-verb segment before it.
+ */
+function stripTrailingHttpVerb(name: string, httpMethod?: string): string {
+  if (!httpMethod) return name
+  const segments = name.split('/')
+  if (segments.length <= 1) return name
+  if (segments[segments.length - 1]?.toLowerCase() === httpMethod.toLowerCase()) {
+    return segments.slice(0, -1).join('/')
+  }
+  return name
 }
 
 /**
