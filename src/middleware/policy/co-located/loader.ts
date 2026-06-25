@@ -24,7 +24,9 @@ import { load as parseYaml } from 'js-yaml'
 import type {
   JsonPolicy,
   Policy,
+  PolicyAuditMeta,
   PolicyCondition,
+  PolicyFileMeta,
 } from '../types.js'
 import type { DiscoverySource } from '../../../server/fs-routes/discovery-source.js'
 import { policySchema } from '../schema.js'
@@ -83,6 +85,94 @@ function parsePolicyText(file: string, raw: string): unknown {
   }
 }
 
+/**
+ * A co-located policy file may be written in three shapes:
+ *   1. A single policy object:               `{ id: '...', effect: '...', ... }`
+ *   2. An array of policy objects:            `[{ id: '...', ... }, ...]`
+ *   3. A wrapper with file-level metadata:   `{ _meta: { mode, owner, ... }, policies: [...] }`
+ *
+ * This function normalises the parsed content into a `(fileMeta, policies)`
+ * pair, where `fileMeta` is undefined for shapes 1 and 2 (legacy form) and
+ * carries the file-level metadata for shape 3. The per-policy `_meta` is
+ * preserved on the policy object under `policy._meta` and survives through
+ * to `server.policy.list()` and `policyCoverage()`.
+ */
+interface NormalisedPolicyFile {
+  fileMeta?: PolicyFileMeta
+  policies: JsonPolicy[]
+}
+
+function normalisePolicyFile(parsed: unknown): NormalisedPolicyFile {
+  // Shape 3: { _meta, policies: [...] }
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    'policies' in parsed
+  ) {
+    const obj = parsed as { _meta?: unknown; policies: unknown }
+    if (!Array.isArray(obj.policies)) {
+      throw new Error(
+        `co-located policy loader: file wrapper must have a "policies" array (got ${typeof obj.policies})`,
+      )
+    }
+    return {
+      fileMeta: isPolicyFileMeta(obj._meta) ? obj._meta : undefined,
+      policies: obj.policies as JsonPolicy[],
+    }
+  }
+
+  // Shape 1 or 2: bare policy or array of policies
+  const items = Array.isArray(parsed) ? parsed : [parsed]
+  return { policies: items as JsonPolicy[] }
+}
+
+function isPolicyFileMeta(value: unknown): value is PolicyFileMeta {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const v = value as Record<string, unknown>
+  if ('mode' in v && v.mode !== 'cascade' && v.mode !== 'scope') return false
+  return true
+}
+
+function isPolicyAuditMeta(value: unknown): value is PolicyAuditMeta {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  return true
+}
+
+function validateFileMeta(fileMeta: PolicyFileMeta | undefined, file: string): void {
+  if (!fileMeta) return
+  if (fileMeta.mode !== undefined && fileMeta.mode !== 'cascade' && fileMeta.mode !== 'scope') {
+    throw new Error(
+      `co-located policy loader: ${file}: _meta.mode must be "cascade" or "scope" (got "${fileMeta.mode}")`,
+    )
+  }
+  if (fileMeta.deprecation !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(fileMeta.deprecation)) {
+    throw new Error(
+      `co-located policy loader: ${file}: _meta.deprecation must be ISO-8601 date YYYY-MM-DD (got "${fileMeta.deprecation}")`,
+    )
+  }
+}
+
+function mergeFileMetaIntoPolicy(
+  policy: JsonPolicy,
+  fileMeta: PolicyFileMeta | undefined,
+  index: number,
+): JsonPolicy {
+  if (!fileMeta) return policy
+  // Per-policy _meta (if any) wins over file-level _meta. We do not
+  // require the per-policy block to be present — it just overrides when
+  // it is.
+  const merged: PolicyAuditMeta = {
+    ...(fileMeta.owner ? { owner: fileMeta.owner } : {}),
+    ...(fileMeta.ticket ? { ticket: fileMeta.ticket } : {}),
+    ...(fileMeta.description ? { description: fileMeta.description } : {}),
+    ...(fileMeta.deprecation ? { deprecation: fileMeta.deprecation } : {}),
+    ...(isPolicyAuditMeta(policy._meta) ? policy._meta : {}),
+  }
+  const hasAny = Object.keys(merged).length > 0
+  return { ...policy, ...(hasAny ? { _meta: merged } : {}), _index: index }
+}
+
 function materializePolicy(
   file: string,
   index: number,
@@ -135,11 +225,18 @@ export async function loadCoLocatedPolicies(
       if (!(await source.exists(candidate))) continue
       const text = await source.readText(candidate)
       const parsed = parsePolicyText(candidate, text)
-      const items = Array.isArray(parsed) ? parsed : [parsed]
+      const { fileMeta, policies: items } = normalisePolicyFile(parsed)
+      validateFileMeta(fileMeta, candidate)
       const policies: Policy[] = items.map((item, i) =>
-        materializePolicy(candidate, i, item, customConditions),
+        materializePolicy(candidate, i, mergeFileMetaIntoPolicy(item, fileMeta, i), customConditions),
       )
-      files.push({ filePath: candidate, policies, kind: 'sibling' })
+      files.push({
+        filePath: candidate,
+        policies,
+        kind: 'sibling',
+        ...(fileMeta?.mode ? { mode: fileMeta.mode } : {}),
+        ...(fileMeta ? { fileMeta } : {}),
+      })
       break
     }
   }
@@ -157,11 +254,19 @@ export async function loadCoLocatedPolicies(
       if (!(await source.exists(candidate))) continue
       const text = await source.readText(candidate)
       const parsed = parsePolicyText(candidate, text)
-      const items = Array.isArray(parsed) ? parsed : [parsed]
+      const { fileMeta, policies: items } = normalisePolicyFile(parsed)
+      validateFileMeta(fileMeta, candidate)
       const policies: Policy[] = items.map((item, i) =>
-        materializePolicy(candidate, i, item, customConditions),
+        materializePolicy(candidate, i, mergeFileMetaIntoPolicy(item, fileMeta, i), customConditions),
       )
-      files.push({ filePath: candidate, policies, kind: 'folder', dir })
+      files.push({
+        filePath: candidate,
+        policies,
+        kind: 'folder',
+        dir,
+        ...(fileMeta?.mode ? { mode: fileMeta.mode } : {}),
+        ...(fileMeta ? { fileMeta } : {}),
+      })
       break
     }
   }
