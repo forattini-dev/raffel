@@ -166,6 +166,114 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       color: var(--text-color);
     }
 
+    /* ========== ROOT OVERVIEW (OpenAPI landing) ========== */
+    .docs-overview {
+      max-width: 820px;
+      margin-bottom: 8px;
+    }
+
+    .docs-overview-header {
+      margin: 0 0 12px 0;
+    }
+
+    .docs-overview-title {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin: 0;
+      color: var(--text-color);
+    }
+
+    .docs-overview-version {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      padding: 3px 10px;
+      border-radius: 999px;
+      color: var(--accent, var(--primary-color));
+      background: color-mix(in srgb, var(--accent, var(--primary-color)) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent, var(--primary-color)) 35%, transparent);
+    }
+
+    .docs-overview-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin: 0 0 24px 0;
+    }
+
+    .docs-overview-meta a {
+      color: var(--accent, var(--primary-color));
+      text-decoration: none;
+    }
+
+    .docs-overview-meta a:hover {
+      text-decoration: underline;
+    }
+
+    .docs-overview-meta-sep {
+      color: var(--border-color);
+    }
+
+    .docs-overview-servers {
+      margin: 0 0 28px 0;
+    }
+
+    .docs-overview-subtitle {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin: 0 0 12px 0;
+    }
+
+    .docs-overview-server-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .docs-overview-server {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 12px 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      background: var(--surface-color);
+    }
+
+    .docs-overview-server-url {
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 14px;
+      color: var(--text-color);
+      background: var(--code-bg);
+      padding: 4px 10px;
+      border-radius: 6px;
+      word-break: break-all;
+    }
+
+    .docs-overview-server-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .docs-overview-description {
+      max-width: 820px;
+    }
+
     /* ========== ENDPOINT SECTIONS (Redoc-style) ========== */
     .endpoint-section {
       padding: 32px 0;
