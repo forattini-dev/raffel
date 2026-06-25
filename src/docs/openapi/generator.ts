@@ -222,6 +222,24 @@ function nameToOperationId(name: string): string {
 }
 
 /**
+ * Strip the trailing HTTP-verb segment from a discovered route name for the
+ * human-facing "Call ..." label. The FS verb convention maps
+ * `users/[id]/get.ts` → name `users/:id/get` with `httpMethod: GET`; the
+ * method already conveys the verb, so the label drops the redundant `/get`
+ * tail. Only strips when the last segment is exactly this route's HTTP
+ * method and a non-verb segment precedes it.
+ */
+function stripTrailingHttpVerb(name: string, httpMethod?: string): string {
+  if (!httpMethod) return name
+  const segments = name.split('/')
+  if (segments.length <= 1) return name
+  if (segments[segments.length - 1]?.toLowerCase() === httpMethod.toLowerCase()) {
+    return segments.slice(0, -1).join('/')
+  }
+  return name
+}
+
+/**
  * Capitalize first letter
  */
 function capitalizeFirst(str: string): string {
@@ -654,7 +672,7 @@ export function generateOpenAPI(
 
     const operation: OpenAPIOperation = {
       operationId,
-      summary: meta.description ?? `Call ${meta.name}`,
+      summary: meta.description ?? `Call ${stripTrailingHttpVerb(meta.name, meta.httpMethod)}`,
       tags: namespace ? [namespace] : undefined,
       responses: {
         '200': createSuccessResponse(handlerSchema?.output, schemas, meta.name, handlerSchema?.validator),

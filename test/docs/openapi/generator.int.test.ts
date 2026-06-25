@@ -465,4 +465,35 @@ describe('OpenAPI Generator', () => {
       expect(responses?.['500']).toBeDefined()
     })
   })
+
+  describe('Call summary (FS verb convention)', () => {
+    it("drops the redundant trailing HTTP verb from the default 'Call ...' summary", () => {
+      registry.procedure('enrichment/document/:value/get', async () => ({ ok: true }), {
+        httpMethod: 'GET',
+        httpPath: '/enrichment/document/:value',
+      })
+
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+      })
+
+      const op = Object.values(doc.paths).flatMap((methods) => Object.values(methods as Record<string, any>))
+        .find((o: any) => typeof o?.summary === 'string' && o.summary.includes('enrichment/document/:value')) as any
+
+      expect(op).toBeDefined()
+      expect(op.summary).toBe('Call enrichment/document/:value')
+      expect(op.summary).not.toContain('/get')
+    })
+
+    it('keeps the name when the trailing segment is not the route verb', () => {
+      registry.procedure('users.list', async () => ([]), {})
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+      })
+      const op = Object.values(doc.paths).flatMap((methods) => Object.values(methods as Record<string, any>))
+        .find((o: any) => o?.summary === 'Call users.list') as any
+      expect(op).toBeDefined()
+    })
+  })
+
 })
