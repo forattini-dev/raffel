@@ -6,9 +6,20 @@
 
 import { join, relative, parse as parsePath, extname, isAbsolute } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
-import { loadCoLocatedPolicies } from '../../middleware/policy/co-located/loader.js'
-import { resolveCoLocatedPolicies } from '../../middleware/policy/co-located/resolver.js'
 import type { PolicyCondition } from '../../middleware/policy/types.js'
+import {
+  attachCoLocatedPolicies,
+  attachCoLocatedPoliciesToFileItems,
+} from './co-located-attach.js'
+import {
+  applyHttpVerbConvention,
+  collectMiddlewareChain,
+  findAuthConfig,
+  findDirectoryMeta,
+  HTTP_VERB_SEGMENTS,
+  parseRoutePath,
+  type LoadedMiddleware,
+} from './route-naming.js'
 import type { Interceptor } from '../../types/index.js'
 import { createFileSystemDiscoverySource, type DiscoverySource, type DiscoverySourceFailure, type DiscoverySourceStats, type DiscoverySourceWalkResult } from './discovery-source.js'
 import {
@@ -38,12 +49,9 @@ import type {
   HandlerMeta,
   DirectoryMeta,
   MiddlewareExports,
-  MiddlewareConfig,
   AuthConfigExports,
   ChannelExports,
-  MiddlewareFunction,
   AuthConfig,
-  ParsedRoute,
   RoutesRootConfig,
 } from './types.js'
 
@@ -128,11 +136,6 @@ export interface DiscoveryDiagnostic {
 const MIDDLEWARE_FILE = '_middleware'
 const AUTH_FILE = '_auth'
 const META_FILE = '_meta'
-
-interface LoadedMiddleware {
-  fn: MiddlewareFunction
-  config?: MiddlewareConfig
-}
 
 /**
  * Try to load a sibling .md file for a handler.
@@ -1408,285 +1411,6 @@ async function collectMiddlewaresAndAuth(
         logger.error({ err, fullPath: filePath }, 'Failed to load auth config')
       }
     }
-  }
-}
-
-/**
- * Collect middleware chain for a route
- */
-function collectMiddlewareChain(
-  routePath: string,
-  routeName: string,
-  middlewareMap: Map<string, LoadedMiddleware[]>
-): MiddlewareFunction[] {
-  const chain: MiddlewareFunction[] = []
-  const segments = routePath.split('/').filter(Boolean)
-
-  // Start from root
-  const rootMiddleware = middlewareMap.get('.')
-  if (rootMiddleware) {
-    for (const middleware of rootMiddleware) {
-      if (shouldApplyMiddleware(middleware.config, routeName)) {
-        chain.push(middleware.fn)
-      }
-    }
-  }
-
-  // Walk down the path
-  let currentPath = ''
-  for (const segment of segments.slice(0, -1)) { // Exclude file name
-    currentPath = currentPath ? `${currentPath}/${segment}` : segment
-    const middleware = middlewareMap.get(currentPath)
-    if (middleware) {
-      for (const entry of middleware) {
-        if (shouldApplyMiddleware(entry.config, routeName)) {
-          chain.push(entry.fn)
-        }
-      }
-    }
-  }
-
-  return chain
-}
-
-function shouldApplyMiddleware(config: MiddlewareConfig | undefined, routeName: string): boolean {
-  if (!config || (!config.matcher && !config.exclude)) {
-    return true
-  }
-
-  const matches = (config.matcher ?? ['*']).some((pattern) => matchPattern(pattern, routeName))
-  if (!matches) return false
-
-  if (config.exclude && config.exclude.some((pattern) => matchPattern(pattern, routeName))) {
-    return false
-  }
-
-  return true
-}
-
-function matchPattern(pattern: string, value: string): boolean {
-  if (pattern === '*') return true
-  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const regex = new RegExp(`^${escaped.replace(/\\\*/g, '.*')}$`)
-  return regex.test(value)
-}
-
-/**
- * Find auth config for a route (closest ancestor wins)
- */
-function findAuthConfig(
-  routePath: string,
-  authMap: Map<string, AuthConfig>
-): AuthConfig | undefined {
-  const segments = routePath.split('/').filter(Boolean)
-
-  // Search from deepest to root
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const path = segments.slice(0, i).join('/') || '.'
-    const config = authMap.get(path)
-    if (config) return config
-  }
-
-  return authMap.get('.')
-}
-
-/**
- * Find directory metadata for a route (closest ancestor wins)
- * Used for documentation grouping (tags) in OpenAPI/USD.
- */
-function findDirectoryMeta(
-  routePath: string,
-  metaMap: Map<string, DirectoryMeta>
-): DirectoryMeta | undefined {
-  const segments = routePath.split('/').filter(Boolean)
-
-  // Search from deepest to root (closest ancestor wins)
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const path = segments.slice(0, i).join('/') || '.'
-    const meta = metaMap.get(path)
-    if (meta) return meta
-  }
-
-  return metaMap.get('.')
-}
-
-/**
- * Parse route path to route name
- *
- * Supports both Next.js-style and Express-style dynamic segments:
- *
- * Next.js style (recommended):
- * - 'users/[id]/get.ts' → 'users/:id/get'
- * - 'channels/[...path].ts' → 'channels/:path*' (catch-all)
- * - 'posts/[[slug]].ts' → 'posts/:slug?' (optional)
- *
- * Express style:
- * - 'users/:id/update.ts' → 'users/:id/update'
- *
- * Static:
- * - 'users/get.ts' → 'users/get'
- * - 'health.ts' → 'health'
- */
-function parseRoutePath(relativePath: string): ParsedRoute {
-  const { dir, name } = parsePath(relativePath)
-  const rawSegments = dir ? dir.split('/').filter(Boolean) : []
-  rawSegments.push(name)
-
-  const params: Record<string, string> = {}
-  const segments: string[] = []
-
-  // Process each segment
-  for (const segment of rawSegments) {
-    // Next.js catch-all: [...param] or [[...param]]
-    const catchAllMatch = segment.match(/^\[\[?\.\.\.(\w+)\]?\]$/)
-    if (catchAllMatch) {
-      const paramName = catchAllMatch[1]
-      const isOptional = segment.startsWith('[[')
-      params[paramName] = isOptional ? `:${paramName}*?` : `:${paramName}*`
-      segments.push(params[paramName])
-      continue
-    }
-
-    // Next.js optional: [[param]]
-    const optionalMatch = segment.match(/^\[\[(\w+)\]\]$/)
-    if (optionalMatch) {
-      const paramName = optionalMatch[1]
-      params[paramName] = `:${paramName}?`
-      segments.push(params[paramName])
-      continue
-    }
-
-    // Next.js dynamic: [param]
-    const dynamicMatch = segment.match(/^\[(\w+)\]$/)
-    if (dynamicMatch) {
-      const paramName = dynamicMatch[1]
-      params[paramName] = `:${paramName}`
-      segments.push(`:${paramName}`)
-      continue
-    }
-
-    // Express-style: :param
-    if (segment.startsWith(':')) {
-      const paramName = segment.slice(1).replace(/[?*]$/, '')
-      params[paramName] = segment
-      segments.push(segment)
-      continue
-    }
-
-    // Static segment
-    segments.push(segment)
-  }
-
-  const routeName = segments.join('/')
-
-  return {
-    segments,
-    params,
-    name: routeName,
-  }
-}
-
-const HTTP_VERB_SEGMENTS = new Set([
-  'get', 'post', 'put', 'patch', 'delete', 'head', 'options',
-])
-
-/**
- * Apply Next.js-style verb convention to procedures discovered under the
- * `http/` source: a route whose final segment is an HTTP verb (`users/get`,
- * `users/:id/patch`) is rewritten to expose `httpMethod` (the verb) and
- * `httpPath` (everything before the verb, prefixed with `/`).
- *
- * Operates only on routes whose meta does not already declare an explicit
- * `httpMethod` — explicit `export const meta = { httpMethod, httpPath }`
- * always wins.
- */
-function applyHttpVerbConvention(routes: LoadedRoute[]): void {
-  for (const route of routes) {
-    if (route.meta?.httpMethod) continue
-    const segments = route.name.split('/')
-    if (segments.length < 1) continue
-    const last = segments[segments.length - 1]?.toLowerCase()
-    if (!last || !HTTP_VERB_SEGMENTS.has(last)) continue
-    const pathSegments = segments.slice(0, -1)
-    const httpPath = pathSegments.length === 0 ? '/' : `/${pathSegments.join('/')}`
-    route.meta = {
-      ...(route.meta ?? {}),
-      httpMethod: last.toUpperCase() as HandlerMeta['httpMethod'],
-      httpPath: route.meta?.httpPath ?? httpPath,
-    }
-  }
-}
-
-/**
- * Generic co-located policy attach: works for any item that has `name` and
- * `filePath`. The resolver pairs by handler base path, so REST resources
- * (one file per resource) and the resources tree (one file per resource)
- * are paired exactly the same way as procedure handlers.
- */
-async function attachCoLocatedPoliciesToFileItems<T extends { name: string; filePath: string; coLocatedPolicies?: import('../../middleware/policy/types.js').Policy[] }>(
-  source: DiscoverySource,
-  items: T[],
-  customConditions: Record<string, PolicyCondition> | undefined,
-  rootDir: string,
-): Promise<void> {
-  if (items.length === 0) return
-  const { files } = await loadCoLocatedPolicies({
-    source,
-    handlerFilePaths: items.map((i) => i.filePath),
-    customConditions,
-    rootDir,
-  })
-  if (files.length === 0) return
-
-  const descriptors = resolveCoLocatedPolicies(
-    items.map((i) => ({ name: i.name, filePath: i.filePath })),
-    files,
-  )
-  const byPath = new Map(descriptors.map((d) => [d.filePath, d]))
-  for (const item of items) {
-    const desc = byPath.get(item.filePath)
-    if (!desc || desc.policies.length === 0) continue
-    item.coLocatedPolicies = desc.policies
-    logger.debug(
-      { name: item.name, count: desc.policies.length, sources: desc.sources.map((s) => s.filePath) },
-      'Attached co-located policies',
-    )
-  }
-}
-
-/**
- * Read sibling `<handler>.policy.{yaml,yml,json}` files for each route and
- * attach the parsed policies to the route descriptor. Throws on parse or
- * schema errors so authors fix issues at startup.
- */
-async function attachCoLocatedPolicies(
-  source: DiscoverySource,
-  routes: LoadedRoute[],
-  customConditions: Record<string, PolicyCondition> | undefined,
-  rootDir: string,
-): Promise<void> {
-  if (routes.length === 0) return
-  const { files } = await loadCoLocatedPolicies({
-    source,
-    handlerFilePaths: routes.map((r) => r.filePath),
-    customConditions,
-    rootDir,
-  })
-  if (files.length === 0) return
-
-  const descriptors = resolveCoLocatedPolicies(
-    routes.map((r) => ({ name: r.name, filePath: r.filePath })),
-    files,
-  )
-  const byPath = new Map(descriptors.map((d) => [d.filePath, d]))
-  for (const route of routes) {
-    const desc = byPath.get(route.filePath)
-    if (!desc || desc.policies.length === 0) continue
-    route.coLocatedPolicies = desc.policies
-    logger.debug(
-      { name: route.name, count: desc.policies.length, sources: desc.sources.map((s) => s.filePath) },
-      'Attached co-located policies',
-    )
   }
 }
 
