@@ -125,10 +125,11 @@ src/http/admin/_policy.yaml       ← applies only under src/http/admin
 src/http/admin/users/get.ts       ← gets BOTH cascade rules + any sibling
 ```
 
-Apply order at evaluation time: broadest cascade first → narrower cascades → sibling. The default in-process engine dedupes by `id` when `addPolicies()` is called twice with the same id, so:
+Apply order at evaluation time: broadest cascade first → narrower cascades → sibling. Each route's cascade chain is resolved **nearest-wins by `id` before the policy reaches the engine**: a re-declared `id` keeps the closest declaration for that route. Raffel then commits **one** engine entry per source policy, with `scope.routes` carrying the union of routes it covers — so a single `_policy.yaml` shared by N handlers is one policy in the engine, not N copies. Concretely:
 
 - A nearer `_policy.yaml` re-declaring the same `id` **replaces** the broader one (nearest-wins for conflicting ids).
 - Different ids accumulate. Deny precedence in the engine still bites — a broader `deny` is not silenced by a closer `allow` at a different id.
+- Two unrelated files that happen to share an `id` (e.g. `users.policy.yaml` and `projects.policy.yaml` both declaring `id: read`) stay separate — they never appear in the same route's chain, so they never collapse into each other.
 
 The cascade is bounded to the discovery tree. A `_policy.yaml` placed *above* the configured discovery root is never read.
 
@@ -460,11 +461,16 @@ Useful when migrating off a co-located convention to a centralised policy direct
 
 ## Engine driver requirements
 
-The bridge calls `engine.addPolicies(policies)` to register discovered rules after engine construction. The default in-process engine implements it. Custom drivers may omit `addPolicies` from their `PolicyEnginePort` — the bridge logs a structured warning per route and skips co-located bridging for that surface (the engine continues to evaluate any policies it was constructed with).
+Discovered rules are collected during a load and committed to the engine via a
+single `engine.addPolicies(policies)` call per discovery load (one entry per
+source policy). The default in-process engine implements `addPolicies`. Custom
+drivers may omit it from their `PolicyEnginePort` — the bridge logs a structured
+warning and skips co-located bridging for that surface (the engine continues to
+evaluate any policies it was constructed with).
 
 Co-located policy ids are materialized before they enter the global engine:
 the author-facing `id` is preserved in the suffix, but Raffel prefixes it with
-a stable source/scope key. This keeps `id: read` in two sibling files from
+a stable source key. This keeps `id: read` in two sibling files from
 overwriting each other while preserving local cascade semantics where a closer
 policy with the same id replaces a broader one for that operation.
 
@@ -475,7 +481,8 @@ const customEngine: PolicyEnginePort = {
   evaluate(input) { /* ... */ },
   list() { /* ... */ },
   addPolicies(policies) {
-    // append to whatever backing store; dedupe by id if the bridge replays
+    // append to whatever backing store; Raffel hands you one deduped
+    // policy per source per load, so no replay-dedup is needed
   },
 }
 ```
