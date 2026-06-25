@@ -94,6 +94,10 @@ import { createProtocolFusionDiagnosticsStore } from './protocol-fusion-diagnost
 import { createDiscoveryBootstrap } from './discovery-bootstrap.js'
 import { createServerLifecycle } from './builder/lifecycle.js'
 import {
+  createGraphQLPolicyBridge,
+  createChannelCoLocatedPolicyEnforcer,
+} from './builder/policy-bridges.js'
+import {
   configureMetrics,
   configureTracing,
   createTelemetryState,
@@ -670,56 +674,6 @@ export function createServer(options: ServerOptions): RaffelServer {
       })
     : undefined
 
-  function createGraphQLPolicyBridge(
-    bootstrap: PolicyBootstrap | null
-  ): GraphQLPolicyBridge | undefined {
-    if (!bootstrap) return undefined
-
-    return {
-      async evaluate(ctx, authz, value, args, parent) {
-        const principal = await bootstrap.resolvePrincipal(ctx)
-        const rawResource = await authz.resource(value, args, ctx, parent)
-        const resources = rawResource == null
-          ? [{ type: '*', id: '*', tenantId: principal.tenantId }]
-          : Array.isArray(rawResource)
-            ? rawResource
-            : [rawResource]
-        if (resources.length === 0) {
-          resources.push({ type: '*', id: '*', tenantId: principal.tenantId })
-        }
-        const protocol = (ctx as { protocol?: unknown }).protocol
-        const protocolValue = typeof protocol === 'string' ? protocol : 'graphql'
-
-        let lastDecision: Awaited<ReturnType<PolicyEnginePort['evaluate']>> | undefined
-        if (authz.mode === 'any') {
-          for (const resource of resources) {
-            const decision = await bootstrap.engine.evaluate({
-              principal,
-              action: authz.action,
-              resource,
-              protocol: protocolValue,
-            })
-            lastDecision = decision
-            if (decision.allowed) return decision
-          }
-          return lastDecision!
-        }
-
-        for (const resource of resources) {
-          const decision = await bootstrap.engine.evaluate({
-            principal,
-            action: authz.action,
-            resource,
-            protocol: protocolValue,
-          })
-          lastDecision = decision
-          if (!decision.allowed) return decision
-        }
-        return lastDecision!
-      },
-    }
-  }
-
   const serverLifecycle = createServerLifecycle({
     logger,
     state: serverState,
@@ -755,26 +709,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     getWsSubscribeHandler: () => wsSubscribeHandler,
     getWsMessageHandler: () => wsMessageHandler,
     getWsUnsubscribeHandler: () => wsUnsubscribeHandler,
-    channelCoLocatedPolicyEnforcer: policyBootstrap
-      ? async (channelName, policies, ctx) => {
-          addCoLocatedPoliciesToEngine(
-            channelName,
-            policies,
-            { bootstrap: policyBootstrap },
-            undefined,
-            { route: channelName },
-          )
-          const principal = await policyBootstrap.resolvePrincipal(ctx)
-          const ctxProtocol = (ctx as { protocol?: unknown }).protocol
-          const decision = await policyBootstrap.engine.evaluate({
-            principal,
-            action: channelName,
-            resource: { type: 'channel', id: channelName, tenantId: principal.tenantId },
-            protocol: typeof ctxProtocol === 'string' ? ctxProtocol : 'websocket',
-          })
-          return decision.allowed
-        }
-      : undefined,
+    channelCoLocatedPolicyEnforcer: createChannelCoLocatedPolicyEnforcer(policyBootstrap),
     graphqlPolicyBridge: createGraphQLPolicyBridge(policyBootstrap),
   })
 
