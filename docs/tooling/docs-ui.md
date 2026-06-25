@@ -40,6 +40,12 @@ OpenAPI is intentionally the compatibility export for HTTP tooling. It strips pr
 
 Markdown pages do not replace this generated reference. They complement it. For example, a Markdown guide can explain "how to subscribe to private channels", while `x-usd.websocket.channels` remains the generated source for channel names, payload schemas, auth requirements, and examples.
 
+### Landing page (docs root)
+
+Opening the docs root (`/docs`) renders an overview built straight from the OpenAPI/USD `info` and `servers`: the API title and version, contact/license, the list of servers, and `info.description` rendered as Markdown — followed by the endpoint list. There is nothing to configure; populate `info.description`, `info.contact`, `info.license`, and `servers` in the spec and they show up.
+
+The reference also opens on the **most relevant protocol** by a fixed priority — `http` → `graphql` → `websocket` → `jsonrpc` → `grpc` → `streams` → `tcp` → `udp` — so an HTTP-first API lands on HTTP. The active protocol's endpoints are listed expanded in the sidebar with its tab active. Switching tabs is one click; a genuine non-root path that does not exist still shows a "Page not found" surface.
+
 ## Enable Both
 
 For a project with a conventional `./docs` directory, enable both generated API docs and Markdown docs with `docsDir: true`:

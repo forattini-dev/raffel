@@ -7,6 +7,42 @@ page highlights notable updates in the docs.
 
 ## Unreleased
 
+### Docs root overview + logical protocol default (1.1.60)
+
+The docs root (`/docs`) now renders an OpenAPI-driven landing instead of
+"Page not found": title + version, contact/license, the `servers` list,
+and `info.description` as Markdown, followed by the endpoint list. The
+reference also **opens on the most relevant protocol** (priority
+`http` → `graphql` → `websocket` → `jsonrpc` → `grpc` → `streams` →
+`tcp` → `udp`) with that protocol's endpoints listed **expanded** in the
+sidebar and its tab active. A genuine non-root missing path still shows
+"Page not found". See [Docs UI](/tooling/docs-ui.md).
+
+### Co-located policy `_meta` — cascade mode + audit (1.1.59)
+
+Co-located policy files accept a top-level `_meta` block (wrapper form
+`{ _meta, policies: [...] }`):
+
+- **`mode: scope`** makes a folder file the authoritative reset point for
+  its subtree — ancestor policies don't flow through, children still
+  inherit from it. `mode: cascade` (default) is the classic behaviour.
+- **Audit fields** (`owner`, `ticket`, `description`, `deprecation`)
+  surface through `server.policy.list()[]._meta`; file-level values
+  cascade to each policy, per-policy `_meta` overrides field-by-field.
+
+See [Co-located policies](/policies/co-located.md#file-level-metadata).
+
+### Co-located cascade dedup + hot-reload re-registration (1.1.60)
+
+- A cascade `_policy.yaml` shared by N routes now produces **one** engine
+  entry (with `scope.routes` = union) instead of N copies; per-route
+  nearest-wins is resolved before the engine, and unrelated files sharing
+  an `id` stay separate.
+- File-system discovery **hot reload** now actually re-registers changed
+  handlers — it drops routes whose file was removed, re-registers the
+  rest, and preserves programmatic registrations. (Previously the watcher
+  fired but the registry kept the boot-time handler.)
+
 ### Host logger injection
 
 `createServer({ logger })` now accepts a `pino.Logger` or a `LoggerFactory`,

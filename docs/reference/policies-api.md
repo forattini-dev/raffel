@@ -100,7 +100,7 @@ interface PrincipalConfig {
 | `'oidc'` | `ctx.auth` | Same as OAuth2 + `claims.org_id` fallback for `tenantId`; prefers `claims.groups` over `claims.roles` |
 | `'custom'` | (anything) | requires `map` |
 
-With `from: 'session'`, missing session support or missing `ctx.session.data.user.id` fails at request time when a protected procedure resolves its principal.
+When the request has no identity — no `ctx.session.data.user.id` for `from: 'session'`, or `ctx.auth.authenticated === false` for `from: 'oauth2'` / `'oidc'` — the default resolvers return a shared **anonymous principal** (`{ id: 'anonymous', tenantId: null, scopes: [], groups: [], attrs: { anonymous: true } }`) instead of throwing. The engine then evaluates normally: a policy with `principals: ['*']` still matches anonymous (every principal set is compiled with the `'*'` wildcard), so use explicit `principals` patterns — or `defaultMode: 'deny'` plus `.authz({ public: true })` on the routes you want open — to gate anonymous traffic. (Before 1.1.57 these resolvers threw on missing identity, which surfaced as an HTTP 500 and broke probes against `meta.auth: 'none'` routes carrying co-located policies.)
 
 ---
 
