@@ -127,6 +127,18 @@ export interface Registry {
   /** Check if a handler exists */
   has(name: string): boolean
 
+  /**
+   * Remove a handler by name. Returns `true` if a handler was removed,
+   * `false` if no handler with that name was registered.
+   *
+   * Use with care: removing a handler that another in-process component
+   * still references leaves those references dangling. Discovery is the
+   * primary consumer — it removes a route when the underlying file is
+   * deleted, while it never removes a handler registered programmatically
+   * via the builder API.
+   */
+  remove(name: string): boolean
+
   // === Introspection ===
 
   /** List all registered handlers */
@@ -269,6 +281,20 @@ export function createRegistry(): Registry {
 
     has(name: string): boolean {
       return procedures.has(name) || streams.has(name) || events.has(name)
+    },
+
+    /**
+     * Remove a handler by name. Returns `true` if a handler was removed,
+     * `false` if no handler with that name was registered. Used by
+     * discovery on hot reload to drop a route whose underlying file
+     * was deleted; explicit programmatic registrations are tracked
+     * separately and are never removed by discovery.
+     */
+    remove(name: string): boolean {
+      if (procedures.delete(name)) return true
+      if (streams.delete(name)) return true
+      if (events.delete(name)) return true
+      return false
     },
 
     // === Introspection ===

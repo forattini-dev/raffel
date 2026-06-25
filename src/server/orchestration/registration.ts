@@ -127,8 +127,9 @@ export interface RegistrationContext<
     registry: Registry,
     schemaRegistry: SchemaRegistry,
     globalInterceptors: Interceptor[],
-    onRegistered?: (entry: RegisterDiscoveredHandlersEntry) => void
-  ) => void
+    onRegistered?: (entry: RegisterDiscoveredHandlersEntry) => void,
+    previouslyDiscovered?: ReadonlySet<string>
+  ) => { discoveredNames: Set<string> }
   /**
    * Optional hook for synthesising authz interceptors for REST/resource
    * operations from co-located policies attached to the loaded resource.
@@ -438,16 +439,30 @@ export function createRegistrationService<
     channelRegistry: Map<string, TChannel>,
     restResourceRegistry: TRestResource[],
     tcpHandlers: TTcpHandler[],
-    udpHandlers: TUdpHandler[]
-  ): void {
-    registerDiscoveredHandlers(result, registry, schemaRegistry, globalInterceptors, (entry) => {
-      recordOperationRegistration(entry.name, {
-        source: {
-          kind: 'discovery',
-          location: entry.filePath,
-        },
-      })
-    })
+    udpHandlers: TUdpHandler[],
+    previouslyDiscovered?: ReadonlySet<string>
+  ): { discoveredNames: Set<string> } {
+    const { discoveredNames } = registerDiscoveredHandlers(
+      result,
+      registry,
+      schemaRegistry,
+      globalInterceptors,
+      (entry) => {
+        recordOperationRegistration(entry.name, {
+          source: {
+            kind: 'discovery',
+            location: entry.filePath,
+          },
+        })
+      },
+      previouslyDiscovered
+    )
+
+    // Note: channels, rest resources, resources, tcp and udp handlers are
+    // append-only — the watcher does not drop entries on hot reload even
+    // when the underlying file is deleted. A future cleanup pass should
+    // diff `previouslyDiscovered` and drop the missing ones (tracked
+    // separately; out of scope for the hot-reload fix below).
 
     for (const channel of result.channels) {
       registerChannel(channelRegistry, channel)
@@ -468,6 +483,8 @@ export function createRegistrationService<
     for (const handler of result.udpHandlers) {
       registerUdpHandler(udpHandlers, handler)
     }
+
+    return { discoveredNames }
   }
 
   return {
