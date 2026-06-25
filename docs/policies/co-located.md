@@ -4,7 +4,7 @@
 
 Co-location replaces the "centralised policy directory + manual `.authz()` glue" pattern with file-system convention. A `*.policy.{yaml,yml,json}` file living next to a discovered handler — or a `_policy.{yaml,yml,json}` cascading from any folder — is auto-loaded, attached to the engine, and bound to every operation it covers. No `policy.policies` array entry. No builder code on the procedure. The code *is* in one place; the rules *are* in one place; they happen to be the same place.
 
-This guide covers the full convention shipped across issues **#92–#97**:
+This guide covers the full convention shipped across issues **#92–#97** plus the file-level metadata controls added in **1.1.59**:
 
 | Slice | What it gives you |
 |---|---|
@@ -14,6 +14,7 @@ This guide covers the full convention shipped across issues **#92–#97**:
 | [#95](#channel-scope-95) | Sibling and folder rules for WebSocket channels |
 | [#96](#scope-filter-96) | `scope.protocols` / `scope.routes` / `scope.channels` to narrow applicability |
 | [#97](#coverage-report-97) | `server.policyCoverage()` to surface un-policied surfaces |
+| [1.1.59](#file-level-metadata) | `_meta` block: `mode: scope` reset point, audit fields (`owner`, `ticket`, `description`, `deprecation`) |
 
 ---
 
@@ -506,7 +507,101 @@ are not coupled to policy reloads.
 
 ---
 
-## Out of scope
+## File-level metadata (1.1.59+)
+
+A co-located policy file can carry a top-level `_meta` block that controls
+the file's discovery-time behaviour (`mode`) and surfaces audit-only
+metadata (`owner`, `ticket`, `description`, `deprecation`) for every
+policy in the file. Metadata never affects engine semantics — the
+fields are surfaced through `server.policy.list()` and `policyCoverage()`
+for ownership tracking and lifecycle reminders.
+
+The file body must be wrapped in a `policies:` array when `_meta` is
+present:
+
+```yaml
+# src/http/_policy.yaml
+_meta:
+  mode: scope            # default: cascade
+  owner: security@stone.com.br
+  ticket: SEC-1234
+  description: Tenant-isolation baseline for every HTTP route
+  deprecation: "2030-01-01"
+policies:
+  - id: tenant-isolation
+    effect: deny
+    principals: ["*"]
+    actions: ["**"]
+    resources: ["**"]
+  - id: ...
+```
+
+### `mode: cascade` (default) vs `mode: scope`
+
+- `cascade` (default, pre-1.1.59 behaviour): the file's policies inherit
+  from any ancestor `_policy.yaml` and cascade to children. The
+  scope barrier doesn't exist.
+- `scope`: the file is the authoritative policy surface for its
+  directory and everything below. Ancestor policies do NOT flow
+  through to anything in this subtree; children still inherit from
+  the scope file normally (the scope file is the new "root" of the
+  cascade below it).
+
+```text
+src/http/_policy.yaml (mode: scope)   ← scope: blocks ancestor policies
+src/http/admin/_policy.yaml           ← inherits from scope, not from /http
+src/http/admin/users/reset.ts          ← cascade: scope + admin + maybe sibling
+src/leads/get.ts                       ← NOT affected by the scope file
+```
+
+Use `mode: scope` when a directory's policies are self-contained
+(e.g. a closed admin zone that should not be subject to broader tenant
+rules). The default `mode: cascade` is the right choice for cross-cutting
+concerns (tenant isolation, common deny rules) that should reach every
+handler in the discovery tree.
+
+Siblings (`<handler>.policy.yaml`) are unaffected by `mode`: a sibling
+is always isolated to its own handler. Setting `mode: scope` on a
+sibling is a no-op.
+
+### Audit fields
+
+| Field | Purpose | Surfaced via |
+|---|---|---|
+| `owner` | Email or team responsible. | `server.policy.list()[]._meta.owner` |
+| `ticket` | Issue-tracker reference. | `server.policy.list()[]._meta.ticket` |
+| `description` | Free-form explanation. | `server.policy.list()[]._meta.description` |
+| `deprecation` | ISO-8601 date. Coverage flags past-dated entries. | `server.policy.list()[]._meta.deprecation` |
+
+Per-policy `_meta` overrides the file-level fields field-by-field at
+materialization time:
+
+```yaml
+_meta:
+  owner: file-owner
+  ticket: FILE-1
+policies:
+  - id: with-override
+    effect: allow
+    principals: ["*"]
+    actions: ["a/**"]
+    resources: ["**"]
+    _meta:
+      owner: per-policy-owner      # overrides file-level
+      deprecation: "2027-06-01"   # adds a new field
+  - id: without-override
+    effect: allow
+    principals: ["*"]
+    actions: ["b/**"]
+    resources: ["**"]
+    # owner/ticket inherited from file-level _meta
+```
+
+The schema (`src/middleware/policy/schema.json`) carries the full
+machine-readable contract; JSON-schema-aware tooling (editor completion,
+meta-schema validators) reads from there.
+
+---
 
 Things this convention deliberately doesn't try to do (see the linked issues for context):
 

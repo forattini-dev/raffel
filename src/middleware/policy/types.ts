@@ -133,6 +133,69 @@ export interface Policy {
   _compiled?: CompiledPolicyPatterns
   /** @internal Pre-compiled match DSL predicate. */
   _compiledMatch?: (input: AuthzInput) => boolean
+  /**
+   * Audit-only metadata attached to this single policy. Never affects
+   * engine semantics — surfaced through `server.policy.list()` and
+   * `policyCoverage()` for documentation, ownership, and lifecycle
+   * tracking. File-level metadata (PolicyFileMeta) is merged into each
+   * policy's `_meta` at materialization time; per-policy fields override
+   * file-level fields when both are set.
+   *
+   * @see PolicyAuditMeta
+   */
+  _meta?: PolicyAuditMeta
+}
+
+/**
+ * Audit-only metadata attached to a single policy entry. Never evaluated
+ * by the policy engine — surfaces through `server.policy.list()` and
+ * `policyCoverage()` for documentation, ownership tracking, and lifecycle
+ * reminders (e.g. a `deprecation` date that flags a policy as "should be
+ * removed by this date").
+ */
+export interface PolicyAuditMeta {
+  /** Email or team responsible for the policy. Surfaced as-is. */
+  owner?: string
+  /** Issue-tracker reference (e.g. "SEC-1234"). Surfaced as-is. */
+  ticket?: string
+  /** Free-form explanation. Surfaced in coverage reports. */
+  description?: string
+  /** ISO-8601 date. Coverage flags the policy as deprecated when past. */
+  deprecation?: string
+}
+
+/**
+ * Cascade mode for a co-located policy file (the top-level `_meta` block in
+ * a `*_policy.{yaml,yml,json}`). Forwarded to the resolver, which interprets
+ * it during cascade resolution.
+ *
+ * - `'cascade'` (default): the file's policies inherit from any ancestor
+ *   `_policy.yaml` and cascade to children — pre-1.1.59 behaviour.
+ * - `'scope'`: the file is the authoritative policy surface for its
+ *   directory and all subdirectories. Ancestor policies do NOT apply to
+ *   anything in this subtree. Children still inherit from the scope
+ *   file normally (the scope file is the new "root" of the cascade
+ *   below it).
+ */
+export type PolicyFileMode = 'cascade' | 'scope'
+
+/**
+ * File-level metadata for a co-located policy file (the top-level `_meta`
+ * key in a `*_policy.{yaml,yml,json}`). Distinct from `PolicyAuditMeta`:
+ * this block controls the file's discovery-time behaviour (`mode`) and
+ * provides defaults for per-policy audit fields.
+ */
+export interface PolicyFileMeta {
+  /** Cascade mode (default `'cascade'`). See PolicyFileMode. */
+  mode?: PolicyFileMode
+  /** Default `owner` for every policy in this file. Per-policy `_meta.owner` wins. */
+  owner?: string
+  /** Default `ticket` for every policy in this file. Per-policy wins. */
+  ticket?: string
+  /** Default `description`. Per-policy wins. */
+  description?: string
+  /** Default `deprecation` date (ISO-8601). Per-policy wins. */
+  deprecation?: string
 }
 
 /**

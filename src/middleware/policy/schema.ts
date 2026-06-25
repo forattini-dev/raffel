@@ -44,11 +44,61 @@ export const policySchema = {
     customCondition: { type: 'string', minLength: 1 },
     _source: { type: 'string' },
     _index: { type: 'integer' },
+    _meta: { $ref: '#/definitions/PolicyAuditMeta' },
   },
   not: {
     required: ['match', 'customCondition'],
   },
   definitions: {
+    PolicyAuditMeta: {
+      type: 'object',
+      description:
+        'Audit-only metadata attached to a single policy or to a whole co-located policy file. Never affects engine semantics — surfaced through server.policy.list() and policyCoverage() for documentation, ownership tracking, and lifecycle reminders.',
+      additionalProperties: false,
+      properties: {
+        owner: {
+          type: 'string',
+          description: 'Email or team identifier responsible for this policy. Free-form; surfaced as-is in coverage reports.',
+        },
+        ticket: {
+          type: 'string',
+          description: 'Issue-tracker reference (e.g. SEC-1234). Surfaced as-is in coverage reports.',
+        },
+        description: {
+          type: 'string',
+          description: 'Free-form explanation of what this policy enforces and why. Surfaced in coverage reports; not used by the engine.',
+        },
+        deprecation: {
+          type: 'string',
+          format: 'date',
+          description:
+            'ISO-8601 date (YYYY-MM-DD). After this date the policy is flagged as deprecated in coverage reports — the engine does NOT change behaviour. Use the same value across a file to flag every policy in it.',
+        },
+      },
+    },
+    PolicyFileMeta: {
+      type: 'object',
+      description:
+        'File-level metadata for a co-located policy file (the top-level `_meta` key in a *_policy.{yaml,yml,json} file). Controls cascade semantics and surfaces audit info. Distinct from the per-policy `_meta` documented under PolicyAuditMeta.',
+      additionalProperties: false,
+      properties: {
+        owner: {
+          type: 'string',
+          description:
+            'Email or team responsible for every policy in this file. Inherited by per-policy entries unless they override it.',
+        },
+        ticket: { type: 'string' },
+        description: { type: 'string' },
+        deprecation: { type: 'string', format: 'date' },
+        mode: {
+          type: 'string',
+          enum: ['cascade', 'scope'],
+          default: 'cascade',
+          description:
+            "cascade (default): the file's policies inherit from any ancestor _policy.yaml and cascade to children, the same as the pre-1.1.59 behaviour. scope: the file's policies apply only to handlers in the file's directory — they do NOT inherit from ancestors, nor cascade to children. Use `scope` when a directory's policies are self-contained (e.g. a closed admin surface that should not be subject to broader tenant rules).",
+        },
+      },
+    },
     MatchNode: {
       oneOf: [
         {

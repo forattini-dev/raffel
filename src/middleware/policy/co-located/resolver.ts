@@ -23,6 +23,19 @@ export interface RouteDescriptor {
 
 export type PolicyFileKind = 'sibling' | 'folder'
 
+/**
+ * Cascade mode for a co-located policy file. Forwarded from the file-level
+ * `_meta.mode` field (1.1.59+); absent means the default (`cascade`).
+ *
+ * - `cascade` (default): the file's policies inherit from any ancestor
+ *   `_policy.yaml` and cascade to children — pre-1.1.59 behaviour.
+ * - `scope`: the file's policies apply only to handlers in the file's
+ *   directory. They do NOT inherit from ancestors, nor cascade to
+ *   children. Use this for self-contained policy surfaces (e.g. a closed
+ *   admin zone that should not be subject to broader tenant rules).
+ */
+export type PolicyFileMode = 'cascade' | 'scope'
+
 export interface PolicyFileDescriptor {
   /** Absolute path of the policy file. */
   filePath: string
@@ -35,6 +48,19 @@ export interface PolicyFileDescriptor {
    * covers. Sibling files leave this undefined.
    */
   dir?: string
+  /**
+   * File-level cascade mode (1.1.59+). When `scope`, the resolver skips
+   * both ancestors and children when pairing this file with handlers.
+   * Defaults to `'cascade'` (omitted from the descriptor when unset).
+   */
+  mode?: PolicyFileMode
+  /**
+   * File-level audit metadata (1.1.59+). Surfaced through
+   * `server.policy.list()` and `policyCoverage()` for ownership and
+   * lifecycle tracking. Per-policy `_meta` overrides the file-level
+   * values field-by-field at materialization time.
+   */
+  fileMeta?: import('../types.js').PolicyFileMeta
 }
 
 export interface PolicySource {
@@ -125,12 +151,35 @@ export function resolveCoLocatedPolicies(
     const policies: Policy[] = []
     const sources: PolicySource[] = []
 
-    for (const dir of ancestorDirs(route.filePath)) {
+    // Cascade-mode handling (1.1.59+): walk ancestors from closest to
+    // broadest, stopping the first time we encounter a folder file
+    // declared with `mode: scope`. The scope file acts as the
+    // authoritative reset point for its subtree: its own policies and
+    // the policies of anything below it still apply, but ancestor
+    // policies do not flow through. Walking closer→broader lets us
+    // detect the scope file before processing the ancestors it
+    // supersedes.
+    let scopeHit: string | undefined
+    const dirs = ancestorDirs(route.filePath).slice().reverse()
+    for (const dir of dirs) {
+      if (scopeHit !== undefined) {
+        // A scope file earlier in the walk (i.e. closer to the route)
+        // has sealed this branch — ancestor policies do not apply.
+        break
+      }
       const folder = folderByDir.get(dir)
       if (!folder) continue
       policies.push(...folder.policies)
       sources.push({ filePath: folder.filePath, kind: 'folder' })
+      if (folder.mode === 'scope') {
+        scopeHit = dir
+      }
     }
+    // Reverse back so the source ordering matches the legacy semantics
+    // (broader → closer), so coverage reports and existing tests keep
+    // their expected order.
+    policies.reverse()
+    sources.reverse()
 
     const sibling = siblingByKey.get(handlerBaseKey(route.filePath))
     if (sibling) {
