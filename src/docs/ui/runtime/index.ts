@@ -1884,17 +1884,20 @@ function renderContent(): void {
     scrollToActiveHeading()
     return
   }
-  if (activePagePath) {
+  // The docs root (`/`) is ours to define — never a "not found". Only a
+  // non-root path with no matching page is a genuine 404.
+  const isRoot = !activePagePath || activePagePath === '/'
+  if (activePagePath && !isRoot) {
     renderMissingDocsPage(main)
     renderToc(main)
     return
   }
 
-  if (!searchQuery && spec.info?.description) {
-    const intro = doc.createElement('div')
-    intro.className = 'intro-section'
-    intro.innerHTML = `<div class="markdown-content">${parseMarkdown(spec.info.description)}</div>`
-    main.appendChild(intro)
+  // Root landing: an OpenAPI-driven overview (title, version, servers,
+  // description) followed by the endpoint list — unless the user is
+  // mid-search, in which case the search results take the surface.
+  if (!searchQuery) {
+    main.appendChild(renderDocsOverview())
   }
 
   if (searchQuery) renderDocsSearch(main)
@@ -1912,6 +1915,73 @@ function renderContent(): void {
     main.appendChild(section)
   }
   renderToc(main)
+}
+
+function renderDocsOverview(): any {
+  const info = (spec.info ?? {}) as Record<string, any>
+  const container = doc.createElement('div')
+  container.className = 'docs-overview'
+
+  const title = String(info.title ?? 'API')
+  const versionBadge = info.version
+    ? `<span class="docs-overview-version">${esc(String(info.version))}</span>`
+    : ''
+  const header = doc.createElement('header')
+  header.className = 'docs-overview-header'
+  header.innerHTML = `<h1 class="docs-overview-title" id="overview">${esc(title)}${versionBadge}</h1>`
+  container.appendChild(header)
+
+  // Contact / license line (ReDoc-style).
+  const contact = (info.contact ?? {}) as Record<string, any>
+  const license = (info.license ?? {}) as Record<string, any>
+  const metaBits: string[] = []
+  if (contact.email) {
+    const label = esc(String(contact.name ?? contact.email))
+    metaBits.push(`E-mail: <a href="mailto:${esc(String(contact.email))}">${label}</a>`)
+  }
+  if (contact.url) {
+    metaBits.push(`URL: <a href="${esc(String(contact.url))}" target="_blank" rel="noopener">${esc(String(contact.url))}</a>`)
+  }
+  if (license.name) {
+    const lic = license.url
+      ? `<a href="${esc(String(license.url))}" target="_blank" rel="noopener">${esc(String(license.name))}</a>`
+      : esc(String(license.name))
+    metaBits.push(`License: ${lic}`)
+  }
+  if (metaBits.length) {
+    const meta = doc.createElement('div')
+    meta.className = 'docs-overview-meta'
+    meta.innerHTML = metaBits.join('<span class="docs-overview-meta-sep">·</span>')
+    container.appendChild(meta)
+  }
+
+  // Servers — straight from `spec.servers`.
+  const servers = Array.isArray(spec.servers) ? spec.servers : []
+  if (servers.length) {
+    const section = doc.createElement('section')
+    section.className = 'docs-overview-servers'
+    const rows = servers
+      .map((s: any) => {
+        const url = esc(String(s?.url ?? ''))
+        const desc = s?.description
+          ? `<span class="docs-overview-server-desc">${esc(String(s.description))}</span>`
+          : ''
+        return `<li class="docs-overview-server"><code class="docs-overview-server-url">${url}</code>${desc}</li>`
+      })
+      .join('')
+    section.innerHTML = `<h2 class="docs-overview-subtitle">${servers.length > 1 ? 'Servers' : 'Server'}</h2><ul class="docs-overview-server-list">${rows}</ul>`
+    container.appendChild(section)
+  }
+
+  // Description (markdown).
+  if (info.description) {
+    const description = doc.createElement('div')
+    description.className = 'docs-overview-description markdown-content'
+    description.innerHTML = parseMarkdown(String(info.description))
+    container.appendChild(description)
+  }
+
+  return container
 }
 
 function renderMissingDocsPage(main: any): void {
