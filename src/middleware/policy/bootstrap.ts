@@ -16,8 +16,12 @@ import { createDefaultEngine } from './engine/index.js'
 import { createPolicyInterceptor, createNoPolicyDeclaredInterceptor } from './interceptor.js'
 import { loadPoliciesFromDir, mergePolicies } from './loader.js'
 import { createPrincipalResolver } from './principal/index.js'
+import {
+  createCoLocatedAccumulator,
+  type CoLocatedAccumulator,
+} from './co-located-accumulator.js'
 import { setPolicyProvider } from '../../mcp/resources/index.js'
-import type { PolicyConfig, Principal, ProcedurePolicyConfig } from './types.js'
+import type { PolicyConfig, Principal, ProcedurePolicyConfig, Policy } from './types.js'
 
 export interface PolicyCoverageEntry {
   /** Operation/channel name as registered in the registry. */
@@ -61,7 +65,39 @@ export interface PolicyBootstrap {
    * audit when `defaultMode: 'deny'` is configured.
    */
   getCoverage: (registered: readonly PolicyCoverageEntry[]) => PolicyCoverageReport
+  /**
+   * Accumulator for co-located policies (1.1.60+). Discovery calls
+   * `accumulator.add()` for every (route, policy) pair it surfaces; the
+   * application path (`applyDiscoveryResult`) calls `flush()` once at
+   * the end of a load to materialise one policy per cascade file with
+   * the union of route names in `scope.routes`, deduping the N-copy
+   * leak that earlier releases produced when a single cascade
+   * `_policy.yaml` was attached to N routes (Bug A from 1.1.58).
+   *
+   * `reset()` is called at the top of a hot reload so the next flush
+   * only contains the policies for the routes that survived the
+   * reload.
+   */
+  coLocatedAccumulator: CoLocatedAccumulator
 }
+
+/**
+ * Per-server state for the co-located policy pipeline (1.1.60+).
+ *
+ * The accumulator exists so that a single cascade `_policy.yaml` shared
+ * by N routes produces ONE entry in the engine instead of N copies
+ * (one per route). Each `add()` records the route name against the
+ * policy's `(source, index)` key. `flush()` materialises one policy
+ * per key with `scope.routes` set to the union and commits to the
+ * engine. `reset()` clears the accumulator without touching the
+ * engine — used on hot reload so the next flush reflects only the
+ * routes that survived the reload.
+ *
+ * Imported from `./co-located-accumulator.js`. Re-exported here so
+ * existing call sites that imported the type from `bootstrap` keep
+ * working.
+ */
+export type { CoLocatedAccumulator } from './co-located-accumulator.js'
 
 export interface CreatePolicyBootstrapOptions {
   /** Fallback logger if `policy.logger` is not provided. */
@@ -126,6 +162,16 @@ export function createPolicyBootstrap(
   const noPolicyDeclaredFactory = (procedureName: string): Interceptor =>
     createNoPolicyDeclaredInterceptor(procedureName, productionErrorBody)
 
+  // Co-located policy accumulator (1.1.60+). Collects (source, index)
+  // → Set<routeName> across the load, then flushes ONE policy per
+  // (source, index) with `scope.routes` set to the union of routes.
+  // Without this, an unscoped cascade _policy.yaml shared by N
+  // routes produced N copies in the engine (Bug A from 1.1.58).
+  const coLocatedAccumulator: CoLocatedAccumulator = createCoLocatedAccumulator({
+    engine,
+    flushLogger: policyLogger,
+  })
+
   const getCoverage = (registered: readonly PolicyCoverageEntry[]) => {
     const gaps: PolicyCoverageEntry[] = []
     let covered = 0
@@ -168,5 +214,6 @@ export function createPolicyBootstrap(
     noPolicyDeclaredFactory,
     resolvePrincipal: async (ctx) => principalResolver(ctx),
     getCoverage,
+    coLocatedAccumulator,
   }
 }

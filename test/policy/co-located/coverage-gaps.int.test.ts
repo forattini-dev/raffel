@@ -114,9 +114,16 @@ export default async function handler() { return { ok: true } }
     })
     await server.start()
 
-    // Today: 5 copies. Tracked, not fixed in this release.
+    // 1.1.60+ fix: the per-bootstrap accumulator dedups by (source, index)
+    // and folds same-original-id policies across the cascade, so a
+    // single _policy.yaml shared by N routes produces ONE engine entry
+    // — not N copies. The single policy carries the union of route
+    // names in `scope.routes`, and the engine's scope filter matches
+    // per request as expected.
     const denyAll = server.policy!.list().filter((p) => p.id.includes('deny-all'))
-    expect(denyAll.length).toBeGreaterThan(1)
+    expect(denyAll.length).toBe(1)
+    // The single copy covers all 5 routes via scope.routes.
+    expect(denyAll[0]?.scope?.routes?.length).toBe(5)
   })
 })
 

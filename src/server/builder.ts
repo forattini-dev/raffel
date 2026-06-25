@@ -569,6 +569,13 @@ export function createServer(options: ServerOptions): RaffelServer {
     result: DiscoveryResult,
     isReload: boolean = true
   ): void {
+    // Hot reload: drop the previous load's accumulation so the next
+    // flush only contains policies for routes that survived. The
+    // engine entries themselves are overwritten by the engine's
+    // replace-in-place semantics on the next flush.
+    if (isReload) {
+      policyBootstrap?.coLocatedAccumulator.reset()
+    }
     const { discoveredNames } = registrationService.applyDiscoveryResult(
       result,
       channelRegistry,
@@ -578,8 +585,21 @@ export function createServer(options: ServerOptions): RaffelServer {
       isReload ? discoveredRoutes : undefined
     )
     discoveredRoutes = discoveredNames
+
+    // GraphQL resources also accumulate their co-located policies via
+    // `registerGraphQLResource` → `addCoLocatedPoliciesToEngine`, so
+    // they must run BEFORE the flush. Otherwise their accumulated
+    // policies are dropped because the flush already happened.
     for (const resource of result.graphqlResources) {
       registerGraphQLResource(resource)
+    }
+
+    // Once every route, channel, and GraphQL resource in the load has
+    // been registered (and its co-located policies accumulated),
+    // materialise the union into the engine. One policy per
+    // (source, index), regardless of how many routes referenced it.
+    if (policyBootstrap) {
+      policyBootstrap.coLocatedAccumulator.flush()
     }
     advanceApiDocumentationRevision()
   }
