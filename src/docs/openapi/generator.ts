@@ -666,14 +666,21 @@ export function generateOpenAPI(
     const operationId = nameToOperationId(meta.name)
     const namespace = opts.groupByNamespace ? extractNamespace(meta.name) : undefined
 
-    if (namespace) {
-      tags.add(namespace)
+    // Prefer explicit handler tags; fall back to the namespace grouping.
+    const operationTags = meta.tags && meta.tags.length > 0
+      ? meta.tags
+      : namespace
+        ? [namespace]
+        : undefined
+    if (operationTags) {
+      for (const tag of operationTags) tags.add(tag)
     }
 
     const operation: OpenAPIOperation = {
       operationId,
-      summary: meta.description ?? `Call ${stripTrailingHttpVerb(meta.name, meta.httpMethod)}`,
-      tags: namespace ? [namespace] : undefined,
+      summary: meta.summary ?? `Call ${stripTrailingHttpVerb(meta.name, meta.httpMethod)}`,
+      ...(meta.description && { description: meta.description }),
+      tags: operationTags,
       responses: {
         '200': createSuccessResponse(handlerSchema?.output, schemas, meta.name, handlerSchema?.validator),
         '400': createErrorResponse('Validation Error'),
@@ -685,31 +692,42 @@ export function generateOpenAPI(
       ...(meta.policies && { 'x-raffel-policies': meta.policies }),
     }
 
-    // Add request body if input schema exists
-    if (handlerSchema?.input) {
-      const schemaRef = `${meta.name}Input`
-      schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input, handlerSchema.validator)
+    // Resolve the documented HTTP method. The path item only models the five
+    // body/CRUD verbs; anything else (or unset) falls back to POST.
+    const httpMethod = (meta.httpMethod ?? 'POST').toLowerCase()
+    const method = (['get', 'post', 'put', 'delete', 'patch'] as const).includes(
+      httpMethod as 'get' | 'post' | 'put' | 'delete' | 'patch'
+    )
+      ? (httpMethod as 'get' | 'post' | 'put' | 'delete' | 'patch')
+      : 'post'
 
-      operation.requestBody = {
-        required: true,
-        content: {
-          'application/json': {
-            schema: { $ref: `#/components/schemas/${schemaRef}` },
+    // Only methods that carry a body get a requestBody.
+    if (['post', 'put', 'patch'].includes(method)) {
+      if (handlerSchema?.input) {
+        const schemaRef = `${meta.name}Input`
+        schemas[schemaRef] = schemaToJsonSchema(handlerSchema.input, handlerSchema.validator)
+
+        operation.requestBody = {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: `#/components/schemas/${schemaRef}` },
+            },
           },
-        },
-      }
-    } else {
-      operation.requestBody = {
-        required: false,
-        content: {
-          'application/json': {
-            schema: { type: 'object' },
+        }
+      } else {
+        operation.requestBody = {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { type: 'object' },
+            },
           },
-        },
+        }
       }
     }
 
-    paths[path] = { post: operation }
+    paths[path] = { ...paths[path], [method]: operation }
   }
 
   // Process streams
