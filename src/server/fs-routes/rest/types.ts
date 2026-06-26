@@ -100,6 +100,22 @@ export interface RestExports {
   /** Entity schema (required) */
   schema: z.ZodObject<z.ZodRawShape>
 
+  /**
+   * Write-side schema for create/update request bodies.
+   *
+   * When omitted, it is derived from {@link schema} by omitting the primary key
+   * and timestamp fields. Feeds both runtime validation and the OpenAPI
+   * `requestBody` for POST/PUT.
+   */
+  inputSchema?: z.ZodType
+
+  /**
+   * Schema for PATCH request bodies.
+   *
+   * When omitted, defaults to a partial of the resolved {@link inputSchema}.
+   */
+  patchSchema?: z.ZodType
+
   /** REST configuration */
   config?: RestConfig
 

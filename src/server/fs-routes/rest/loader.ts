@@ -158,6 +158,12 @@ export function createLoadedRestResourceFromExports(
   const actions = new Map<string, RestActionConfig>()
   const routes: RestRoute[] = []
 
+  // Resolve write-side schemas once. These feed both the OpenAPI requestBody
+  // and act as a documented contract for create/update/patch bodies.
+  const writeSchema = exports.inputSchema ?? deriveWriteSchema(exports.schema, config)
+  const patchSchema = exports.patchSchema
+    ?? (writeSchema instanceof z.ZodObject ? writeSchema.partial() : writeSchema)
+
   // Determine enabled operations
   const enabledOps = config.operations.filter(op => {
     // Check if explicitly disabled
@@ -174,8 +180,15 @@ export function createLoadedRestResourceFromExports(
     if (handler) {
       handlers.set(op, handler)
 
+      // Pick the body schema documenting this operation's request body.
+      const defaultInputSchema = op === 'patch'
+        ? patchSchema
+        : op === 'create' || op === 'update'
+          ? writeSchema
+          : undefined
+
       // Create route(s) for this operation
-      const opRoutes = createRoutes(name, op, config, handler, customHandler)
+      const opRoutes = createRoutes(name, op, config, handler, customHandler, defaultInputSchema)
       routes.push(...opRoutes)
     }
   }
@@ -706,6 +719,28 @@ function createOptionsHandler(config: ResolvedRestConfig): RestHandler {
 // === Route Creation ===
 
 /**
+ * Derive a write-side schema from the entity schema by omitting the primary key
+ * and timestamp fields — these are server-generated and never part of a
+ * create/update request body.
+ */
+function deriveWriteSchema(
+  schema: z.ZodObject<z.ZodRawShape>,
+  config: ResolvedRestConfig
+): z.ZodType {
+  const shape = schema.shape
+  const omit: Record<string, true> = {}
+
+  if (config.primaryKey && config.primaryKey in shape) {
+    omit[config.primaryKey] = true
+  }
+  for (const field of [config.timestamps?.createdAt, config.timestamps?.updatedAt]) {
+    if (field && field in shape) omit[field] = true
+  }
+
+  return Object.keys(omit).length > 0 ? schema.omit(omit) : schema
+}
+
+/**
  * Create routes for an operation.
  */
 function createRoutes(
@@ -713,18 +748,20 @@ function createRoutes(
   operation: RestOperation,
   config: ResolvedRestConfig,
   handler: RestHandler,
-  customHandler?: RestHandler | RestHandlerConfig | false
+  customHandler?: RestHandler | RestHandlerConfig | false,
+  defaultInputSchema?: z.ZodType
 ): RestRoute[] {
   const routes: RestRoute[] = []
   const basePath = config.basePath || `/${resourceName}`
   const method = OPERATION_METHODS[operation]
 
-  // Get schemas
-  let inputSchema: z.ZodType | undefined
+  // Get schemas. A custom handler's explicit input/output wins; otherwise fall
+  // back to the resolved write-side schema for this operation.
+  let inputSchema: z.ZodType | undefined = defaultInputSchema
   let outputSchema: z.ZodType | undefined
 
   if (customHandler && typeof customHandler === 'object' && 'input' in customHandler) {
-    inputSchema = customHandler.input
+    inputSchema = customHandler.input ?? defaultInputSchema
     outputSchema = customHandler.output
   }
 

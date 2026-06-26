@@ -94,8 +94,9 @@ describe('OpenAPI Generator', () => {
       expect(doc.paths['/admin/users/delete']).toBeDefined()
     })
 
-    it('should include description from handler options', () => {
+    it('should map handler description and summary to the matching OpenAPI fields', () => {
       registry.procedure('test', async () => ({ ok: true }), {
+        summary: 'Short summary',
         description: 'A test procedure',
       })
 
@@ -103,7 +104,23 @@ describe('OpenAPI Generator', () => {
         info: { title: 'Test API', version: '1.0.0' },
       })
 
-      expect(doc.paths['/test'].post?.summary).toBe('A test procedure')
+      expect(doc.paths['/test'].post?.summary).toBe('Short summary')
+      expect(doc.paths['/test'].post?.description).toBe('A test procedure')
+    })
+
+    it('should document the declared HTTP method instead of always POST', () => {
+      registry.procedure('list-things', async () => ({ ok: true }), {
+        httpMethod: 'GET',
+      })
+
+      const doc = generateOpenAPI(registry, undefined, {
+        info: { title: 'Test API', version: '1.0.0' },
+      })
+
+      expect(doc.paths['/list-things'].get).toBeDefined()
+      expect(doc.paths['/list-things'].post).toBeUndefined()
+      // GET carries no request body
+      expect(doc.paths['/list-things'].get?.requestBody).toBeUndefined()
     })
 
     it('should use custom base path', () => {

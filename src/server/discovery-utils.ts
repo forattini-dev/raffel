@@ -216,7 +216,9 @@ export function registerDiscoveredHandlers(
         ? createHttpAwareProcedureHandler(route.handler as ProcedureHandler)
         : route.handler as ProcedureHandler
       registry.procedure(route.name, handler, {
+        summary: route.meta?.summary,
         description: route.meta?.description,
+        tags: route.meta?.tags,
         graphql: route.meta?.graphql,
         httpPath: route.meta?.httpPath,
         httpMethod: route.meta?.httpMethod,
