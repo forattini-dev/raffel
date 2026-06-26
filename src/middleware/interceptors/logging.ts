@@ -16,6 +16,10 @@ import { isRaffelLikeError } from '../../core/error.js'
 import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { LoggingConfig, LogFilterContext } from '../types.js'
 import { createLogger } from '../../utils/logger.js'
+import {
+  resolveCorrelationProfile,
+  applyCorrelationFields,
+} from '../correlation-profile.js'
 
 /**
  * Shared default logger.
@@ -151,7 +155,14 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
     filter,
     excludeProcedures = [],
     logger = defaultLogger,
+    correlationProfile,
   } = config
+
+  // Resolve the effective profile once at construction time — config
+  // doesn't change between requests, so we don't need to re-resolve per
+  // log line. Auto-detection happens here, only when the caller didn't
+  // pass an explicit value.
+  const effectiveProfile = resolveCorrelationProfile(correlationProfile)
 
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     // Use WeakMap for memory-efficient timer storage
@@ -226,35 +237,21 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
         logData.principal = ctx.auth.principal
       }
 
-      // Tracing: keep the hex IDs (back-compat for any operator pipeline
-      // already parsing `traceId`/`spanId`) AND emit the `dd.*` decimal
-      // variants the Datadog Agent looks for in JSON logs. With both
-      // present the Agent picks the `dd.*` ones for correlation, and any
-      // in-house tooling still has the original hex form.
+      // Tracing: always emit the hex `traceId` / `spanId` (camelCase) so
+      // existing raffel log pipelines keep working unchanged. The profile
+      // helper below adds the backend-specific shape on top.
       if (ctx.tracing) {
         logData.traceId = ctx.tracing.traceId
         logData.spanId = ctx.tracing.spanId
         if (ctx.tracing.parentSpanId) {
           logData.parentSpanId = ctx.tracing.parentSpanId
         }
-        if (ctx.tracing.ddTraceId) {
-          logData['dd.trace_id'] = ctx.tracing.ddTraceId
-        }
-        if (ctx.tracing.ddSpanId) {
-          logData['dd.span_id'] = ctx.tracing.ddSpanId
-        }
       }
 
-      // Datadog Agent needs `dd.service` / `dd.env` / `dd.version` to know
-      // where to route the log. We pull from env (the same env vars the
-      // dd-agent itself reads when run as a sidecar), so there's a single
-      // source of truth across the host + sidecar pair.
-      const ddService = process.env.DD_SERVICE
-      const ddEnv = process.env.DD_ENV
-      const ddVersion = process.env.DD_VERSION
-      if (ddService) logData['dd.service'] = ddService
-      if (ddEnv) logData['dd.env'] = ddEnv
-      if (ddVersion) logData['dd.version'] = ddVersion
+      // Backend-specific correlation fields — `dd.*` for Datadog Agent,
+      // `trace_id` / `span_id` for OTel backends, `trace.trace_id` for
+      // Honeycomb. See `correlation-profile.ts` for the full table.
+      applyCorrelationFields(logData, effectiveProfile, ctx.tracing)
 
       // Add metadata with automatic redaction of sensitive headers
       if (includeMetadata && envelope.metadata) {

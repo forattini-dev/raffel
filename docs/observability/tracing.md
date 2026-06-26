@@ -518,3 +518,53 @@ node dist/server.js
 ```
 
 Both the host process and the sidecar should agree on these (the sidecar reads them from its own env in any case). The 128-bit `dd.trace_id` produced by Raffel is accepted by Datadog Agent ≥7.34.
+
+## Backend-Agnostic Correlation Profiles
+
+Datadog is just one backend. The `createLoggingInterceptor` accepts a `correlationProfile` option that switches the extra JSON fields it emits to match whichever observability stack is reading the logs:
+
+```ts
+import { createLoggingInterceptor } from 'raffel'
+
+createLoggingInterceptor({
+  format: 'json',
+  correlationProfile: 'datadog',    // or 'otel' | 'honeycomb' | 'none'
+})
+```
+
+| Profile    | When to use | Extra fields beyond raffel hex `traceId`/`spanId` |
+|:--|:--|:--|
+| `datadog`  | Datadog Agent sidecar tailing stdout JSON | `dd.trace_id` (decimal), `dd.span_id` (decimal), `dd.service`, `dd.env`, `dd.version` |
+| `otel`     | Any OTel-compatible backend (Honeycomb, Tempo, Lightstep, New Relic, Dynatrace, Grafana Loki via OTel collector) | `trace_id`, `span_id` (snake_case hex), `parent_span_id`, `service.name`, `service.version`, `deployment.environment.name` |
+| `honeycomb`| Honeycomb (or anything expecting dotted nested namespacing) | `trace.trace_id`, `trace.span_id`, `trace.parent_id`, `service.name` |
+| `none`     | Operator opt-out — only raffel hex camelCase survives | (nothing extra) |
+
+### Auto-detection
+
+When `correlationProfile` is left `undefined`, the interceptor picks based on environment:
+
+1. Any `DD_*` env var set (`DD_SERVICE`, `DD_ENV`, `DD_VERSION`, `DD_AGENT_HOST`) → `datadog`
+2. Otherwise → `otel`
+
+To pin a profile regardless of environment, pass it explicitly:
+
+```ts
+// Always OTel-shaped fields, even if DD_SERVICE leaks in from somewhere
+createLoggingInterceptor({ correlationProfile: 'otel' })
+```
+
+### Resource / service identity env vars
+
+Different backends read different env vars. The OTel profile reads the standard OTel SDK ones first and falls back to Datadog's so a single host can ship to multiple backends without double-configuring:
+
+| Field emitted by `otel` profile | Env vars read (in order) |
+|:--|:--|
+| `service.name` | `OTEL_SERVICE_NAME` → `DD_SERVICE` |
+| `service.version` | `OTEL_SERVICE_VERSION` → `DD_VERSION` |
+| `deployment.environment.name` | `OTEL_DEPLOYMENT_ENVIRONMENT` → `DD_ENV` |
+
+The Honeycomb profile adds `HONEYCOMB_SERVICE` as an extra fallback before `DD_SERVICE`. The Datadog profile reads only `DD_*` (matching the Datadog Agent's own conventions).
+
+### The span side is already portable
+
+Spans emitted by Raffel carry the OpenTelemetry HTTP semantic attributes (`http.request.method`, `http.route`, `url.path`, plus the legacy `rpc.method` / `rpc.system`). Any OTel-compatible APM (Datadog, Honeycomb, Tempo, Lightstep, Dynatrace, New Relic, AWS X-Ray via OTel, GCP Cloud Trace, etc.) groups by these without further configuration. The only backend-specific piece is the **log** ↔ trace correlation, which is what `correlationProfile` solves.

@@ -60,3 +60,6 @@ export type {
   PerformancePreset,
   EnvelopeConfig,
 } from './types.js'
+
+export type { CorrelationProfile } from './correlation-profile.js'
+export { resolveCorrelationProfile } from './correlation-profile.js'

@@ -2,7 +2,7 @@
  * Logging Interceptor Tests
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest'
 import {
   createLoggingInterceptor,
   createProductionLoggingInterceptor,
@@ -304,5 +304,214 @@ describe('Datadog sidecar log enrichment', () => {
       if (originalEnv !== undefined) process.env.DD_ENV = originalEnv
       if (originalVersion !== undefined) process.env.DD_VERSION = originalVersion
     }
+  })
+})
+
+describe('correlationProfile: explicit selection', () => {
+  // Snapshot every DD_* / OTEL_* / HONEYCOMB_* env var so a parallel test
+  // doesn't accidentally leak state into this one.
+  const envKeys = [
+    'DD_SERVICE',
+    'DD_ENV',
+    'DD_VERSION',
+    'DD_AGENT_HOST',
+    'OTEL_SERVICE_NAME',
+    'OTEL_SERVICE_VERSION',
+    'OTEL_DEPLOYMENT_ENVIRONMENT',
+    'HONEYCOMB_SERVICE',
+  ]
+  const savedEnv: Record<string, string | undefined> = {}
+  beforeAll(() => {
+    for (const k of envKeys) savedEnv[k] = process.env[k]
+  })
+  beforeEach(() => {
+    // Wipe before every test — env vars leak across `it` blocks otherwise,
+    // which silently biases the auto-detect in the next assertion.
+    for (const k of envKeys) delete process.env[k]
+  })
+  afterAll(() => {
+    for (const k of envKeys) {
+      if (savedEnv[k] === undefined) delete process.env[k]
+      else process.env[k] = savedEnv[k]
+    }
+  })
+
+  it("'otel' emits OTel-canonical snake_case hex IDs + service.* / deployment.*", async () => {
+    process.env.OTEL_SERVICE_NAME = 'checkout'
+    process.env.OTEL_SERVICE_VERSION = '1.4.2'
+    process.env.OTEL_DEPLOYMENT_ENVIRONMENT = 'staging'
+
+    const { logs, logger } = createMockLogger()
+    const interceptor = createLoggingInterceptor({
+      logger,
+      format: 'json',
+      correlationProfile: 'otel',
+    })
+
+    const ctx = createTestContext()
+    ;(ctx as any).http = {
+      kind: 'http',
+      method: 'GET',
+      path: '/users/42',
+      route: '/users/:id',
+      url: 'http://svc/users/42',
+      headers: {},
+    }
+    ;(ctx as any).tracing = {
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331',
+      parentSpanId: '1111111111111111',
+    }
+
+    await interceptor(createEnvelope('users.get'), ctx, async () => ({}))
+
+    const data = logs[0].data as Record<string, unknown>
+
+    // OTel log data model fields
+    expect(data['trace_id']).toBe('0af7651916cd43dd8448eb211c80319c')
+    expect(data['span_id']).toBe('b7ad6b7169203331')
+    expect(data['parent_span_id']).toBe('1111111111111111')
+
+    // OTel resource semantic conventions
+    expect(data['service.name']).toBe('checkout')
+    expect(data['service.version']).toBe('1.4.2')
+    expect(data['deployment.environment.name']).toBe('staging')
+
+    // Datadog-specific fields should NOT leak into the otel profile
+    expect(data['dd.trace_id']).toBeUndefined()
+    expect(data['dd.span_id']).toBeUndefined()
+    expect(data['dd.service']).toBeUndefined()
+
+    // Legacy raffel camelCase is still emitted (back-compat)
+    expect(data.traceId).toBe('0af7651916cd43dd8448eb211c80319c')
+    expect(data.spanId).toBe('b7ad6b7169203331')
+  })
+
+  it("'honeycomb' emits trace.trace_id / trace.span_id + service.name", async () => {
+    process.env.HONEYCOMB_SERVICE = 'svc-a'
+
+    const { logs, logger } = createMockLogger()
+    const interceptor = createLoggingInterceptor({
+      logger,
+      format: 'json',
+      correlationProfile: 'honeycomb',
+    })
+
+    const ctx = createTestContext()
+    ;(ctx as any).tracing = {
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331',
+      parentSpanId: '2222222222222222',
+    }
+
+    await interceptor(createEnvelope('users.get'), ctx, async () => ({}))
+
+    const data = logs[0].data as Record<string, unknown>
+
+    expect(data['trace.trace_id']).toBe('0af7651916cd43dd8448eb211c80319c')
+    expect(data['trace.span_id']).toBe('b7ad6b7169203331')
+    expect(data['trace.parent_id']).toBe('2222222222222222')
+    expect(data['service.name']).toBe('svc-a')
+
+    // OTel-canonical names should NOT leak
+    expect(data['trace_id']).toBeUndefined()
+    expect(data['span_id']).toBeUndefined()
+    // dd.* should NOT leak
+    expect(data['dd.trace_id']).toBeUndefined()
+  })
+
+  it("'none' emits only raffel hex camelCase; no backend-specific fields", async () => {
+    // Even with DD_* set, 'none' must suppress profile-specific fields.
+    process.env.DD_SERVICE = 'should-not-appear'
+
+    const { logs, logger } = createMockLogger()
+    const interceptor = createLoggingInterceptor({
+      logger,
+      format: 'json',
+      correlationProfile: 'none',
+    })
+
+    const ctx = createTestContext()
+    ;(ctx as any).tracing = {
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331',
+      ddTraceId: '14576827793038113322513871894673895836',
+      ddSpanId: '13235353014750950193',
+    }
+
+    await interceptor(createEnvelope('users.get'), ctx, async () => ({}))
+
+    const data = logs[0].data as Record<string, unknown>
+
+    // Legacy hex camelCase survives
+    expect(data.traceId).toBe('0af7651916cd43dd8448eb211c80319c')
+    expect(data.spanId).toBe('b7ad6b7169203331')
+
+    // None of the profile-specific fields
+    expect(data['dd.trace_id']).toBeUndefined()
+    expect(data['dd.span_id']).toBeUndefined()
+    expect(data['dd.service']).toBeUndefined()
+    expect(data['trace_id']).toBeUndefined()
+    expect(data['span_id']).toBeUndefined()
+    expect(data['trace.trace_id']).toBeUndefined()
+    expect(data['service.name']).toBeUndefined()
+  })
+
+  it('explicit profile wins over auto-detection', async () => {
+    // DD_SERVICE set → would auto-detect to 'datadog' if not pinned.
+    process.env.DD_SERVICE = 'checkout'
+
+    const { logs, logger } = createMockLogger()
+    const interceptor = createLoggingInterceptor({
+      logger,
+      format: 'json',
+      correlationProfile: 'otel',
+    })
+    // OTEL env to verify otel profile emitted service.name, not dd.service
+    process.env.OTEL_SERVICE_NAME = 'checkout'
+
+    const ctx = createTestContext()
+    await interceptor(createEnvelope('users.get'), ctx, async () => ({}))
+
+    const data = logs[0].data as Record<string, unknown>
+
+    // OTel path won despite DD_SERVICE being set
+    expect(data['service.name']).toBe('checkout')
+    expect(data['dd.service']).toBeUndefined()
+  })
+
+  it('auto-detects datadog when DD_* env var is set and no explicit profile', async () => {
+    process.env.DD_SERVICE = 'auto-svc'
+
+    const { logs, logger } = createMockLogger()
+    const interceptor = createLoggingInterceptor({
+      logger,
+      format: 'json',
+      // no correlationProfile → should auto-detect
+    })
+
+    const ctx = createTestContext()
+    await interceptor(createEnvelope('users.get'), ctx, async () => ({}))
+
+    const data = logs[0].data as Record<string, unknown>
+    expect(data['dd.service']).toBe('auto-svc')
+  })
+
+  it('auto-detects otel when no DD_* env var and no explicit profile', async () => {
+    process.env.OTEL_SERVICE_NAME = 'auto-otel'
+
+    const { logs, logger } = createMockLogger()
+    const interceptor = createLoggingInterceptor({
+      logger,
+      format: 'json',
+      // no correlationProfile → should auto-detect to otel
+    })
+
+    const ctx = createTestContext()
+    await interceptor(createEnvelope('users.get'), ctx, async () => ({}))
+
+    const data = logs[0].data as Record<string, unknown>
+    expect(data['service.name']).toBe('auto-otel')
+    expect(data['dd.service']).toBeUndefined()
   })
 })
