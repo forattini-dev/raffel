@@ -271,6 +271,15 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
     // Create context
     const ctx = new HttpContext<E>(request, params) as HttpContextInterface<E>
 
+    // Surface the matched route template (e.g. `/users/:id`) so handlers
+    // and any tracing/logging middleware can read it via `c.req.route`.
+    // Observability tooling (Datadog APM, OpenTelemetry exporters) uses the
+    // template, never the raw URL, for resource grouping — otherwise path
+    // params explode into millions of distinct endpoints.
+    if (matchedRoute?.path) {
+      ;(ctx.req as { route?: string }).route = matchedRoute.path
+    }
+
     try {
       // If route found, add route-specific middlewares
       const routeMiddlewares = matchedRoute ? matchedRoute.middlewares : []

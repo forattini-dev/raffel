@@ -448,3 +448,73 @@ Sets the span status.
 ### span.recordException(error)
 
 Records an exception event.
+
+## Datadog Sidecar Integration
+
+Raffel emits tracing data in a format the Datadog Agent (run as a sidecar that tail-reads JSON logs from stdout) can consume out of the box.
+
+### What the sidecar picks up
+
+Every request log emitted by `createLoggingInterceptor` now includes the following top-level JSON fields when the relevant transport populated `ctx.http`:
+
+| Field | Source | Purpose |
+|:--|:--|:--|
+| `http.method` | `ctx.http.method` | Datadog auto-creates a facet for grouping |
+| `http.route` | `ctx.http.route` (template, e.g. `/users/:id`) | Same — groups endpoints, not raw URLs |
+| `http.target` | `ctx.http.path` (raw path) | Filtering; only emitted when it differs from `http.route` |
+| `dd.trace_id` | `ctx.tracing.ddTraceId` | Agent log correlation |
+| `dd.span_id` | `ctx.tracing.ddSpanId` | Same |
+| `dd.service` | `process.env.DD_SERVICE` | Agent log routing |
+| `dd.env` | `process.env.DD_ENV` | Same |
+| `dd.version` | `process.env.DD_VERSION` | Same |
+
+The legacy `traceId` / `spanId` (hex) and `procedure` fields remain, so any in-house log pipeline that already parses them keeps working unchanged.
+
+### Span naming for Datadog APM
+
+The `createTracingInterceptor` sets the span name to `${http.method} ${http.route}` (e.g. `GET /users/:id`) when the request came in over HTTP, plus the OpenTelemetry HTTP semantic attributes:
+
+- `http.request.method`
+- `http.route`
+- `url.path`
+- `rpc.method` (kept for back-compat with existing dashboards)
+- `rpc.system: "raffel"`
+
+Non-HTTP transports (gRPC, JSON-RPC, WS, TCP, UDP) keep the span name as the procedure (e.g. `chat.message`) so they don't collapse into HTTP resource groups.
+
+### Distributed tracing across two Raffel apps
+
+For the sidecar to stitch spans into one trace across services, the W3C `traceparent` header has to flow both ways:
+
+**Inbound (already works).** `extractMetadataFromHeaders` (in `src/utils/header-metadata.ts`) already includes `traceparent` and `tracestate` in the request metadata. `createTracingInterceptor` reads it and uses the upstream span as parent.
+
+**Outbound (use `tracedFetch`).** Raffel has no built-in HTTP client, so callers usually use the global `fetch`. Replace it with `tracedFetch(tracer, ...)` to inject `traceparent` automatically:
+
+```ts
+import { createServer, tracedFetch } from 'raffel'
+
+server.procedure('orders.create').handler(async (input, ctx) => {
+  // No manual header wiring — `traceparent` is set from the current span
+  const res = await tracedFetch(ctx.services.tracer, 'http://billing-svc.internal/payments.charge', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ orderId: input.orderId }),
+  })
+  return res.json()
+})
+```
+
+If there's no active span (tracing disabled, or this is a background task), `tracedFetch` falls back to plain `fetch` — wiring it unconditionally is safe.
+
+### Required environment variables for the sidecar
+
+The Datadog Agent needs `DD_SERVICE`, `DD_ENV`, and `DD_VERSION` to know where to route logs and spans. Set these in the same environment as the Raffel process — the logging interceptor reads them straight from `process.env`:
+
+```bash
+DD_SERVICE=checkout-svc \
+DD_ENV=prod \
+DD_VERSION=1.4.2 \
+node dist/server.js
+```
+
+Both the host process and the sidecar should agree on these (the sidecar reads them from its own env in any case). The 128-bit `dd.trace_id` produced by Raffel is accepted by Datadog Agent ≥7.34.

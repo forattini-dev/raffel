@@ -203,19 +203,58 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
         duration: parseFloat(duration.toFixed(3)),
       }
 
+      // HTTP route template (e.g. `/users/:id`) + method, when the
+      // transport populated `ctx.http`. Datadog auto-creates facets for
+      // any top-level JSON field, so emitting these makes the logs
+      // groupable by endpoint in the Logs Explorer — the same facet shape
+      // the APM view expects for resource grouping.
+      if (ctx.http?.method) {
+        logData['http.method'] = ctx.http.method
+      }
+      if (ctx.http?.route) {
+        logData['http.route'] = ctx.http.route
+      }
+      if (ctx.http?.path && ctx.http.path !== ctx.http.route) {
+        // `http.target` mirrors OTel's `url.path` — keep the raw URL for
+        // filtering, but only when it actually differs from the template
+        // (otherwise we'd be duplicating the route field).
+        logData['http.target'] = ctx.http.path
+      }
+
       // Add auth info if available
       if (ctx.auth?.principal) {
         logData.principal = ctx.auth.principal
       }
 
-      // Add tracing info
+      // Tracing: keep the hex IDs (back-compat for any operator pipeline
+      // already parsing `traceId`/`spanId`) AND emit the `dd.*` decimal
+      // variants the Datadog Agent looks for in JSON logs. With both
+      // present the Agent picks the `dd.*` ones for correlation, and any
+      // in-house tooling still has the original hex form.
       if (ctx.tracing) {
         logData.traceId = ctx.tracing.traceId
         logData.spanId = ctx.tracing.spanId
         if (ctx.tracing.parentSpanId) {
           logData.parentSpanId = ctx.tracing.parentSpanId
         }
+        if (ctx.tracing.ddTraceId) {
+          logData['dd.trace_id'] = ctx.tracing.ddTraceId
+        }
+        if (ctx.tracing.ddSpanId) {
+          logData['dd.span_id'] = ctx.tracing.ddSpanId
+        }
       }
+
+      // Datadog Agent needs `dd.service` / `dd.env` / `dd.version` to know
+      // where to route the log. We pull from env (the same env vars the
+      // dd-agent itself reads when run as a sidecar), so there's a single
+      // source of truth across the host + sidecar pair.
+      const ddService = process.env.DD_SERVICE
+      const ddEnv = process.env.DD_ENV
+      const ddVersion = process.env.DD_VERSION
+      if (ddService) logData['dd.service'] = ddService
+      if (ddEnv) logData['dd.env'] = ddEnv
+      if (ddVersion) logData['dd.version'] = ddVersion
 
       // Add metadata with automatic redaction of sensitive headers
       if (includeMetadata && envelope.metadata) {

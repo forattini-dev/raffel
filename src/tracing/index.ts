@@ -70,6 +70,11 @@ export {
 // Tracer
 export { createTracer } from './tracer.js'
 
+// Datadog-friendly helpers
+export { hexTraceIdToDecimal, hexSpanIdToDecimal } from './decimal-id.js'
+export { tracedFetch } from './traced-fetch.js'
+export type { FetchInput, FetchInit } from './traced-fetch.js'
+
 // Exporters
 export {
   createConsoleExporter,

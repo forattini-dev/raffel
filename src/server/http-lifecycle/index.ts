@@ -269,6 +269,14 @@ export function buildHttpContextSeed(options: {
         kind: 'http',
         method,
         path: url.pathname,
+        // `route` is the matched template (e.g. `/users/:id`) when the
+        // caller supplies `input.params` (which only happens after route
+        // matching in `HttpApp`). For the procedure-style REST-RPC API
+        // (POST /users.get), there is no template — fall back to `path` so
+        // downstream observers always have *some* route-shaped string.
+        route: input.params && Object.keys(input.params).length > 0
+          ? replaceParamsWithTemplate(url.pathname, input.params)
+          : url.pathname,
         url: url.toString(),
         headers: metadata,
         clientIp: client.ip,
@@ -280,6 +288,29 @@ export function buildHttpContextSeed(options: {
       },
     },
   }
+}
+
+/**
+ * Best-effort route template reconstruction: replace each `:name`
+ * occurrence in `path` (where `name` is a key in `params`) with `:name`
+ * itself, so `/users/123` with params `{id: '123'}` round-trips to
+ * `/users/:id`. We don't have the actual template string available at the
+ * adapter level (templates live inside `HttpApp.routeTable`), so this is a
+ * conservative reconstruction — perfect for log grouping, not safe for
+ * routing decisions.
+ */
+function replaceParamsWithTemplate(
+  path: string,
+  params: Record<string, string>
+): string {
+  let result = path
+  for (const [key, value] of Object.entries(params)) {
+    if (!value) continue
+    // Replace only when the param value appears as a complete path segment
+    // — avoids clobbering substrings that happen to match.
+    result = result.split(`/${value}`).join(`/:${key}`)
+  }
+  return result
 }
 
 export function attachHttpAbortHandlers(

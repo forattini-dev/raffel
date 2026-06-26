@@ -2,10 +2,25 @@
  * Tracing Interceptor
  *
  * Automatically creates spans for incoming requests.
+ *
+ * Span naming + attributes follow the OpenTelemetry HTTP semantic
+ * conventions where applicable:
+ *   - server span name: `${http.request.method} ${http.route}`
+ *     (so Datadog APM auto-groups by resource name)
+ *   - attrs: `http.request.method`, `http.route`, `url.path`,
+ *     `rpc.method`, `rpc.system`
+ *
+ * Falls back to `${procedure}` for non-HTTP transports (gRPC, JSON-RPC,
+ * WS, TCP/UDP) where there is no HTTP route to model.
+ *
+ * On every span the interceptor also stashes `ddTraceId` / `ddSpanId` on
+ * `ctx.tracing` — the **decimal** form of the hex IDs that the Datadog
+ * Agent looks for in JSON logs (`dd.trace_id` / `dd.span_id`).
  */
 
 import type { Interceptor, Envelope, Context } from '../types/index.js'
-import type { Tracer, SpanContext, TraceHeaders } from './types.js'
+import type { Tracer, SpanContext, TraceHeaders, SpanAttributes } from './types.js'
+import { hexTraceIdToDecimal, hexSpanIdToDecimal } from './decimal-id.js'
 
 /**
  * Create an interceptor that automatically traces requests
@@ -25,24 +40,57 @@ export function createTracingInterceptor(tracer: Tracer): Interceptor {
       })
     }
 
+    // Resolve HTTP-style span name + attributes when the transport set
+    // `ctx.http`. We read defensively because the core `Context` interface
+    // uses `http?: HttpContextCapability` and the value may be missing or
+    // partially populated for non-HTTP protocols.
+    const http = ctx.http
+    const httpMethod = http?.method
+    const httpRoute = http?.route
+    const httpPath = http?.path
+
+    const isHttp = Boolean(httpMethod && (httpRoute || httpPath))
+    const spanName = isHttp
+      ? `${httpMethod} ${httpRoute ?? httpPath}`
+      : procedure
+
+    // Build attributes — keep the legacy `rpc.method` / `rpc.system`
+    // alongside the OTel HTTP ones so existing dashboards / alerts that
+    // query the old keys keep working.
+    const attributes: SpanAttributes = {
+      'rpc.method': procedure,
+      'rpc.system': 'raffel',
+    }
+    if (isHttp && httpMethod) {
+      attributes['http.request.method'] = httpMethod
+      if (httpRoute) {
+        attributes['http.route'] = httpRoute
+      }
+      if (httpPath) {
+        attributes['url.path'] = httpPath
+      }
+    }
+
     // Start span with parent context
-    const span = tracer.startSpan(`${procedure}`, {
+    const span = tracer.startSpan(spanName, {
       kind: 'server',
       parent: parentContext,
-      attributes: {
-        'rpc.method': procedure,
-        'rpc.system': 'raffel',
-      },
+      attributes,
     })
 
     // Set as active span
     const previousSpan = tracer.getActiveSpan()
     tracer.setActiveSpan(span)
 
+    // Stash tracing context on `ctx` so downstream interceptors (logging,
+    // metrics) and handlers can correlate. `ddTraceId` / `ddSpanId` are the
+    // decimal 64-bit form expected by the Datadog Agent's log correlator.
     ctx.tracing = {
       traceId: span.context.traceId,
       spanId: span.context.spanId,
       parentSpanId: parentContext?.spanId,
+      ddTraceId: hexTraceIdToDecimal(span.context.traceId),
+      ddSpanId: hexSpanIdToDecimal(span.context.spanId),
     }
 
     try {

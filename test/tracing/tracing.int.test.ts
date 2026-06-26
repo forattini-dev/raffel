@@ -521,6 +521,162 @@ describe('Tracing', () => {
       expect(exportedSpans[0].traceId).toBe('0af7651916cd43dd8448eb211c80319c')
       expect(exportedSpans[0].parentSpanId).toBe('b7ad6b7169203331')
     })
+
+    it('should name span as `<METHOD> <ROUTE>` and emit http.* attrs when ctx.http is set', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('users.get')
+      const ctx = {
+        requestId: 'req-1',
+        http: {
+          kind: 'http',
+          method: 'GET',
+          path: '/users/42',
+          route: '/users/:id',
+          url: 'http://svc/users/42',
+          headers: {},
+        },
+      } as any
+
+      await interceptor(envelope, ctx, async () => ({ success: true }))
+
+      expect(exportedSpans).toHaveLength(1)
+      expect(exportedSpans[0].name).toBe('GET /users/:id')
+      expect(exportedSpans[0].attributes['http.request.method']).toBe('GET')
+      expect(exportedSpans[0].attributes['http.route']).toBe('/users/:id')
+      expect(exportedSpans[0].attributes['url.path']).toBe('/users/42')
+      // legacy attribute kept for back-compat with existing dashboards
+      expect(exportedSpans[0].attributes['rpc.method']).toBe('users.get')
+    })
+
+    it('should fall back to procedure as span name for non-HTTP transports', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('chat.message')
+      // No `ctx.http` → keep `${procedure}` so gRPC / WS / TCP / UDP aren't
+      // renamed under Datadog's HTTP resource grouping.
+      const ctx = { requestId: 'req-1' } as any
+
+      await interceptor(envelope, ctx, async () => ({ success: true }))
+
+      expect(exportedSpans).toHaveLength(1)
+      expect(exportedSpans[0].name).toBe('chat.message')
+      expect(exportedSpans[0].attributes['http.request.method']).toBeUndefined()
+    })
+
+    it('should stash decimal ddTraceId / ddSpanId on ctx.tracing', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('users.get')
+      const ctx = { requestId: 'req-1' } as any
+
+      await interceptor(envelope, ctx, async () => ({ success: true }))
+
+      expect(ctx.tracing).toBeDefined()
+      expect(ctx.tracing.traceId).toMatch(/^[0-9a-f]{32}$/)
+      expect(ctx.tracing.spanId).toMatch(/^[0-9a-f]{16}$/)
+      // decimal form: any positive integer (no leading zeros, no `0x`)
+      expect(ctx.tracing.ddTraceId).toMatch(/^[1-9][0-9]*$/)
+      expect(ctx.tracing.ddSpanId).toMatch(/^[1-9][0-9]*$/)
+      // sanity: hex→decimal round-trips for known sample
+      const roundTrip = BigInt(ctx.tracing.ddTraceId!).toString(16).padStart(32, '0')
+      expect(roundTrip).toBe(ctx.tracing.traceId)
+    })
+  })
+
+  describe('Datadog log correlation (hex → decimal ID)', () => {
+    it('converts W3C sample IDs to BigInt decimal form', async () => {
+      const { hexTraceIdToDecimal, hexSpanIdToDecimal } = await import(
+        '../../src/tracing/decimal-id.js'
+      )
+      // 32-hex-char trace IDs are 128-bit (W3C Trace Context spec).
+      // Datadog Agents ≥7.34 accept 128-bit IDs in `dd.trace_id` / `dd.span_id`.
+      const traceHex = '0af7651916cd43dd8448eb211c80319c'
+      const spanHex = 'b7ad6b7169203331'
+      expect(hexTraceIdToDecimal(traceHex)).toBe(BigInt('0x' + traceHex).toString(10))
+      expect(hexSpanIdToDecimal(spanHex)).toBe(BigInt('0x' + spanHex).toString(10))
+      // and the value really is the decimal form (no `0x`, no leading zeros)
+      expect(hexTraceIdToDecimal(traceHex)).toMatch(/^[1-9][0-9]*$/)
+      expect(hexSpanIdToDecimal(spanHex)).toMatch(/^[1-9][0-9]*$/)
+    })
+
+    it('returns empty string for invalid input (does not throw)', async () => {
+      const { hexTraceIdToDecimal, hexSpanIdToDecimal } = await import(
+        '../../src/tracing/decimal-id.js'
+      )
+      expect(hexTraceIdToDecimal('')).toBe('')
+      expect(hexTraceIdToDecimal('not-hex!')).toBe('')
+      expect(hexSpanIdToDecimal('xyz')).toBe('')
+    })
+  })
+
+  describe('tracedFetch (outbound W3C propagation)', () => {
+    it('injects traceparent into outbound requests when an active span exists', async () => {
+      const { createTracer, createNoopExporter } = await import('../../src/tracing/index.js')
+      const { tracedFetch } = await import('../../src/tracing/index.js')
+      const t = createTracer({ serviceName: 'svc-a', sampleRate: 1, exporters: [createNoopExporter()], batchSize: 1 })
+      const parentSpan = t.startSpan('parent')
+      t.setActiveSpan(parentSpan)
+
+      let capturedHeaders: Record<string, string> = {}
+      const mockFetch = vi.fn(async (input: any, init?: any) => {
+        const h = init?.headers ?? {}
+        if (h instanceof Headers) {
+          h.forEach((v: string, k: string) => (capturedHeaders[k] = v))
+        } else if (Array.isArray(h)) {
+          for (const [k, v] of h) capturedHeaders[k] = String(v)
+        } else {
+          capturedHeaders = { ...h }
+        }
+        return new Response('ok', { status: 200 })
+      })
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      try {
+        await tracedFetch(t, 'http://svc-b.local/payments.charge', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        })
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(capturedHeaders['traceparent']).toMatch(
+        /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/
+      )
+      expect(capturedHeaders['traceparent']).toContain(parentSpan.context.traceId)
+      expect(capturedHeaders['content-type']).toBe('application/json')
+
+      t.setActiveSpan(undefined)
+      parentSpan.finish()
+    })
+
+    it('falls back to plain fetch when there is no active span', async () => {
+      const { createTracer, createNoopExporter, tracedFetch } = await import(
+        '../../src/tracing/index.js'
+      )
+      const t = createTracer({ serviceName: 'svc-a', exporters: [createNoopExporter()], batchSize: 1 })
+      // no active span
+
+      let headersSeen: Record<string, string> = {}
+      const mockFetch = vi.fn(async (_input: any, init?: any) => {
+        const h = init?.headers ?? {}
+        headersSeen = { ...h }
+        return new Response('ok')
+      })
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      try {
+        await tracedFetch(t, 'http://svc-b/x')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(headersSeen['traceparent']).toBeUndefined()
+      mockFetch.mockRestore()
+    })
   })
 
   describe('SAMPLING_STRATEGIES constants', () => {
