@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
+import { encode as toonEncode, decode as toonDecode } from '@toon-format/toon'
 import {
   jsonCodec,
   textCodec,
   csvCodec,
+  xmlCodec,
+  createToonCodec,
   defaultCodecs,
   selectCodecForContentType,
   selectCodecForAccept,
@@ -219,7 +222,17 @@ describe('Content Codecs', () => {
     })
 
     it('returns null for unrecognized content type', () => {
-      expect(selectCodecForContentType('application/xml', defaultCodecs)).toBeNull()
+      expect(selectCodecForContentType('application/pdf', defaultCodecs)).toBeNull()
+    })
+
+    it('returns xmlCodec for application/xml', () => {
+      const codec = selectCodecForContentType('application/xml', defaultCodecs)
+      expect(codec).toBe(xmlCodec)
+    })
+
+    it('returns xmlCodec for text/xml', () => {
+      const codec = selectCodecForContentType('text/xml', defaultCodecs)
+      expect(codec).toBe(xmlCodec)
     })
 
     it('returns jsonCodec for application/vnd.api+json via wildcard pattern', () => {
@@ -262,8 +275,13 @@ describe('Content Codecs', () => {
     })
 
     it('returns null when no codec matches', () => {
-      const codec = selectCodecForAccept('application/xml', defaultCodecs, jsonCodec)
+      const codec = selectCodecForAccept('application/pdf', defaultCodecs, jsonCodec)
       expect(codec).toBeNull()
+    })
+
+    it('returns xmlCodec for application/xml', () => {
+      const codec = selectCodecForAccept('application/xml', defaultCodecs, jsonCodec)
+      expect(codec).toBe(xmlCodec)
     })
 
     it('handles */* wildcard accept', () => {
@@ -302,16 +320,28 @@ describe('Content Codecs', () => {
       expect(result.find((c) => c.name === 'csv')).toBe(csvCodec)
     })
 
-    it('adds novel codecs alongside defaults', () => {
-      const xmlCodec: Codec = {
+    it('adds novel codecs alongside defaults, deduplicating by name', () => {
+      const customXml: Codec = {
         name: 'xml',
         contentTypes: ['application/xml'],
         encode: () => '<root/>',
         decode: (b) => b,
       }
-      const result = resolveCodecs([xmlCodec])
-      expect(result).toHaveLength(4) // xml + json + text + csv
-      expect(result[0]).toBe(xmlCodec)
+      const result = resolveCodecs([customXml])
+      expect(result).toHaveLength(4) // custom xml + json + text + csv (default xml deduplicated)
+      expect(result[0]).toBe(customXml)
+    })
+
+    it('adds a genuinely novel codec alongside all defaults', () => {
+      const yamlCodec: Codec = {
+        name: 'yaml',
+        contentTypes: ['application/yaml'],
+        encode: () => '',
+        decode: (b) => b,
+      }
+      const result = resolveCodecs([yamlCodec])
+      expect(result).toHaveLength(5) // yaml + json + text + csv + xml
+      expect(result[0]).toBe(yamlCodec)
     })
 
     it('deduplicates by name case-insensitively', () => {
@@ -342,15 +372,149 @@ describe('Content Codecs', () => {
       expect(result[2]).toBe(jsonCodec)
       expect(result[3]).toBe(textCodec)
       expect(result[4]).toBe(csvCodec)
+      expect(result[5]).toBe(xmlCodec)
     })
   })
 
   describe('defaultCodecs', () => {
-    it('has json, text, and csv codecs in order', () => {
-      expect(defaultCodecs).toHaveLength(3)
+    it('has json, text, csv, and xml codecs in order', () => {
+      expect(defaultCodecs).toHaveLength(4)
       expect(defaultCodecs[0]).toBe(jsonCodec)
       expect(defaultCodecs[1]).toBe(textCodec)
       expect(defaultCodecs[2]).toBe(csvCodec)
+      expect(defaultCodecs[3]).toBe(xmlCodec)
+    })
+  })
+
+  describe('xmlCodec', () => {
+    it('has name "xml"', () => {
+      expect(xmlCodec.name).toBe('xml')
+    })
+
+    it('has correct content types', () => {
+      expect(xmlCodec.contentTypes).toContain('application/xml')
+      expect(xmlCodec.contentTypes).toContain('text/xml')
+    })
+
+    it('encodes a flat object', () => {
+      expect(xmlCodec.encode({ name: 'Alice', age: 30 })).toBe(
+        '<root><name>Alice</name><age>30</age></root>'
+      )
+    })
+
+    it('encodes null as a self-closing root', () => {
+      expect(xmlCodec.encode(null)).toBe('<root/>')
+    })
+
+    it('encodes undefined as a self-closing root', () => {
+      expect(xmlCodec.encode(undefined)).toBe('<root/>')
+    })
+
+    it('encodes a primitive', () => {
+      expect(xmlCodec.encode(42)).toBe('<root>42</root>')
+      expect(xmlCodec.encode('hello')).toBe('<root>hello</root>')
+    })
+
+    it('encodes an array of objects using repeated <item> elements', () => {
+      const xml = xmlCodec.encode([{ id: 1 }, { id: 2 }])
+      expect(xml).toBe('<root><item><id>1</id></item><item><id>2</id></item></root>')
+    })
+
+    it('encodes a nested array property', () => {
+      const xml = xmlCodec.encode({ tags: ['a', 'b'] })
+      expect(xml).toBe('<root><tags><item>a</item><item>b</item></tags></root>')
+    })
+
+    it('escapes XML-special characters in text content', () => {
+      const xml = xmlCodec.encode({ text: '<a> & "b"' })
+      expect(xml).toBe('<root><text>&lt;a&gt; &amp; "b"</text></root>')
+    })
+
+    it('decodes a flat object', () => {
+      expect(xmlCodec.decode('<root><name>Alice</name><age>30</age></root>')).toEqual({
+        name: 'Alice',
+        age: '30',
+      })
+    })
+
+    it('decodes a self-closing root as null', () => {
+      expect(xmlCodec.decode('<root/>')).toBeNull()
+    })
+
+    it('throws when decoding non-XML content', () => {
+      expect(() => xmlCodec.decode('{"not":"xml"}')).toThrow(SyntaxError)
+      expect(() => xmlCodec.decode('')).toThrow(SyntaxError)
+    })
+
+    it('decodes an array of objects', () => {
+      const result = xmlCodec.decode('<root><item><id>1</id></item><item><id>2</id></item></root>')
+      expect(result).toEqual([{ id: '1' }, { id: '2' }])
+    })
+
+    it('decodes a nested array property', () => {
+      const result = xmlCodec.decode('<root><tags><item>a</item><item>b</item></tags></root>')
+      expect(result).toEqual({ tags: ['a', 'b'] })
+    })
+
+    it('unescapes XML entities', () => {
+      const result = xmlCodec.decode('<root><text>&lt;a&gt; &amp; b</text></root>')
+      expect(result).toEqual({ text: '<a> & b' })
+    })
+
+    it('roundtrips nested objects and arrays', () => {
+      const data = { users: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }], count: 2 }
+      const decoded = xmlCodec.decode(xmlCodec.encode(data))
+      expect(decoded).toEqual({
+        users: [
+          { id: '1', name: 'Alice' },
+          { id: '2', name: 'Bob' },
+        ],
+        count: '2',
+      })
+    })
+
+    it('ignores the outer tag name when decoding foreign XML', () => {
+      const result = xmlCodec.decode('<response><ok>true</ok></response>')
+      expect(result).toEqual({ ok: 'true' })
+    })
+  })
+
+  describe('createToonCodec()', () => {
+    it('has name "toon"', () => {
+      const codec = createToonCodec({ encode: toonEncode, decode: toonDecode })
+      expect(codec.name).toBe('toon')
+    })
+
+    it('has default content types', () => {
+      const codec = createToonCodec({ encode: toonEncode, decode: toonDecode })
+      expect(codec.contentTypes).toContain('application/toon')
+      expect(codec.contentTypes).toContain('text/toon')
+    })
+
+    it('allows overriding content types', () => {
+      const codec = createToonCodec(
+        { encode: toonEncode, decode: toonDecode },
+        { contentTypes: ['application/vnd.toon'] }
+      )
+      expect(codec.contentTypes).toEqual(['application/vnd.toon'])
+    })
+
+    it('encodes using the injected toon encoder', () => {
+      const codec = createToonCodec({ encode: toonEncode, decode: toonDecode })
+      expect(codec.encode({ name: 'Alice', age: 30 })).toBe(toonEncode({ name: 'Alice', age: 30 }))
+    })
+
+    it('roundtrips through encode/decode', () => {
+      const codec = createToonCodec({ encode: toonEncode, decode: toonDecode })
+      const data = { users: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }] }
+      expect(codec.decode(codec.encode(data))).toEqual(data)
+    })
+
+    it('registers alongside defaults via resolveCodecs()', () => {
+      const toonCodec = createToonCodec({ encode: toonEncode, decode: toonDecode })
+      const codecs = resolveCodecs([toonCodec])
+      expect(codecs).toHaveLength(5)
+      expect(selectCodecForAccept('application/toon', codecs, jsonCodec)).toBe(toonCodec)
     })
   })
 })

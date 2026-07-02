@@ -437,11 +437,13 @@ export {
   jsonCodec,
   csvCodec,
   textCodec,
+  xmlCodec,
+  createToonCodec,
   selectCodecForAccept,
   selectCodecForContentType,
   resolveCodecs,
 } from './utils/content-codecs.js'
-export type { Codec } from './utils/content-codecs.js'
+export type { Codec, ToonEncoder, ToonCodecOptions } from './utils/content-codecs.js'
 
 // ID Generation (sid - replacement for nanoid)
 export {

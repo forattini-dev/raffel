@@ -133,6 +133,7 @@ export const MimeTypes = {
   // Application
   JSON: 'application/json',
   XML: 'application/xml',
+  TOON: 'application/toon',
   JAVASCRIPT: 'application/javascript',
   FORM: 'application/x-www-form-urlencoded',
   OCTET_STREAM: 'application/octet-stream',
