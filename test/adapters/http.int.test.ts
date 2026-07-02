@@ -183,7 +183,7 @@ describe('HttpAdapter', () => {
       const { status, body } = await request('/greet', {
         method: 'POST',
         body: { ok: true },
-        headers: { Accept: 'application/xml' },
+        headers: { Accept: 'application/pdf' },
       })
 
       expect(status).toBe(406)
@@ -200,7 +200,7 @@ describe('HttpAdapter', () => {
       const { status, body } = await request('/greet', {
         method: 'POST',
         body: { ok: true },
-        headers: { 'Content-Type': 'application/xml' },
+        headers: { 'Content-Type': 'application/pdf' },
       })
 
       expect(status).toBe(415)

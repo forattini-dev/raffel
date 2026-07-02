@@ -566,7 +566,7 @@ describe('JSON-RPC 2.0 Adapter', () => {
       try {
         const response = await fetch(`http://localhost:${port}/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/xml' },
+          headers: { 'Content-Type': 'application/pdf' },
           body: '{"jsonrpc":"2.0","method":"test","id":1}',
         })
 
