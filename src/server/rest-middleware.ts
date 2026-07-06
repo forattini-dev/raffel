@@ -9,6 +9,7 @@ import type { LoadedRestResource } from './fs-routes/index.js'
 import type { Router } from '../core/router.js'
 import type { Registry } from '../core/registry.js'
 import type { ContextSeed } from '../types/index.js'
+import type { Tracer } from '../tracing/index.js'
 import { createLogger } from '../utils/logger.js'
 import {
   resolveCodecs,
@@ -24,6 +25,7 @@ import {
   resolveHttpResponseCodec,
   sendErrorResponse,
 } from './http-lifecycle/index.js'
+import { bindContextToSpan, setHttpTelemetryRoute } from '../tracing/index.js'
 
 const logger = createLogger('server')
 
@@ -39,6 +41,7 @@ export interface RestMiddlewareOptions {
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
   trustedProxies?: TrustedProxyConfig
+  tracer?: Tracer
 }
 
 /**
@@ -125,6 +128,7 @@ export interface HttpOverrideMiddlewareOptions {
   contextFactory?: (req: IncomingMessage) => ContextSeed | Promise<ContextSeed>
   codecs?: Codec[]
   trustedProxies?: TrustedProxyConfig
+  tracer?: Tracer
 }
 
 export function createRestMiddleware(
@@ -139,6 +143,7 @@ export function createRestMiddleware(
     contextFactory,
     codecs: configuredCodecs,
     trustedProxies,
+    tracer,
   } = options
   const codecs = resolveCodecs(configuredCodecs)
 
@@ -165,6 +170,11 @@ export function createRestMiddleware(
           })
 
           const query = parseRestQueryParams(url.searchParams)
+          const procedureName = `${resource.name}.${route.operation}`
+          setHttpTelemetryRoute(req, {
+            route: fullPath,
+            procedure: procedureName,
+          })
 
           const responseCodec = resolveHttpResponseCodec(req, res, codecs)
           if (!responseCodec) {
@@ -198,13 +208,16 @@ export function createRestMiddleware(
           })
           const metadata = httpContext.metadata
           const ctx = httpContext.ctx as any
+          const activeSpan = tracer?.getActiveSpan()
+          if (activeSpan) {
+            bindContextToSpan(ctx, activeSpan)
+          }
           ctx.params = params
           ctx.query = query
           ctx.operation = route.operation
           ctx.resource = resource.name
 
           try {
-            const procedureName = `${resource.name}.${route.operation}`
             const successStatus =
               registry?.getProcedure(procedureName)?.meta.httpSuccessStatus ??
               defaultRestSuccessStatus(route.operation)
@@ -244,6 +257,7 @@ export function createHttpOverrideMiddleware(
     contextFactory,
     codecs: configuredCodecs,
     trustedProxies,
+    tracer,
   } = options
   const codecs = resolveCodecs(configuredCodecs)
 
@@ -264,6 +278,10 @@ export function createHttpOverrideMiddleware(
       const regex = new RegExp(`^${pathPattern}/?$`)
       const pathMatch = url.pathname.match(regex)
       if (!pathMatch) continue
+      setHttpTelemetryRoute(req, {
+        route: fullPath,
+        procedure: meta.name,
+      })
 
       const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
       const params: Record<string, string> = {}
@@ -320,6 +338,10 @@ export function createHttpOverrideMiddleware(
       })
       const metadata = httpContext.metadata
       const ctx = httpContext.ctx as any
+      const activeSpan = tracer?.getActiveSpan()
+      if (activeSpan) {
+        bindContextToSpan(ctx, activeSpan)
+      }
       ctx.params = params
       ctx.query = query
 

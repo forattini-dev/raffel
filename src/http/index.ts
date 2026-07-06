@@ -31,6 +31,7 @@ export type {
   HttpRouteMethod,
   HttpMiddlewareRoute,
 } from './route-table.js'
+export { createHttpTracingMiddleware } from '../tracing/index.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HttpContext - Request/Response Helpers

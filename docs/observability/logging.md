@@ -86,6 +86,10 @@ createServer({
 })
 ```
 
+When tracing is enabled, Raffel request loggers also bind `trace_id` and
+`span_id`. These are the OpenTelemetry field names Datadog recognizes for
+log/trace correlation.
+
 ---
 
 ## Format & level via environment

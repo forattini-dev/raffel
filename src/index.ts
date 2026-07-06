@@ -674,9 +674,11 @@ export {
   createConsoleExporter,
   createJaegerExporter,
   createZipkinExporter,
+  createOtlpHttpExporter,
   createNoopExporter,
   // Interceptor
   createTracingInterceptor,
+  createHttpTracingMiddleware,
   extractTraceHeaders,
   injectTraceHeaders,
   // Constants
@@ -698,8 +700,11 @@ export type {
   StartSpanOptions,
   Tracer,
   TracingConfig,
+  HttpServerSpanOptions,
+  HttpTelemetryRoute,
   JaegerExporterOptions,
   ZipkinExporterOptions,
+  OtlpHttpExporterOptions,
 } from './tracing/index.js'
 
 // === Developer Experience (DX) ===

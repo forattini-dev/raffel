@@ -3,6 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createServer as createNodeHttpServer } from 'node:http'
+import { createServer } from '../../src/server/builder.js'
+import { HttpApp } from '../../src/http/index.js'
 import {
   createTracer,
   createSpan,
@@ -14,11 +17,29 @@ import {
   createRateLimitedSampler,
   createParentBasedSampler,
   createConsoleExporter,
+  createOtlpHttpExporter,
   createNoopExporter,
   createTracingInterceptor,
+  createHttpTracingMiddleware,
   SAMPLING_STRATEGIES,
 } from '../../src/tracing/index.js'
 import type { Tracer, SpanData, SpanExporter, SpanContext, Span } from '../../src/tracing/types.js'
+
+async function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createNodeHttpServer()
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to acquire free port')))
+        return
+      }
+      const { port } = address
+      server.close((err) => (err ? reject(err) : resolve(port)))
+    })
+  })
+}
 
 describe('Tracing', () => {
   describe('ID Generation', () => {
@@ -134,6 +155,24 @@ describe('Tracing', () => {
       expect(data.duration).toBeGreaterThan(40000) // 40ms in microseconds
       expect(data.duration).toBeLessThan(200000) // 200ms
       expect(data.status.code).toBe('ok')
+    })
+
+    it('should use epoch microseconds for span timestamps', () => {
+      const before = Date.now() * 1000
+      const span = createSpan({
+        traceId: generateTraceId(),
+        spanId: generateSpanId(),
+        name: 'test',
+        kind: 'internal',
+        isRecording: true,
+      })
+      span.finish()
+      const after = Date.now() * 1000
+      const data = span.toSpanData()
+
+      expect(data.startTime).toBeGreaterThanOrEqual(before)
+      expect(data.startTime).toBeLessThanOrEqual(after)
+      expect(data.endTime).toBeGreaterThanOrEqual(data.startTime)
     })
 
     it('should not record when isRecording is false', () => {
@@ -432,6 +471,58 @@ describe('Tracing', () => {
         },
       ])
     })
+
+    it('should export spans as OTLP HTTP JSON', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }))
+      const exporter = createOtlpHttpExporter({
+        serviceName: 'orders-api',
+        endpoint: 'http://collector:4318/v1/traces',
+      })
+
+      await exporter.export([
+        {
+          traceId: 'a'.repeat(32),
+          spanId: 'b'.repeat(16),
+          parentSpanId: 'c'.repeat(16),
+          name: 'GET /orders/:id',
+          kind: 'server',
+          startTime: 1_700_000_000_000_000,
+          endTime: 1_700_000_000_100_000,
+          duration: 100_000,
+          status: { code: 'ok' },
+          attributes: {
+            'http.request.method': 'GET',
+            'http.route': '/orders/:id',
+            'http.response.status_code': 200,
+          },
+          logs: [],
+          context: { traceId: 'a'.repeat(32), spanId: 'b'.repeat(16), traceFlags: 1 },
+        },
+      ])
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://collector:4318/v1/traces',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        })
+      )
+      const payload = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string)
+      const span = payload.resourceSpans[0].scopeSpans[0].spans[0]
+      expect(payload.resourceSpans[0].resource.attributes).toContainEqual({
+        key: 'service.name',
+        value: { stringValue: 'orders-api' },
+      })
+      expect(span.name).toBe('GET /orders/:id')
+      expect(span.kind).toBe(2)
+      expect(span.startTimeUnixNano).toBe('1700000000000000000')
+      expect(span.attributes).toContainEqual({
+        key: 'http.route',
+        value: { stringValue: '/orders/:id' },
+      })
+
+      fetchSpy.mockRestore()
+    })
   })
 
   describe('Tracing Interceptor', () => {
@@ -520,6 +611,103 @@ describe('Tracing', () => {
       expect(exportedSpans).toHaveLength(1)
       expect(exportedSpans[0].traceId).toBe('0af7651916cd43dd8448eb211c80319c')
       expect(exportedSpans[0].parentSpanId).toBe('b7ad6b7169203331')
+    })
+  })
+
+  describe('HTTP tracing', () => {
+    const parentTraceId = '0af7651916cd43dd8448eb211c80319c'
+    const parentSpanId = 'b7ad6b7169203331'
+    const traceparent = `00-${parentTraceId}-${parentSpanId}-01`
+
+    function createCapturingTracer() {
+      const exportedSpans: SpanData[] = []
+      const exporter: SpanExporter = {
+        async export(spans) {
+          exportedSpans.push(...spans)
+        },
+        async shutdown() {},
+      }
+      const tracer = createTracer({
+        serviceName: 'http-test',
+        sampleRate: 1,
+        exporters: [exporter],
+        batchSize: 1,
+      })
+      return { tracer, exportedSpans }
+    }
+
+    it('creates route-aware server spans for createServer HTTP namespace routes', async () => {
+      const exportedSpans: SpanData[] = []
+      const port = await getFreePort()
+      const server = createServer({ port, host: '127.0.0.1' })
+      server.enableTracing({
+        serviceName: 'http-test',
+        exporters: [{
+          async export(spans) {
+            exportedSpans.push(...spans)
+          },
+          async shutdown() {},
+        }],
+        batchSize: 1,
+      })
+
+      server.http.get('/users/:id', async (_input: unknown, ctx: any) => ({
+        id: ctx.params.id,
+        traceId: ctx.tracing.traceId,
+      }))
+
+      try {
+        await server.start()
+        const response = await fetch(`http://127.0.0.1:${port}/users/42`, {
+          headers: { traceparent },
+        })
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('x-trace-id')).toBe(parentTraceId)
+        expect(await response.json()).toEqual({
+          id: '42',
+          traceId: parentTraceId,
+        })
+
+        await server.tracer?.flush()
+        const httpSpan = exportedSpans.find(
+          (span) => span.name === 'GET /users/:id' && span.attributes['http.route'] === '/users/:id'
+        )
+        expect(httpSpan).toBeDefined()
+        expect(httpSpan?.traceId).toBe(parentTraceId)
+        expect(httpSpan?.parentSpanId).toBe(parentSpanId)
+        expect(httpSpan?.attributes['http.request.method']).toBe('GET')
+        expect(httpSpan?.attributes['http.response.status_code']).toBe(200)
+        expect(httpSpan?.attributes['raffel.procedure']).toBe('get:/users/:id')
+      } finally {
+        await server.stop()
+      }
+    })
+
+    it('provides opt-in route-aware tracing middleware for HttpApp', async () => {
+      const { tracer, exportedSpans } = createCapturingTracer()
+      const app = new HttpApp()
+
+      app.use(createHttpTracingMiddleware(tracer))
+      app.get('/items/:id', (ctx) => ctx.json({ id: ctx.req.param('id') }))
+
+      const response = await app.fetch(new Request('http://localhost/items/abc', {
+        headers: { traceparent },
+      }))
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('x-trace-id')).toBe(parentTraceId)
+      expect(await response.json()).toEqual({ id: 'abc' })
+
+      await tracer.flush()
+      const httpSpan = exportedSpans.find((span) => span.name === 'GET /items/:id')
+      expect(httpSpan).toBeDefined()
+      expect(httpSpan?.traceId).toBe(parentTraceId)
+      expect(httpSpan?.parentSpanId).toBe(parentSpanId)
+      expect(httpSpan?.attributes['http.route']).toBe('/items/:id')
+      expect(httpSpan?.attributes['http.response.status_code']).toBe(200)
+
+      await tracer.shutdown()
     })
   })
 

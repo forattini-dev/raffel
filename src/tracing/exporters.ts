@@ -154,6 +154,23 @@ export interface ZipkinExporterOptions {
 }
 
 /**
+ * OTLP/HTTP exporter options.
+ */
+export interface OtlpHttpExporterOptions {
+  /** OTLP traces endpoint (default: http://localhost:4318/v1/traces) */
+  endpoint?: string
+
+  /** Service name */
+  serviceName: string
+
+  /** Additional HTTP headers, e.g. Authorization or Datadog API keys via proxy */
+  headers?: Record<string, string>
+
+  /** Request timeout in ms (default: 5000) */
+  timeout?: number
+}
+
+/**
  * Zipkin exporter - sends spans to Zipkin collector
  */
 export function createZipkinExporter(options: ZipkinExporterOptions): SpanExporter {
@@ -198,6 +215,128 @@ export function createZipkinExporter(options: ZipkinExporterOptions): SpanExport
         })
 
         clearTimeout(timeoutId)
+      } catch {
+        // Silently fail - tracing should not break the app
+      }
+    },
+
+    async shutdown() {
+      // No cleanup needed
+    },
+  }
+}
+
+function otlpSpanKind(kind: SpanData['kind']): number {
+  switch (kind) {
+    case 'internal':
+      return 1
+    case 'server':
+      return 2
+    case 'client':
+      return 3
+    case 'producer':
+      return 4
+    case 'consumer':
+      return 5
+  }
+}
+
+function otlpStatusCode(code: SpanData['status']['code']): number {
+  if (code === 'ok') return 1
+  if (code === 'error') return 2
+  return 0
+}
+
+function otlpAttributeValue(value: string | number | boolean): Record<string, unknown> {
+  if (typeof value === 'string') return { stringValue: value }
+  if (typeof value === 'boolean') return { boolValue: value }
+  if (Number.isInteger(value)) return { intValue: String(value) }
+  return { doubleValue: value }
+}
+
+function otlpAttributes(attributes: Record<string, string | number | boolean>) {
+  return Object.entries(attributes).map(([key, value]) => ({
+    key,
+    value: otlpAttributeValue(value),
+  }))
+}
+
+/**
+ * OTLP/HTTP JSON exporter.
+ *
+ * Sends spans to OpenTelemetry Collector-compatible `/v1/traces` endpoints.
+ */
+export function createOtlpHttpExporter(options: OtlpHttpExporterOptions): SpanExporter {
+  const {
+    endpoint = 'http://localhost:4318/v1/traces',
+    serviceName,
+    headers = {},
+    timeout = 5000,
+  } = options
+
+  return {
+    async export(spans: SpanData[]) {
+      if (spans.length === 0) return
+
+      const body = {
+        resourceSpans: [
+          {
+            resource: {
+              attributes: otlpAttributes({
+                'service.name': serviceName,
+              }),
+            },
+            scopeSpans: [
+              {
+                scope: {
+                  name: 'raffel',
+                },
+                spans: spans.map((span) => ({
+                  traceId: span.traceId,
+                  spanId: span.spanId,
+                  parentSpanId: span.parentSpanId,
+                  name: span.name,
+                  kind: otlpSpanKind(span.kind),
+                  startTimeUnixNano: String(Math.floor(span.startTime * 1000)),
+                  endTimeUnixNano: String(Math.floor(span.endTime * 1000)),
+                  attributes: otlpAttributes(span.attributes),
+                  events: span.logs.map((log) => ({
+                    timeUnixNano: String(Math.floor(log.timestamp * 1000)),
+                    name: log.message,
+                    attributes: otlpAttributes(
+                      Object.fromEntries(
+                        Object.entries(log.fields ?? {}).map(([key, value]) => [key, String(value)])
+                      )
+                    ),
+                  })),
+                  status: {
+                    code: otlpStatusCode(span.status.code),
+                    ...(span.status.message ? { message: span.status.message } : {}),
+                  },
+                })),
+              },
+            ],
+          },
+        ],
+      }
+
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+        try {
+          await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          })
+        } finally {
+          clearTimeout(timeoutId)
+        }
       } catch {
         // Silently fail - tracing should not break the app
       }

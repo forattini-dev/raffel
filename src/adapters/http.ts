@@ -12,10 +12,21 @@ import { createServer as createHttpsServer } from 'node:https'
 import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import type { Tracer, Span, SpanContext } from '../tracing/index.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
 import { applyRateLimitHeaders } from '../http/rate-limit-headers.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
+import {
+  applyHttpRouteToSpan,
+  bindContextToSpan,
+  extractHttpParentContext,
+  finishHttpServerSpan,
+  getHttpTelemetryRoute,
+  setHttpTelemetryRoute,
+  setTraceResponseHeaders,
+  startHttpServerSpan,
+} from '../tracing/index.js'
 import {
   resolveCodecs,
   type Codec,
@@ -78,6 +89,9 @@ export interface HttpAdapterOptions {
    * Middleware that returns true indicates it handled the request.
    */
   middleware?: HttpMiddleware[]
+
+  /** Optional tracer used to create one server span per HTTP request. */
+  tracer?: Tracer
 
   /**
    * When false, start() creates the http.Server but does not call listen().
@@ -216,12 +230,53 @@ export function createHttpAdapter(
     return { procedure: path.slice(1), isEvent: false, isStream: false }
   }
 
+  function routeForProcedure(procedure: string, isEvent: boolean, isStream: boolean): string {
+    const normalizedBase = basePath === '/' ? '' : basePath.replace(/\/$/, '')
+    if (isEvent) return `${normalizedBase}/events/${procedure}`
+    if (isStream) return `${normalizedBase}/streams/${procedure}`
+    return `${normalizedBase}/${procedure}`
+  }
+
   /**
    * Handle incoming HTTP request
    */
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const startTime = Date.now()
     const url = new URL(req.url || '/', `http://${req.headers.host}`)
+    const method = req.method ?? 'GET'
+    const { procedure, isEvent, isStream } = extractProcedure(url.pathname)
+    setHttpTelemetryRoute(req, {
+      route: routeForProcedure(procedure, isEvent, isStream),
+      procedure,
+    })
+
+    let span: Span | undefined
+    let parentContext: SpanContext | undefined
+    let previousSpan: Span | undefined
+    let spanCompleted = false
+    if (options.tracer) {
+      parentContext = extractHttpParentContext(options.tracer, req.headers)
+      span = startHttpServerSpan(options.tracer, {
+        method,
+        url,
+        protocolVersion: req.httpVersion,
+        route: getHttpTelemetryRoute(req)?.route,
+        procedure,
+        remoteAddress: req.socket?.remoteAddress,
+        remotePort: req.socket?.remotePort,
+      }, parentContext)
+      previousSpan = options.tracer.getActiveSpan()
+      options.tracer.setActiveSpan(span)
+      setTraceResponseHeaders(res, span)
+    }
+
+    const completeSpan = () => {
+      if (!span || spanCompleted) return
+      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req))
+      finishHttpServerSpan(span, res.statusCode)
+      options.tracer?.setActiveSpan(previousSpan)
+      spanCompleted = true
+    }
 
     // Set CORS headers
     setCorsHeaders(res, req, cors)
@@ -230,6 +285,7 @@ export function createHttpAdapter(
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
       res.end()
+      completeSpan()
       return
     }
 
@@ -238,12 +294,11 @@ export function createHttpAdapter(
       for (const middleware of options.middleware) {
         const handled = await middleware(req, res)
         if (handled) {
+          completeSpan()
           return
         }
       }
     }
-
-    const { procedure, isEvent, isStream } = extractProcedure(url.pathname)
 
     logger.debug({ method: req.method, path: url.pathname, procedure }, 'Request received')
 
@@ -268,7 +323,7 @@ export function createHttpAdapter(
       ctx = (await createHttpRequestContext({
         req,
         res,
-        method: req.method ?? 'GET',
+        method,
         url,
         input: {
           query: searchParamsToQuery(url.searchParams),
@@ -278,28 +333,33 @@ export function createHttpAdapter(
         trustedProxies,
         contextFactory: options.contextFactory,
       })).ctx
+      if (span) {
+        bindContextToSpan(ctx, span, parentContext)
+      }
 
       // Handle based on type
-      if (isStream && req.method === 'GET') {
+      if (isStream && method === 'GET') {
         // Stream via SSE
         await handleStream(req, res, procedure, url.searchParams, ctx)
-      } else if (isEvent && req.method === 'POST') {
+      } else if (isEvent && method === 'POST') {
         // Fire-and-forget event
         await handleEvent(req, res, procedure, ctx, parsedBody!.payload)
-      } else if (req.method === 'POST') {
+      } else if (method === 'POST') {
         // Regular procedure call
         await handleProcedure(req, res, procedure, ctx, parsedBody!.payload)
       } else {
-        sendErrorResponse(res, 405, 'METHOD_NOT_ALLOWED', `Method ${req.method} not allowed`)
+        sendErrorResponse(res, 405, 'METHOD_NOT_ALLOWED', `Method ${method} not allowed`)
       }
     } catch (err) {
       const error = err as Error
+      span?.recordError(error)
       logger.error({ err: error, procedure }, 'Request handler error')
       if (ctx) {
         applyRateLimitHeaders(res, ctx)
       }
       sendErrorResponse(res, 500, 'INTERNAL_ERROR', error.message)
     } finally {
+      completeSpan()
       logger.debug({ procedure, duration: Date.now() - startTime }, 'Request completed')
     }
   }

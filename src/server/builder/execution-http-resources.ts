@@ -16,6 +16,7 @@ type ResourceHttpMiddlewareStep = Extract<
 export function createExecutionHttpResources(context: ServerLifecycleExecutionContext) {
   const { registry, router } = context.core
   const { restResourceRegistry, basePath } = context.http
+  const { telemetryState } = context.bootstrap
 
   function executeHttpResourceStep(
     step: ResourceHttpMiddlewareStep,
@@ -32,6 +33,7 @@ export function createExecutionHttpResources(context: ServerLifecycleExecutionCo
             contextFactory: step.feature.contextFactory,
             codecs: step.feature.codecs,
             trustedProxies: step.feature.trustedProxies,
+            tracer: telemetryState.tracerInstance ?? undefined,
           })
         )
         return
@@ -48,6 +50,7 @@ export function createExecutionHttpResources(context: ServerLifecycleExecutionCo
             contextFactory: step.feature.contextFactory,
             codecs: step.feature.codecs,
             trustedProxies: step.feature.trustedProxies,
+            tracer: telemetryState.tracerInstance ?? undefined,
           })
         )
         logRestMiddlewareRegistered(restResourceRegistry.length)

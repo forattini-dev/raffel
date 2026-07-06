@@ -14,6 +14,7 @@ import { createGrpcProxyConnectionHandler } from './execution-protocol-utils.js'
 export function createExecutionEntrypoint(context: ServerLifecycleExecutionContext) {
   const { logger, state } = context
   const { router } = context.core
+  const { telemetryState } = context.bootstrap
   const { getSinglePortAliasMode, recordProtocolFusionDecision } = context.routing
   const createHttp = context.factories?.createHttpAdapter ?? createHttpAdapter
   const createTcpHandler = context.factories?.createTcpConnectionHandler ?? createTcpConnectionHandler
@@ -106,6 +107,7 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
       adapter: createHttp(router, {
         ...step.entrypoint.httpAdapter,
         middleware: httpMiddleware.length > 0 ? httpMiddleware : undefined,
+        tracer: telemetryState.tracerInstance ?? undefined,
       }),
       name: 'http',
       registerStopTask,

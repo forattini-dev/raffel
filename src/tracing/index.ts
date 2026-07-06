@@ -75,9 +75,14 @@ export {
   createConsoleExporter,
   createJaegerExporter,
   createZipkinExporter,
+  createOtlpHttpExporter,
   createNoopExporter,
 } from './exporters.js'
-export type { JaegerExporterOptions, ZipkinExporterOptions } from './exporters.js'
+export type {
+  JaegerExporterOptions,
+  ZipkinExporterOptions,
+  OtlpHttpExporterOptions,
+} from './exporters.js'
 
 // Interceptor
 export {
@@ -85,3 +90,19 @@ export {
   extractTraceHeaders,
   injectTraceHeaders,
 } from './interceptor.js'
+
+export {
+  applyHttpRouteToSpan,
+  bindContextToSpan,
+  createHttpTracingMiddleware,
+  extractHttpParentContext,
+  finishHttpServerSpan,
+  getHttpTelemetryRoute,
+  setHttpTelemetryRoute,
+  setTraceResponseHeaders,
+  startHttpServerSpan,
+} from './http.js'
+export type {
+  HttpServerSpanOptions,
+  HttpTelemetryRoute,
+} from './http.js'

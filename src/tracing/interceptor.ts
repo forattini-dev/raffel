@@ -6,6 +6,7 @@
 
 import type { Interceptor, Envelope, Context } from '../types/index.js'
 import type { Tracer, SpanContext, TraceHeaders } from './types.js'
+import { applyHttpRouteToSpan } from './http.js'
 
 /**
  * Create an interceptor that automatically traces requests
@@ -43,6 +44,26 @@ export function createTracingInterceptor(tracer: Tracer): Interceptor {
       traceId: span.context.traceId,
       spanId: span.context.spanId,
       parentSpanId: parentContext?.spanId,
+    }
+    if (ctx.logger?.child) {
+      ctx.logger = ctx.logger.child({
+        trace_id: span.context.traceId,
+        span_id: span.context.spanId,
+      })
+    }
+
+    if (ctx.http) {
+      const method = ctx.http.method.toUpperCase()
+      const route = ctx.http.path
+      span.setAttributes({
+        'http.request.method': method,
+        'url.path': ctx.http.path,
+        'http.route': route,
+      })
+      applyHttpRouteToSpan(span, method, {
+        route,
+        procedure,
+      })
     }
 
     try {

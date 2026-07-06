@@ -15,6 +15,7 @@ import { HttpRouteTable, type HttpMethod } from './route-table.js'
 import type { BodyInit } from './web-types.js'
 import { attachRequestSocketInfo } from '../utils/client-ip.js'
 import { createLogger } from '../utils/logger.js'
+import { setHttpTelemetryRoute } from '../tracing/index.js'
 
 const logger = createLogger('http-app')
 
@@ -267,6 +268,9 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
 
     const match = this.routeTable.match(method, pathname)
     const { route: matchedRoute, params } = match
+    if (matchedRoute) {
+      setHttpTelemetryRoute(request, { route: matchedRoute.path })
+    }
 
     // Create context
     const ctx = new HttpContext<E>(request, params) as HttpContextInterface<E>

@@ -29,7 +29,8 @@ export interface SpanOptions {
  */
 export function createSpan(options: SpanOptions): Span {
   let name = options.name
-  const startTime = performance.now() * 1000 // Convert to microseconds
+  const startEpochTime = Date.now() * 1000
+  const startMonotonicTime = performance.now()
   let endTime = 0
   let finished = false
 
@@ -73,7 +74,7 @@ export function createSpan(options: SpanOptions): Span {
     log(message, fields) {
       if (this.isRecording) {
         logs.push({
-          timestamp: performance.now() * 1000,
+          timestamp: startEpochTime + ((performance.now() - startMonotonicTime) * 1000),
           message,
           fields,
         })
@@ -101,7 +102,7 @@ export function createSpan(options: SpanOptions): Span {
         }
 
         logs.push({
-          timestamp: performance.now() * 1000,
+          timestamp: startEpochTime + ((performance.now() - startMonotonicTime) * 1000),
           message: 'Error',
           fields: {
             'error.type': error.name,
@@ -123,7 +124,7 @@ export function createSpan(options: SpanOptions): Span {
     finish() {
       if (!finished) {
         finished = true
-        endTime = performance.now() * 1000
+        endTime = startEpochTime + ((performance.now() - startMonotonicTime) * 1000)
         if (status.code === 'unset') {
           status.code = 'ok'
         }
@@ -131,7 +132,9 @@ export function createSpan(options: SpanOptions): Span {
     },
 
     toSpanData(): SpanData {
-      const effectiveEndTime = finished ? endTime : performance.now() * 1000
+      const effectiveEndTime = finished
+        ? endTime
+        : startEpochTime + ((performance.now() - startMonotonicTime) * 1000)
 
       return {
         traceId: options.traceId,
@@ -139,9 +142,9 @@ export function createSpan(options: SpanOptions): Span {
         parentSpanId: options.parentSpanId,
         name,
         kind: options.kind,
-        startTime,
+        startTime: startEpochTime,
         endTime: effectiveEndTime,
-        duration: effectiveEndTime - startTime,
+        duration: effectiveEndTime - startEpochTime,
         status: { ...status },
         attributes: { ...attributes },
         logs: [...logs],
