@@ -503,7 +503,7 @@ function createRestOperation(
     summary: getRestOperationSummary(resourceName, route.operation),
     description: getRestOperationDescription(resourceName, route.operation, Boolean(pagination)),
     tags: [tag ?? resourceName],
-    responses: createRestResponses(resourceName, route, schemaRegistry, includeErrorResponses, pagination),
+    responses: createRestResponses(resourceName, route, schemaRegistry, includeErrorResponses, pagination, resource),
   }
 
   // Add security if required
@@ -561,11 +561,12 @@ function createRestResponses(
   schemaRegistry: ConvertedSchemaRegistry,
   includeErrorResponses: boolean,
   pagination: LoadedRestResource['config']['pagination'] = false,
+  resource?: LoadedRestResource,
 ): USDResponses {
   const responses: USDResponses = {}
   const schemaRef = capitalizeFirst(resourceName)
 
-  const resourceSchema = resource.schema ? convertSchema(resource.schema) : { type: 'object' }
+  const resourceSchema: USDSchema = resource?.schema ? convertSchema(resource.schema) : { type: 'object' }
 
   switch (route.operation) {
     case 'list':
