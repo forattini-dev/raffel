@@ -89,14 +89,17 @@
   - [Hooks](/tooling/hooks.md)
 
 - **Guides**
+  - [Testing](/guides/testing.md)
   - [REST API](/guides/rest-api.md)
   - [Building MCP Servers](/guides/mcp-server.md)
   - [Docs MCP Server](/guides/docs-mcp.md)
   - [Authentication](/guides/auth.md)
+  - [Auth + Policies](/guides/auth-and-policies.md)
   - [Multi-Protocol Service](/guides/multi-protocol-service.md)
   - [SMTP Server](/guides/smtp-server.md)
   - [SMTP Relay](/guides/smtp-relay.md)
   - [Webhook Edge com TLS + Webhook Security](/guides/webhook-edge.md)
+  - [Error Handling](/guides/error-handling.md)
 
 - **Proxy Toolkit**
   - [Visão Geral](/proxy/overview.md)

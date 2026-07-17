@@ -294,6 +294,167 @@ import { createZodAdapter, registerValidator } from 'raffel'
 registerValidator(createZodAdapter(z))
 ```
 
+## Schemas and metadata for HTTP procedures
+
+Ordinary HTTP procedures discovered from `src/http`, `src/rpc`, and Routes Roots
+carry their own input/output schemas and OpenAPI metadata. This is **not** the
+same mechanism as REST Auto-CRUD (`src/rest/*.ts`, documented in
+[`routing/auto-crud.md`](./auto-crud.md)). REST resource files derive every CRUD
+operation from a single `export const schema`; discovered HTTP procedures attach
+one `input`/`output` pair per handler file.
+
+Everything is **inline in the handler file** — there is no separate `.meta.ts`
+per handler and no `schema.input`/`schema.output` wrapper. (`schema` is reserved
+for `.rest.ts` resource files.) The only sibling files that participate are a
+`<handler>.md` description file and a directory-level `_meta.ts`; both are
+covered below.
+
+### Export convention
+
+A handler file exports the schemas as named exports and everything else under
+`meta`:
+
+```ts
+// src/http/users/create.ts
+import { z } from 'zod'
+
+// Input/output schemas — named exports, top-level (NOT under `meta`)
+export const input = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+})
+
+export const output = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  email: z.string().email(),
+})
+
+export const meta = {
+  summary: 'Create a user',
+  description: 'Creates a user account and returns the persisted record.',
+  tags: ['Users'],
+  auth: 'required',
+  roles: ['admin'],
+  httpSuccessStatus: 201,
+}
+
+export default async function handler(input, ctx) {
+  const user = await ctx.services.users.create(input)
+  return user
+}
+```
+
+`export const input` / `export const output` are the exact names read by the
+loader. It maps them onto the route as `inputSchema`/`outputSchema`, and at
+registration time they are entered into the shared `SchemaRegistry` under the
+route name (e.g. `users/create`). The OpenAPI generator then looks the route up
+by name (`schemaRegistry.get('users/create')`), so the schemas surface as the
+request body / response schema and, for path/query params, as parameters. No
+schema means the endpoint is still generated but without typed body or
+responses.
+
+Remember to register a validator adapter once at startup (see
+[Schemas and validators](#schemas-and-validators)); without it the schemas are
+documented but not enforced at request time.
+
+### Documentation metadata
+
+`meta` fields consumed by the OpenAPI generator:
+
+| Field | Purpose |
+| --- | --- |
+| `summary` | One-line title shown on the endpoint card. Falls back to the route name when omitted. |
+| `description` | Long description (markdown). Can also come from a sibling `.md` file — see below. |
+| `tags` | Grouping tags. The nearest `_meta.ts` `tag` is prepended automatically. |
+| `contentType` / `contentTypes` | Request/response content-type hints. |
+
+A sibling markdown file named after the handler is loaded automatically as the
+`description`, and **takes precedence** over `meta.description`:
+
+```
+src/http/users/
+  create.ts
+  create.md   # becomes the OpenAPI description for POST /users
+```
+
+Directory-level metadata lives in `_meta.ts` and groups every endpoint in that
+tree under one tag:
+
+```ts
+// src/http/users/_meta.ts
+export default {
+  tag: 'Users',
+  summary: 'User management',
+  description: '## User Management API\n\nCRUD operations for user accounts.',
+  order: 10,
+}
+```
+
+The `_meta.ts` `tag` is added to each handler's `tags` automatically, so you
+only need `meta.tags` on a handler when it belongs to an additional group.
+
+### Auth requirement
+
+`meta.auth` sets the authentication requirement on the procedure:
+
+- `'required'` — request must be authenticated
+- `'optional'` — auth is checked when present but not required
+- `'none'` — no auth check (default)
+
+`meta.roles` restricts to specific roles when auth is `'required'` or
+`'optional'`. The directory-tree `_auth.ts` (see [Authentication](#authentication))
+supplies the strategy that verifies the credential. Authorization beyond simple
+role checks (tenant scoping, ownership, permissions) belongs in Raffel policies
+— either co-located `<handler>.policy.yaml` files or `.authz()` — not in `meta`.
+
+### Same endpoint: HTTP procedure vs REST Auto-CRUD
+
+The same `POST /users` can be modeled either way. Pick the discovered HTTP
+procedure when the operation is bespoke; pick REST Auto-CRUD when you want the
+full CRUD surface generated from one schema.
+
+```ts
+// Discovered HTTP procedure — src/http/users/create.ts
+import { z } from 'zod'
+
+export const input = z.object({ name: z.string(), email: z.string().email() })
+export const output = z.object({ id: z.string(), name: z.string() })
+export const meta = { summary: 'Create a user', auth: 'required', httpSuccessStatus: 201 }
+
+export default async (input, ctx) => ctx.services.users.create(input)
+```
+
+```ts
+// REST Auto-CRUD — src/rest/users.ts (generates list/get/create/update/delete)
+import { z } from 'zod'
+
+export const schema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(2),
+  email: z.string().email(),
+})
+
+export const adapter = prisma.user
+
+export const config = {
+  operations: ['list', 'get', 'create'],
+  auth: { create: 'required' },
+}
+```
+
+Key differences:
+
+- **Schema shape.** HTTP procedures declare `input`/`output` per file; REST
+  resources declare one `schema` and derive request/response shapes per
+  operation.
+- **Surface.** One HTTP file = one endpoint; one REST file = the whole CRUD set
+  plus optional actions.
+- **Persistence.** REST Auto-CRUD wires an `adapter`; discovered HTTP procedures
+  call whatever you write in the handler body.
+
+See [`routing/auto-crud.md`](./auto-crud.md) for the full REST resource surface.
+
 ## Middleware
 
 `_middleware.ts` files apply to all handlers in the same directory tree,
