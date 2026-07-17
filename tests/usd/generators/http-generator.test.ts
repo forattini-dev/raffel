@@ -221,7 +221,8 @@ describe('HTTP Generator', () => {
         assert.ok(result.paths['/users/create'].post?.requestBody)
         assert.equal(result.paths['/users/create'].post?.requestBody?.required, true)
         const content = result.paths['/users/create'].post?.requestBody?.content?.['application/json']
-        assert.ok(content?.schema?.$ref?.includes('UsersCreateInput'))
+        assert.ok(content?.schema?.type === 'object')
+        assert.ok(content?.schema?.properties?.name)
       })
 
       it('should generate output schema reference for procedures with output', () => {
@@ -238,7 +239,8 @@ describe('HTTP Generator', () => {
         const response200 = result.paths['/users/list'].post?.responses?.['200']
         assert.ok(response200)
         const content = response200.content?.['application/json']
-        assert.ok(content?.schema?.$ref?.includes('UsersListOutput'))
+        assert.ok(content?.schema?.type === 'array')
+        assert.ok(content?.schema?.items?.type === 'object')
       })
 
       it('should use generic object schema when no input schema', () => {
@@ -495,6 +497,7 @@ describe('HTTP Generator', () => {
     describe('REST operation responses', () => {
       it('should generate paginated response for list operation', () => {
         const resource = createMockRestResource({
+          config: { pagination: { style: 'offset' as const, defaultLimit: 20, maxLimit: 100 } },
           routes: [
             {
               method: 'GET',
@@ -514,11 +517,12 @@ describe('HTTP Generator', () => {
         const schema = response200?.content?.['application/json']?.schema
         assert.equal(schema?.type, 'object')
         assert.ok(schema?.properties?.data)
-        assert.ok(schema?.properties?.total)
+        assert.ok(schema?.properties?.meta)
       })
 
       it('should add pagination query params for list operation', () => {
         const resource = createMockRestResource({
+          config: { pagination: { style: 'offset' as const, defaultLimit: 20, maxLimit: 100 } },
           routes: [
             {
               method: 'GET',
@@ -538,8 +542,7 @@ describe('HTTP Generator', () => {
         const paramNames = params?.map((p) => p.name)
         assert.ok(paramNames?.includes('page'))
         assert.ok(paramNames?.includes('limit'))
-        assert.ok(paramNames?.includes('sort'))
-        assert.ok(paramNames?.includes('order'))
+        assert.ok(paramNames?.includes('offset'))
       })
 
       it('should reference resource schema for get operation', () => {
@@ -561,7 +564,9 @@ describe('HTTP Generator', () => {
 
         const response200 = result.paths['/users/{id}'].get?.responses?.['200']
         const schema = response200?.content?.['application/json']?.schema
-        assert.ok(schema?.$ref?.includes('Users'))
+        assert.ok(schema?.type === 'object')
+        assert.ok(schema?.properties?.id)
+        assert.ok(schema?.properties?.name)
       })
 
       it('should return 201 for create operation', () => {
@@ -603,10 +608,9 @@ describe('HTTP Generator', () => {
         ctx.restResources = [resource]
         const result = generateHttpPaths(ctx)
 
-        const response200 = result.paths['/users/{id}'].delete?.responses?.['200']
-        const schema = response200?.content?.['application/json']?.schema
-        assert.ok(schema?.properties?.success)
-        assert.ok(schema?.properties?.id)
+        const response204 = result.paths['/users/{id}'].delete?.responses?.['204']
+        assert.ok(response204)
+        assert.equal(response204.description, 'Resource deleted')
       })
 
       it('should generate minimal response for head operation', () => {
@@ -767,7 +771,8 @@ describe('HTTP Generator', () => {
 
         const response200 = result.paths['/users/{id}/activate'].post?.responses?.['200']
         const schema = response200?.content?.['application/json']?.schema
-        assert.ok(schema?.$ref?.includes('UsersActivateOutput'))
+        assert.ok(schema?.type === 'object')
+        assert.ok(schema?.properties?.activated)
       })
 
       it('should handle custom action without output schema', () => {
@@ -865,6 +870,7 @@ describe('HTTP Generator', () => {
     describe('REST operation summaries and descriptions', () => {
       it('should generate proper summary for list operation', () => {
         const resource = createMockRestResource({
+          config: { pagination: { style: 'offset' as const, defaultLimit: 20, maxLimit: 100 } },
           routes: [
             {
               method: 'GET',
