@@ -55,6 +55,13 @@ export interface TraceHeaders {
 }
 
 /**
+ * W3C Baggage — arbitrary cross-cutting key/value context (tenant id, user
+ * id, feature flags, ...) propagated alongside the trace. See
+ * `./baggage.ts` for the header parsing/serialization.
+ */
+export type Baggage = Record<string, string>
+
+/**
  * Completed span data for export
  */
 export interface SpanData {
@@ -162,6 +169,30 @@ export interface Tracer {
 
   /** Set active span */
   setActiveSpan(span: Span | undefined): void
+
+  /** Get the active baggage for the current async context (if any) */
+  getBaggage(): Baggage | undefined
+
+  /** Set the active baggage for the current async context */
+  setBaggage(baggage: Baggage | undefined): void
+
+  /**
+   * Run `fn` with `span` and `baggage` as the active span/baggage for the
+   * duration of `fn` — including everything `fn` awaits — automatically
+   * restoring whatever was active before once `fn` settles.
+   *
+   * Prefer this over pairing `setActiveSpan`/`setBaggage` with a manual
+   * restore in a `finally` block: `AsyncLocalStorage.enterWith()` mutates a
+   * shared ambient context rather than one scoped to the call, so a manual
+   * restore after `await someAsyncWork()` does not reliably unwind —
+   * concurrent/nested async work in between can leave the wrong span or
+   * baggage active. `run()` scopes correctly across any number of awaits.
+   */
+  runInSpanContext<T>(
+    span: Span | undefined,
+    baggage: Baggage | undefined,
+    fn: () => T | Promise<T>
+  ): T | Promise<T>
 
   /** Create a child span from parent context */
   startSpanFromContext(

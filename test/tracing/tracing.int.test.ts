@@ -346,6 +346,21 @@ describe('Tracing', () => {
       expect(tracer.getActiveSpan()).toBeUndefined()
     })
 
+    it('should keep tracking active spans across requests after clearing one (no disable() side effect)', async () => {
+      // setActiveSpan(undefined) must not retire the storage for the whole
+      // tracer — a later request must still be able to track its own active
+      // span after an earlier, unrelated request cleared its own.
+      const spanA = tracer.startSpan('request-a')
+      tracer.setActiveSpan(spanA)
+      tracer.setActiveSpan(undefined)
+
+      await new Promise((r) => setImmediate(r))
+
+      const spanB = tracer.startSpan('request-b')
+      tracer.setActiveSpan(spanB)
+      expect(tracer.getActiveSpan()).toBe(spanB)
+    })
+
     it('should respect sampling rate', () => {
       const lowSampleTracer = createTracer({
         serviceName: 'test',
@@ -421,6 +436,77 @@ describe('Tracing', () => {
 
       expect(extracted?.traceId).toBe(originalSpan.context.traceId)
       expect(extracted?.spanId).toBe(originalSpan.context.spanId)
+    })
+  })
+
+  describe('W3C Baggage', () => {
+    it('parses a simple key=value list', async () => {
+      const { parseBaggageHeader } = await import('../../src/tracing/baggage.js')
+      expect(parseBaggageHeader('tenantId=acme,userId=u_42')).toEqual({
+        tenantId: 'acme',
+        userId: 'u_42',
+      })
+    })
+
+    it('returns an empty object for undefined/null/empty input', async () => {
+      const { parseBaggageHeader } = await import('../../src/tracing/baggage.js')
+      expect(parseBaggageHeader(undefined)).toEqual({})
+      expect(parseBaggageHeader(null)).toEqual({})
+      expect(parseBaggageHeader('')).toEqual({})
+    })
+
+    it('percent-decodes values and drops per-member properties', async () => {
+      const { parseBaggageHeader } = await import('../../src/tracing/baggage.js')
+      expect(parseBaggageHeader('key=hello%20world;prop=ignored')).toEqual({
+        key: 'hello world',
+      })
+    })
+
+    it('skips malformed members without throwing', async () => {
+      const { parseBaggageHeader } = await import('../../src/tracing/baggage.js')
+      expect(parseBaggageHeader('no-equals-sign,=novalue,ok=1')).toEqual({ ok: '1' })
+    })
+
+    it('serializes a baggage map back into a header value', async () => {
+      const { serializeBaggageHeader } = await import('../../src/tracing/baggage.js')
+      expect(serializeBaggageHeader({ tenantId: 'acme', userId: 'u_42' })).toBe(
+        'tenantId=acme,userId=u_42'
+      )
+    })
+
+    it('returns undefined for empty/undefined baggage (omit the header entirely)', async () => {
+      const { serializeBaggageHeader } = await import('../../src/tracing/baggage.js')
+      expect(serializeBaggageHeader(undefined)).toBeUndefined()
+      expect(serializeBaggageHeader({})).toBeUndefined()
+    })
+
+    it('round-trips through parse → serialize → parse', async () => {
+      const { parseBaggageHeader, serializeBaggageHeader } = await import(
+        '../../src/tracing/baggage.js'
+      )
+      const original = { tenantId: 'acme corp', userId: 'u/42' }
+      const header = serializeBaggageHeader(original)
+      expect(parseBaggageHeader(header)).toEqual(original)
+    })
+
+    it('mergeBaggage lets an override win on key collisions', async () => {
+      const { mergeBaggage } = await import('../../src/tracing/baggage.js')
+      expect(mergeBaggage({ a: '1', b: '2' }, { b: '3', c: '4' })).toEqual({
+        a: '1',
+        b: '3',
+        c: '4',
+      })
+    })
+
+    it('propagates through the tracer active-baggage storage', () => {
+      const tracer = createTracer({ serviceName: 'test' })
+      expect(tracer.getBaggage()).toBeUndefined()
+
+      tracer.setBaggage({ tenantId: 'acme' })
+      expect(tracer.getBaggage()).toEqual({ tenantId: 'acme' })
+
+      tracer.setBaggage(undefined)
+      expect(tracer.getBaggage()).toBeUndefined()
     })
   })
 
@@ -670,6 +756,45 @@ describe('Tracing', () => {
       const roundTrip = BigInt(ctx.tracing.ddTraceId!).toString(16).padStart(32, '0')
       expect(roundTrip).toBe(ctx.tracing.traceId)
     })
+
+    it('parses incoming baggage from metadata onto ctx.tracing.baggage', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('users.get', {}, {
+        baggage: 'tenantId=acme,userId=u_42',
+      })
+      const ctx = { requestId: 'req-1' } as any
+
+      await interceptor(envelope, ctx, async () => ({ success: true }))
+
+      expect(ctx.tracing.baggage).toEqual({ tenantId: 'acme', userId: 'u_42' })
+    })
+
+    it('exposes an empty (not undefined) baggage object when none was sent', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('users.get')
+      const ctx = { requestId: 'req-1' } as any
+
+      await interceptor(envelope, ctx, async () => ({ success: true }))
+
+      expect(ctx.tracing.baggage).toEqual({})
+    })
+
+    it('restores the previous baggage after the request finishes (no leak to sibling requests)', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+
+      // Simulate a nested/second call on the same tracer, as would happen
+      // if a handler itself uses the tracer for downstream work.
+      tracer.setBaggage({ outer: 'value' })
+
+      const envelope = createEnvelope('users.get', {}, { baggage: 'inner=value' })
+      const ctx = { requestId: 'req-1' } as any
+      await interceptor(envelope, ctx, async () => {
+        expect(tracer.getBaggage()).toEqual({ inner: 'value' })
+        return { success: true }
+      })
+
+      expect(tracer.getBaggage()).toEqual({ outer: 'value' })
+    })
   })
 
   describe('Datadog log correlation (hex → decimal ID)', () => {
@@ -742,11 +867,15 @@ describe('Tracing', () => {
       parentSpan.finish()
     })
 
-    it('falls back to plain fetch when there is no active span', async () => {
+    it('starts a root client span (and still injects traceparent) when there is no active span', async () => {
+      // Background jobs, cron tasks, and startup calls have no in-request
+      // active span, but calling a downstream service from one of those is
+      // still worth tracing — tracedFetch starts a root client span instead
+      // of silently skipping propagation.
       const { createTracer, createNoopExporter, tracedFetch } = await import(
         '../../src/tracing/index.js'
       )
-      const t = createTracer({ serviceName: 'svc-a', exporters: [createNoopExporter()], batchSize: 1 })
+      const t = createTracer({ serviceName: 'svc-a', sampleRate: 1, exporters: [createNoopExporter()], batchSize: 1 })
       // no active span
 
       let headersSeen: Record<string, string> = {}
@@ -765,8 +894,146 @@ describe('Tracing', () => {
         globalThis.fetch = originalFetch
       }
 
-      expect(headersSeen['traceparent']).toBeUndefined()
+      expect(headersSeen['traceparent']).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/)
       mockFetch.mockRestore()
+    })
+
+    it('does not touch headers at all when no tracer is supplied', async () => {
+      const { tracedFetch } = await import('../../src/tracing/index.js')
+
+      let headersSeen: Record<string, string> = {}
+      const mockFetch = vi.fn(async (_input: any, init?: any) => {
+        const h = init?.headers ?? {}
+        headersSeen = { ...h }
+        return new Response('ok')
+      })
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      try {
+        await tracedFetch(undefined, 'http://svc-b/x', { headers: { 'x-custom': '1' } })
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(headersSeen['traceparent']).toBeUndefined()
+      expect(headersSeen['x-custom']).toBe('1')
+      mockFetch.mockRestore()
+    })
+
+    it('creates a client span with the response status recorded', async () => {
+      const { createTracer, createNoopExporter, tracedFetch } = await import(
+        '../../src/tracing/index.js'
+      )
+      const exportedSpans: SpanData[] = []
+      const t = createTracer({
+        serviceName: 'svc-a',
+        sampleRate: 1,
+        exporters: [{ async export(spans) { exportedSpans.push(...spans) }, async shutdown() {} }],
+        batchSize: 1,
+      })
+
+      const mockFetch = vi.fn(async () => new Response('ok', { status: 200 }))
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      try {
+        await tracedFetch(t, 'http://svc-b.local/orders')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(exportedSpans).toHaveLength(1)
+      expect(exportedSpans[0].kind).toBe('client')
+      expect(exportedSpans[0].name).toBe('GET')
+      expect(exportedSpans[0].attributes['http.response.status_code']).toBe(200)
+      expect(exportedSpans[0].status.code).toBe('ok')
+    })
+
+    it('injects the active baggage as a `baggage` header', async () => {
+      const { createTracer, createNoopExporter, tracedFetch } = await import(
+        '../../src/tracing/index.js'
+      )
+      const t = createTracer({ serviceName: 'svc-a', sampleRate: 1, exporters: [createNoopExporter()], batchSize: 1 })
+      t.setBaggage({ tenantId: 'acme', userId: 'u_42' })
+
+      let headersSeen: Record<string, string> = {}
+      const mockFetch = vi.fn(async (_input: any, init?: any) => {
+        headersSeen = { ...(init?.headers ?? {}) }
+        return new Response('ok', { status: 200 })
+      })
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      try {
+        await tracedFetch(t, 'http://svc-b.local/orders')
+      } finally {
+        globalThis.fetch = originalFetch
+        t.setBaggage(undefined)
+      }
+
+      expect(headersSeen['baggage']).toBe('tenantId=acme,userId=u_42')
+    })
+
+    it('lets caller-supplied baggage header win over the tracer active baggage', async () => {
+      const { createTracer, createNoopExporter, tracedFetch } = await import(
+        '../../src/tracing/index.js'
+      )
+      const t = createTracer({ serviceName: 'svc-a', sampleRate: 1, exporters: [createNoopExporter()], batchSize: 1 })
+      t.setBaggage({ tenantId: 'acme' })
+
+      let headersSeen: Record<string, string> = {}
+      const mockFetch = vi.fn(async (_input: any, init?: any) => {
+        headersSeen = { ...(init?.headers ?? {}) }
+        return new Response('ok', { status: 200 })
+      })
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      try {
+        await tracedFetch(t, 'http://svc-b.local/orders', { headers: { baggage: 'override=1' } })
+      } finally {
+        globalThis.fetch = originalFetch
+        t.setBaggage(undefined)
+      }
+
+      expect(headersSeen['baggage']).toBe('override=1')
+    })
+
+    it('records the network error and rethrows when the downstream call never completes', async () => {
+      const { createTracer, createNoopExporter, tracedFetch } = await import(
+        '../../src/tracing/index.js'
+      )
+      const exportedSpans: SpanData[] = []
+      const t = createTracer({
+        serviceName: 'svc-a',
+        sampleRate: 1,
+        exporters: [{ async export(spans) { exportedSpans.push(...spans) }, async shutdown() {} }],
+        batchSize: 1,
+      })
+
+      const networkError = new Error('ECONNREFUSED')
+      const mockFetch = vi.fn(async () => { throw networkError })
+      const originalFetch = globalThis.fetch
+      // @ts-expect-error — stubbing global for the test
+      globalThis.fetch = mockFetch
+
+      let thrown: unknown
+      try {
+        await tracedFetch(t, 'http://svc-b.local/orders')
+      } catch (error) {
+        thrown = error
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(thrown).toBe(networkError)
+      expect(exportedSpans).toHaveLength(1)
+      expect(exportedSpans[0].status.code).toBe('error')
     })
   })
 

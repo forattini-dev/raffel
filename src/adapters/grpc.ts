@@ -13,6 +13,13 @@ import { mergeContextSeeds } from '../types/index.js'
 import { createAbortableContextAsync } from '../utils/context-utils.js'
 import { createStream } from '../stream/raffel-stream.js'
 import { createLogger } from '../utils/logger.js'
+import type { Tracer, Span, SpanContext } from '../tracing/types.js'
+import {
+  extractGrpcBaggage,
+  extractGrpcParentContext,
+  finishGrpcServerSpan,
+  startGrpcServerSpan,
+} from '../tracing/grpc.js'
 
 const logger = createLogger('grpc-adapter')
 
@@ -61,6 +68,13 @@ export interface GrpcAdapterOptions {
     call: GrpcServerCallBase,
     method: GrpcMethodInfo
   ) => ContextSeed | Promise<ContextSeed>
+  /**
+   * Distributed tracer. When set, every call gets a `kind: 'server'` span —
+   * extracting `traceparent`/`tracestate`/`baggage` from call metadata so a
+   * trace started by an HTTP or gRPC caller continues across this hop, the
+   * same way `tracedFetch`/`createTracingInterceptor` do for HTTP.
+   */
+  tracer?: Tracer
 }
 
 export interface GrpcAdapter {
@@ -222,7 +236,7 @@ export function createGrpcAdapter(
   async function buildContext(
     call: GrpcServerCallBase,
     method: GrpcMethodInfo
-  ): Promise<{ ctx: Context; metadata: Record<string, string> }> {
+  ): Promise<{ ctx: Context; metadata: Record<string, string>; span?: Span; baggage: Record<string, string> }> {
     const metadata = metadataToRecord(call.metadata)
     const requestId = metadata['x-request-id'] ?? sid()
     const abortController = new AbortController()
@@ -267,7 +281,44 @@ export function createGrpcAdapter(
       }
     })
 
-    return { ctx, metadata }
+    // Continue the trace/baggage carried in call metadata — the gRPC-side
+    // equivalent of what `createTracingInterceptor` does for HTTP/RPC and
+    // `tracedFetch` does on the outbound side. `injectGrpcMetadata` (in
+    // `tracing/grpc.ts`) is the matching helper for outbound calls made by
+    // this handler.
+    let span: Span | undefined
+    const baggage = options.tracer ? extractGrpcBaggage(call.metadata) : {}
+    if (options.tracer) {
+      const parentContext = extractGrpcParentContext(options.tracer, call.metadata)
+      span = startGrpcServerSpan(options.tracer, {
+        service: method.serviceName,
+        method: method.methodName,
+        requestStream: method.requestStream,
+        responseStream: method.responseStream,
+      }, parentContext)
+      ctx.tracing = {
+        traceId: span.context.traceId,
+        spanId: span.context.spanId,
+        parentSpanId: parentContext?.spanId,
+        baggage,
+      }
+    }
+
+    return { ctx, metadata, span, baggage }
+  }
+
+  /**
+   * Run `fn` with `span`/`baggage` as the tracer's active span/baggage
+   * (scoped via `runInSpanContext`, not a manual enterWith+restore pair —
+   * see that method's docs) when a tracer is configured; otherwise just
+   * calls `fn()` directly.
+   */
+  function withGrpcSpanContext<T>(
+    span: Span | undefined,
+    baggage: Record<string, string>,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    return options.tracer ? Promise.resolve(options.tracer.runInSpanContext(span, baggage, fn)) : fn()
   }
 
   function createEnvelope(
@@ -293,32 +344,39 @@ export function createGrpcAdapter(
     callback: grpc.sendUnaryData<any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = await buildContext(call, method)
+    const { ctx, metadata, span, baggage } = await buildContext(call, method)
     ctx.input = {
       ...ctx.input,
       body: call.request,
     }
     const envelope = createEnvelope(ctx.requestId, method.fullName, 'request', call.request, metadata, ctx)
 
-    try {
-      const result = await router.handle(envelope)
-      if (!result || typeof result !== 'object' || !('type' in result)) {
-        callback(toServiceError('INTERNAL_ERROR', 'Invalid router response'))
-        return
-      }
+    await withGrpcSpanContext(span, baggage, async () => {
+      try {
+        const result = await router.handle(envelope)
+        if (!result || typeof result !== 'object' || !('type' in result)) {
+          if (span) finishGrpcServerSpan(span, grpc.status.INTERNAL)
+          callback(toServiceError('INTERNAL_ERROR', 'Invalid router response'))
+          return
+        }
 
-      const responseEnvelope = result as Envelope
-      if (responseEnvelope.type === 'error') {
-        const errorPayload = responseEnvelope.payload as { code: string; message: string }
-        callback(toServiceError(errorPayload.code, errorPayload.message))
-        return
-      }
+        const responseEnvelope = result as Envelope
+        if (responseEnvelope.type === 'error') {
+          const errorPayload = responseEnvelope.payload as { code: string; message: string }
+          if (span) finishGrpcServerSpan(span, mapErrorCodeToStatus(errorPayload.code))
+          callback(toServiceError(errorPayload.code, errorPayload.message))
+          return
+        }
 
-      callback(null, responseEnvelope.payload)
-    } catch (err) {
-      const error = err as Error
-      callback(toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
-    }
+        if (span) finishGrpcServerSpan(span, grpc.status.OK)
+        callback(null, responseEnvelope.payload)
+      } catch (err) {
+        const error = err as Error
+        span?.recordError(error)
+        if (span) finishGrpcServerSpan(span, grpc.status.INTERNAL)
+        callback(toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
+      }
+    })
   }
 
   /**
@@ -333,10 +391,12 @@ export function createGrpcAdapter(
     call: grpc.ServerWritableStream<any, any> | grpc.ServerDuplexStream<any, any>,
     ctx: Context,
     envelope: Envelope,
+    span: Span | undefined,
   ): Promise<void> {
     try {
       const result = await router.handle(envelope)
       if (!isAsyncIterable(result)) {
+        if (span) finishGrpcServerSpan(span, grpc.status.INTERNAL)
         call.emit('error', toServiceError('INTERNAL_ERROR', 'Handler did not return a stream'))
         return
       }
@@ -349,9 +409,11 @@ export function createGrpcAdapter(
           call.write(response.payload)
         } else if (response.type === 'stream:end') {
           call.end()
+          if (span) finishGrpcServerSpan(span, grpc.status.OK)
           break
         } else if (response.type === 'stream:error' || response.type === 'error') {
           const errorPayload = response.payload as { code: string; message: string }
+          if (span) finishGrpcServerSpan(span, mapErrorCodeToStatus(errorPayload.code))
           call.emit('error', toServiceError(errorPayload.code, errorPayload.message))
           call.end()
           break
@@ -359,6 +421,8 @@ export function createGrpcAdapter(
       }
     } catch (err) {
       const error = err as Error
+      span?.recordError(error)
+      if (span) finishGrpcServerSpan(span, grpc.status.INTERNAL)
       call.emit('error', toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
     }
   }
@@ -367,13 +431,13 @@ export function createGrpcAdapter(
     call: grpc.ServerWritableStream<any, any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, metadata } = await buildContext(call, method)
+    const { ctx, metadata, span, baggage } = await buildContext(call, method)
     ctx.input = {
       ...ctx.input,
       body: call.request,
     }
     const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', call.request, metadata, ctx)
-    await pumpRouterStreamToGrpc(call, ctx, envelope)
+    await withGrpcSpanContext(span, baggage, () => pumpRouterStreamToGrpc(call, ctx, envelope, span))
   }
 
   /**
@@ -386,8 +450,8 @@ export function createGrpcAdapter(
     call: grpc.ServerReadableStream<any, any> | grpc.ServerDuplexStream<any, any>,
     method: GrpcMethodInfo,
     mode: 'client' | 'bidi',
-  ): Promise<{ ctx: Context; metadata: Record<string, string>; envelope: Envelope; inputStream: ReturnType<typeof createStream> }> {
-    const { ctx, metadata } = await buildContext(call as never, method)
+  ): Promise<{ ctx: Context; metadata: Record<string, string>; envelope: Envelope; inputStream: ReturnType<typeof createStream>; span?: Span; baggage: Record<string, string> }> {
+    const { ctx, metadata, span, baggage } = await buildContext(call as never, method)
     ctx.stream = { kind: 'stream', mode, id: ctx.requestId }
     const inputStream = createStream<any>()
 
@@ -402,7 +466,7 @@ export function createGrpcAdapter(
     call.on('error', (err) => { inputStream.error(err as Error) })
 
     const envelope = createEnvelope(ctx.requestId, method.fullName, 'stream:start', inputStream, metadata, ctx)
-    return { ctx, metadata, envelope, inputStream }
+    return { ctx, metadata, envelope, inputStream, span, baggage }
   }
 
   async function handleClientStream(
@@ -410,35 +474,42 @@ export function createGrpcAdapter(
     callback: grpc.sendUnaryData<any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { envelope } = await buildInputStreamEnvelope(call, method, 'client')
+    const { envelope, span, baggage } = await buildInputStreamEnvelope(call, method, 'client')
 
-    try {
-      const result = await router.handle(envelope)
-      if (!result || typeof result !== 'object' || !('type' in result)) {
-        callback(toServiceError('INTERNAL_ERROR', 'Invalid router response'))
-        return
+    await withGrpcSpanContext(span, baggage, async () => {
+      try {
+        const result = await router.handle(envelope)
+        if (!result || typeof result !== 'object' || !('type' in result)) {
+          if (span) finishGrpcServerSpan(span, grpc.status.INTERNAL)
+          callback(toServiceError('INTERNAL_ERROR', 'Invalid router response'))
+          return
+        }
+
+        const responseEnvelope = result as Envelope
+        if (responseEnvelope.type === 'error') {
+          const errorPayload = responseEnvelope.payload as { code: string; message: string }
+          if (span) finishGrpcServerSpan(span, mapErrorCodeToStatus(errorPayload.code))
+          callback(toServiceError(errorPayload.code, errorPayload.message))
+          return
+        }
+
+        if (span) finishGrpcServerSpan(span, grpc.status.OK)
+        callback(null, responseEnvelope.payload)
+      } catch (err) {
+        const error = err as Error
+        span?.recordError(error)
+        if (span) finishGrpcServerSpan(span, grpc.status.INTERNAL)
+        callback(toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
       }
-
-      const responseEnvelope = result as Envelope
-      if (responseEnvelope.type === 'error') {
-        const errorPayload = responseEnvelope.payload as { code: string; message: string }
-        callback(toServiceError(errorPayload.code, errorPayload.message))
-        return
-      }
-
-      callback(null, responseEnvelope.payload)
-    } catch (err) {
-      const error = err as Error
-      callback(toServiceError('INTERNAL_ERROR', error.message ?? 'Internal error'))
-    }
+    })
   }
 
   async function handleBidiStream(
     call: grpc.ServerDuplexStream<any, any>,
     method: GrpcMethodInfo
   ): Promise<void> {
-    const { ctx, envelope } = await buildInputStreamEnvelope(call, method, 'bidi')
-    await pumpRouterStreamToGrpc(call, ctx, envelope)
+    const { ctx, envelope, span, baggage } = await buildInputStreamEnvelope(call, method, 'bidi')
+    await withGrpcSpanContext(span, baggage, () => pumpRouterStreamToGrpc(call, ctx, envelope, span))
   }
 
   function createImplementation(

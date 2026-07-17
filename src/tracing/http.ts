@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '../types/index.js'
 import type { HttpMiddleware } from '../http/app.js'
 import type { Span, SpanAttributes, SpanContext, Tracer } from './types.js'
+import { parseBaggageHeader } from './baggage.js'
 
 export interface HttpTelemetryRoute {
   route?: string
@@ -104,6 +105,21 @@ export function extractHttpParentContext(
   })
 }
 
+/**
+ * Extract the `baggage` header from an incoming request, in whichever
+ * headers shape the transport hands us (Fetch `Headers` or the Node
+ * `IncomingHttpHeaders`-style record).
+ */
+export function extractHttpBaggageHeader(
+  headers: Headers | Record<string, string | string[] | undefined>
+): string | undefined {
+  if (headers instanceof Headers) {
+    return headers.get('baggage') ?? undefined
+  }
+  const baggage = headers.baggage
+  return Array.isArray(baggage) ? baggage[0] : baggage
+}
+
 export function startHttpServerSpan(
   tracer: Tracer,
   options: HttpServerSpanOptions,
@@ -147,12 +163,14 @@ export function finishHttpServerSpan(span: Span, statusCode: number): void {
 export function bindContextToSpan(
   ctx: Context,
   span: Span,
-  parentContext?: SpanContext
+  parentContext?: SpanContext,
+  baggage?: Record<string, string>
 ): void {
   ctx.tracing = {
     traceId: span.context.traceId,
     spanId: span.context.spanId,
     parentSpanId: parentContext?.spanId,
+    baggage: baggage ?? {},
   }
   ctx.logger = ctx.logger.child({
     trace_id: span.context.traceId,
@@ -188,25 +206,28 @@ export function createHttpTracingMiddleware(tracer: Tracer): HttpMiddleware {
       route: route?.route,
       procedure: route?.procedure,
     }, parentContext)
-    const previousSpan = tracer.getActiveSpan()
+    const baggage = parseBaggageHeader(extractHttpBaggageHeader(ctx.req.raw.headers))
 
-    tracer.setActiveSpan(span)
     setTraceResponseHeaders(ctx, span)
 
-    try {
-      await next()
-      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(ctx.req.raw))
-      finishHttpServerSpan(span, ctx.res?.status ?? 404)
-    } catch (error) {
-      if (error instanceof Error) {
-        span.recordError(error)
-      } else {
-        span.setStatus('error', String(error))
+    // See `runInSpanContext`'s docs: this scopes the span/baggage to `next()`
+    // (and everything it awaits) and restores the caller's previous
+    // span/baggage afterward, which a manual enterWith+restore pair cannot
+    // do reliably across `await` boundaries.
+    return tracer.runInSpanContext(span, baggage, async () => {
+      try {
+        await next()
+        applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(ctx.req.raw))
+        finishHttpServerSpan(span, ctx.res?.status ?? 404)
+      } catch (error) {
+        if (error instanceof Error) {
+          span.recordError(error)
+        } else {
+          span.setStatus('error', String(error))
+        }
+        span.finish()
+        throw error
       }
-      span.finish()
-      throw error
-    } finally {
-      tracer.setActiveSpan(previousSpan)
-    }
+    })
   }
 }

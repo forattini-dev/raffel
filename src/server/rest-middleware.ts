@@ -210,7 +210,7 @@ export function createRestMiddleware(
           const ctx = httpContext.ctx as any
           const activeSpan = tracer?.getActiveSpan()
           if (activeSpan) {
-            bindContextToSpan(ctx, activeSpan)
+            bindContextToSpan(ctx, activeSpan, undefined, tracer?.getBaggage())
           }
           ctx.params = params
           ctx.query = query
@@ -340,7 +340,7 @@ export function createHttpOverrideMiddleware(
       const ctx = httpContext.ctx as any
       const activeSpan = tracer?.getActiveSpan()
       if (activeSpan) {
-        bindContextToSpan(ctx, activeSpan)
+        bindContextToSpan(ctx, activeSpan, undefined, tracer?.getBaggage())
       }
       ctx.params = params
       ctx.query = query

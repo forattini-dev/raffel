@@ -42,6 +42,7 @@ export type {
   SpanStatus,
   SpanContext,
   TraceHeaders,
+  Baggage,
   SpanData,
   Span,
   SpanExporter,
@@ -51,6 +52,9 @@ export type {
   Tracer,
   TracingConfig,
 } from './types.js'
+
+// W3C Baggage — cross-cutting business context propagated alongside the trace
+export { parseBaggageHeader, serializeBaggageHeader, mergeBaggage } from './baggage.js'
 
 export { SAMPLING_STRATEGIES } from './types.js'
 
@@ -100,6 +104,7 @@ export {
   applyHttpRouteToSpan,
   bindContextToSpan,
   createHttpTracingMiddleware,
+  extractHttpBaggageHeader,
   extractHttpParentContext,
   finishHttpServerSpan,
   getHttpTelemetryRoute,
@@ -111,3 +116,13 @@ export type {
   HttpServerSpanOptions,
   HttpTelemetryRoute,
 } from './http.js'
+
+// gRPC tracing helpers
+export {
+  extractGrpcBaggage,
+  extractGrpcParentContext,
+  finishGrpcServerSpan,
+  injectGrpcMetadata,
+  startGrpcServerSpan,
+} from './grpc.js'
+export type { GrpcServerSpanOptions } from './grpc.js'

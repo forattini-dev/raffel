@@ -360,6 +360,15 @@ export interface TracingContext {
    * Datadog Agent log correlator (`dd.span_id`).
    */
   ddSpanId?: string
+
+  /**
+   * W3C Baggage — cross-cutting business context (tenant id, user id,
+   * feature flags, ...) propagated alongside the trace across every hop of
+   * an A → B → C call chain. Mutate in place
+   * (`ctx.tracing.baggage.tenantId = ...`) before making a downstream call
+   * — `tracedFetch` reads whatever is active on the tracer at call time.
+   */
+  baggage?: Record<string, string>
 }
 
 /**

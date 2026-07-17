@@ -20,6 +20,7 @@ import { isAsyncIterable } from '../utils/type-guards.js'
 import {
   applyHttpRouteToSpan,
   bindContextToSpan,
+  extractHttpBaggageHeader,
   extractHttpParentContext,
   finishHttpServerSpan,
   getHttpTelemetryRoute,
@@ -27,6 +28,8 @@ import {
   setTraceResponseHeaders,
   startHttpServerSpan,
 } from '../tracing/index.js'
+import { parseBaggageHeader } from '../tracing/baggage.js'
+import type { Baggage } from '../tracing/index.js'
 import {
   resolveCodecs,
   type Codec,
@@ -252,10 +255,11 @@ export function createHttpAdapter(
 
     let span: Span | undefined
     let parentContext: SpanContext | undefined
-    let previousSpan: Span | undefined
+    let baggage: Baggage = {}
     let spanCompleted = false
     if (options.tracer) {
       parentContext = extractHttpParentContext(options.tracer, req.headers)
+      baggage = parseBaggageHeader(extractHttpBaggageHeader(req.headers))
       span = startHttpServerSpan(options.tracer, {
         method,
         url,
@@ -265,8 +269,6 @@ export function createHttpAdapter(
         remoteAddress: req.socket?.remoteAddress,
         remotePort: req.socket?.remotePort,
       }, parentContext)
-      previousSpan = options.tracer.getActiveSpan()
-      options.tracer.setActiveSpan(span)
       setTraceResponseHeaders(res, span)
     }
 
@@ -274,93 +276,103 @@ export function createHttpAdapter(
       if (!span || spanCompleted) return
       applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req))
       finishHttpServerSpan(span, res.statusCode)
-      options.tracer?.setActiveSpan(previousSpan)
       spanCompleted = true
     }
 
-    // Set CORS headers
-    setCorsHeaders(res, req, cors)
+    // The rest of this handler runs with `span`/`baggage` as the tracer's
+    // active span/baggage — scoped via `runInSpanContext` (not a manual
+    // enterWith+restore pair) so it correctly unwinds to whatever was
+    // active before, no matter how many awaits happen below. When there's
+    // no tracer, `span`/`baggage` are `undefined`/`{}` and this is a no-op
+    // pass-through.
+    return (options.tracer?.runInSpanContext(span, baggage, () => handleTracedRequest()) ??
+      handleTracedRequest())
 
-    // Handle preflight
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204)
-      res.end()
-      completeSpan()
-      return
-    }
+    async function handleTracedRequest(): Promise<void> {
+      // Set CORS headers
+      setCorsHeaders(res, req, cors)
 
-    // Run HTTP middleware (e.g., OpenAPI UI, static files)
-    if (options.middleware) {
-      for (const middleware of options.middleware) {
-        const handled = await middleware(req, res)
-        if (handled) {
-          completeSpan()
-          return
+      // Handle preflight
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204)
+        res.end()
+        completeSpan()
+        return
+      }
+
+      // Run HTTP middleware (e.g., OpenAPI UI, static files)
+      if (options.middleware) {
+        for (const middleware of options.middleware) {
+          const handled = await middleware(req, res)
+          if (handled) {
+            completeSpan()
+            return
+          }
         }
       }
-    }
 
-    logger.debug({ method: req.method, path: url.pathname, procedure }, 'Request received')
+      logger.debug({ method: req.method, path: url.pathname, procedure }, 'Request received')
 
-    let ctx: Context | null = null
+      let ctx: Context | null = null
 
-    try {
-      // For methods that carry a request body, parse it first so the raw
-      // bytes can be captured into the context for HMAC verification
-      // (Stripe, Svix, GitHub webhooks, etc.). See issue #114.
-      let parsedBody: { payload: unknown; size: number; raw?: Buffer } | null = null
-      const carriesBody =
-        req.method === 'POST' && (isEvent || (!isStream))
-      if (carriesBody) {
-        // Validate response codec before reading the body so we still emit
-        // 406/415 cleanly when negotiation fails.
-        const responseCodecCheck = resolveHttpResponseCodec(req, res, codecs)
-        if (!responseCodecCheck) return
-        parsedBody = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
-        if (!parsedBody) return
+      try {
+        // For methods that carry a request body, parse it first so the raw
+        // bytes can be captured into the context for HMAC verification
+        // (Stripe, Svix, GitHub webhooks, etc.). See issue #114.
+        let parsedBody: { payload: unknown; size: number; raw?: Buffer } | null = null
+        const carriesBody =
+          req.method === 'POST' && (isEvent || (!isStream))
+        if (carriesBody) {
+          // Validate response codec before reading the body so we still emit
+          // 406/415 cleanly when negotiation fails.
+          const responseCodecCheck = resolveHttpResponseCodec(req, res, codecs)
+          if (!responseCodecCheck) return
+          parsedBody = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
+          if (!parsedBody) return
+        }
+
+        ctx = (await createHttpRequestContext({
+          req,
+          res,
+          method,
+          url,
+          input: {
+            query: searchParamsToQuery(url.searchParams),
+            body: parsedBody?.payload,
+          },
+          rawBody: parsedBody?.raw,
+          trustedProxies,
+          contextFactory: options.contextFactory,
+        })).ctx
+        if (span) {
+          bindContextToSpan(ctx, span, parentContext, baggage)
+        }
+
+        // Handle based on type
+        if (isStream && method === 'GET') {
+          // Stream via SSE
+          await handleStream(req, res, procedure, url.searchParams, ctx)
+        } else if (isEvent && method === 'POST') {
+          // Fire-and-forget event
+          await handleEvent(req, res, procedure, ctx, parsedBody!.payload)
+        } else if (method === 'POST') {
+          // Regular procedure call
+          await handleProcedure(req, res, procedure, ctx, parsedBody!.payload)
+        } else {
+          sendErrorResponse(res, 405, 'METHOD_NOT_ALLOWED', `Method ${method} not allowed`)
+        }
+      } catch (err) {
+        const error = err as Error
+        span?.recordError(error)
+        logger.error({ err: error, procedure }, 'Request handler error')
+        if (ctx) {
+          applyRateLimitHeaders(res, ctx)
+        }
+        sendErrorResponse(res, 500, 'INTERNAL_ERROR', error.message)
+      } finally {
+        completeSpan()
+        logger.debug({ procedure, duration: Date.now() - startTime }, 'Request completed')
       }
-
-      ctx = (await createHttpRequestContext({
-        req,
-        res,
-        method,
-        url,
-        input: {
-          query: searchParamsToQuery(url.searchParams),
-          body: parsedBody?.payload,
-        },
-        rawBody: parsedBody?.raw,
-        trustedProxies,
-        contextFactory: options.contextFactory,
-      })).ctx
-      if (span) {
-        bindContextToSpan(ctx, span, parentContext)
-      }
-
-      // Handle based on type
-      if (isStream && method === 'GET') {
-        // Stream via SSE
-        await handleStream(req, res, procedure, url.searchParams, ctx)
-      } else if (isEvent && method === 'POST') {
-        // Fire-and-forget event
-        await handleEvent(req, res, procedure, ctx, parsedBody!.payload)
-      } else if (method === 'POST') {
-        // Regular procedure call
-        await handleProcedure(req, res, procedure, ctx, parsedBody!.payload)
-      } else {
-        sendErrorResponse(res, 405, 'METHOD_NOT_ALLOWED', `Method ${method} not allowed`)
-      }
-    } catch (err) {
-      const error = err as Error
-      span?.recordError(error)
-      logger.error({ err: error, procedure }, 'Request handler error')
-      if (ctx) {
-        applyRateLimitHeaders(res, ctx)
-      }
-      sendErrorResponse(res, 500, 'INTERNAL_ERROR', error.message)
-    } finally {
-      completeSpan()
-      logger.debug({ procedure, duration: Date.now() - startTime }, 'Request completed')
     }
   }
 

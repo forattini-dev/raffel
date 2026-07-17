@@ -19,9 +19,10 @@
  */
 
 import type { Interceptor, Envelope, Context } from '../types/index.js'
-import type { Tracer, SpanContext, TraceHeaders, SpanAttributes } from './types.js'
+import type { Tracer, SpanContext, TraceHeaders, SpanAttributes, Baggage } from './types.js'
 import { applyHttpRouteToSpan } from './http.js'
 import { hexTraceIdToDecimal, hexSpanIdToDecimal } from './decimal-id.js'
+import { parseBaggageHeader } from './baggage.js'
 
 /**
  * Create an interceptor that automatically traces requests
@@ -40,6 +41,15 @@ export function createTracingInterceptor(tracer: Tracer): Interceptor {
         tracestate: metadata.tracestate as string | undefined,
       })
     }
+
+    // Incoming baggage (business context, not trace identity) travels the
+    // same path as traceparent/tracestate — see extractMetadataFromHeaders.
+    // Always a (possibly empty) object, never undefined, so a handler can
+    // add a member (`ctx.tracing.baggage.tenantId = ...`) without a null
+    // check first.
+    const incomingBaggage: Baggage = metadata?.baggage
+      ? parseBaggageHeader(metadata.baggage as string)
+      : {}
 
     // Resolve HTTP-style span name + attributes when the transport set
     // `ctx.http`. We read defensively because the core `Context` interface
@@ -79,19 +89,20 @@ export function createTracingInterceptor(tracer: Tracer): Interceptor {
       attributes,
     })
 
-    // Set as active span
-    const previousSpan = tracer.getActiveSpan()
-    tracer.setActiveSpan(span)
-
     // Stash tracing context on `ctx` so downstream interceptors (logging,
     // metrics) and handlers can correlate. `ddTraceId` / `ddSpanId` are the
     // decimal 64-bit form expected by the Datadog Agent's log correlator.
+    // `baggage` is exposed read/write so a handler can add a member (e.g.
+    // `ctx.tracing.baggage.tenantId = ...`) before calling a downstream
+    // service — tracedFetch picks up whatever is active on the tracer at
+    // call time, not a frozen copy.
     ctx.tracing = {
       traceId: span.context.traceId,
       spanId: span.context.spanId,
       parentSpanId: parentContext?.spanId,
       ddTraceId: hexTraceIdToDecimal(span.context.traceId),
       ddSpanId: hexSpanIdToDecimal(span.context.spanId),
+      baggage: incomingBaggage,
     }
     if (ctx.logger?.child) {
       ctx.logger = ctx.logger.child({
@@ -114,25 +125,29 @@ export function createTracingInterceptor(tracer: Tracer): Interceptor {
       })
     }
 
-    try {
-      const result = await next()
+    // Run `next()` — and everything it awaits — with this span/baggage as
+    // active, correctly restoring the caller's previous span/baggage
+    // afterward regardless of how many awaits happen in between (see
+    // `runInSpanContext`'s docs for why a manual enterWith+restore pair
+    // doesn't do this reliably).
+    return tracer.runInSpanContext(span, incomingBaggage, async () => {
+      try {
+        const result = await next()
 
-      span.setStatus('ok')
-      span.finish()
+        span.setStatus('ok')
+        span.finish()
 
-      return result
-    } catch (error) {
-      if (error instanceof Error) {
-        span.recordError(error)
-      } else {
-        span.setStatus('error', String(error))
+        return result
+      } catch (error) {
+        if (error instanceof Error) {
+          span.recordError(error)
+        } else {
+          span.setStatus('error', String(error))
+        }
+        span.finish()
+        throw error
       }
-      span.finish()
-      throw error
-    } finally {
-      // Restore previous active span
-      tracer.setActiveSpan(previousSpan)
-    }
+    })
   }
 }
 

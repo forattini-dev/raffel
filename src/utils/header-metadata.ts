@@ -5,6 +5,7 @@ const STANDARD_METADATA_HEADERS = new Set([
   'x-request-id',
   'traceparent',
   'tracestate',
+  'baggage',
   'content-type',
   'accept',
   'cookie',

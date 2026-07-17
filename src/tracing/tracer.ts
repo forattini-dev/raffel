@@ -13,6 +13,7 @@ import type {
   SpanData,
   StartSpanOptions,
   TraceHeaders,
+  Baggage,
   Sampler,
 } from './types.js'
 import { createSpan, generateTraceId, generateSpanId } from './span.js'
@@ -40,8 +41,23 @@ export function createTracer(config: TracingConfig = {}): Tracer {
   const pendingSpans: SpanData[] = []
   let batchTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Async-context-safe active span storage
-  const asyncSpanStorage = new AsyncLocalStorage<Span>()
+  // Async-context-safe active span storage. Stores `Span | undefined` so
+  // "no active span" can be represented within the current async context via
+  // `enterWith(undefined)`. Deliberately not `disable()`: per Node's docs
+  // that call is meant to retire the storage instance for good ("use this
+  // method when the asyncLocalStorage is not in use anymore in the current
+  // process"), not to clear one request's span between requests — relying on
+  // it for routine per-request cleanup depends on unspecified behavior.
+  const asyncSpanStorage = new AsyncLocalStorage<Span | undefined>()
+
+  // Separate storage for baggage. Kept independent from the span storage
+  // rather than bundled into one context object because span and baggage
+  // have different lifetimes in practice (e.g. a span can be replaced by a
+  // child span mid-request while baggage usually stays constant) — as long
+  // as every call site that enters a new span context also enters baggage
+  // (see createTracingInterceptor / createHttpTracingMiddleware), the two
+  // stay in sync per request.
+  const asyncBaggageStorage = new AsyncLocalStorage<Baggage | undefined>()
 
   /**
    * Schedule batch export
@@ -147,13 +163,27 @@ export function createTracer(config: TracingConfig = {}): Tracer {
     },
 
     setActiveSpan(span) {
-      if (span) {
-        asyncSpanStorage.enterWith(span)
-      } else {
-        // Exiting the active span context — enterWith(undefined) is not
-        // supported, so we disable the store by entering a new empty context.
-        asyncSpanStorage.disable()
-      }
+      // `enterWith` only transitions the *current* async execution context —
+      // unlike `disable()`, it never touches other concurrent contexts
+      // sharing this tracer, so this is safe to call from every in-flight
+      // request without cross-request interference.
+      asyncSpanStorage.enterWith(span)
+    },
+
+    getBaggage() {
+      return asyncBaggageStorage.getStore()
+    },
+
+    setBaggage(baggage) {
+      asyncBaggageStorage.enterWith(baggage)
+    },
+
+    runInSpanContext(span, baggage, fn) {
+      // Nesting two `.run()` calls (rather than a single ALS holding a
+      // `{span, baggage}` tuple) keeps `getActiveSpan()`/`getBaggage()`
+      // reads independent and matches how the rest of this module already
+      // treats them as separate concerns.
+      return asyncSpanStorage.run(span, () => asyncBaggageStorage.run(baggage, fn))
     },
 
     extractContext(headers: TraceHeaders): SpanContext | undefined {

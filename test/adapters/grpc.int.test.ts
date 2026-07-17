@@ -12,6 +12,8 @@ import { createRegistry } from '../../src/core/registry.js'
 import { createRouter } from '../../src/core/router.js'
 import { createGrpcAdapter } from '../../src/adapters/grpc.js'
 import type { ClientStreamHandler } from '../../src/types/handlers.js'
+import { createTracer, injectGrpcMetadata } from '../../src/tracing/index.js'
+import type { SpanData, SpanExporter } from '../../src/tracing/types.js'
 
 const PROTO = `syntax = "proto3";
 
@@ -203,6 +205,101 @@ describe('gRPC adapter', () => {
     })
 
     expect(response).toEqual({ total: 6 })
+  })
+
+  it('creates a server span parented by an incoming traceparent and exposes baggage on ctx.tracing', async () => {
+    protoPath = await createTempProto()
+
+    const exportedSpans: SpanData[] = []
+    const exporter: SpanExporter = {
+      async export(spans) { exportedSpans.push(...spans) },
+      async shutdown() {},
+    }
+    const tracer = createTracer({ serviceName: 'svc-grpc', sampleRate: 1, exporters: [exporter], batchSize: 1 })
+
+    const registry = createRegistry()
+    let seenBaggage: Record<string, string> | undefined
+    registry.procedure('demo.Raffel.Greet', async (input: { name: string }, ctx) => {
+      seenBaggage = ctx.tracing?.baggage
+      return { message: `Hello, ${input.name}!` }
+    })
+
+    const router = createRouter(registry)
+    adapter = createGrpcAdapter(router, { port: 0, protoPath, tracer })
+    await adapter.start()
+
+    const address = adapter.address!
+    client = createClient(protoPath, `${address.host}:${address.port}`)
+
+    const parentTraceId = '0af7651916cd43dd8448eb211c80319c'
+    const parentSpanId = 'b7ad6b7169203331'
+    const metadata = new grpc.Metadata()
+    metadata.set('traceparent', `00-${parentTraceId}-${parentSpanId}-01`)
+    metadata.set('baggage', 'tenantId=acme,userId=u_42')
+
+    await new Promise<any>((resolve, reject) => {
+      ;(client as any).Greet({ name: 'Ana' }, metadata, (err: Error | null, res: any) => {
+        if (err) reject(err)
+        else resolve(res)
+      })
+    })
+
+    expect(seenBaggage).toEqual({ tenantId: 'acme', userId: 'u_42' })
+    expect(exportedSpans).toHaveLength(1)
+    expect(exportedSpans[0].traceId).toBe(parentTraceId)
+    expect(exportedSpans[0].parentSpanId).toBe(parentSpanId)
+    expect(exportedSpans[0].kind).toBe('server')
+    expect(exportedSpans[0].name).toBe('demo.Raffel/Greet')
+    expect(exportedSpans[0].attributes['rpc.system']).toBe('grpc')
+    expect(exportedSpans[0].status.code).toBe('ok')
+  })
+
+  it('injectGrpcMetadata carries the active span/baggage into an outbound call, continuing the same trace', async () => {
+    protoPath = await createTempProto()
+
+    const exportedSpans: SpanData[] = []
+    const exporter: SpanExporter = {
+      async export(spans) { exportedSpans.push(...spans) },
+      async shutdown() {},
+    }
+    const tracer = createTracer({ serviceName: 'svc-grpc', sampleRate: 1, exporters: [exporter], batchSize: 1 })
+
+    const registry = createRegistry()
+    registry.procedure('demo.Raffel.Greet', async (input: { name: string }) => {
+      return { message: `Hello, ${input.name}!` }
+    })
+
+    const router = createRouter(registry)
+    adapter = createGrpcAdapter(router, { port: 0, protoPath, tracer })
+    await adapter.start()
+
+    const address = adapter.address!
+    client = createClient(protoPath, `${address.host}:${address.port}`)
+
+    // Simulate an upstream service (A) that already has an active span and
+    // calls this gRPC service (B) using injectGrpcMetadata.
+    const upstreamSpan = tracer.startSpan('upstream-call')
+    tracer.setActiveSpan(upstreamSpan)
+    tracer.setBaggage({ tenantId: 'acme' })
+
+    const outboundMetadata = injectGrpcMetadata(tracer)
+
+    tracer.setActiveSpan(undefined)
+    tracer.setBaggage(undefined)
+
+    await new Promise<any>((resolve, reject) => {
+      ;(client as any).Greet({ name: 'Ana' }, outboundMetadata, (err: Error | null, res: any) => {
+        if (err) reject(err)
+        else resolve(res)
+      })
+    })
+    upstreamSpan.finish()
+
+    // upstream-call (root) + the gRPC server span (child) share one trace.
+    expect(exportedSpans).toHaveLength(2)
+    const serverSpan = exportedSpans.find((s) => s.kind === 'server')
+    expect(serverSpan?.traceId).toBe(upstreamSpan.context.traceId)
+    expect(serverSpan?.parentSpanId).toBe(upstreamSpan.context.spanId)
   })
 
   it('handles bidi streaming', async () => {
