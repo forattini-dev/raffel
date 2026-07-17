@@ -346,7 +346,7 @@ function createProcedureOperation(
         required: true,
         content: {
           'application/json': {
-            schema: createRef(schemaName),
+            schema: schemaToUse,
           },
         },
       }
@@ -405,14 +405,15 @@ function createProcedureResponses(
   // Success response
   if (handlerSchema?.output) {
     const schemaName = generateSchemaName(name, 'Output')
-    schemaRegistry.add(schemaName, handlerSchema.output)
+    const outputSchema = convertSchema(handlerSchema.output)
+    schemaRegistry.add(schemaName, outputSchema)
 
     responses['200'] = {
       description: 'Successful response',
       headers: commonHeaders,
       content: {
         'application/json': {
-          schema: createRef(schemaName),
+          schema: outputSchema,
         },
       },
     }
@@ -515,13 +516,14 @@ function createRestOperation(
   if (['post', 'put', 'patch'].includes(method)) {
     if (route.inputSchema) {
       const schemaName = `${schemaRef}${capitalizeFirst(route.operation)}Input`
-      schemaRegistry.add(schemaName, route.inputSchema)
+      const inputSchema = convertSchema(route.inputSchema)
+      schemaRegistry.add(schemaName, inputSchema)
       operation.requestBody = {
         required: method !== 'patch',
         description: method === 'patch' ? 'Partial update data' : 'Request body',
         content: {
           'application/json': {
-            schema: createRef(schemaName),
+            schema: inputSchema,
           },
         },
       }
@@ -563,6 +565,8 @@ function createRestResponses(
   const responses: USDResponses = {}
   const schemaRef = capitalizeFirst(resourceName)
 
+  const resourceSchema = resource.schema ? convertSchema(resource.schema) : { type: 'object' }
+
   switch (route.operation) {
     case 'list':
       responses['200'] = {
@@ -570,8 +574,8 @@ function createRestResponses(
         content: {
           'application/json': {
             schema: pagination
-              ? createPaginatedSchema(createRef(schemaRef), pagination.style)
-              : { type: 'array', items: createRef(schemaRef) },
+              ? createPaginatedSchema(resourceSchema, pagination.style)
+              : { type: 'array', items: resourceSchema },
           },
         },
       }
@@ -584,7 +588,7 @@ function createRestResponses(
         description: 'Resource details',
         content: {
           'application/json': {
-            schema: createRef(schemaRef),
+            schema: resourceSchema,
           },
         },
       }
@@ -595,7 +599,7 @@ function createRestResponses(
         description: 'Created resource',
         content: {
           'application/json': {
-            schema: createRef(schemaRef),
+            schema: resourceSchema,
           },
         },
       }
@@ -623,12 +627,13 @@ function createRestResponses(
       // Custom action
       if (route.outputSchema) {
         const schemaName = `${schemaRef}${capitalizeFirst(route.operation)}Output`
-        schemaRegistry.add(schemaName, route.outputSchema)
+        const outputSchema = convertSchema(route.outputSchema)
+        schemaRegistry.add(schemaName, outputSchema)
         responses['200'] = {
           description: 'Successful response',
           content: {
             'application/json': {
-              schema: createRef(schemaName),
+              schema: outputSchema,
             },
           },
         }
