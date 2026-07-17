@@ -311,11 +311,11 @@ server.procedure('users.create')
 server.procedure('orders.process')
   .handler(async (input, ctx) => {
     if (!ctx.auth?.authenticated) {
-      throw Errors.unauthenticated('Login required')
+      throw Errors.unauthorized('Login required')
     }
 
     if (!ctx.auth?.roles?.includes('admin')) {
-      throw Errors.permissionDenied('Admin access required')
+      throw Errors.forbidden('Admin access required')
     }
 
     const services = ctx.services as {

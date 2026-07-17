@@ -298,7 +298,7 @@ server
   .description('Full stock ticker - real-time prices for all stocks (requires authentication)')
   .handler(async function* (_, ctx) {
     if (!ctx.auth?.authenticated) {
-      throw Errors.unauthenticated('Authentication required for full stock feed')
+      throw Errors.unauthorized('Authentication required for full stock feed')
     }
 
     while (!ctx.signal?.aborted) {
@@ -316,12 +316,12 @@ server
   .description('Premium news feed - full news feed including premium content (premium users only)')
   .handler(async function* (_, ctx) {
     if (!ctx.auth?.authenticated) {
-      throw Errors.unauthenticated('Authentication required')
+      throw Errors.unauthorized('Authentication required')
     }
 
     const isPremium = ctx.auth.roles?.includes('premium') || ctx.auth.roles?.includes('admin')
     if (!isPremium) {
-      throw Errors.permissionDenied('Premium subscription required')
+      throw Errors.forbidden('Premium subscription required')
     }
 
     while (!ctx.signal?.aborted) {
@@ -345,7 +345,7 @@ server
   .description('Personal notifications - stream notifications for the authenticated user')
   .handler(async function* (_, ctx) {
     if (!ctx.auth?.authenticated) {
-      throw Errors.unauthenticated('Authentication required')
+      throw Errors.unauthorized('Authentication required')
     }
 
     const userId = ctx.auth.principal
@@ -381,7 +381,7 @@ server
   .description('System activity stream - real-time system activity (admin only)')
   .handler(async function* (_, ctx) {
     if (!ctx.auth?.roles?.includes('admin')) {
-      throw Errors.permissionDenied('Admin role required')
+      throw Errors.forbidden('Admin role required')
     }
 
     let eventId = 0

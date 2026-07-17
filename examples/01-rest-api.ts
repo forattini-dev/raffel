@@ -233,7 +233,7 @@ server
   .description('List all users')
   .output(z.array(UserSchema))
   .handler(async (_, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     return Array.from(db.users.values())
   })
 
@@ -244,7 +244,7 @@ server
   .input(z.object({ id: z.string() }))
   .output(UserSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const user = db.users.get(input.id)
     if (!user) throw Errors.notFound(`User ${input.id} not found`)
     return user
@@ -256,7 +256,7 @@ server
   .description('Get current authenticated user')
   .output(UserSchema)
   .handler(async (_, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const user = db.users.get(ctx.auth.principal!)
     if (!user) throw Errors.notFound('User not found')
     return user
@@ -269,7 +269,7 @@ server
   .input(z.object({ onlyPublished: z.boolean().default(true) }).optional())
   .output(z.array(PostSchema))
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
 
     const posts = Array.from(db.posts.values())
     if (input?.onlyPublished && !hasRole('admin')(ctx)) {
@@ -285,7 +285,7 @@ server
   .input(CreatePostSchema)
   .output(PostSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
 
     const post: Post = {
       id: sid(),
@@ -307,7 +307,7 @@ server
   .input(z.object({ id: z.string() }))
   .output(PostSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
 
     const post = db.posts.get(input.id)
     if (!post) throw Errors.notFound(`Post ${input.id} not found`)
@@ -326,7 +326,7 @@ server
   .input(z.object({ id: z.string() }))
   .output(z.object({ success: z.boolean() }))
   .handler(async (input, ctx) => {
-    if (!hasRole('admin')(ctx)) throw Errors.permissionDenied('Admin only')
+    if (!hasRole('admin')(ctx)) throw Errors.forbidden('Admin only')
 
     const post = db.posts.get(input.id)
     if (!post) throw Errors.notFound(`Post ${input.id} not found`)

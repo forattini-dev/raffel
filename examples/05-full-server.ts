@@ -335,7 +335,7 @@ server
   .description('List all users')
   .output(z.object({ users: z.array(UserSchema), total: z.number() }))
   .handler(async (_, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const users = Array.from(db.users.values())
     return { users, total: users.length }
   })
@@ -346,7 +346,7 @@ server
   .input(z.object({ id: z.string() }))
   .output(UserSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const user = db.users.get(input.id)
     if (!user) throw Errors.notFound(`User ${input.id} not found`)
     return user
@@ -370,7 +370,7 @@ server
   .description('List tasks for current user')
   .output(z.object({ tasks: z.array(TaskSchema), total: z.number() }))
   .handler(async (_, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const tasks = Array.from(db.tasks.values()).filter(
       (t) => t.userId === ctx.auth!.principal || hasRole('admin')(ctx)
     )
@@ -383,11 +383,11 @@ server
   .input(z.object({ id: z.string() }))
   .output(TaskSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const task = db.tasks.get(input.id)
     if (!task) throw Errors.notFound(`Task ${input.id} not found`)
     if (task.userId !== ctx.auth.principal && !hasRole('admin')(ctx)) {
-      throw Errors.permissionDenied()
+      throw Errors.forbidden()
     }
     return task
   })
@@ -398,7 +398,7 @@ server
   .input(z.object({ title: z.string().min(1).max(200) }))
   .output(TaskSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const task: Task = {
       id: sid(),
       title: input.title,
@@ -421,11 +421,11 @@ server
   }))
   .output(TaskSchema)
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const task = db.tasks.get(input.id)
     if (!task) throw Errors.notFound(`Task ${input.id} not found`)
     if (task.userId !== ctx.auth.principal && !hasRole('admin')(ctx)) {
-      throw Errors.permissionDenied()
+      throw Errors.forbidden()
     }
     const updated = {
       ...task,
@@ -443,11 +443,11 @@ server
   .input(z.object({ id: z.string() }))
   .output(z.object({ success: z.boolean() }))
   .handler(async (input, ctx) => {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
     const task = db.tasks.get(input.id)
     if (!task) throw Errors.notFound(`Task ${input.id} not found`)
     if (task.userId !== ctx.auth.principal && !hasRole('admin')(ctx)) {
-      throw Errors.permissionDenied()
+      throw Errors.forbidden()
     }
     db.tasks.delete(input.id)
     logger.info({ taskId: input.id }, 'Task deleted')
@@ -467,7 +467,7 @@ server
     uptime: z.number(),
   }))
   .handler(async (_, ctx) => {
-    if (!hasRole('admin')(ctx)) throw Errors.permissionDenied('Admin only')
+    if (!hasRole('admin')(ctx)) throw Errors.forbidden('Admin only')
     return {
       users: db.users.size,
       tasks: db.tasks.size,
@@ -509,7 +509,7 @@ server
   .stream('streams.activity')
   .description('Activity stream (authenticated)')
   .handler(async function* (_, ctx) {
-    if (!ctx.auth?.authenticated) throw Errors.unauthenticated()
+    if (!ctx.auth?.authenticated) throw Errors.unauthorized()
 
     let eventId = 0
     while (!ctx.signal?.aborted) {
