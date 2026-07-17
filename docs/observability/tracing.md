@@ -218,7 +218,7 @@ try {
 
 Context propagation is what turns isolated per-request spans into one
 connected trace across services. See
-[Distributed tracing across two Raffel apps](#distributed-tracing-across-two-raffel-apps)
+[Distributed tracing across A, B, and C](#distributed-tracing-across-a-b-and-c)
 below for the full picture — this section covers just the low-level
 primitives `extractTraceHeaders`/`injectTraceHeaders` wrap.
 
@@ -410,19 +410,31 @@ The `createTracingInterceptor` sets the span name to `${http.method} ${http.rout
 
 Non-HTTP transports (gRPC, JSON-RPC, WS, TCP, UDP) keep the span name as the procedure (e.g. `chat.message`) so they don't collapse into HTTP resource groups.
 
-### Distributed tracing across two Raffel apps
+### Distributed tracing across A, B, and C
 
-For the sidecar to stitch spans into one trace across services, the W3C `traceparent` header has to flow both ways:
+For the sidecar (or any OTel-compatible backend) to stitch spans from
+multiple services into one trace, the W3C `traceparent` header has to flow
+across every hop — A calls B, B calls C — not just the first one.
 
-**Inbound (already works).** `extractMetadataFromHeaders` (in `src/utils/header-metadata.ts`) already includes `traceparent` and `tracestate` in the request metadata. `createTracingInterceptor` reads it and uses the upstream span as parent.
+**Inbound (already works).** `extractMetadataFromHeaders` (in
+`src/utils/header-metadata.ts`) already includes `traceparent`, `tracestate`,
+and `baggage` in the request metadata. `createTracingInterceptor` reads
+`traceparent`/`tracestate` and uses the upstream span as parent, and reads
+`baggage` onto `ctx.tracing.baggage` (see
+[Baggage: cross-cutting context](#baggage-cross-cutting-context) below).
 
-**Outbound (use `tracedFetch`).** Raffel has no built-in HTTP client, so callers usually use the global `fetch`. Replace it with `tracedFetch(tracer, ...)` to inject `traceparent` automatically:
+**Outbound (use `tracedFetch`).** Raffel has no built-in HTTP client, so
+callers usually use the global `fetch`. Replace it with `tracedFetch(tracer,
+...)` to get propagation *and* a span for the call itself:
 
 ```ts
 import { createServer, tracedFetch } from 'raffel'
 
 server.procedure('orders.create').handler(async (input, ctx) => {
-  // No manual header wiring — `traceparent` is set from the current span
+  // tracedFetch starts its own `kind: 'client'` span (a child of the
+  // current span), injects traceparent/tracestate/baggage from that span
+  // into the request, and records the response status — or the thrown
+  // network error — on it before returning/rethrowing.
   const res = await tracedFetch(ctx.services.tracer, 'http://billing-svc.internal/payments.charge', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -432,7 +444,105 @@ server.procedure('orders.create').handler(async (input, ctx) => {
 })
 ```
 
-If there's no active span (tracing disabled, or this is a background task), `tracedFetch` falls back to plain `fetch` — wiring it unconditionally is safe.
+Because the downstream service's server span is parented by *this* client
+span (not directly by A's own server span), the network hop itself is
+visible in the trace: a slow, timed-out, or refused connection to B shows up
+as a long or errored client span on A even when the request never reaches B
+at all — something header injection alone can't represent.
+
+`tracedFetch` starts a span even when there is no active span yet (e.g. a
+background job or a startup health check) — it becomes the root of a new
+trace instead of silently skipping propagation. Pass `undefined`/`null` as
+the tracer to opt out entirely (plain `fetch`, no span, no headers).
+
+### Baggage: cross-cutting context
+
+Baggage ([W3C spec](https://www.w3.org/TR/baggage/)) propagates
+*application* data — a tenant id, a user id, a feature flag — across every
+hop of a call chain, separately from the trace identity in `traceparent`.
+Unlike a span attribute, baggage isn't attached to one span; it travels with
+the request through the `baggage` header and is available to every service
+in the chain without threading it through function signatures.
+
+Incoming baggage lands on `ctx.tracing.baggage` — always a (possibly empty)
+object, never `undefined`:
+
+```ts
+server.procedure('orders.create').handler(async (input, ctx) => {
+  console.log(ctx.tracing?.baggage) // { tenantId: 'acme', userId: 'u_42' }
+
+  // Add a member before calling downstream — tracedFetch reads whatever is
+  // active on the tracer at call time, not a frozen copy of ctx.tracing.
+  ctx.tracing!.baggage.orderId = input.orderId
+
+  const res = await tracedFetch(ctx.services.tracer, 'http://billing-svc.internal/payments.charge', {
+    method: 'POST',
+  })
+  return res.json()
+})
+```
+
+Set baggage manually (e.g. at the edge, before the first hop) with
+`tracer.setBaggage({...})`, or use the lower-level helpers directly:
+
+```ts
+import { parseBaggageHeader, serializeBaggageHeader } from 'raffel'
+
+parseBaggageHeader('tenantId=acme,userId=u_42')
+// { tenantId: 'acme', userId: 'u_42' }
+
+serializeBaggageHeader({ tenantId: 'acme', userId: 'u_42' })
+// 'tenantId=acme,userId=u_42'
+```
+
+Baggage is unauthenticated, unencrypted request data — never put secrets,
+tokens, or PII directly in it. Treat it like a header any client could set.
+
+### Distributed tracing over gRPC
+
+Raffel's gRPC server adapter (`createGrpcAdapter`) takes the same `tracer`
+option and extracts `traceparent`/`tracestate`/`baggage` from call metadata,
+so a trace that started over HTTP continues correctly when a later hop is
+gRPC:
+
+```ts
+import { createGrpcAdapter, createTracer } from 'raffel'
+
+const tracer = createTracer({ serviceName: 'billing-svc' })
+const adapter = createGrpcAdapter(router, { port: 50051, protoPath, tracer })
+```
+
+Raffel doesn't bundle a gRPC *client* — if this service also calls another
+gRPC service, inject the same metadata manually with
+`injectGrpcMetadata`, the gRPC-side equivalent of `tracedFetch`:
+
+```ts
+import * as grpc from '@grpc/grpc-js'
+import { injectGrpcMetadata } from 'raffel'
+
+const metadata = injectGrpcMetadata(tracer)
+client.createOrder(request, metadata, callback)
+```
+
+### Correctness note: why `runInSpanContext` exists
+
+Raffel's tracer tracks the active span/baggage per request using Node's
+`AsyncLocalStorage`. The obvious-looking pattern —
+`const previous = tracer.getActiveSpan(); tracer.setActiveSpan(span); try { await next() } finally { tracer.setActiveSpan(previous) }`
+— does **not** reliably restore the previous span once `await` is involved:
+`AsyncLocalStorage.enterWith()` mutates a shared ambient context rather than
+one scoped to the call, so the manual restore can leave the *wrong* span
+active for whatever runs next in that same continuation.
+
+`tracer.runInSpanContext(span, baggage, fn)` uses
+`AsyncLocalStorage.run()` instead, which properly scopes `span`/`baggage` to
+`fn` — including everything `fn` awaits — and always restores the caller's
+previous span/baggage once `fn` settles. Every built-in integration
+(`createTracingInterceptor`, `createHttpTracingMiddleware`, the HTTP and
+gRPC server adapters) uses `runInSpanContext` internally. Prefer it over
+`setActiveSpan`/`setBaggage` any time you need to scope a span across
+work that awaits — reach for `setActiveSpan`/`setBaggage` only for simple,
+non-restoring cases (e.g. setting baggage once at process startup).
 
 ### Required environment variables for the sidecar
 
