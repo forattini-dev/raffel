@@ -150,6 +150,21 @@ export interface LoggingConfig {
   /** Procedure patterns to exclude (e.g., ['health.*']) */
   excludeProcedures?: string[]
 
+  /**
+   * Log correlation profile. Selects which extra JSON fields are emitted
+   * alongside the hex `traceId` / `spanId` so a specific observability
+   * backend can auto-correlate logs with traces.
+   *
+   *   - `'datadog'`   — Datadog Agent sidecar (decimal `dd.*` fields)
+   *   - `'otel'`      — OpenTelemetry log data model (`trace_id` / `span_id`)
+   *   - `'honeycomb'` — Honeycomb-style nested keys (`trace.trace_id`)
+   *   - `'none'`      — opt out; only raffel hex camelCase is emitted
+   *
+   * When `undefined`, the interceptor auto-detects: any `DD_*` env var
+   * set → `datadog`, else → `otel`. Explicit value always wins.
+   */
+  correlationProfile?: 'datadog' | 'otel' | 'honeycomb' | 'none' | null
+
   /** Custom logger instance */
   logger?: {
     trace: (obj: object, msg?: string) => void

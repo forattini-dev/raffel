@@ -16,6 +16,10 @@ import { isRaffelLikeError } from '../../core/error.js'
 import { matchProcedurePattern } from '../../utils/pattern-match.js'
 import type { LoggingConfig, LogFilterContext } from '../types.js'
 import { createLogger } from '../../utils/logger.js'
+import {
+  resolveCorrelationProfile,
+  applyCorrelationFields,
+} from '../correlation-profile.js'
 
 /**
  * Shared default logger.
@@ -151,7 +155,14 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
     filter,
     excludeProcedures = [],
     logger = defaultLogger,
+    correlationProfile,
   } = config
+
+  // Resolve the effective profile once at construction time — config
+  // doesn't change between requests, so we don't need to re-resolve per
+  // log line. Auto-detection happens here, only when the caller didn't
+  // pass an explicit value.
+  const effectiveProfile = resolveCorrelationProfile(correlationProfile)
 
   return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     // Use WeakMap for memory-efficient timer storage
@@ -203,12 +214,32 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
         duration: parseFloat(duration.toFixed(3)),
       }
 
+      // HTTP route template (e.g. `/users/:id`) + method, when the
+      // transport populated `ctx.http`. Datadog auto-creates facets for
+      // any top-level JSON field, so emitting these makes the logs
+      // groupable by endpoint in the Logs Explorer — the same facet shape
+      // the APM view expects for resource grouping.
+      if (ctx.http?.method) {
+        logData['http.method'] = ctx.http.method
+      }
+      if (ctx.http?.route) {
+        logData['http.route'] = ctx.http.route
+      }
+      if (ctx.http?.path && ctx.http.path !== ctx.http.route) {
+        // `http.target` mirrors OTel's `url.path` — keep the raw URL for
+        // filtering, but only when it actually differs from the template
+        // (otherwise we'd be duplicating the route field).
+        logData['http.target'] = ctx.http.path
+      }
+
       // Add auth info if available
       if (ctx.auth?.principal) {
         logData.principal = ctx.auth.principal
       }
 
-      // Add tracing info
+      // Tracing: always emit the hex `traceId` / `spanId` (camelCase) so
+      // existing raffel log pipelines keep working unchanged. The profile
+      // helper below adds the backend-specific shape on top.
       if (ctx.tracing) {
         logData.traceId = ctx.tracing.traceId
         logData.spanId = ctx.tracing.spanId
@@ -216,6 +247,11 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
           logData.parentSpanId = ctx.tracing.parentSpanId
         }
       }
+
+      // Backend-specific correlation fields — `dd.*` for Datadog Agent,
+      // `trace_id` / `span_id` for OTel backends, `trace.trace_id` for
+      // Honeycomb. See `correlation-profile.ts` for the full table.
+      applyCorrelationFields(logData, effectiveProfile, ctx.tracing)
 
       // Add metadata with automatic redaction of sensitive headers
       if (includeMetadata && envelope.metadata) {

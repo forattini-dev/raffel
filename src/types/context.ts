@@ -94,6 +94,18 @@ export interface HttpContextCapability {
   readonly kind: 'http'
   readonly method: string
   readonly path: string
+  /**
+   * Matched route template (e.g. `/users/:id`), when the transport can
+   * resolve the request to a registered route. Falls back to the raw
+   * `path` for transports where path params aren't modeled (REST-RPC
+   * procedure API: `POST /users.get` has no template).
+   *
+   * Surfaced on the context so observers (logging interceptor, tracing
+   * interceptor, OpenAPI exporter) can group by the route template instead
+   * of the raw URL — the difference between a single facet (`GET /users/:id`)
+   * and millions (`GET /users/1`, `GET /users/2`, ...).
+   */
+  readonly route?: string
   readonly url: string
   readonly headers: Readonly<Record<string, string>>
   readonly clientIp?: string
@@ -324,14 +336,30 @@ export interface AuthContext {
  * Distributed tracing context
  */
 export interface TracingContext {
-  /** Distributed trace ID */
+  /** Distributed trace ID (hex) */
   traceId: string
 
-  /** Current span ID */
+  /** Current span ID (hex) */
   spanId: string
 
   /** Parent span ID (if any) */
   parentSpanId?: string
+
+  /**
+   * Same `traceId` as base64-decimal-encoded unsigned 64-bit integer, ready
+   * for the Datadog Agent log correlator (`dd.trace_id`). Empty string when
+   * the agent doesn't recognize the format — observability tooling can
+   * safely fall back to `traceId`.
+   *
+   * @see hexTraceIdToDecimal in `tracing/decimal-id.ts`
+   */
+  ddTraceId?: string
+
+  /**
+   * Same `spanId` as decimal-encoded unsigned 64-bit integer, for the
+   * Datadog Agent log correlator (`dd.span_id`).
+   */
+  ddSpanId?: string
 }
 
 /**
