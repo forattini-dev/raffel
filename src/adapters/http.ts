@@ -97,6 +97,13 @@ export interface HttpAdapterOptions {
   tracer?: Tracer
 
   /**
+   * Create Raffel's HTTP server span. Set to false when platform
+   * auto-instrumentation already owns the active server span.
+   * Default: true.
+   */
+  createServerSpan?: boolean
+
+  /**
    * When false, start() creates the http.Server but does not call listen().
    * Useful when an external TCP server manages connection dispatch (single-port mode).
    * Default: true
@@ -258,18 +265,23 @@ export function createHttpAdapter(
     let baggage: Baggage = {}
     let spanCompleted = false
     if (options.tracer) {
-      parentContext = extractHttpParentContext(options.tracer, req.headers)
       baggage = parseBaggageHeader(extractHttpBaggageHeader(req.headers))
-      span = startHttpServerSpan(options.tracer, {
-        method,
-        url,
-        protocolVersion: req.httpVersion,
-        route: getHttpTelemetryRoute(req)?.route,
-        procedure,
-        remoteAddress: req.socket?.remoteAddress,
-        remotePort: req.socket?.remotePort,
-      }, parentContext)
-      setTraceResponseHeaders(res, span)
+      if (options.createServerSpan !== false) {
+        parentContext = extractHttpParentContext(options.tracer, req.headers)
+        span = startHttpServerSpan(options.tracer, {
+          method,
+          url,
+          protocolVersion: req.httpVersion,
+          route: getHttpTelemetryRoute(req)?.route,
+          procedure,
+          remoteAddress: req.socket?.remoteAddress,
+          remotePort: req.socket?.remotePort,
+        }, parentContext)
+        setTraceResponseHeaders(res, span)
+      } else {
+        span = options.tracer.getActiveSpan()
+        spanCompleted = true
+      }
     }
 
     const completeSpan = () => {

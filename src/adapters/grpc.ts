@@ -297,6 +297,7 @@ export function createGrpcAdapter(
         responseStream: method.responseStream,
       }, parentContext)
       ctx.tracing = {
+        ...ctx.tracing,
         traceId: span.context.traceId,
         spanId: span.context.spanId,
         parentSpanId: parentContext?.spanId,

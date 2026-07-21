@@ -8,7 +8,11 @@ import type { Interceptor } from '../types/index.js'
 import type { MetricsConfig, MetricRegistry } from '../metrics/index.js'
 import type { TracingConfig, Tracer } from '../tracing/index.js'
 import { createMetricRegistry, createMetricsInterceptor, startProcessMetricsCollection } from '../metrics/index.js'
-import { createTracer, createTracingInterceptor } from '../tracing/index.js'
+import {
+  createGlobalOpenTelemetryTracer,
+  createTracer,
+  createTracingInterceptor,
+} from '../tracing/index.js'
 
 export interface StopTask {
   name: string
@@ -34,6 +38,7 @@ export interface TelemetryRegistryLike {
 
 export interface TelemetryStartupContext {
   registry: TelemetryRegistryLike
+  router?: { use(interceptor: Interceptor): void }
   startupStopTasks: StopTask[]
   registerStopTask?: (task: StopTask) => void
   globalInterceptors: Interceptor[]
@@ -90,9 +95,12 @@ export function configureTracing(
     batchSize: config.batchSize ?? 100,
     batchTimeout: config.batchTimeout ?? 5000,
     defaultAttributes: config.defaultAttributes ?? {},
+    useGlobalOpenTelemetry: config.useGlobalOpenTelemetry ?? false,
   }
 
-  state.tracerInstance = createTracer(state.tracingConfig)
+  state.tracerInstance = state.tracingConfig.useGlobalOpenTelemetry
+    ? createGlobalOpenTelemetryTracer()
+    : createTracer(state.tracingConfig)
 }
 
 export async function initializeTelemetry(
@@ -138,7 +146,19 @@ export async function initializeTelemetry(
       'Initializing tracing'
     )
 
-    globalInterceptors.unshift(createTracingInterceptor(state.tracerInstance))
+    const tracingInterceptor = createTracingInterceptor(
+      state.tracerInstance,
+      {
+        spanName: 'raffel.procedure',
+        spanKind: 'internal',
+        preferActiveParent: true,
+      }
+    )
+    if (context.router) {
+      context.router.use(tracingInterceptor)
+    } else {
+      globalInterceptors.unshift(tracingInterceptor)
+    }
     addStopTask(context, {
       name: 'tracing',
       stop: async () => {

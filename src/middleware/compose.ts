@@ -7,6 +7,47 @@
 import type { Interceptor, Envelope, Context } from '../types/index.js'
 import { procedurePatternToRegex } from '../utils/pattern-match.js'
 
+const INTERCEPTOR_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/
+
+/**
+ * Give an onion interceptor an operational name and mark its lifecycle plus
+ * the boundaries immediately before and after `next()` on the active trace.
+ */
+export function namedInterceptor(name: string, interceptor: Interceptor): Interceptor {
+  if (!INTERCEPTOR_NAME_PATTERN.test(name)) {
+    throw new TypeError(
+      'Interceptor name must be 1-64 characters using letters, numbers, dot, underscore, or hyphen'
+    )
+  }
+
+  const attributes = (envelope: Envelope) => ({
+    'raffel.interceptor': name,
+    'raffel.procedure': envelope.procedure,
+  })
+
+  return async (envelope, ctx, next) => {
+    const eventAttributes = attributes(envelope)
+    let nextCalled = false
+    ctx.tracing.event(`interceptor.${name}.enter`, eventAttributes)
+    try {
+      return await interceptor(envelope, ctx, async () => {
+        nextCalled = true
+        ctx.tracing.event(`interceptor.${name}.before-next`, eventAttributes)
+        try {
+          return await next()
+        } finally {
+          ctx.tracing.event(`interceptor.${name}.after-next`, eventAttributes)
+        }
+      })
+    } finally {
+      if (!nextCalled) {
+        ctx.tracing.event(`interceptor.${name}.short-circuit`, eventAttributes)
+      }
+      ctx.tracing.event(`interceptor.${name}.exit`, eventAttributes)
+    }
+  }
+}
+
 /**
  * Compose multiple interceptors into one (left-to-right execution order)
  *
@@ -168,4 +209,3 @@ export function branch(
  * Useful as a placeholder or default value.
  */
 export const passthrough: Interceptor = (_envelope, _ctx, next) => next()
-

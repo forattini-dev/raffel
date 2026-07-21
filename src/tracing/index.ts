@@ -73,6 +73,8 @@ export {
 
 // Tracer
 export { createTracer } from './tracer.js'
+export { createGlobalOpenTelemetryTracer } from './opentelemetry.js'
+export type { GlobalOpenTelemetryTracerOptions } from './opentelemetry.js'
 
 // Datadog-friendly helpers
 export { hexTraceIdToDecimal, hexSpanIdToDecimal } from './decimal-id.js'
@@ -99,6 +101,7 @@ export {
   extractTraceHeaders,
   injectTraceHeaders,
 } from './interceptor.js'
+export type { TracingInterceptorOptions } from './interceptor.js'
 
 export {
   applyHttpRouteToSpan,

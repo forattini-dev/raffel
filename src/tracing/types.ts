@@ -44,6 +44,7 @@ export interface SpanContext {
   spanId: string
   traceFlags: number // 1 = sampled
   traceState?: string
+  isRemote?: boolean
 }
 
 /**
@@ -241,6 +242,13 @@ export interface TracingConfig {
 
   /** Default attributes for all spans */
   defaultAttributes?: SpanAttributes
+
+  /**
+   * Use the OpenTelemetry provider already registered by the host platform.
+   * Raffel will create internal child spans and will not install, flush, or
+   * shut down that provider.
+   */
+  useGlobalOpenTelemetry?: boolean
 }
 
 /**

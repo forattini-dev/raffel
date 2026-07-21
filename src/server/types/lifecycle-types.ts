@@ -237,6 +237,11 @@ export interface RaffelServer {
    * // Spans are automatically created for requests
    * // W3C Trace Context headers are propagated
    * ```
+   *
+   * When the host platform already installed a global OpenTelemetry provider
+   * (for example Datadog Single-Step Instrumentation), use
+   * `{ useGlobalOpenTelemetry: true }` to add Raffel's internal procedure and
+   * handler spans without creating a second HTTP server span.
    */
   enableTracing(config?: TracingConfig): this
 

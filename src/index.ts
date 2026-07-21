@@ -63,6 +63,9 @@ export type {
   AuthRequirement,
   Principal,
   TracingContext,
+  TracingContextSeed,
+  TraceOperation,
+  TraceEvent,
   ContextSeed,
   ContextInput,
   ContextLogger,
@@ -307,6 +310,7 @@ export {
   createJWKSVerifier,
   // Composition
   compose,
+  namedInterceptor,
   when,
   forProcedures,
   forPattern,
@@ -659,6 +663,7 @@ export type {
 export {
   // Tracer
   createTracer,
+  createGlobalOpenTelemetryTracer,
   // Span
   createSpan,
   generateTraceId,
@@ -705,6 +710,8 @@ export type {
   JaegerExporterOptions,
   ZipkinExporterOptions,
   OtlpHttpExporterOptions,
+  GlobalOpenTelemetryTracerOptions,
+  TracingInterceptorOptions,
 } from './tracing/index.js'
 
 // === Developer Experience (DX) ===

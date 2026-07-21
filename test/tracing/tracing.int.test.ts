@@ -4,7 +4,20 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createServer as createNodeHttpServer } from 'node:http'
+import {
+  context as otelContext,
+  createTraceState,
+  SpanKind as OtelSpanKind,
+  trace as otelTrace,
+} from '@opentelemetry/api'
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks'
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
 import { createServer } from '../../src/server/builder.js'
+import { namedInterceptor } from '../../src/index.js'
 import { HttpApp } from '../../src/http/index.js'
 import {
   createTracer,
@@ -795,6 +808,141 @@ describe('Tracing', () => {
 
       expect(tracer.getBaggage()).toEqual({ outer: 'value' })
     })
+
+    it('traces a focused application operation without exporting sensitive attributes', async () => {
+      const interceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('orders.get')
+      const ctx = { requestId: 'req-1' } as any
+
+      await interceptor(envelope, ctx, async () => {
+        return ctx.tracing.trace(
+          'cache.agent-context.get',
+          {
+            'cache.system': 'valkey',
+            'cache.key': 'agent-context:oid-123:token-456',
+            'enduser.document': '123.456.789-00',
+            'request.oid': 'oid-123',
+            'auth.token': 'token-456',
+            'lookup.value': '123.456.789-00',
+            'operation.target': 'oid-123',
+            'request.value': 'token-456',
+            'cache.lookup': 'agent-context:tenant-1:agent-2',
+            'lead.reference': '00Q5g00000ABCDe',
+            'credential.value': 'uFh8Kp2zR4mN7wQ9',
+            'cache.path': 'agent-context/tenant-1/agent-2',
+          },
+          async () => 'cached-value'
+        )
+      })
+
+      const operationSpan = exportedSpans.find(
+        (span) => span.name === 'cache.agent-context.get'
+      )
+      expect(operationSpan).toBeDefined()
+      expect(operationSpan?.attributes).toEqual({
+        'service.name': 'test',
+        'cache.system': 'valkey',
+      })
+      const procedureSpan = exportedSpans.find((span) => span.name === 'orders.get')
+      expect(operationSpan?.parentSpanId).toBe(procedureSpan?.spanId)
+    })
+
+    it('marks enter, next, and exit phases for a named onion interceptor', async () => {
+      const tracingInterceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('orders.get')
+      const ctx = { requestId: 'req-1' } as any
+      const execution: string[] = []
+      const interceptor = namedInterceptor(
+        'agent-context',
+        async (_envelope, _ctx, next) => {
+          execution.push('interceptor.before')
+          const result = await next()
+          execution.push('interceptor.after')
+          return result
+        }
+      )
+
+      await tracingInterceptor(envelope, ctx, async () =>
+        interceptor(envelope, ctx, async () => {
+          execution.push('handler')
+          return { ok: true }
+        })
+      )
+
+      expect(execution).toEqual([
+        'interceptor.before',
+        'handler',
+        'interceptor.after',
+      ])
+      const procedureSpan = exportedSpans.find((span) => span.name === 'orders.get')
+      expect(procedureSpan?.logs.map((entry) => entry.message)).toEqual([
+        'interceptor.agent-context.enter',
+        'interceptor.agent-context.before-next',
+        'interceptor.agent-context.after-next',
+        'interceptor.agent-context.exit',
+      ])
+      expect(procedureSpan?.logs.map((entry) => entry.fields)).toEqual([
+        {
+          'raffel.interceptor': 'agent-context',
+          'raffel.procedure': 'orders.get',
+        },
+        {
+          'raffel.interceptor': 'agent-context',
+          'raffel.procedure': 'orders.get',
+        },
+        {
+          'raffel.interceptor': 'agent-context',
+          'raffel.procedure': 'orders.get',
+        },
+        {
+          'raffel.interceptor': 'agent-context',
+          'raffel.procedure': 'orders.get',
+        },
+      ])
+    })
+
+    it('marks a named interceptor that short-circuits without calling next', async () => {
+      const tracingInterceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('orders.get')
+      const ctx = { requestId: 'req-1' } as any
+      const interceptor = namedInterceptor(
+        'cache-hit',
+        async () => ({ cached: true })
+      )
+
+      const result = await tracingInterceptor(envelope, ctx, async () =>
+        interceptor(envelope, ctx, async () => ({ cached: false }))
+      )
+
+      expect(result).toEqual({ cached: true })
+      const procedureSpan = exportedSpans.find((span) => span.name === 'orders.get')
+      expect(procedureSpan?.logs.map((entry) => entry.message)).toEqual([
+        'interceptor.cache-hit.enter',
+        'interceptor.cache-hit.short-circuit',
+        'interceptor.cache-hit.exit',
+      ])
+    })
+
+    it('marks a named interceptor that throws before calling next', async () => {
+      const tracingInterceptor = createTracingInterceptor(tracer)
+      const envelope = createEnvelope('orders.get')
+      const ctx = { requestId: 'req-1' } as any
+      const interceptor = namedInterceptor('authorization', async () => {
+        throw new Error('denied')
+      })
+
+      await expect(tracingInterceptor(envelope, ctx, async () =>
+        interceptor(envelope, ctx, async () => ({ ok: true }))
+      )).rejects.toThrow('denied')
+
+      const procedureSpan = exportedSpans.find((span) => span.name === 'orders.get')
+      expect(procedureSpan?.logs.map((entry) => entry.message)).toEqual([
+        'interceptor.authorization.enter',
+        'interceptor.authorization.short-circuit',
+        'interceptor.authorization.exit',
+        'Error',
+      ])
+    })
   })
 
   describe('Datadog log correlation (hex → decimal ID)', () => {
@@ -1102,6 +1250,55 @@ describe('Tracing', () => {
         expect(httpSpan?.attributes['http.request.method']).toBe('GET')
         expect(httpSpan?.attributes['http.response.status_code']).toBe(200)
         expect(httpSpan?.attributes['raffel.procedure']).toBe('get:/users/:id')
+        const procedureSpan = exportedSpans.find(
+          (span) => span.name === 'raffel.procedure'
+        )
+        const handlerSpan = exportedSpans.find((span) => span.name === 'raffel.handler')
+        expect(procedureSpan?.parentSpanId).toBe(httpSpan?.spanId)
+        expect(handlerSpan?.parentSpanId).toBe(procedureSpan?.spanId)
+      } finally {
+        await server.stop()
+      }
+    })
+
+    it('creates a raffel.handler child span only for the route handler execution', async () => {
+      const exportedSpans: SpanData[] = []
+      const port = await getFreePort()
+      const server = createServer({ port, host: '127.0.0.1' })
+      server.enableTracing({
+        serviceName: 'handler-span-test',
+        exporters: [{
+          async export(spans) {
+            exportedSpans.push(...spans)
+          },
+          async shutdown() {},
+        }],
+        batchSize: 1,
+      })
+
+      server.http.get('/work', async () => ({ ok: true }))
+
+      try {
+        await server.start()
+        const response = await fetch(`http://127.0.0.1:${port}/work`)
+        expect(response.status).toBe(200)
+
+        await server.tracer?.flush()
+        const handlerSpan = exportedSpans.find((span) => span.name === 'raffel.handler')
+        expect(handlerSpan).toBeDefined()
+        expect(handlerSpan?.kind).toBe('internal')
+        expect(handlerSpan?.attributes).toMatchObject({
+          'raffel.procedure': 'get:/work',
+          'raffel.handler.kind': 'procedure',
+        })
+
+        const parentSpan = exportedSpans.find(
+          (span) => span.spanId === handlerSpan?.parentSpanId
+        )
+        expect(parentSpan).toBeDefined()
+        expect(parentSpan?.name).toBe('raffel.procedure')
+        expect(parentSpan?.kind).toBe('internal')
+        expect(parentSpan?.attributes['rpc.method']).toBe('get:/work')
       } finally {
         await server.stop()
       }
@@ -1131,6 +1328,74 @@ describe('Tracing', () => {
       expect(httpSpan?.attributes['http.response.status_code']).toBe(200)
 
       await tracer.shutdown()
+    })
+  })
+
+  describe('OpenTelemetry global tracer', () => {
+    it('nests Raffel spans under the active platform server span without creating another server span', async () => {
+      const exporter = new InMemorySpanExporter()
+      const provider = new BasicTracerProvider({
+        spanProcessors: [new SimpleSpanProcessor(exporter)],
+      })
+      const contextManager = new AsyncLocalStorageContextManager().enable()
+      otelTrace.setGlobalTracerProvider(provider)
+      otelContext.setGlobalContextManager(contextManager)
+
+      const port = await getFreePort()
+      const server = createServer({ port, host: '127.0.0.1' })
+      server.enableTracing({ useGlobalOpenTelemetry: true })
+      server.http.get('/orders/:id', async (_input: unknown, ctx: any) => ({
+        id: ctx.params.id,
+      }))
+
+      try {
+        const platformTracer = otelTrace.getTracer('platform')
+        const vendorTraceState = 'dd=s:1;o:rum'
+        const remoteParent = otelTrace.setSpanContext(otelContext.active(), {
+          traceId: '0af7651916cd43dd8448eb211c80319c',
+          spanId: 'b7ad6b7169203331',
+          traceFlags: 1,
+          traceState: createTraceState(vendorTraceState),
+          isRemote: true,
+        })
+        await otelContext.with(
+          remoteParent,
+          () => platformTracer.startActiveSpan(
+            'platform.http.server',
+            { kind: OtelSpanKind.SERVER },
+            async (serverSpan) => {
+              await server.start()
+              const response = await fetch(`http://127.0.0.1:${port}/orders/order-1`)
+              expect(response.status).toBe(200)
+              expect(await response.json()).toEqual({ id: 'order-1' })
+              serverSpan.end()
+            }
+          )
+        )
+
+        await provider.forceFlush()
+        const spans = exporter.getFinishedSpans()
+        const serverSpans = spans.filter((span) => span.kind === OtelSpanKind.SERVER)
+        expect(serverSpans.map((span) => span.name)).toEqual(['platform.http.server'])
+
+        const procedureSpan = spans.find((span) => span.name === 'raffel.procedure')
+        const handlerSpan = spans.find((span) => span.name === 'raffel.handler')
+        expect(spans.map((span) => span.name)).toContain('raffel.procedure')
+        expect(spans.map((span) => span.name)).toContain('raffel.handler')
+        expect(procedureSpan?.parentSpanContext?.spanId).toBe(serverSpans[0].spanContext().spanId)
+        expect(handlerSpan?.parentSpanContext?.spanId).toBe(procedureSpan?.spanContext().spanId)
+        expect(procedureSpan?.spanContext().traceState?.serialize()).toBe(vendorTraceState)
+        expect(procedureSpan?.attributes).toMatchObject({
+          'raffel.procedure': 'get:/orders/:id',
+          'http.route': '/orders/:id',
+        })
+        expect(procedureSpan?.attributes['url.path']).toBeUndefined()
+      } finally {
+        await server.stop()
+        await provider.shutdown()
+        otelTrace.disable()
+        otelContext.disable()
+      }
     })
   })
 
