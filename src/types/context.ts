@@ -261,7 +261,7 @@ export interface StreamContextCapability {
 
 export interface ContextSeed {
   auth?: Partial<AuthContext> | null
-  tracing?: TracingContext
+  tracing?: TracingContextSeed
   signal?: AbortSignal
   deadline?: number
   contract?: ContractContext
@@ -335,6 +335,17 @@ export interface AuthContext {
 /**
  * Distributed tracing context
  */
+export type TraceOperation = <T>(
+  name: string,
+  attributes: Record<string, string | number | boolean>,
+  operation: () => Promise<T> | T
+) => Promise<T>
+
+export type TraceEvent = (
+  name: string,
+  attributes?: Record<string, string | number | boolean>
+) => void
+
 export interface TracingContext {
   /** Distributed trace ID (hex) */
   traceId: string
@@ -369,6 +380,26 @@ export interface TracingContext {
    * — `tracedFetch` reads whatever is active on the tracer at call time.
    */
   baggage?: Record<string, string>
+
+  /**
+   * Trace one focused asynchronous operation as a child of the active Raffel
+   * span. The callback still runs normally when tracing is not configured.
+   */
+  trace: TraceOperation
+
+  /** Add a timestamped event to the currently active span. */
+  event: TraceEvent
+}
+
+export type TracingContextSeed = Omit<TracingContext, 'trace' | 'event'> &
+  Partial<Pick<TracingContext, 'trace' | 'event'>>
+
+export function normalizeTracingContext(tracing: TracingContextSeed): TracingContext {
+  return {
+    ...tracing,
+    trace: tracing.trace ?? (async (_name, _attributes, operation) => operation()),
+    event: tracing.event ?? (() => {}),
+  }
 }
 
 /**
@@ -609,10 +640,11 @@ export function createContext(
 ): Context {
   return {
     requestId,
-    tracing: options.tracing ?? {
+    tracing: normalizeTracingContext({
       traceId: requestId,
       spanId: requestId,
-    },
+      ...options.tracing,
+    }),
     signal: options.signal ?? new AbortController().signal,
     deadline: options.deadline,
     auth: createAuthContext(options.auth),

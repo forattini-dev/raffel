@@ -167,6 +167,7 @@ export function bindContextToSpan(
   baggage?: Record<string, string>
 ): void {
   ctx.tracing = {
+    ...ctx.tracing,
     traceId: span.context.traceId,
     spanId: span.context.spanId,
     parentSpanId: parentContext?.spanId,

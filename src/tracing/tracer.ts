@@ -18,6 +18,7 @@ import type {
 } from './types.js'
 import { createSpan, generateTraceId, generateSpanId } from './span.js'
 import { createCompositeSampler, createParentBasedSampler } from './sampler.js'
+import { formatW3CTraceContext, parseW3CTraceContext } from './trace-context.js'
 
 /**
  * Create a new Tracer instance
@@ -187,34 +188,11 @@ export function createTracer(config: TracingConfig = {}): Tracer {
     },
 
     extractContext(headers: TraceHeaders): SpanContext | undefined {
-      const traceparent = headers.traceparent
-      if (!traceparent) return undefined
-
-      // W3C Trace Context format: 00-traceId-spanId-flags
-      // Example: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
-      const parts = traceparent.split('-')
-      if (parts.length !== 4) return undefined
-
-      const [version, traceId, spanId, flags] = parts
-
-      if (version !== '00') return undefined
-      if (traceId.length !== 32) return undefined
-      if (spanId.length !== 16) return undefined
-
-      return {
-        traceId,
-        spanId,
-        traceFlags: parseInt(flags, 16),
-        traceState: headers.tracestate,
-      }
+      return parseW3CTraceContext(headers)
     },
 
     injectContext(context: SpanContext): TraceHeaders {
-      const flags = context.traceFlags.toString(16).padStart(2, '0')
-      return {
-        traceparent: `00-${context.traceId}-${context.spanId}-${flags}`,
-        tracestate: context.traceState,
-      }
+      return formatW3CTraceContext(context)
     },
 
     async flush() {

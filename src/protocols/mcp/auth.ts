@@ -245,7 +245,12 @@ export function createMcpAuthFromStrategy(strategy: AuthStrategy): McpAuthProvid
             hasRole: () => false,
             hasScope: () => false,
           },
-          tracing: { traceId: 'mcp-auth', spanId: 'mcp-auth' },
+          tracing: {
+            traceId: 'mcp-auth',
+            spanId: 'mcp-auth',
+            trace: async (_name, _attributes, operation) => operation(),
+            event: () => {},
+          },
           signal: new AbortController().signal,
           input: {
             body: undefined,

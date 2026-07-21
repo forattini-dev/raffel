@@ -113,6 +113,7 @@ export function createExecutionBootstrap(context: ServerLifecycleExecutionContex
 
     await initializeTelemetry(telemetryState, {
       registry,
+      router,
       startupStopTasks: [],
       registerStopTask,
       globalInterceptors,

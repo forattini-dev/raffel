@@ -30,7 +30,18 @@ server.enableTracing({
 await server.start()
 ```
 
-`enableTracing()` creates one server span per incoming HTTP request and child spans for Raffel procedure execution.
+`enableTracing()` creates this timing breakdown:
+
+```text
+HTTP server span
+└── raffel.procedure       # interceptors + handler
+    └── raffel.handler     # only the registered handler
+```
+
+The difference between `raffel.procedure` and `raffel.handler` is time spent
+in the onion interceptor pipeline. `raffel.handler` starts only when the
+registered handler actually runs. For an async stream it remains open while
+the iterator is consumed and records errors raised after a `yield`.
 
 HTTP request spans include stable OpenTelemetry-style attributes:
 
@@ -47,6 +58,63 @@ HTTP request spans include stable OpenTelemetry-style attributes:
 Responses also include `x-trace-id` and `x-span-id` headers for operational lookup.
 
 ## Datadog
+
+### Datadog Single-Step Instrumentation or another global OTel provider
+
+When the platform already installs an OpenTelemetry-compatible provider and
+creates the HTTP server span, reuse it:
+
+```ts
+const server = createServer({ port: 3000 })
+
+server.enableTracing({
+  useGlobalOpenTelemetry: true,
+})
+```
+
+In this mode Raffel obtains its tracer from `@opentelemetry/api`, creates
+`raffel.procedure` and `raffel.handler` under the platform's active server
+span, and does not install an exporter or create another HTTP server span.
+The platform remains responsible for sampling, exporting, flushing, and
+shutting down the global provider.
+
+Do not configure a second Raffel OTLP exporter for the same service when this
+mode is enabled; that would produce overlapping telemetry pipelines.
+
+### Dependency spans: SQS, S3, databases, and Redis
+
+Raffel keeps `raffel.handler` active while the handler awaits downstream work.
+This gives dependency instrumentations the correct parent automatically:
+
+```text
+platform.http.server
+└── raffel.procedure
+    └── raffel.handler
+        ├── aws.sqs.send
+        ├── aws.s3.get_object
+        ├── db.query
+        └── redis.command
+```
+
+The dependency spans themselves come from the integration that owns each
+client:
+
+- Datadog Single-Step Instrumentation or installed OpenTelemetry
+  instrumentations can create spans for supported AWS SDKs, database drivers,
+  and Redis clients without Raffel-specific wrappers.
+- Coverage depends on the concrete SDK/driver and the instrumentations enabled
+  by the host platform. Raffel does not inspect arbitrary client objects or
+  promise automatic coverage for every library.
+- For an unsupported client or a focused application operation, use
+  `ctx.tracing.trace(...)` around exactly the awaited call. That span receives
+  the active `raffel.handler` (or interceptor procedure span) as its parent.
+
+In production, validate the instrumentation matrix for the actual AWS,
+PostgreSQL/MySQL, and Redis packages used by the service. Add focused helper
+spans only for gaps; do not wrap a call that the platform already instruments,
+or the trace will contain duplicate dependency spans.
+
+### Raffel-owned exporter
 
 Use OTLP/HTTP with a Datadog Agent or OpenTelemetry Collector configured to receive traces:
 
@@ -147,6 +215,56 @@ try {
 }
 ```
 
+For a focused application dependency, prefer the request-scoped helper. It
+places the span under the currently active handler and measures exactly the
+awaited operation:
+
+```ts
+server.procedure('orders.get').handler(async (input, ctx) => {
+  return ctx.tracing.trace(
+    'cache.agent-context.get',
+    { 'cache.system': 'valkey' },
+    () => cache.get(input.agentId)
+  )
+})
+```
+
+Attribute keys associated with credentials, personal documents/OIDs, and
+complete cache keys are dropped automatically. Suspicious values are filtered
+as well, including documents, token/OID-shaped identifiers, JWTs, and complete
+cache keys. String attributes use a conservative allowlist of low-cardinality
+semantic keys such as `cache.system`, `db.system`, and `db.operation.name`;
+arbitrary string keys are omitted. The helper is always available; without
+tracing it simply executes the callback. Do not put secrets or personal
+identifiers in span names.
+
+## Named onion interceptors
+
+`namedInterceptor` adds timestamped lifecycle and `next()` phase events. This
+exposes the pre-handler and post-handler portions without creating one
+misleading span around the entire onion middleware:
+
+```ts
+import { namedInterceptor } from 'raffel'
+
+server.use(namedInterceptor('agent-context', async (envelope, ctx, next) => {
+  ctx.agent = await loadAgentContext(envelope, ctx)
+  return next()
+}))
+```
+
+The active `raffel.procedure` span receives:
+
+- `interceptor.agent-context.enter`
+- `interceptor.agent-context.before-next`
+- `interceptor.agent-context.after-next`
+- `interceptor.agent-context.exit`
+
+If the interceptor returns or throws without invoking the next onion layer,
+Raffel also records `interceptor.agent-context.short-circuit`. The time between
+`enter` and `before-next` is pre-`next()` work; the time between `after-next`
+and `exit` is post-`next()` work.
+
 ## Exporters
 
 ```ts
@@ -178,6 +296,7 @@ import {
 | `batchSize` | Export batch size |
 | `batchTimeout` | Export interval in milliseconds |
 | `defaultAttributes` | Attributes added to every span |
+| `useGlobalOpenTelemetry` | Reuse the host's global OTel provider and server span |
 
 `Span` supports `setAttribute`, `setAttributes`, `log`, `setStatus`, `recordError`, `updateName`, and `finish`.
 
@@ -253,26 +372,22 @@ fallback when tracing is disabled.
 
 The tracing interceptor automatically:
 
-- Creates a root span for each procedure call
+- Creates a span for each procedure call
 - Extracts trace context from incoming requests
-- Records procedure name, input size, and duration
+- Records the procedure name and duration
 - Captures errors and sets span status
 
 ```ts
 server.use(createTracingInterceptor(tracer, {
-  // Skip procedures
-  exclude: ['health.check'],
-
-  // Custom span naming
-  spanName: (procedure) => `rpc.${procedure}`,
-
-  // Add custom attributes
-  attributes: (input, ctx) => ({
-    'user.id': ctx.auth?.principal,
-    'tenant.id': ctx.auth?.claims?.tenantId,
-  }),
+  spanName: 'raffel.procedure',
+  spanKind: 'internal',
+  preferActiveParent: true,
 }))
 ```
+
+`server.enableTracing()` configures those procedure-span options
+automatically. Direct `createTracingInterceptor(tracer)` calls keep the
+standalone legacy defaults.
 
 ## Integration with Observability Platforms
 
@@ -400,7 +515,10 @@ The legacy `traceId` / `spanId` (hex) and `procedure` fields remain, so any in-h
 
 ### Span naming for Datadog APM
 
-The `createTracingInterceptor` sets the span name to `${http.method} ${http.route}` (e.g. `GET /users/:id`) when the request came in over HTTP, plus the OpenTelemetry HTTP semantic attributes:
+The HTTP adapter names Raffel-owned server spans as
+`${http.method} ${http.route}` (for example `GET /users/:id`). The procedure
+interceptor below that server span uses the stable name `raffel.procedure`,
+and exposes the route and procedure through OpenTelemetry attributes:
 
 - `http.request.method`
 - `http.route`
@@ -408,7 +526,8 @@ The `createTracingInterceptor` sets the span name to `${http.method} ${http.rout
 - `rpc.method` (kept for back-compat with existing dashboards)
 - `rpc.system: "raffel"`
 
-Non-HTTP transports (gRPC, JSON-RPC, WS, TCP, UDP) keep the span name as the procedure (e.g. `chat.message`) so they don't collapse into HTTP resource groups.
+Non-HTTP transports use the same `raffel.procedure` name and distinguish the
+operation through `raffel.procedure` / `rpc.method` attributes.
 
 ### Distributed tracing across A, B, and C
 

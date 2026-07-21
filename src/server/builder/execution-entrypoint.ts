@@ -108,6 +108,11 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
         ...step.entrypoint.httpAdapter,
         middleware: httpMiddleware.length > 0 ? httpMiddleware : undefined,
         tracer: telemetryState.tracerInstance ?? undefined,
+        // A platform-managed global provider (for example Datadog SSI)
+        // already owns the active HTTP server span. Keep the tracer here to
+        // bind that context through the request, but do not create a second
+        // server span.
+        createServerSpan: !telemetryState.tracingConfig?.useGlobalOpenTelemetry,
       }),
       name: 'http',
       registerStopTask,

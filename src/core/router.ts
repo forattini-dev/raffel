@@ -18,7 +18,11 @@ import type {
   RegisteredHandler,
   DeliveryGuarantee,
 } from '../types/index.js'
-import { createAuthContext, stripTransportCapabilities } from '../types/context.js'
+import {
+  createAuthContext,
+  normalizeTracingContext,
+  stripTransportCapabilities,
+} from '../types/context.js'
 import { createResponseEnvelope, createErrorEnvelope, type ErrorPayload } from '../types/envelope.js'
 import type { Registry } from './registry.js'
 import {
@@ -105,6 +109,22 @@ function compileInterceptorExecutor(
   }
 
   return stages[0]!
+}
+
+function invokeTracedHandler<T>(
+  ctx: Context,
+  procedure: string,
+  kind: 'procedure' | 'stream' | 'event',
+  handler: () => Promise<T> | T
+): Promise<T> {
+  return ctx.tracing.trace(
+    'raffel.handler',
+    {
+      'raffel.procedure': procedure,
+      'raffel.handler.kind': kind,
+    },
+    handler
+  )
 }
 
 /**
@@ -223,6 +243,7 @@ function createHandlerContext(
   return createContextWithCall(
     {
       ...context,
+      tracing: normalizeTracingContext(context.tracing),
       extensions: new Map(context.extensions),
       contract: {
         name: meta.name,
@@ -386,7 +407,12 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
       retryPolicy: registered.meta.retryPolicy,
       deduplicationWindow: registered.meta.deduplicationWindow,
       execute: async (envelope, ctx, payload, ack) => {
-        await execute(envelope, ctx, async () => handler(payload, ctx, ack))
+        await execute(envelope, ctx, () => invokeTracedHandler(
+          ctx,
+          envelope.procedure,
+          'event',
+          () => handler(payload, ctx, ack)
+        ))
       },
     }
 
@@ -436,7 +462,12 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             const result = await plan.execute(
               envelope,
               ctxWithCall,
-              async () => plan.handler(payload, ctxWithCall)
+              () => invokeTracedHandler(
+                ctxWithCall,
+                procedure,
+                'procedure',
+                () => plan.handler(payload, ctxWithCall)
+              )
             )
             return createResponseEnvelope(envelope, result)
           }
@@ -455,7 +486,12 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
               const result = (await plan.execute(
                 envelope,
                 ctxWithCall,
-                async () => plan.handler(payload, ctxWithCall)
+                () => invokeTracedHandler(
+                  ctxWithCall,
+                  procedure,
+                  'stream',
+                  () => plan.handler(payload, ctxWithCall)
+                )
               )) as AsyncIterable<unknown> | RaffelStream<unknown>
               return wrapStreamInEnvelopes(envelope, result)
             }
@@ -472,7 +508,12 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
               const result = await plan.execute(
                 envelope,
                 ctxWithCall,
-                async () => plan.handler(payload, ctxWithCall)
+                () => invokeTracedHandler(
+                  ctxWithCall,
+                  procedure,
+                  'stream',
+                  () => plan.handler(payload, ctxWithCall)
+                )
               )
               return createResponseEnvelope(envelope, result)
             }
@@ -480,7 +521,12 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
             const result = (await plan.execute(
               envelope,
               ctxWithCall,
-              async () => plan.handler(payload, ctxWithCall)
+              () => invokeTracedHandler(
+                ctxWithCall,
+                procedure,
+                'stream',
+                () => plan.handler(payload, ctxWithCall)
+              )
             )) as AsyncIterable<unknown> | RaffelStream<unknown>
             return wrapStreamInEnvelopes(envelope, result)
           }
