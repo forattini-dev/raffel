@@ -81,6 +81,111 @@ shutting down the global provider.
 Do not configure a second Raffel OTLP exporter for the same service when this
 mode is enabled; that would produce overlapping telemetry pipelines.
 
+#### Bootstrap order: Datadog must load before Raffel
+
+`useGlobalOpenTelemetry` reuses the provider that is already registered; it
+does not load or initialize Datadog. The Datadog tracer must be loaded before
+Raffel and before instrumented libraries such as `node:http`, AWS SDK clients,
+database drivers, and Redis clients. Otherwise those modules can be loaded too
+early for Datadog to patch them, resulting in missing HTTP or dependency spans.
+
+For a manual `dd-trace` setup, install it as a production dependency:
+
+```bash
+pnpm add dd-trace
+```
+
+Raffel requires Node.js 22 or newer, so the recommended ESM startup command is
+the Datadog preload based on Node's `--import` flag:
+
+```json
+{
+  "scripts": {
+    "start": "node --import dd-trace/initialize.mjs dist/server.js"
+  }
+}
+```
+
+Configure the process environment as well:
+
+```dotenv
+DD_TRACE_OTEL_ENABLED=true
+DD_SERVICE=orders-api
+DD_ENV=production
+DD_VERSION=1.2.3
+```
+
+`DD_TRACE_OTEL_ENABLED=true` enables Datadog's OpenTelemetry API
+interoperability. Without it, Raffel's `raffel.procedure`, `raffel.handler`,
+and manual `ctx.tracing.trace(...)` spans are not handled by the Datadog global
+provider. The service, environment, and version variables provide Datadog's
+unified service tags.
+
+The application configuration stays small:
+
+```ts
+const server = createServer({ port: 3000 })
+
+server.enableTracing({
+  useGlobalOpenTelemetry: true,
+})
+
+await server.start()
+```
+
+Using `--import dd-trace/initialize.mjs` is important: it initializes Datadog
+and installs its ESM loader before the application's module graph is evaluated.
+A static `import 'dd-trace/init'` inside the application entry point is not a
+reliable substitute when that file also statically imports Raffel or a client
+library, because ESM dependencies are evaluated before the entry point body.
+See Datadog's [Node.js tracing setup](https://docs.datadoghq.com/tracing/trace_collection/dd_libraries/nodejs/)
+and [Node.js library configuration](https://docs.datadoghq.com/tracing/trace_collection/library_config/nodejs/).
+
+#### Datadog Single-Step Instrumentation
+
+With Single-Step Instrumentation, the Datadog injector supplies and preloads
+`dd-trace` before the Node.js process starts. The application does not need to
+install `dd-trace` or add the manual `--import` flag. It still needs:
+
+```dotenv
+DD_TRACE_OTEL_ENABLED=true
+DD_SERVICE=orders-api
+DD_ENV=production
+DD_VERSION=1.2.3
+```
+
+Keep `useGlobalOpenTelemetry: true` in Raffel and use the application's normal
+start command. Do not combine Single-Step Instrumentation with the manual
+Datadog preload unless the platform's Datadog instructions explicitly require
+it; initializing the tracer twice can create duplicate or inconsistent
+instrumentation.
+
+Before releasing, verify that injection really happened:
+
+- In Datadog Fleet Automation, confirm that the service reports successful
+  library injection; or inspect the injector diagnostics described in the
+  [Single-Step troubleshooting guide](https://docs.datadoghq.com/tracing/trace_collection/single-step-apm/troubleshooting/).
+- In the running process or container configuration, `DD_INJECTION_ENABLED`
+  should include `tracer`, and `NODE_OPTIONS` should contain the Datadog Node.js
+  preload supplied by the injector.
+- Send one request and confirm that the trace contains exactly one HTTP server
+  span followed by `raffel.procedure` and `raffel.handler`.
+- Exercise one real SQS, S3, database, or Redis call and confirm its dependency
+  span is a child of `raffel.handler`.
+
+Use this symptom guide when validation fails:
+
+| Symptom | Most likely cause |
+| --- | --- |
+| HTTP span exists, but Raffel spans do not | `DD_TRACE_OTEL_ENABLED` is absent or false |
+| Raffel spans exist, but a dependency span does not | The specific client/version is unsupported, disabled, or loaded before Datadog |
+| No Datadog HTTP span exists | `dd-trace` was not preloaded or Single-Step injection failed |
+| Two HTTP root spans or duplicate dependency spans exist | More than one tracer/provider/exporter is instrumenting the same operation |
+
+In global-provider mode, do not also install an application-owned OpenTelemetry
+SDK provider or configure Raffel exporters. There must be one owner for the
+provider, HTTP root span, sampling, and export pipeline: Datadog in this setup.
+
 ### Dependency spans: SQS, S3, databases, and Redis
 
 Raffel keeps `raffel.handler` active while the handler awaits downstream work.
