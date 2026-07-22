@@ -84,17 +84,70 @@ configured position. Disabled layers are removed from the hot path.
 
 ### Redis or Valkey as L3
 
+Raffel receives an already configured Redis-compatible client. Connection
+strings, credentials, TLS, cluster discovery, reconnect policy, and connection
+pooling therefore stay with `ioredis`, `node-redis`, or the client chosen by the
+application. Install that client in the application; Raffel does not add it as
+a runtime dependency.
+
+With `ioredis`, the same setup supports a local Redis/Valkey container, ACL
+credentials, and TLS URLs:
+
 ```ts
 import Redis from 'ioredis'
 import { createRedisCacheLayer } from 'raffel/cache'
 
-const redis = new Redis(process.env.REDIS_URL)
+// Examples:
+// redis://localhost:6379/0
+// redis://default:password@localhost:6379/0
+// rediss://default:password@cache.example.com:6379/0
+const redis = new Redis(process.env.REDIS_URL!)
 
 server.provide('sharedCache', () => createRedisCacheLayer({
   id: 'l3',
   client: redis,
   ttlMs: 60 * 60_000,
   prefix: 'my-service:',
+}))
+```
+
+For AWS ElastiCache for Valkey/Redis OSS, pass the endpoint, authentication
+token or ACL credentials, and TLS configuration to the client:
+
+```ts
+const valkey = new Redis({
+  host: process.env.VALKEY_HOST,
+  port: Number(process.env.VALKEY_PORT ?? 6379),
+  username: process.env.VALKEY_USERNAME || undefined,
+  password: process.env.VALKEY_PASSWORD || undefined,
+  tls: process.env.VALKEY_TLS === 'true' ? {} : undefined,
+})
+
+server.provide('sharedCache', () => createRedisCacheLayer({
+  id: 'l3',
+  client: valkey,
+  ttlMs: 60 * 60_000,
+}))
+```
+
+Passwordless deployments work by omitting `username` and `password`. For AWS
+IAM authentication, token generation and renewal belong to the selected
+client's connection/authentication setup; the resulting connected client is
+used by the same cache adapter.
+
+The node-redis client is also supported:
+
+```ts
+import { createClient } from 'redis'
+
+const redis = createClient({ url: process.env.REDIS_URL })
+await redis.connect()
+
+server.provide('sharedCache', () => createRedisCacheLayer({
+  id: 'l3',
+  client: redis,
+  clientStyle: 'node-redis',
+  ttlMs: 60 * 60_000,
 }))
 ```
 
