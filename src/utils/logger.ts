@@ -41,6 +41,15 @@ function buildDefaultLogger(): pino.Logger {
 
   return pino({
     level: process.env.LOG_LEVEL ?? (isDev ? 'debug' : 'info'),
+    // Serialize `err` payloads through pino's std error serializer so a raw
+    // `Error` logged as `log.warn({ err }, msg)` keeps its message + stack
+    // instead of collapsing to `{}` (Error.message/.stack are non-enumerable,
+    // so without a serializer JSON.stringify drops them). The interceptor's
+    // `error` key is already a hand-built plain object carrying `stack`, so it
+    // deliberately gets no serializer here (one would only re-wrap it).
+    serializers: {
+      err: pino.stdSerializers.err,
+    },
     transport: wantsPretty
       ? {
           target: 'pino-pretty',

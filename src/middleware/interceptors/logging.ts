@@ -268,11 +268,15 @@ export function createLoggingInterceptor(config: LoggingConfig = {}): Intercepto
         logData.response = result
       }
 
-      // Add error info
+      // Add error info. `stack` is required by Datadog Error Tracking (and any
+      // sink that groups by stack); without it a 5xx log shows up as "Missing
+      // error message and stack trace". Emitted last so it never shadows the
+      // structured name/message/code fields above.
       if (error) {
         logData.error = {
           name: error.name,
           message: error.message,
+          stack: error.stack,
           ...(isRaffelLikeError(error) && { code: error.code }),
         }
       }
@@ -340,6 +344,7 @@ export function createProductionLoggingInterceptor(config: {
           logData.error = {
             name: error.name,
             message: error.message,
+            stack: error.stack,
             ...(isRaffelLikeError(error) && { code: error.code }),
           }
           logger.error(logData)
