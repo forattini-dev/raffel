@@ -69,6 +69,17 @@ describe('createLoggingInterceptor', () => {
     ).rejects.toThrow('Test error')
 
     expect(logs.some(l => l.level === 'error')).toBe(true)
+
+    // The error payload must carry name, message, AND stack — Datadog Error
+    // Tracking drops the log as "Missing error message and stack trace" when
+    // the stack is absent.
+    const errorLog = logs.find(l => l.level === 'error')
+    const errorData = (
+      errorLog?.data as { error?: { name?: string; message?: string; stack?: string } }
+    )?.error
+    expect(errorData?.name).toBe('Error')
+    expect(errorData?.message).toBe('Test error')
+    expect(errorData?.stack).toContain('Error: Test error')
   })
 
   it('should skip excluded procedures', async () => {
