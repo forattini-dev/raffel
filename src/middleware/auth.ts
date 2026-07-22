@@ -34,6 +34,9 @@ export interface AuthStrategy {
   /** Strategy name for identification */
   name: string
 
+  /** Detect credentials without authenticating, used to keep public cache buckets safe. */
+  credentialsPresented?(envelope: Envelope, ctx: Context): boolean
+
   /**
    * Authenticate the request
    * @param envelope - The incoming envelope with metadata
@@ -75,6 +78,10 @@ export function createBearerStrategy(options: BearerTokenOptions): AuthStrategy 
 
   return {
     name: 'bearer',
+    credentialsPresented(envelope): boolean {
+      const value = getMetadataValue(envelope.metadata, headerName)
+      return value !== undefined
+    },
     async authenticate(envelope: Envelope): Promise<AuthResult | null> {
       const authHeader = envelope.metadata?.[headerName] || envelope.metadata?.['Authorization']
 
@@ -110,6 +117,9 @@ export function createApiKeyStrategy(options: ApiKeyOptions): AuthStrategy {
 
   return {
     name: 'api-key',
+    credentialsPresented(envelope): boolean {
+      return getMetadataValue(envelope.metadata, headerName) !== undefined
+    },
     async authenticate(envelope: Envelope): Promise<AuthResult | null> {
       const apiKey = envelope.metadata?.[headerName]
 
@@ -178,6 +188,16 @@ export function createCookieSessionStrategy(options: CookieSessionOptions): Auth
 
   return {
     name: 'cookie-session',
+    credentialsPresented(envelope): boolean {
+      const cookieHeader = getMetadataValue(envelope.metadata, 'cookie')
+      if (!cookieHeader) return false
+      try {
+        const cookies = parseCookies(cookieHeader)
+        return Boolean(cookies[cookieName] || cookies[`${cookieName}.__chunks`])
+      } catch {
+        return true
+      }
+    },
     async authenticate(envelope: Envelope, ctx: Context): Promise<AuthResult | null> {
       // Get cookie header from metadata
       const cookieHeader = envelope.metadata?.['cookie'] || envelope.metadata?.['Cookie']
@@ -338,6 +358,18 @@ export function createEnhancedBearerStrategy(options: EnhancedBearerTokenOptions
 
   return {
     name: 'bearer-enhanced',
+    credentialsPresented(envelope, ctx): boolean {
+      if (extractFrom.includes('header')) {
+        const value = getMetadataValue(envelope.metadata, headerName)
+        if (value !== undefined) return true
+      }
+      if (!extractFrom.includes('query')) return false
+      const metadata = envelope.metadata as Record<string, unknown>
+      const queryObj = metadata['query'] as Record<string, unknown> | undefined
+      return Object.prototype.hasOwnProperty.call(metadata, queryParam) ||
+        Boolean(queryObj && Object.prototype.hasOwnProperty.call(queryObj, queryParam)) ||
+        Object.prototype.hasOwnProperty.call(ctx.input.query, queryParam)
+    },
     async authenticate(envelope: Envelope, ctx: Context): Promise<AuthResult | null> {
       let token: string | undefined
 
@@ -415,6 +447,20 @@ export function createEnhancedApiKeyStrategy(options: EnhancedApiKeyOptions): Au
 
   return {
     name: 'api-key-enhanced',
+    credentialsPresented(envelope, ctx): boolean {
+      if (
+        extractFrom.includes('header') &&
+        getMetadataValue(envelope.metadata, headerName) !== undefined
+      ) {
+        return true
+      }
+      if (!extractFrom.includes('query')) return false
+      const metadata = envelope.metadata as Record<string, unknown>
+      const queryObj = metadata['query'] as Record<string, unknown> | undefined
+      return Object.prototype.hasOwnProperty.call(metadata, queryParam) ||
+        Boolean(queryObj && Object.prototype.hasOwnProperty.call(queryObj, queryParam)) ||
+        Object.prototype.hasOwnProperty.call(ctx.input.query, queryParam)
+    },
     async authenticate(envelope: Envelope, ctx: Context): Promise<AuthResult | null> {
       let apiKey: string | undefined
 
@@ -710,6 +756,20 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Intercepto
       return next()
     }
 
+    const credentialsPresented = strategies.some((strategy) => {
+      try {
+        return strategy.credentialsPresented?.(envelope, ctx) ?? false
+      } catch {
+        return true
+      }
+    })
+    if (credentialsPresented && !ctx.auth.credentialsPresented) {
+      ;(ctx as { auth: AuthContext }).auth = createAuthContext({
+        ...ctx.auth,
+        credentialsPresented: true,
+      })
+    }
+
     // Check if procedure is public (leading-slash / extension / wildcard tolerant)
     if (isPublicProcedure(envelope.procedure)) {
       return next()
@@ -742,6 +802,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Intercepto
     // Attach auth context
     const authContext: AuthContext = createAuthContext({
       authenticated: true,
+      credentialsPresented: true,
       principal: authResult.principal,
       claims: {
         ...authResult.claims,

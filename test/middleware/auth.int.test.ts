@@ -406,6 +406,39 @@ describe('Authentication Middleware', () => {
       expect(result).toEqual({ ok: true })
     })
 
+    it('marks custom API-key credentials on public procedures without authenticating them', async () => {
+      const verify = vi.fn()
+      const middleware = createAuthMiddleware({
+        strategies: [createApiKeyStrategy({ verify, headerName: 'x-service-token' })],
+        publicProcedures: ['public'],
+      })
+      const envelope = createTestEnvelope('public', { 'x-service-token': 'rejected' })
+      const next = vi.fn().mockResolvedValue({ ok: true })
+
+      await middleware(envelope, envelope.context, next)
+
+      expect(verify).not.toHaveBeenCalled()
+      expect(envelope.context.auth.credentialsPresented).toBe(true)
+      expect(envelope.context.auth.authenticated).toBe(false)
+    })
+
+    it('marks a present malformed custom bearer header on public procedures', async () => {
+      const middleware = createAuthMiddleware({
+        strategies: [createBearerStrategy({
+          headerName: 'x-service-token',
+          tokenPrefix: 'Bearer ',
+          verify: vi.fn(),
+        })],
+        publicProcedures: ['public'],
+      })
+      const envelope = createTestEnvelope('public', { 'x-service-token': 'malformed' })
+
+      await middleware(envelope, envelope.context, vi.fn().mockResolvedValue({ ok: true }))
+
+      expect(envelope.context.auth.credentialsPresented).toBe(true)
+      expect(envelope.context.auth.authenticated).toBe(false)
+    })
+
     it('should throw UNAUTHENTICATED when no strategy matches', async () => {
       const middleware = createAuthMiddleware({
         strategies: [createBearerStrategy({ verify: async () => null })],

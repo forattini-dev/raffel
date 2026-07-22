@@ -91,6 +91,13 @@ function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Inte
       return next()
     }
 
+    if (authConfig && hasPresentedCredentials(envelope, authConfig)) {
+      ctx.auth = createAuthContext({
+        ...ctx.auth,
+        credentialsPresented: true,
+      })
+    }
+
     // Try to authenticate
     if (authConfig?.verify || authConfig?.strategy) {
       const authenticated = await tryAuthenticate(envelope, ctx, authConfig)
@@ -109,6 +116,7 @@ function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Inte
     if (authConfig?.anonymous) {
       ctx.auth = createAuthContext({
         authenticated: false,
+        credentialsPresented: ctx.auth.credentialsPresented,
         principal: authConfig.anonymous.principal,
         claims: {
           ...(authConfig.anonymous.claims ?? {}),
@@ -146,6 +154,7 @@ async function tryAuthenticate(envelope: Envelope, ctx: Context, authConfig: Aut
     if (result) {
       ctx.auth = createAuthContext({
         authenticated: true,
+        credentialsPresented: true,
         principal: result.principal,
         claims: {
           ...(result.claims ?? {}),
@@ -159,6 +168,14 @@ async function tryAuthenticate(envelope: Envelope, ctx: Context, authConfig: Aut
   }
 
   return false
+}
+
+function hasPresentedCredentials(envelope: Envelope, authConfig: AuthConfig): boolean {
+  const metadata = envelope.metadata
+  if (authConfig.strategy === 'api-key') {
+    return metadata['x-api-key'] !== undefined || metadata.apiKey !== undefined
+  }
+  return metadata.authorization !== undefined || metadata.Authorization !== undefined
 }
 
 /**

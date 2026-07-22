@@ -12,6 +12,108 @@ import {
 import { createRedisCacheLayer } from '../../src/cache/redis-layer.js'
 
 describe('TieredCache', () => {
+  it('keeps arbitrary service namespaces structurally isolated', async () => {
+    const layer = createMemoryCacheLayer({ id: 'shared', ttlMs: 60_000 })
+    const billing = createTieredCache({ namespace: 'billing', layers: [layer] })
+    const billingV2 = createTieredCache({ namespace: 'billing:v2', layers: [layer] })
+
+    await billing.set('v2:item', { service: 'billing' })
+
+    expect(await billingV2.get('item')).toBeUndefined()
+    expect((await billing.get('v2:item'))?.value).toEqual({ service: 'billing' })
+    await Promise.all([billing.shutdown(), billingV2.shutdown()])
+  })
+
+  it('rejects duplicate physical layer ids in the core factory', () => {
+    expect(() => createTieredCache({
+      namespace: 'duplicate-layers',
+      layers: [
+        createMemoryCacheLayer({ id: 'same', ttlMs: 60_000 }),
+        createMemoryCacheLayer({ id: 'same', ttlMs: 60_000 }),
+      ],
+    })).toThrow('Cache layer id "same" is duplicated')
+  })
+
+  it('invalidates tagged entries without removing unrelated entries', async () => {
+    const cache = createTieredCache({
+      namespace: 'tagged',
+      layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
+    })
+    await cache.set('leads:list', { ids: [1] }, { tags: ['node:stone'] })
+    await cache.set('leads:detail:1', { id: 1 }, { tags: ['lead:1'] })
+
+    const result = await cache.invalidateTag('node:stone')
+
+    expect(result).toEqual({
+      mode: 'physical',
+      deleted: 1,
+      layers: { l1: { mode: 'physical', deleted: 1 } },
+    })
+    expect(await cache.get('leads:list')).toBeUndefined()
+    expect((await cache.get('leads:detail:1'))?.value).toEqual({ id: 1 })
+    await cache.shutdown()
+  })
+
+  it('counts tag metadata against the configured L1 byte budget', () => {
+    const layer = createMemoryCacheLayer({
+      id: 'l1',
+      ttlMs: 60_000,
+      maxMemoryBytes: 64,
+    })
+    const now = Date.now()
+
+    layer.set('catalog:one', {
+      value: 1,
+      tags: ['x'.repeat(100)],
+      createdAt: now,
+      expiresAt: now,
+      version: 1,
+    }, 60_000)
+
+    expect(layer.stats?.().totalItems).toBe(0)
+    expect(layer.stats?.().memoryUsageBytes).toBe(0)
+    layer.shutdown?.()
+  })
+
+  it('persists tag invalidation metadata in the filesystem layer', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'raffel-tagged-fs-'))
+    const cache = createTieredCache({
+      namespace: 'tagged-fs',
+      layers: [createFileSystemCacheLayer({ id: 'l2', directory, ttlMs: 60_000 })],
+    })
+    try {
+      await cache.set('leads:list', { ids: [1] }, { tags: ['node:stone'] })
+      await cache.set('leads:detail:1', { id: 1 }, { tags: ['lead:1'] })
+
+      const result = await cache.invalidateTag('node:stone')
+
+      expect(result.deleted).toBe(1)
+      expect(await cache.get('leads:list')).toBeUndefined()
+      expect((await cache.get('leads:detail:1'))?.value).toEqual({ id: 1 })
+    } finally {
+      await cache.shutdown()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('invalidates a namespace-scoped logical key prefix', async () => {
+    const cache = createTieredCache({
+      namespace: 'prefix',
+      layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
+    })
+    await cache.set('leads:list:open', { status: 'open' })
+    await cache.set('leads:list:closed', { status: 'closed' })
+    await cache.set('leads:detail:1', { id: 1 })
+
+    const result = await cache.invalidatePrefix('leads:list:')
+
+    expect(result.deleted).toBe(2)
+    expect(await cache.get('leads:list:open')).toBeUndefined()
+    expect(await cache.get('leads:list:closed')).toBeUndefined()
+    expect((await cache.get('leads:detail:1'))?.value).toEqual({ id: 1 })
+    await cache.shutdown()
+  })
+
   it('returns an L1 value by reference without consulting lower layers', async () => {
     const lowerGet = vi.fn<CacheLayer['get']>()
     const lower: CacheLayer = {
@@ -254,6 +356,53 @@ describe('TieredCache', () => {
     expect(writes).toEqual([{ version: 1 }, { version: 2 }])
   })
 
+  it('serializes a provider used as lower and profile-first layer', async () => {
+    let active = 0
+    let maxActive = 0
+    let calls = 0
+    let releaseFirst!: () => void
+    let announceFirst!: () => void
+    const firstStarted = new Promise<void>((resolve) => { announceFirst = resolve })
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let stored: unknown
+    const provider: CacheLayer = {
+      id: 'shared',
+      async get() { return undefined },
+      async set(_key, record) {
+        const call = ++calls
+        active++
+        maxActive = Math.max(maxActive, active)
+        if (call === 1) {
+          announceFirst()
+          await firstGate
+        }
+        stored = record.value
+        active--
+      },
+      async delete() {},
+      async clearNamespace() {},
+    }
+    const cache = createTieredCache({
+      namespace: 'profile-ordering',
+      layers: [
+        createMemoryCacheLayer({ id: 'local', ttlMs: 60_000 }),
+        provider,
+      ],
+    })
+    const shared = cache.selectLayers(['shared'])
+
+    await cache.set('same', { version: 1 })
+    await firstStarted
+    const second = shared.set('same', { version: 2 })
+    await Promise.resolve()
+
+    expect(maxActive).toBe(1)
+    releaseFirst()
+    await second
+    await cache.shutdown()
+    expect(stored).toEqual({ version: 2 })
+  })
+
   it('orders exact invalidation after an active write-behind task', async () => {
     let releaseWrite!: () => void
     let markStarted!: () => void
@@ -286,6 +435,68 @@ describe('TieredCache', () => {
     await Promise.resolve()
     releaseWrite()
     await invalidation
+
+    expect(stored.size).toBe(0)
+    await cache.shutdown()
+  })
+
+  it('orders exact invalidation after an active asynchronous first-layer write', async () => {
+    let releaseWrite!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+    const stored = new Map<string, unknown>()
+    const cache = createTieredCache({
+      namespace: 'first-layer-delete-order',
+      layers: [{
+        id: 'shared',
+        get: vi.fn(),
+        async set(key, record) {
+          markStarted()
+          await gate
+          stored.set(key, record.value)
+        },
+        async delete(key) { stored.delete(key) },
+        async clearNamespace() { stored.clear() },
+      }],
+    })
+
+    const write = cache.set('same', { stale: true })
+    await started
+    const invalidation = cache.delete('same')
+    releaseWrite()
+    await Promise.all([write, invalidation])
+
+    expect(stored.size).toBe(0)
+    await cache.shutdown()
+  })
+
+  it('drains an active asynchronous first-layer write before clearing a namespace', async () => {
+    let releaseWrite!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+    const stored = new Map<string, unknown>()
+    const cache = createTieredCache({
+      namespace: 'first-layer-clear-order',
+      layers: [{
+        id: 'shared',
+        get: vi.fn(),
+        async set(key, record) {
+          markStarted()
+          await gate
+          stored.set(key, record.value)
+        },
+        async delete(key) { stored.delete(key) },
+        async clearNamespace() { stored.clear() },
+      }],
+    })
+
+    const write = cache.set('same', { stale: true })
+    await started
+    const invalidation = cache.clearNamespace()
+    releaseWrite()
+    await Promise.all([write, invalidation])
 
     expect(stored.size).toBe(0)
     await cache.shutdown()
@@ -608,6 +819,105 @@ describe('TieredCache', () => {
 })
 
 describe('Redis/Valkey cache layer', () => {
+  it('does not publish a rejected distributed fill to upper local layers', async () => {
+    const local = createMemoryCacheLayer({ id: 'local', ttlMs: 60_000 })
+    const shared: CacheLayer = {
+      id: 'shared',
+      capabilities: { distributedFillFencing: true },
+      get: vi.fn(),
+      set: vi.fn(),
+      delete: vi.fn(),
+      clearNamespace: vi.fn(),
+      beginFill: vi.fn(async () => 'old-generation'),
+      isFillCurrent: vi.fn(async () => true),
+      commitFill: vi.fn(async () => false),
+      bumpGeneration: vi.fn(async () => undefined),
+    }
+    const cache = createTieredCache({
+      namespace: 'distributed-rejection',
+      layers: [local, shared],
+    })
+
+    const ticket = cache.beginFill('catalog:item')
+    await ticket.ready
+    const committed = await cache.commitFill(ticket, { stale: true })
+
+    expect(committed).toBe(false)
+    expect(await local.get('distributed-rejection:catalog:item')).toBeUndefined()
+    await cache.shutdown()
+  })
+
+  it('rejects a fill in one process after another process invalidates the namespace', async () => {
+    const values = new Map<string, string>()
+    const client = {
+      async get(key: string) { return values.get(key) ?? null },
+      async set(key: string, value: string) { values.set(key, value); return 'OK' },
+      async del(key: string | string[]) {
+        const keys = Array.isArray(key) ? key : [key]
+        let deleted = 0
+        for (const item of keys) deleted += values.delete(item) ? 1 : 0
+        return deleted
+      },
+      incr: vi.fn(async (key: string) => {
+        const next = Number(values.get(key) ?? '0') + 1
+        values.set(key, String(next))
+        return next
+      }),
+      async eval(_script: string, ...args: any[]) {
+        const nodeStyle = typeof args[0] === 'object'
+        const keys = nodeStyle ? args[0].keys as string[] : args.slice(1, 3) as string[]
+        const argv = nodeStyle ? args[0].arguments as string[] : args.slice(3) as string[]
+        const current = values.get(keys[0]!) ?? '0'
+        if (current !== argv[0]) return 0
+        values.set(keys[1]!, argv[1]!)
+        return 1
+      },
+    }
+    const first = createTieredCache({
+      namespace: 'shared-service',
+      layers: [createRedisCacheLayer({ id: 'shared', client, ttlMs: 60_000 })],
+    })
+    const second = createTieredCache({
+      namespace: 'shared-service',
+      layers: [createRedisCacheLayer({ id: 'shared', client, ttlMs: 60_000 })],
+    })
+
+    const ticket = first.beginFill('catalog:item')
+    await ticket.ready
+    await second.delete('catalog:item')
+    const committed = await first.commitFill(ticket, { stale: true })
+
+    expect(committed).toBe(false)
+    expect(await first.get('catalog:item')).toBeUndefined()
+    expect(client.incr).toHaveBeenCalledWith(
+      'raffel:cache:m:g:c2hhcmVkLXNlcnZpY2U',
+    )
+    await Promise.all([first.shutdown(), second.shutdown()])
+  })
+
+  it('composes an arbitrary provider prefix with an isolated service namespace', async () => {
+    const scan = vi.fn(async () => ['0', []] as [string, string[]])
+    const layer = createRedisCacheLayer({
+      id: 'shared',
+      ttlMs: 60_000,
+      prefix: 'prod:closer:',
+      client: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del: vi.fn(async () => 0),
+        scan,
+      },
+    })
+
+    await layer.clearNamespace('billing-api')
+
+    expect(scan).toHaveBeenCalledWith(
+      '0',
+      'MATCH', 'p12:prod:closer:d:billing-api:*',
+      'COUNT', 100,
+    )
+  })
+
   it('stores the physical stale window with native millisecond TTL', async () => {
     const values = new Map<string, string>()
     const sets: Array<[string, string, string, number]> = []
@@ -654,7 +964,7 @@ describe('Redis/Valkey cache layer', () => {
       version: 1,
     }, 2_000, 500)
 
-    expect(pSetEx).toHaveBeenCalledWith('raffel:cache:one', 2_500, expect.any(String))
+    expect(pSetEx).toHaveBeenCalledWith('raffel:cache:d:one', 2_500, expect.any(String))
     expect(client.set).not.toHaveBeenCalled()
   })
 
@@ -670,6 +980,168 @@ describe('Redis/Valkey cache layer', () => {
     })
 
     await expect(layer.clearNamespace('catalog')).rejects.toThrow(/SCAN/)
+    expect(layer.capabilities?.tagInvalidation).toBe(false)
+    expect(layer.capabilities?.prefixInvalidation).toBe(false)
+  })
+
+  it('invalidates a logical prefix through non-blocking SCAN', async () => {
+    const scan = vi.fn(async () => [
+      '0',
+      [
+        'raffel:cache:d:catalog:leads:list:open',
+        'raffel:cache:d:catalog:leads:list:closed',
+      ],
+    ] as [string, string[]])
+    const del = vi.fn(async (keys: string | string[]) => (
+      Array.isArray(keys) ? keys.length : 1
+    ))
+    const layer = createRedisCacheLayer({
+      id: 'l3',
+      ttlMs: 60_000,
+      client: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del,
+        scan,
+      },
+    })
+
+    const result = await layer.invalidatePrefix?.('leads:list:', 'catalog')
+
+    expect(result).toEqual({ mode: 'physical', deleted: 2 })
+    expect(scan).toHaveBeenCalledWith(
+      '0',
+      'MATCH', 'raffel:cache:d:catalog:leads:list:*',
+      'COUNT', 100,
+    )
+    expect(del).toHaveBeenCalledOnce()
+  })
+
+  it('scans every configured Redis Cluster master for prefix invalidation', async () => {
+    const firstScan = vi.fn(async () => [
+      '0',
+      ['raffel:cache:{catalog}:d:catalog:leads:list:one'],
+    ] as [string, string[]])
+    const secondScan = vi.fn(async () => [
+      '0',
+      ['raffel:cache:{catalog}:d:catalog:leads:list:two'],
+    ] as [string, string[]])
+    const firstDel = vi.fn(async () => 1)
+    const secondDel = vi.fn(async () => 1)
+    const master = (scan: typeof firstScan, del: typeof firstDel) => ({
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => 'OK'),
+      del,
+      scan,
+    })
+    const masters = [master(firstScan, firstDel), master(secondScan, secondDel)]
+    const layer = createRedisCacheLayer({
+      id: 'cluster',
+      ttlMs: 60_000,
+      client: masters[0]!,
+      clusterHashTag: 'catalog',
+      scanClients: () => masters,
+    })
+
+    const result = await layer.invalidatePrefix?.('leads:list:', 'catalog')
+
+    expect(result).toEqual({ mode: 'physical', deleted: 2 })
+    expect(firstScan).toHaveBeenCalledOnce()
+    expect(secondScan).toHaveBeenCalledOnce()
+    expect(firstScan).toHaveBeenCalledWith(
+      '0',
+      'MATCH', 'raffel:cache:{catalog}:d:catalog:leads:list:*',
+      'COUNT', 100,
+    )
+    expect(firstDel).toHaveBeenCalledWith('raffel:cache:{catalog}:d:catalog:leads:list:one')
+    expect(secondDel).toHaveBeenCalledWith('raffel:cache:{catalog}:d:catalog:leads:list:two')
+  })
+
+  it('rejects partial Redis Cluster configuration', () => {
+    const client = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => 'OK'),
+      del: vi.fn(async () => 0),
+      scan: vi.fn(async () => ['0', []] as [string, string[]]),
+    }
+
+    expect(() => createRedisCacheLayer({
+      id: 'cluster',
+      ttlMs: 60_000,
+      client,
+      clusterHashTag: 'catalog',
+    })).toThrow(/requires both clusterHashTag and scanClients/)
+
+    expect(() => createRedisCacheLayer({
+      id: 'cluster',
+      ttlMs: 60_000,
+      client,
+      scanClients: () => [client],
+    })).toThrow(/requires both clusterHashTag and scanClients/)
+  })
+
+  it('treats Redis glob characters in namespaces and logical prefixes literally', async () => {
+    const scan = vi.fn(async () => ['0', []] as [string, string[]])
+    const layer = createRedisCacheLayer({
+      id: 'l3',
+      ttlMs: 60_000,
+      client: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del: vi.fn(async () => 0),
+        scan,
+      },
+    })
+
+    await layer.invalidatePrefix?.('leads:*', 'catalog[blue]')
+
+    expect(scan).toHaveBeenCalledWith(
+      '0',
+      'MATCH', 'raffel:cache:d:catalog%5Bblue%5D:leads:\\**',
+      'COUNT', 100,
+    )
+  })
+
+  it('invalidates tagged Redis records through non-blocking SCAN', async () => {
+    const now = Date.now()
+    const values = new Map<string, string>([
+      ['raffel:cache:d:catalog:list', JSON.stringify({
+        value: { ids: [1] },
+        tags: ['node:stone'],
+        createdAt: now,
+        expiresAt: now + 60_000,
+        version: 1,
+      })],
+      ['raffel:cache:d:catalog:detail', JSON.stringify({
+        value: { id: 1 },
+        tags: ['lead:1'],
+        createdAt: now,
+        expiresAt: now + 60_000,
+        version: 2,
+      })],
+    ])
+    const scan = vi.fn(async () => ['0', [...values.keys()]] as [string, string[]])
+    const del = vi.fn(async (keys: string | string[]) => {
+      const selected = Array.isArray(keys) ? keys : [keys]
+      for (const key of selected) values.delete(key)
+      return selected.length
+    })
+    const layer = createRedisCacheLayer({
+      id: 'l3',
+      ttlMs: 60_000,
+      client: {
+        get: async (key) => values.get(key) ?? null,
+        set: vi.fn(async () => 'OK'),
+        del,
+        scan,
+      },
+    })
+
+    const result = await layer.invalidateTag?.('node:stone', 'catalog')
+
+    expect(result).toEqual({ mode: 'physical', deleted: 1 })
+    expect(values.has('raffel:cache:d:catalog:list')).toBe(false)
+    expect(values.has('raffel:cache:d:catalog:detail')).toBe(true)
   })
 
   it('ships safe read and operation timeouts for direct adapter usage', () => {

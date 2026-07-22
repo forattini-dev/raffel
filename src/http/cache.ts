@@ -1,10 +1,19 @@
 import { createHash } from 'node:crypto'
 
-import { deriveAuthPrincipalId, deriveAuthTenantId } from '../auth/principal.js'
-import type { CacheIdentityScope } from '../cache/key.js'
-import type { CacheWriteOptions, TieredCache } from '../cache/tiered.js'
+import {
+  cacheIdentityFor,
+  composeCacheKey,
+  type CacheIdentityScope,
+  type CacheKeyDimension,
+  type CacheKeyFormat,
+} from '../cache/key.js'
+import type { CacheFillTicket, CacheWriteOptions, TieredCache } from '../cache/tiered.js'
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
+import {
+  selectCodecForAccept,
+  type Codec,
+} from '../utils/content-codecs.js'
 
 interface CachedHttpResponse {
   status: number
@@ -13,45 +22,107 @@ interface CachedHttpResponse {
   bodyBase64: string
 }
 
+interface PendingHttpFill {
+  execution: Promise<CachedHttpResponse | undefined>
+  ticket: CacheFillTicket
+}
+
 export interface HttpCacheMiddlewareOptions extends CacheWriteOptions {
   enabled?: boolean
   scope?: CacheIdentityScope
   version?: string
+  keyFormat?: CacheKeyFormat
+  maxKeyLength?: number
   methods?: readonly string[]
+  /** Query parameters whose repeated values are semantically order-insensitive. */
+  orderInsensitiveQueryParams?: readonly string[]
   varyHeaders?: readonly string[]
+  /** Canonicalize `Accept` to the selected codec name when it is a vary header. */
+  representationCodecs?: readonly Codec[]
+  varyHeaderNormalizers?: Readonly<Record<
+    string,
+    (value: string, context: HttpContextInterface) => unknown
+  >>
   maxBodyBytes?: number
   bodyReadTimeoutMs?: number
   cacheableStatus?: (status: number) => boolean
 }
 
+interface CompiledHttpCacheMiddlewareOptions extends HttpCacheMiddlewareOptions {
+  orderInsensitiveQueryParamSet: ReadonlySet<string>
+}
+
 function identityFor(
   context: HttpContextInterface,
   scope: CacheIdentityScope,
+  keyFormat: CacheKeyFormat,
 ): string | undefined {
-  if (scope === 'public') return 'public'
   const auth = context.runtime?.auth
-  if (!auth?.authenticated) {
-    const carriesCredentials = Boolean(
-      context.req.raw.headers.get('authorization') || context.req.raw.headers.get('cookie'),
-    )
-    return carriesCredentials ? undefined : 'anonymous'
-  }
-  const principal = deriveAuthPrincipalId(auth)
-  const tenant = deriveAuthTenantId(auth)
-  if (scope === 'tenant') return tenant ? `tenant:${tenant}` : undefined
-  if (!principal) return undefined
-  return `tenant:${tenant ?? '-'}:principal:${principal}`
+  const carriesCredentials = Boolean(
+    auth?.credentialsPresented ||
+    context.req.raw.headers.get('authorization') ||
+    context.req.raw.headers.get('cookie'),
+  )
+  return cacheIdentityFor(auth, scope, carriesCredentials, keyFormat === 'v2')
 }
 
 function cacheKey(
   context: HttpContextInterface,
-  options: HttpCacheMiddlewareOptions,
+  options: CompiledHttpCacheMiddlewareOptions,
 ): string | undefined {
-  const identity = identityFor(context, options.scope ?? 'auto')
+  const identity = identityFor(context, options.scope ?? 'auto', options.keyFormat ?? 'legacy')
   if (!identity) return undefined
   const url = new URL(context.req.url)
   url.hash = ''
   url.searchParams.sort()
+  if (options.keyFormat === 'v2') {
+    const dimensions: CacheKeyDimension[] = [
+      { source: 'm', name: 'method', value: context.req.method.toUpperCase() },
+      { source: 'u', name: 'origin', value: url.origin },
+    ]
+    const queryNames = [...new Set(url.searchParams.keys())]
+    for (const name of queryNames) {
+      const values = url.searchParams.getAll(name)
+      if (options.orderInsensitiveQueryParamSet.has(name)) values.sort()
+      for (const [position, value] of values.entries()) {
+        dimensions.push({
+          source: 'q',
+          name,
+          position: values.length > 1 ? position : undefined,
+          value,
+        })
+      }
+    }
+    for (const name of [...(options.varyHeaders ?? [])].map((value) => value.toLowerCase()).sort()) {
+      if (name === 'accept' && options.representationCodecs?.length) {
+        const codecs = [...options.representationCodecs]
+        const fallback = codecs.find((codec) => codec.name === 'json') ?? codecs[0]!
+        const selected = selectCodecForAccept(
+          context.req.raw.headers.get(name) ?? undefined,
+          codecs,
+          fallback,
+        )
+        if (!selected) return undefined
+        dimensions.push({ source: 'h', name: 'representation', value: selected.name })
+        continue
+      }
+      const rawValue = context.req.raw.headers.get(name) ?? ''
+      const normalizer = options.varyHeaderNormalizers?.[name]
+      dimensions.push({
+        source: 'h',
+        name,
+        value: normalizer ? normalizer(rawValue, context) : rawValue,
+      })
+    }
+    return composeCacheKey({
+      kind: 'http',
+      subject: url.pathname,
+      version: options.version,
+      identity,
+      dimensions,
+      maxKeyLength: options.maxKeyLength,
+    })
+  }
   const vary = (options.varyHeaders ?? [])
     .map((name) => `${name.toLowerCase()}:${context.req.raw.headers.get(name) ?? ''}`)
     .join('\n')
@@ -175,45 +246,81 @@ export function createHttpCacheMiddleware(
   cache: TieredCache,
   options: HttpCacheMiddlewareOptions = {},
 ): HttpMiddleware {
-  const methods = new Set((options.methods ?? ['GET', 'HEAD']).map((method) => method.toUpperCase()))
-  const pending = new Map<string, Promise<CachedHttpResponse | undefined>>()
+  const normalizedVaryHeaders = options.keyFormat === 'v2'
+    ? [...new Set(
+        (options.varyHeaders ?? []).map((name) => name.toLowerCase()),
+      )].sort()
+    : options.varyHeaders
+  const normalizedHeaderNormalizers = Object.fromEntries(
+    Object.entries(options.varyHeaderNormalizers ?? {})
+      .map(([name, normalizer]) => [name.toLowerCase(), normalizer]),
+  )
+  const compiledOptions: CompiledHttpCacheMiddlewareOptions = {
+    ...options,
+    orderInsensitiveQueryParamSet: new Set(options.orderInsensitiveQueryParams ?? []),
+    varyHeaders: normalizedVaryHeaders,
+    varyHeaderNormalizers: normalizedHeaderNormalizers,
+  }
+  const methods = new Set(
+    (compiledOptions.methods ?? ['GET', 'HEAD']).map((method) => method.toUpperCase()),
+  )
+  const pending = new Map<string, PendingHttpFill>()
 
   return async (context, next) => {
-    if (options.enabled === false || !methods.has(context.req.method.toUpperCase())) return next()
+    if (compiledOptions.enabled === false || !methods.has(context.req.method.toUpperCase())) return next()
     if (!requestAllowsCache(context)) return next()
-    const key = cacheKey(context, options)
+    let key: string | undefined
+    try {
+      key = cacheKey(context, compiledOptions)
+    } catch (error) {
+      context.runtime?.logger.warn(
+        { error },
+        'HTTP cache key normalization failed; the request bypassed the cache',
+      )
+      return next()
+    }
     if (!key) return next()
 
-    const executeAndStore = async (): Promise<CachedHttpResponse | undefined> => {
-      const downstream = await (next as unknown as () => Promise<Response | undefined>)()
-      const response = downstream ?? context.res
-      if (!response) return undefined
-      const serialized = await serializeResponse(response, options)
-      if (serialized) await cache.set(key, serialized, options)
-      return serialized
+    const startFill = (): PendingHttpFill => {
+      const ticket = cache.beginFill(key)
+      const execution = (async (): Promise<CachedHttpResponse | undefined> => {
+        try {
+          await ticket.ready
+          const downstream = await (next as unknown as () => Promise<Response | undefined>)()
+          const response = downstream ?? context.res
+          if (!response) return undefined
+          const serialized = await serializeResponse(response, compiledOptions)
+          if (serialized) await cache.commitFill(ticket, serialized, compiledOptions)
+          return serialized
+        } finally {
+          cache.cancelFill(ticket)
+        }
+      })().finally(() => {
+        if (pending.get(key)?.execution === execution) pending.delete(key)
+      })
+      const fill = { execution, ticket }
+      pending.set(key, fill)
+      return fill
     }
 
     const hit = await cache.get<CachedHttpResponse>(key)
     if (hit && !hit.stale) return responseFrom(hit.value, context.req.method)
     if (hit?.stale) {
       const staleResponse = responseFrom(hit.value, context.req.method)
-      if (!pending.has(key)) {
-        const refresh = executeAndStore().finally(() => pending.delete(key))
-        pending.set(key, refresh)
-        void refresh.catch(() => undefined)
+      const existing = pending.get(key)
+      if (!existing || !(await cache.isFillCurrent(existing.ticket))) {
+        void startFill().execution.catch(() => undefined)
       }
       return staleResponse
     }
 
     const existing = pending.get(key)
-    if (existing) {
-      const shared = await existing
+    if (existing && await cache.isFillCurrent(existing.ticket)) {
+      const shared = await existing.execution
       if (shared) return responseFrom(shared, context.req.method)
       return next()
     }
 
-    const execution = executeAndStore().finally(() => pending.delete(key))
-    pending.set(key, execution)
-    await execution
+    await startFill().execution
   }
 }

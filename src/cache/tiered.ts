@@ -17,6 +17,7 @@ export type MaybePromise<T> = T | Promise<T>
 
 export interface CacheRecord<T = unknown> {
   value: T
+  tags?: readonly string[]
   sizeBytes?: number
   createdAt: number
   expiresAt: number
@@ -32,11 +33,33 @@ export function isCacheRecord(value: unknown): value is CacheRecord {
     && Number.isFinite(record.version)
     && (record.staleUntil === undefined || Number.isFinite(record.staleUntil))
     && (record.sizeBytes === undefined || Number.isFinite(record.sizeBytes))
+    && (record.tags === undefined || (
+      Array.isArray(record.tags) && record.tags.every((tag) => typeof tag === 'string')
+    ))
     && 'value' in record
+}
+
+export interface CacheLayerInvalidationResult {
+  mode: 'physical' | 'logical'
+  deleted?: number
+  generation?: number
+}
+
+export interface CacheInvalidationResult {
+  mode: 'physical' | 'logical' | 'mixed'
+  deleted?: number
+  layers: Readonly<Record<string, CacheLayerInvalidationResult>>
+}
+
+export interface CacheLayerCapabilities {
+  distributedFillFencing?: boolean
+  prefixInvalidation?: 'logical' | 'indexed' | 'scan' | false
+  tagInvalidation?: 'logical' | 'indexed' | 'scan' | false
 }
 
 export interface CacheLayer {
   readonly id: string
+  readonly capabilities?: CacheLayerCapabilities
   /** Marks a layer whose operations are guaranteed not to return promises. */
   readonly synchronous?: boolean
   readonly ttlMs?: number
@@ -48,6 +71,25 @@ export interface CacheLayer {
   set(key: string, record: CacheRecord, ttlMs: number, staleMs?: number): MaybePromise<void>
   delete(key: string): MaybePromise<void>
   clearNamespace(namespace: string): MaybePromise<void>
+  beginFill?(key: string, namespace: string): MaybePromise<unknown>
+  isFillCurrent?(token: unknown, namespace: string): MaybePromise<boolean>
+  commitFill?(
+    key: string,
+    record: CacheRecord,
+    ttlMs: number,
+    staleMs: number,
+    token: unknown,
+    namespace: string,
+  ): MaybePromise<boolean>
+  bumpGeneration?(namespace: string): MaybePromise<void>
+  invalidateTag?(
+    tag: string,
+    namespace: string,
+  ): MaybePromise<CacheLayerInvalidationResult>
+  invalidatePrefix?(
+    prefix: string,
+    namespace: string,
+  ): MaybePromise<CacheLayerInvalidationResult>
   stats?(): CacheLayerStats
   shutdown?(): MaybePromise<void>
 }
@@ -76,6 +118,12 @@ export interface CacheLookup<T = unknown> {
   stale: boolean
 }
 
+/** Opaque generation snapshot captured before computing a cache value. */
+export interface CacheFillTicket {
+  readonly key: string
+  readonly ready: Promise<void>
+}
+
 export interface MemoryCacheLayerOptions {
   id: string
   ttlMs: number
@@ -95,15 +143,31 @@ export interface TieredCacheOptions {
   operationTimeoutMs?: number
   onLayerError?: (
     layer: string,
-    operation: 'get' | 'set' | 'delete' | 'clear' | 'shutdown',
+    operation: 'get' | 'set' | 'delete' | 'clear' | 'beginFill' | 'commitFill' |
+      'invalidateTag' | 'invalidatePrefix' | 'shutdown',
     error: unknown,
   ) => void
 }
 
-export interface TieredCache {
+export interface TieredCacheAccess {
   get<T = unknown>(key: string): Promise<CacheLookup<T> | undefined>
   set(key: string, value: unknown, options?: CacheWriteOptions): Promise<void>
+  beginFill(key: string): CacheFillTicket
+  isFillCurrent(ticket: CacheFillTicket): Promise<boolean>
+  commitFill(
+    ticket: CacheFillTicket,
+    value: unknown,
+    options?: CacheWriteOptions,
+  ): Promise<boolean>
+  cancelFill(ticket: CacheFillTicket): void
+}
+
+export interface TieredCache extends TieredCacheAccess {
+  /** Compile a hot-path view over an ordered subset of configured layers. */
+  selectLayers(layerIds: readonly string[]): TieredCacheAccess
   delete(key: string): Promise<void>
+  invalidateTag(tag: string): Promise<CacheInvalidationResult>
+  invalidatePrefix(prefix: string): Promise<CacheInvalidationResult>
   clearNamespace(): Promise<void>
   stats(): ReadonlyArray<CacheLayerStats & { id: string }>
   shutdown(): Promise<void>
@@ -112,10 +176,21 @@ export interface TieredCache {
 export interface CacheWriteOptions {
   ttlMs?: number | Readonly<Record<string, number>>
   staleMs?: number | Readonly<Record<string, number>>
+  tags?: readonly string[]
+}
+
+/** Encode and frame a logical namespace for collision-free physical key prefixes. */
+export function cacheNamespacePrefix(namespace: string): string {
+  if (!namespace) throw new Error('Cache namespace cannot be empty')
+  try {
+    return `${encodeURIComponent(namespace)}:`
+  } catch {
+    throw new Error('Cache namespace must contain valid Unicode')
+  }
 }
 
 function layerDuration(
-  configured: CacheWriteOptions[keyof CacheWriteOptions],
+  configured: CacheWriteOptions['ttlMs'] | CacheWriteOptions['staleMs'],
   layer: CacheLayer,
   fallback: number
 ): number {
@@ -170,6 +245,8 @@ export function createMemoryCacheLayer(options: MemoryCacheLayerOptions): CacheL
     throw new Error('Memory cache expirationResolutionMs must be greater than zero')
   }
   const entries = new Map<string, CacheRecord>()
+  const entrySizes = new Map<string, number>()
+  const tagIndex = new Map<string, Set<string>>()
   const maxEntries = options.maxEntries ?? DEFAULT_L1_MAX_ENTRIES
   const maxMemoryBytes = options.maxMemoryBytes ?? DEFAULT_L1_MAX_MEMORY_BYTES
   let currentMemoryBytes = 0
@@ -184,8 +261,16 @@ export function createMemoryCacheLayer(options: MemoryCacheLayerOptions): CacheL
 
   function remove(key: string): void {
     const record = entries.get(key)
-    if (record) currentMemoryBytes -= record.sizeBytes ?? 0
+    if (record) {
+      currentMemoryBytes -= entrySizes.get(key) ?? 0
+      for (const tag of record.tags ?? []) {
+        const keys = tagIndex.get(tag)
+        keys?.delete(key)
+        if (keys?.size === 0) tagIndex.delete(tag)
+      }
+    }
     entries.delete(key)
+    entrySizes.delete(key)
     wheel.cancel(key)
   }
 
@@ -204,6 +289,10 @@ export function createMemoryCacheLayer(options: MemoryCacheLayerOptions): CacheL
 
   return {
     id: options.id,
+    capabilities: {
+      prefixInvalidation: 'scan',
+      tagInvalidation: 'indexed',
+    },
     synchronous: true,
     ttlMs: options.ttlMs,
     get(key) {
@@ -225,18 +314,35 @@ export function createMemoryCacheLayer(options: MemoryCacheLayerOptions): CacheL
       return record
     },
     set(key, record, ttlMs, staleMs = 0) {
-      const sizeBytes = record.sizeBytes ?? logicalSize(record.value)
-      if (sizeBytes === undefined) return
+      const valueSizeBytes = record.sizeBytes ?? logicalSize(record.value)
+      if (valueSizeBytes === undefined) return
+      const tags = [...new Set(
+        (record.tags ?? []).map((tag) => tag.trim()).filter(Boolean),
+      )]
+      const sizeBytes = valueSizeBytes + tags.reduce(
+        (total, tag) => total + Buffer.byteLength(tag) + 16,
+        0,
+      )
       remove(key)
       if (!evictUntilFits(sizeBytes)) return
       const expiresAt = Date.now() + ttlMs
       const stored = {
         ...record,
-        sizeBytes,
+        sizeBytes: valueSizeBytes,
+        tags: tags.length > 0 ? tags : undefined,
         expiresAt,
         staleUntil: staleMs > 0 ? expiresAt + staleMs : undefined,
       }
       entries.set(key, stored)
+      entrySizes.set(key, sizeBytes)
+      for (const tag of stored.tags ?? []) {
+        let keys = tagIndex.get(tag)
+        if (!keys) {
+          keys = new Set()
+          tagIndex.set(tag, keys)
+        }
+        keys.add(key)
+      }
       currentMemoryBytes += sizeBytes
       wheel.schedule(key, stored.staleUntil ?? stored.expiresAt, stored.version)
     },
@@ -244,9 +350,23 @@ export function createMemoryCacheLayer(options: MemoryCacheLayerOptions): CacheL
       remove(key)
     },
     clearNamespace(namespace) {
+      const prefix = cacheNamespacePrefix(namespace)
       for (const key of entries.keys()) {
-        if (key.startsWith(`${namespace}:`)) remove(key)
+        if (key.startsWith(prefix)) remove(key)
       }
+    },
+    invalidateTag(tag, namespace) {
+      const prefix = cacheNamespacePrefix(namespace)
+      const keys = [...(tagIndex.get(tag) ?? [])]
+        .filter((key) => key.startsWith(prefix))
+      for (const key of keys) remove(key)
+      return { mode: 'physical', deleted: keys.length }
+    },
+    invalidatePrefix(logicalPrefix, namespace) {
+      const prefix = cacheNamespacePrefix(namespace) + logicalPrefix
+      const keys = [...entries.keys()].filter((key) => key.startsWith(prefix))
+      for (const key of keys) remove(key)
+      return { mode: 'physical', deleted: keys.length }
     },
     stats() {
       return { totalItems: entries.size, memoryUsageBytes: currentMemoryBytes, hits, misses }
@@ -265,22 +385,38 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
   if (options.operationTimeoutMs !== undefined && options.operationTimeoutMs <= 0) {
     throw new Error('Tiered cache operationTimeoutMs must be greater than zero')
   }
+  const configuredLayerIds = new Set<string>()
   for (const layer of options.layers) {
+    if (configuredLayerIds.has(layer.id)) {
+      throw new Error(`Cache layer id "${layer.id}" is duplicated`)
+    }
+    configuredLayerIds.add(layer.id)
     if (layer.readTimeoutMs !== undefined && layer.readTimeoutMs <= 0) {
       throw new Error(`Cache layer "${layer.id}" readTimeoutMs must be greater than zero`)
     }
     if (layer.operationTimeoutMs !== undefined && layer.operationTimeoutMs <= 0) {
       throw new Error(`Cache layer "${layer.id}" operationTimeoutMs must be greater than zero`)
     }
+    if (
+      layer.capabilities?.distributedFillFencing &&
+      !(layer.beginFill && layer.isFillCurrent && layer.commitFill && layer.bumpGeneration)
+    ) {
+      throw new Error(
+        `Cache layer "${layer.id}" distributed fill fencing contract is incomplete`,
+      )
+    }
   }
-  const prefix = `${options.namespace}:`
+  const prefix = cacheNamespacePrefix(options.namespace)
   const layers = [...options.layers]
-  const writeQueues = layers.slice(1).map((layer) =>
+  const writeQueues = layers.map((layer) =>
     new WriteBehindQueue({
       ...options.writeBehind,
       ...layer.writeBehind,
     })
   )
+  const allLayerIndexes = layers.map((_layer, index) => index)
+  const layerIndexes = new Map(layers.map((layer, index) => [layer.id, index]))
+  const ticketOwner = {}
   let version = 0
   let namespaceEpoch = 0
   let clearInProgress: Promise<void> | undefined
@@ -415,6 +551,16 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
     })
   }
 
+  function runOrderedWrite(
+    index: number,
+    key: string,
+    task: () => Promise<void>,
+  ): Promise<void> {
+    return layers[index]!.synchronous
+      ? trackForegroundWrite(key, task)
+      : writeQueues[index]!.enqueueBarrier(key, task)
+  }
+
   async function writeLayer(
     index: number,
     key: string,
@@ -458,6 +604,53 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       () => { releaseFence = addLayerFence(index, key) },
       cleanupLateWrite,
     )
+  }
+
+  async function commitLayerFill(
+    index: number,
+    key: string,
+    record: CacheRecord,
+    ttlMs: number,
+    staleMs: number,
+    token: unknown,
+  ): Promise<boolean> {
+    const layer = layers[index]!
+    if (isLayerFenced(index, key)) return false
+    return withDeadline(
+      layer.commitFill!(key, record, ttlMs, staleMs, token, options.namespace),
+      layer.operationTimeoutMs ?? options.operationTimeoutMs ?? DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+      `Cache layer "${layer.id}" fill commit timed out`,
+    )
+  }
+
+  function usesDistributedFillFencing(layer: CacheLayer): boolean {
+    return Boolean(
+      layer.capabilities?.distributedFillFencing &&
+      layer.beginFill &&
+      layer.isFillCurrent &&
+      layer.commitFill &&
+      layer.bumpGeneration
+    )
+  }
+
+  async function bumpLayerGenerations(
+    operation: 'delete' | 'clear' | 'invalidateTag' | 'invalidatePrefix',
+  ): Promise<void> {
+    await Promise.all(layers.map(async (layer, index) => {
+      if (!usesDistributedFillFencing(layer)) return
+      try {
+        await withDeadline(
+          layer.bumpGeneration!(options.namespace),
+          layer.operationTimeoutMs ?? options.operationTimeoutMs ??
+            DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+          `Cache layer "${layer.id}" generation update timed out`,
+        )
+      } catch (error) {
+        markLayerFailure(index)
+        options.onLayerError?.(layer.id, operation, error)
+        throw error
+      }
+    }))
   }
 
   async function deleteLayer(index: number, key: string): Promise<void> {
@@ -510,6 +703,38 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
     }
   }
 
+  async function invalidateLayerTag(
+    index: number,
+    tag: string,
+  ): Promise<CacheLayerInvalidationResult> {
+    const layer = layers[index]!
+    if (!layer.invalidateTag) {
+      throw new Error(`Cache layer "${layer.id}" does not support tag invalidation`)
+    }
+    return withDeadline(
+      layer.invalidateTag(tag, options.namespace),
+      layer.operationTimeoutMs ?? options.operationTimeoutMs ??
+        DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+      `Cache layer "${layer.id}" tag invalidation timed out`,
+    )
+  }
+
+  async function invalidateLayerPrefix(
+    index: number,
+    logicalPrefix: string,
+  ): Promise<CacheLayerInvalidationResult> {
+    const layer = layers[index]!
+    if (!layer.invalidatePrefix) {
+      throw new Error(`Cache layer "${layer.id}" does not support prefix invalidation`)
+    }
+    return withDeadline(
+      layer.invalidatePrefix(logicalPrefix, options.namespace),
+      layer.operationTimeoutMs ?? options.operationTimeoutMs ??
+        DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+      `Cache layer "${layer.id}" prefix invalidation timed out`,
+    )
+  }
+
   function guardedRead(layer: CacheLayer, key: string): MaybePromise<CacheRecord | undefined> {
     const health = readHealth.get(layer) ?? { failures: 0, openUntil: 0 }
     readHealth.set(layer, health)
@@ -546,8 +771,10 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
     }
   }
 
-  return {
-    async get<T>(key: string) {
+  async function getFrom<T>(
+    key: string,
+    selectedIndexes: readonly number[],
+  ): Promise<CacheLookup<T> | undefined> {
       const namespacedKey = prefix + key
       let releaseKey: (() => void) | undefined
       const ensureRetained = () => {
@@ -565,7 +792,8 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
           (keyEpochs.get(namespacedKey) ?? 0) === capturedKeyEpoch &&
           keyWriteVersions.get(namespacedKey) === capturedWriteVersion
         let staleHit: CacheLookup<T> | undefined
-        for (let index = 0; index < layers.length; index++) {
+        for (let position = 0; position < selectedIndexes.length; position++) {
+          const index = selectedIndexes[position]!
           const layer = layers[index]!
           if (isLayerFenced(index, namespacedKey)) continue
           let record: CacheRecord | undefined
@@ -598,9 +826,10 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
             staleHit ??= { value: record.value as T, layer: layer.id, stale: true }
             continue
           }
-          if (index > 0) {
-            await Promise.all(layers.slice(0, index).map(async (upper, upperIndex) => {
-              await trackForegroundWrite(namespacedKey, async () => {
+          if (position > 0) {
+            await Promise.all(selectedIndexes.slice(0, position).map(async (upperIndex) => {
+              const upper = layers[upperIndex]!
+              await runOrderedWrite(upperIndex, namespacedKey, async () => {
                 if (!readIsCurrent()) return
                 try {
                   await writeLayer(
@@ -626,8 +855,15 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       } finally {
         releaseKey?.()
       }
-    },
-    async set(key, value, writeOptions = {}) {
+  }
+
+  async function setTo(
+    key: string,
+    value: unknown,
+    writeOptions: CacheWriteOptions,
+    selectedIndexes: readonly number[],
+    fillTicket?: InternalFillTicket,
+  ): Promise<boolean> {
       if (clearInProgress) await clearInProgress.catch(() => undefined)
       const namespacedKey = prefix + key
       const deletion = deletions.get(namespacedKey)
@@ -638,61 +874,264 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       const capturedKeyEpoch = keyEpochs.get(namespacedKey) ?? 0
       const now = Date.now()
       const sizeBytes = logicalSize(value)
-      if (sizeBytes === undefined) return
+      if (sizeBytes === undefined) return false
+      const tags = [...new Set(
+        (writeOptions.tags ?? []).map((tag) => tag.trim()).filter(Boolean),
+      )]
       const record: CacheRecord = {
         value,
+        tags: tags.length > 0 ? tags : undefined,
         sizeBytes,
         createdAt: now,
         expiresAt: now,
         version: ++version,
       }
+      let allAccepted = true
       keyWriteVersions.set(namespacedKey, record.version)
-      const first = layers[0]
-      if (first) {
-        await trackForegroundWrite(namespacedKey, async () => {
-          try {
-            await writeLayer(
-              0,
-              namespacedKey,
-              record,
-              layerDuration(writeOptions.ttlMs, first, first.ttlMs ?? 60_000),
-              layerDuration(writeOptions.staleMs, first, 0),
-              capturedNamespaceEpoch,
-              capturedKeyEpoch,
-              record.version,
-            )
-          } catch (error) {
-            options.onLayerError?.(first.id, 'set', error)
-          }
-        })
-      }
-      for (let index = 1; index < layers.length; index++) {
+      const fencedIndexes = fillTicket
+        ? selectedIndexes.filter((index) => usesDistributedFillFencing(layers[index]!))
+        : []
+      for (const index of fencedIndexes) {
         const layer = layers[index]!
         const releaseQueuedKey = retainKey(namespacedKey)
-        writeQueues[index - 1]!.enqueue(namespacedKey, async () => {
+        const write = async () => {
+          try {
+            const ttlMs = layerDuration(writeOptions.ttlMs, layer, layer.ttlMs ?? 60_000)
+            const staleMs = layerDuration(writeOptions.staleMs, layer, 0)
+            if (!fillTicket!.layerTokens.has(index)) {
+              allAccepted = false
+              return
+            }
+            allAccepted = await commitLayerFill(
+              index,
+              namespacedKey,
+              record,
+              ttlMs,
+              staleMs,
+              fillTicket!.layerTokens.get(index),
+            )
+          } catch (error) {
+            options.onLayerError?.(layer.id, 'commitFill', error)
+            allAccepted = false
+          }
+        }
+        try {
+          await writeQueues[index]!.enqueueBarrier(namespacedKey, write)
+        } finally {
+          releaseQueuedKey()
+        }
+        if (!allAccepted) return false
+      }
+      if (
+        namespaceEpoch !== capturedNamespaceEpoch ||
+        (keyEpochs.get(namespacedKey) ?? 0) !== capturedKeyEpoch ||
+        keyWriteVersions.get(namespacedKey) !== record.version
+      ) return false
+
+      for (const [position, index] of selectedIndexes.entries()) {
+        const layer = layers[index]!
+        if (fencedIndexes.includes(index)) continue
+        const write = async () => {
           if (
             namespaceEpoch !== capturedNamespaceEpoch ||
             (keyEpochs.get(namespacedKey) ?? 0) !== capturedKeyEpoch ||
             keyWriteVersions.get(namespacedKey) !== record.version
           ) return
           try {
+            const ttlMs = layerDuration(writeOptions.ttlMs, layer, layer.ttlMs ?? 60_000)
+            const staleMs = layerDuration(writeOptions.staleMs, layer, 0)
             await writeLayer(
-              index,
-              namespacedKey,
-              record,
-              layerDuration(writeOptions.ttlMs, layer, layer.ttlMs ?? 60_000),
-              layerDuration(writeOptions.staleMs, layer, 0),
-              capturedNamespaceEpoch,
-              capturedKeyEpoch,
-              record.version,
+                index,
+                namespacedKey,
+                record,
+                ttlMs,
+                staleMs,
+                capturedNamespaceEpoch,
+                capturedKeyEpoch,
+                record.version,
             )
           } catch (error) {
             options.onLayerError?.(layer.id, 'set', error)
           }
-        }, releaseQueuedKey)
+        }
+        if (position === 0) {
+          await runOrderedWrite(index, namespacedKey, write)
+        } else {
+          const releaseQueuedKey = retainKey(namespacedKey)
+          writeQueues[index]!.enqueue(namespacedKey, write, releaseQueuedKey)
+        }
       }
+      return allAccepted
       } finally {
         releaseKey()
+      }
+  }
+
+  interface InternalFillTicket extends CacheFillTicket {
+    owner: object
+    namespacedKey: string
+    namespaceEpoch: number
+    keyEpoch: number
+    selectedIndexes: readonly number[]
+    layerTokens: Map<number, unknown>
+    captureFailed: boolean
+    release: () => void
+    finished: boolean
+    ready: Promise<void>
+  }
+
+  function beginFillFor(
+    key: string,
+    selectedIndexes: readonly number[],
+  ): CacheFillTicket {
+    const namespacedKey = prefix + key
+    const ticket = {
+      owner: ticketOwner,
+      key,
+      namespacedKey,
+      namespaceEpoch,
+      keyEpoch: keyEpochs.get(namespacedKey) ?? 0,
+      selectedIndexes,
+      layerTokens: new Map<number, unknown>(),
+      captureFailed: false as boolean,
+      release: retainKey(namespacedKey),
+      finished: false,
+      ready: Promise.resolve(),
+    } satisfies InternalFillTicket
+    ticket.ready = Promise.all(selectedIndexes.map(async (index) => {
+      const layer = layers[index]!
+      if (!usesDistributedFillFencing(layer)) return
+      try {
+        const token = await withDeadline(
+          layer.beginFill!(namespacedKey, options.namespace),
+          layer.operationTimeoutMs ?? options.operationTimeoutMs ??
+            DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+          `Cache layer "${layer.id}" fill capture timed out`,
+        )
+        ticket.layerTokens.set(index, token)
+      } catch (error) {
+        ticket.captureFailed = true
+        options.onLayerError?.(layer.id, 'beginFill', error)
+      }
+    })).then(() => undefined)
+    return ticket
+  }
+
+  function finishFill(ticket: CacheFillTicket): InternalFillTicket {
+    const internal = ticket as InternalFillTicket
+    if (internal.owner !== ticketOwner) {
+      throw new Error('Cache fill ticket belongs to a different cache')
+    }
+    if (!internal.finished) {
+      internal.finished = true
+      internal.release()
+    }
+    return internal
+  }
+
+  function isLocallyCurrent(internal: InternalFillTicket): boolean {
+    return !internal.finished && !internal.captureFailed &&
+      namespaceEpoch === internal.namespaceEpoch &&
+      (keyEpochs.get(internal.namespacedKey) ?? 0) === internal.keyEpoch
+  }
+
+  async function isFillCurrent(ticket: CacheFillTicket): Promise<boolean> {
+    const internal = ticket as InternalFillTicket
+    if (internal.owner !== ticketOwner) {
+      throw new Error('Cache fill ticket belongs to a different cache')
+    }
+    await internal.ready
+    if (!isLocallyCurrent(internal)) return false
+    for (const [index, token] of internal.layerTokens) {
+      const layer = layers[index]!
+      if (!layer.isFillCurrent) continue
+      try {
+        const current = await withDeadline(
+          layer.isFillCurrent(token, options.namespace),
+          layer.readTimeoutMs ?? options.readTimeoutMs ?? DEFAULT_CACHE_READ_TIMEOUT_MS,
+          `Cache layer "${layer.id}" fill validation timed out`,
+        )
+        if (!current) return false
+      } catch (error) {
+        options.onLayerError?.(layer.id, 'beginFill', error)
+        return false
+      }
+    }
+    return true
+  }
+
+  async function commitFill(
+    ticket: CacheFillTicket,
+    value: unknown,
+    writeOptions: CacheWriteOptions,
+  ): Promise<boolean> {
+    const internal = ticket as InternalFillTicket
+    try {
+      if (internal.owner !== ticketOwner) {
+        throw new Error('Cache fill ticket belongs to a different cache')
+      }
+      await internal.ready
+      if (!isLocallyCurrent(internal)) return false
+      return setTo(internal.key, value, writeOptions, internal.selectedIndexes, internal)
+    } finally {
+      finishFill(ticket)
+    }
+  }
+
+  async function invalidateAcrossLayers(
+    operation: 'invalidateTag' | 'invalidatePrefix',
+    invalidate: (index: number) => Promise<CacheLayerInvalidationResult>,
+  ): Promise<CacheInvalidationResult> {
+    namespaceEpoch++
+    await bumpLayerGenerations(operation)
+    await Promise.all(foregroundWrites.values())
+    await Promise.all(writeQueues.map((queue) => queue.drain()))
+    const results = await Promise.all(layers.map(async (layer, index) => {
+      try {
+        return [layer.id, await invalidate(index)] as const
+      } catch (error) {
+        options.onLayerError?.(layer.id, operation, error)
+        throw error
+      }
+    }))
+    const modes = new Set(results.map(([, result]) => result.mode))
+    return {
+      mode: modes.size === 1 ? results[0]![1].mode : 'mixed',
+      deleted: results.reduce((total, [, result]) => total + (result.deleted ?? 0), 0),
+      layers: Object.fromEntries(results),
+    }
+  }
+
+  return {
+    get: <T = unknown>(key: string) => getFrom<T>(key, allLayerIndexes),
+    set: async (key, value, writeOptions = {}) => {
+      await setTo(key, value, writeOptions, allLayerIndexes)
+    },
+    beginFill: (key) => beginFillFor(key, allLayerIndexes),
+    isFillCurrent,
+    commitFill: (ticket, value, writeOptions = {}) => commitFill(ticket, value, writeOptions),
+    cancelFill: (ticket) => { finishFill(ticket) },
+    selectLayers(layerIds) {
+      if (layerIds.length === 0) throw new Error('A cache layer selection cannot be empty')
+      const selectedIndexes = layerIds.map((id) => {
+        const index = layerIndexes.get(id)
+        if (index === undefined) throw new Error(`Cache layer "${id}" does not exist`)
+        return index
+      })
+      for (let index = 1; index < selectedIndexes.length; index++) {
+        if (selectedIndexes[index]! <= selectedIndexes[index - 1]!) {
+          throw new Error('Cache profile layers must preserve their configured order')
+        }
+      }
+      return {
+        get: <T = unknown>(key: string) => getFrom<T>(key, selectedIndexes),
+        set: async (key, value, writeOptions = {}) => {
+          await setTo(key, value, writeOptions, selectedIndexes)
+        },
+        beginFill: (key) => beginFillFor(key, selectedIndexes),
+        isFillCurrent,
+        commitFill: (ticket, value, writeOptions = {}) => commitFill(ticket, value, writeOptions),
+        cancelFill: (ticket) => { finishFill(ticket) },
       }
     },
     async delete(key) {
@@ -705,15 +1144,22 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       keyWriteVersions.delete(namespacedKey)
       const operation = (async () => {
         const errors: unknown[] = []
-        await foregroundWrites.get(namespacedKey)
         try {
-          await deleteLayer(0, namespacedKey)
+          await bumpLayerGenerations('delete')
         } catch (error) {
-          options.onLayerError?.(layers[0]!.id, 'delete', error)
           errors.push(error)
         }
+        await foregroundWrites.get(namespacedKey)
+        await writeQueues[0]!.enqueueBarrier(namespacedKey, async () => {
+          try {
+            await deleteLayer(0, namespacedKey)
+          } catch (error) {
+            options.onLayerError?.(layers[0]!.id, 'delete', error)
+            errors.push(error)
+          }
+        })
         await Promise.all(layers.slice(1).map((layer, index) =>
-          writeQueues[index]!.enqueueBarrier(namespacedKey, async () => {
+          writeQueues[index + 1]!.enqueueBarrier(namespacedKey, async () => {
             try {
               await deleteLayer(index + 1, namespacedKey)
             } catch (error) {
@@ -736,6 +1182,22 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
         releaseKey()
       }
     },
+    async invalidateTag(rawTag) {
+      const tag = rawTag.trim()
+      if (!tag) throw new Error('Cache tag cannot be empty')
+      return invalidateAcrossLayers(
+        'invalidateTag',
+        (index) => invalidateLayerTag(index, tag),
+      )
+    },
+    async invalidatePrefix(rawPrefix) {
+      const logicalPrefix = rawPrefix.trim()
+      if (!logicalPrefix) throw new Error('Cache prefix cannot be empty; use clearNamespace instead')
+      return invalidateAcrossLayers(
+        'invalidatePrefix',
+        (index) => invalidateLayerPrefix(index, logicalPrefix),
+      )
+    },
     async clearNamespace() {
       if (clearInProgress) return clearInProgress
       namespaceEpoch++
@@ -743,10 +1205,16 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       keyWriteVersions.clear()
       const operation = (async () => {
         const errors: unknown[] = []
+        try {
+          await bumpLayerGenerations('clear')
+        } catch (error) {
+          errors.push(error)
+        }
         for (const result of await Promise.allSettled(deletions.values())) {
           if (result.status === 'rejected') errors.push(result.reason)
         }
         await Promise.all(foregroundWrites.values())
+        await writeQueues[0]!.drain()
         try {
           await clearLayer(0)
         } catch (error) {
@@ -754,7 +1222,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
           errors.push(error)
         }
         await Promise.all(layers.slice(1).map(async (layer, index) => {
-          await writeQueues[index]!.drain()
+          await writeQueues[index + 1]!.drain()
           try {
             await clearLayer(index + 1)
           } catch (error) {
@@ -795,7 +1263,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
             ]).size,
           } : {}),
           fencedKeys: layerFences[index]!.keys.size + layerFences[index]!.failedKeys.size,
-          ...(index > 0 ? { writeQueue: writeQueues[index - 1]!.stats() } : {}),
+          ...(index > 0 ? { writeQueue: writeQueues[index]!.stats() } : {}),
         }
       })
     },
