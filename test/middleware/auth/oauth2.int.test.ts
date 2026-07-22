@@ -121,6 +121,18 @@ describe('OAuth2 Strategy', () => {
       expect(result).toBeNull()
     })
 
+    it('reports a malformed Authorization credential without authenticating it', () => {
+      const strategy = createOAuth2Strategy({
+        provider: 'google',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        redirectUri: 'https://example.com/callback',
+      })
+      const envelope = createTestEnvelope({ authorization: 'malformed' })
+
+      expect(strategy.credentialsPresented?.(envelope, createTestContext())).toBe(true)
+    })
+
     it('should validate token via introspection endpoint', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -892,6 +904,18 @@ describe('Client Credentials Strategy', () => {
         scope: [],
       },
     })
+  })
+
+  it('reports malformed custom-header client credentials as presented', () => {
+    const strategy = createClientCredentialsStrategy({
+      tokenUrl: 'https://auth.example.com/token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      basicAuthHeaderName: 'x-service-credential',
+    })
+    const envelope = createTestEnvelope({ 'x-service-credential': 'malformed' })
+
+    expect(strategy.credentialsPresented?.(envelope, createTestContext())).toBe(true)
   })
 
   it('should reject invalid client credentials from Basic header', async () => {

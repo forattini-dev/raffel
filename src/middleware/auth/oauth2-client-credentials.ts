@@ -282,6 +282,9 @@ export function createClientCredentialsStrategy(
 
   return {
     name: 'client-credentials',
+    credentialsPresented(envelope): boolean {
+      return getMetadataValue(envelope.metadata, basicAuthHeaderName) !== undefined
+    },
     authenticate,
     exchangeClientCredentials,
     clearTokenCache,

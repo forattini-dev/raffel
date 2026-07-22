@@ -1288,6 +1288,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       try {
         await pluginRuntime.runPluginRuntimeHooks('beforeStart', startPlugins, startController.signal)
         await serverLifecycle.start()
+        serverCacheRuntime?.bind(resolvedProviders)
         await pluginRuntime.runPluginRuntimeHooks('afterStart', startPlugins, startController.signal)
       } catch (error) {
         startController.abort()

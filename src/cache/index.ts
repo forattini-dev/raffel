@@ -93,6 +93,7 @@ export {
 
 // Hierarchical response cache (L1 memory → L2 filesystem → L3 provider)
 export {
+  cacheNamespacePrefix,
   createTieredCache,
   createMemoryCacheLayer,
   createFileSystemCacheLayer,
@@ -106,23 +107,42 @@ export {
   DEFAULT_L2_MAX_SIZE_BYTES,
 } from './tiered.js'
 export { createRedisCacheLayer } from './redis-layer.js'
-export { procedureCacheKey, procedureCacheKeyFor } from './key.js'
+export {
+  compileProcedureCacheKey,
+  composeCacheKey,
+  procedureCacheKey,
+  procedureCacheKeyFor,
+} from './key.js'
 export type {
+  CacheFillTicket,
+  CacheInvalidationResult,
   CacheLayer,
+  CacheLayerCapabilities,
   CacheCircuitBreakerOptions,
+  CacheLayerInvalidationResult,
   CacheLayerStats,
   CacheLookup,
   CacheRecord,
   CacheWriteOptions,
   MemoryCacheLayerOptions,
   TieredCache,
+  TieredCacheAccess,
   TieredCacheOptions,
 } from './tiered.js'
 export type { FileSystemCacheLayerOptions } from './fs-layer.js'
 export type { RedisCacheLayerClient, RedisCacheLayerOptions } from './redis-layer.js'
-export type { CacheIdentityScope } from './key.js'
 export type {
+  CacheIdentityScope,
+  CacheKeyDimension,
+  CacheKeyFormat,
+  CompiledProcedureCacheKey,
+  ComposeCacheKeyOptions,
+  ProcedureCacheKeyOptions,
+} from './key.js'
+export type {
+  CacheProfileConfig,
   CacheRule,
+  CacheTagResolver,
   FileSystemLayerConfig,
   MemoryLayerConfig,
   ProviderLayerConfig,

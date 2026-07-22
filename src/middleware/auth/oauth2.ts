@@ -633,6 +633,10 @@ export function createOAuth2Strategy(config: OAuth2Config): OAuth2StrategyWithFl
 
   return {
     name: `oauth2:${config.provider ?? 'custom'}`,
+    credentialsPresented(envelope): boolean {
+      return envelope.metadata.authorization !== undefined ||
+        envelope.metadata.Authorization !== undefined
+    },
     authenticate,
     getAuthorizationUrl,
     exchangeCode,
@@ -791,6 +795,11 @@ export function createOIDCStrategy(config: OIDCConfig): OIDCStrategyWithFlow {
 
   return {
     name: 'oidc',
+
+    credentialsPresented(envelope): boolean {
+      return envelope.metadata.authorization !== undefined ||
+        envelope.metadata.Authorization !== undefined
+    },
 
     async authenticate(envelope: Envelope, ctx: Context): Promise<AuthResult | null> {
       await initialize()

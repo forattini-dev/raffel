@@ -304,6 +304,9 @@ export interface AuthContext {
   /** Whether the request is authenticated */
   authenticated: boolean
 
+  /** Whether the caller supplied credentials, including credentials that were rejected. */
+  credentialsPresented?: boolean
+
   /** User/service identifier */
   principal?: AuthPrincipal
 
@@ -527,6 +530,9 @@ export function createAuthContext(input?: Partial<AuthContext> | null): AuthCont
 
   const authContext: AuthContext = {
     authenticated,
+    ...(input?.credentialsPresented === undefined
+      ? {}
+      : { credentialsPresented: input.credentialsPresented }),
     principal,
     principalId,
     claims,

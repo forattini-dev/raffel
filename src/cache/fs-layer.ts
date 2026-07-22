@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 
 import { ExpirationWheel } from './expiration-wheel.js'
 import {
+  cacheNamespacePrefix,
   isCacheRecord,
   type CacheCircuitBreakerOptions,
   type CacheLayer,
@@ -35,6 +36,7 @@ interface FileIndexEntry {
   sizeBytes: number
   createdAt: number
   version: number
+  tags?: readonly string[]
 }
 
 interface StoredFile {
@@ -104,6 +106,7 @@ export function createFileSystemCacheLayer(options: FileSystemCacheLayerOptions)
               sizeBytes: content.byteLength,
               createdAt: stored.record.createdAt,
               version: stored.record.version,
+              tags: stored.record.tags,
             },
             expiresAt,
           ])
@@ -142,6 +145,10 @@ export function createFileSystemCacheLayer(options: FileSystemCacheLayerOptions)
 
   return {
     id: options.id,
+    capabilities: {
+      prefixInvalidation: 'scan',
+      tagInvalidation: 'scan',
+    },
     ttlMs: options.ttlMs,
     readTimeoutMs: options.readTimeoutMs ?? DEFAULT_CACHE_READ_TIMEOUT_MS,
     operationTimeoutMs: options.operationTimeoutMs ?? DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
@@ -199,6 +206,7 @@ export function createFileSystemCacheLayer(options: FileSystemCacheLayerOptions)
         sizeBytes: encoded.byteLength,
         createdAt: record.createdAt,
         version: record.version,
+        tags: record.tags,
       })
       totalSizeBytes += encoded.byteLength
       wheel.schedule(key, stored.record.staleUntil ?? expiresAt, record.version)
@@ -209,11 +217,30 @@ export function createFileSystemCacheLayer(options: FileSystemCacheLayerOptions)
     },
     async clearNamespace(namespace) {
       await ensureReady()
+      const prefix = cacheNamespacePrefix(namespace)
       await Promise.all(
         [...index.keys()]
-          .filter((key) => key.startsWith(`${namespace}:`))
+          .filter((key) => key.startsWith(prefix))
           .map((key) => remove(key))
       )
+    },
+    async invalidateTag(tag, namespace) {
+      await ensureReady()
+      const prefix = cacheNamespacePrefix(namespace)
+      const keys = [...index.entries()]
+        .filter(([key, metadata]) => (
+          key.startsWith(prefix) && metadata.tags?.includes(tag)
+        ))
+        .map(([key]) => key)
+      await Promise.all(keys.map((key) => remove(key)))
+      return { mode: 'physical', deleted: keys.length }
+    },
+    async invalidatePrefix(logicalPrefix, namespace) {
+      await ensureReady()
+      const prefix = cacheNamespacePrefix(namespace) + logicalPrefix
+      const keys = [...index.keys()].filter((key) => key.startsWith(prefix))
+      await Promise.all(keys.map((key) => remove(key)))
+      return { mode: 'physical', deleted: keys.length }
     },
     stats() {
       return { totalItems: index.size, storageUsageBytes: totalSizeBytes, hits, misses }
