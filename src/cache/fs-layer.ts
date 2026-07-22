@@ -3,8 +3,20 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/pro
 import { dirname, join } from 'node:path'
 
 import { ExpirationWheel } from './expiration-wheel.js'
-import type { CacheLayer, CacheRecord } from './tiered.js'
-import { DEFAULT_L2_MAX_FILES, DEFAULT_L2_MAX_SIZE_BYTES } from './defaults.js'
+import {
+  isCacheRecord,
+  type CacheCircuitBreakerOptions,
+  type CacheLayer,
+  type CacheRecord,
+} from './tiered.js'
+import {
+  DEFAULT_CACHE_CIRCUIT_COOLDOWN_MS,
+  DEFAULT_CACHE_CIRCUIT_FAILURE_THRESHOLD,
+  DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+  DEFAULT_CACHE_READ_TIMEOUT_MS,
+  DEFAULT_L2_MAX_FILES,
+  DEFAULT_L2_MAX_SIZE_BYTES,
+} from './defaults.js'
 
 export interface FileSystemCacheLayerOptions {
   id: string
@@ -13,6 +25,9 @@ export interface FileSystemCacheLayerOptions {
   maxSizeBytes?: number
   maxFiles?: number
   expirationResolutionMs?: number
+  readTimeoutMs?: number
+  operationTimeoutMs?: number
+  circuitBreaker?: CacheCircuitBreakerOptions
 }
 
 interface FileIndexEntry {
@@ -74,6 +89,9 @@ export function createFileSystemCacheLayer(options: FileSystemCacheLayerOptions)
         try {
           const content = await readFile(filePath)
           const stored = JSON.parse(content.toString('utf8')) as StoredFile
+          if (typeof stored.key !== 'string' || !isCacheRecord(stored.record)) {
+            throw new Error('Invalid cache record')
+          }
           const expiresAt = stored.record.staleUntil ?? stored.record.expiresAt
           if (Date.now() >= expiresAt) {
             await unlink(filePath)
@@ -125,11 +143,20 @@ export function createFileSystemCacheLayer(options: FileSystemCacheLayerOptions)
   return {
     id: options.id,
     ttlMs: options.ttlMs,
+    readTimeoutMs: options.readTimeoutMs ?? DEFAULT_CACHE_READ_TIMEOUT_MS,
+    operationTimeoutMs: options.operationTimeoutMs ?? DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+    circuitBreaker: options.circuitBreaker ?? {
+      failureThreshold: DEFAULT_CACHE_CIRCUIT_FAILURE_THRESHOLD,
+      cooldownMs: DEFAULT_CACHE_CIRCUIT_COOLDOWN_MS,
+    },
     async get(key) {
       await ensureReady()
       const filePath = hashedPath(options.directory, key)
       try {
         const stored = JSON.parse(await readFile(filePath, 'utf8')) as StoredFile
+        if (typeof stored.key !== 'string' || !isCacheRecord(stored.record)) {
+          throw new Error('Invalid cache record')
+        }
         const expiresAt = stored.record.staleUntil ?? stored.record.expiresAt
         if (stored.key !== key || Date.now() >= expiresAt) {
           await remove(key)

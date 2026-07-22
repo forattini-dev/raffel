@@ -74,6 +74,47 @@ describe('TieredCache', () => {
     vi.useRealTimers()
   })
 
+  it('prefers a fresh lower-layer value over a stale upper-layer fallback', async () => {
+    const now = Date.now()
+    const promote = vi.fn<CacheLayer['set']>()
+    const cache = createTieredCache({
+      namespace: 'freshest',
+      layers: [
+        {
+          id: 'l1',
+          ttlMs: 1_000,
+          get: vi.fn().mockReturnValue({
+            value: { version: 'stale' },
+            createdAt: now - 2_000,
+            expiresAt: now - 1_000,
+            staleUntil: now + 10_000,
+            version: 1,
+          }),
+          set: promote,
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+        {
+          id: 'l2',
+          ttlMs: 60_000,
+          get: vi.fn().mockResolvedValue({
+            value: { version: 'fresh' },
+            createdAt: now,
+            expiresAt: now + 60_000,
+            version: 2,
+          }),
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+      ],
+    })
+
+    expect((await cache.get<{ version: string }>('one'))?.value.version).toBe('fresh')
+    expect(promote).toHaveBeenCalledOnce()
+    await cache.shutdown()
+  })
+
   it('evicts the least recently used value to stay within the logical byte budget', async () => {
     const cache = createTieredCache({
       namespace: 'budget',
@@ -197,6 +238,191 @@ describe('TieredCache', () => {
     expect(writes).toEqual([{ version: 1 }, { version: 2 }])
   })
 
+  it('orders exact invalidation after an active write-behind task', async () => {
+    let releaseWrite!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+    const stored = new Map<string, unknown>()
+    const lower: CacheLayer = {
+      id: 'l2',
+      ttlMs: 60_000,
+      get: vi.fn(),
+      async set(key, record) {
+        markStarted()
+        await gate
+        stored.set(key, record.value)
+      },
+      async delete(key) { stored.delete(key) },
+      clearNamespace: vi.fn(),
+    }
+    const cache = createTieredCache({
+      namespace: 'invalidation-order',
+      layers: [
+        createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 }),
+        lower,
+      ],
+    })
+
+    await cache.set('same', { stale: true })
+    await started
+    const invalidation = cache.delete('same')
+    await Promise.resolve()
+    releaseWrite()
+    await invalidation
+
+    expect(stored.size).toBe(0)
+    await cache.shutdown()
+  })
+
+  it('discards a lower-layer read that completes after exact invalidation', async () => {
+    let releaseRead!: (record: Awaited<ReturnType<CacheLayer['get']>>) => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const pendingRead = new Promise<Awaited<ReturnType<CacheLayer['get']>>>((resolve) => {
+      releaseRead = resolve
+    })
+    const lowerGet = vi.fn<CacheLayer['get']>()
+      .mockImplementationOnce(() => {
+        markStarted()
+        return pendingRead
+      })
+      .mockResolvedValue(undefined)
+    const cache = createTieredCache({
+      namespace: 'read-invalidation',
+      layers: [
+        createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 }),
+        {
+          id: 'l2',
+          ttlMs: 60_000,
+          get: lowerGet,
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+      ],
+    })
+
+    const lookup = cache.get('same')
+    await started
+    await cache.delete('same')
+    releaseRead({
+      value: { stale: true },
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      version: 1,
+    })
+
+    expect(await lookup).toBeUndefined()
+    expect(await cache.get('same')).toBeUndefined()
+    await cache.shutdown()
+  })
+
+  it('waits for or fences an in-progress promotion before invalidating', async () => {
+    let releasePromotion!: () => void
+    let markPromotionStarted!: () => void
+    const promotionStarted = new Promise<void>((resolve) => { markPromotionStarted = resolve })
+    const promotionGate = new Promise<void>((resolve) => { releasePromotion = resolve })
+    const promoted = new Map<string, unknown>()
+    const upper: CacheLayer = {
+      id: 'l1',
+      ttlMs: 60_000,
+      get: (key) => promoted.get(key) as ReturnType<CacheLayer['get']>,
+      async set(key, record) {
+        markPromotionStarted()
+        await promotionGate
+        promoted.set(key, record)
+      },
+      delete: (key) => { promoted.delete(key) },
+      clearNamespace: () => { promoted.clear() },
+    }
+    const cache = createTieredCache({
+      namespace: 'promotion-invalidation',
+      operationTimeoutMs: 5,
+      layers: [
+        upper,
+        {
+          id: 'l2',
+          ttlMs: 60_000,
+          get: vi.fn().mockResolvedValue({
+            value: { stale: true },
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+            version: 1,
+          }),
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+      ],
+    })
+
+    const lookup = cache.get('same')
+    await promotionStarted
+    await cache.delete('same')
+    expect(await lookup).toBeUndefined()
+    releasePromotion()
+    await vi.waitFor(() => expect(promoted.size).toBe(0))
+    await cache.shutdown()
+  })
+
+  it('does not let a timed-out lower write block or outlive invalidation', async () => {
+    let releaseWrite!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+    const stored = new Map<string, unknown>()
+    const cache = createTieredCache({
+      namespace: 'timed-write',
+      operationTimeoutMs: 5,
+      layers: [
+        createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 }),
+        {
+          id: 'l2',
+          ttlMs: 60_000,
+          get: (key) => stored.get(key) as ReturnType<CacheLayer['get']>,
+          async set(key, record) {
+            markStarted()
+            await gate
+            stored.set(key, record)
+          },
+          async delete(key) { stored.delete(key) },
+          clearNamespace: vi.fn(),
+        },
+      ],
+    })
+
+    await cache.set('same', { stale: true })
+    await started
+    await expect(cache.delete('same')).resolves.toBeUndefined()
+    releaseWrite()
+    await vi.waitFor(() => expect(stored.size).toBe(0))
+    await cache.shutdown()
+  })
+
+  it('fails a hanging layer invalidation within the operation deadline', async () => {
+    const cache = createTieredCache({
+      namespace: 'timed-delete',
+      operationTimeoutMs: 5,
+      layers: [{
+        id: 'provider',
+        get: vi.fn().mockResolvedValue({
+          value: { stale: true },
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          version: 1,
+        }),
+        set: vi.fn(),
+        delete: () => new Promise(() => undefined),
+        clearNamespace: vi.fn(),
+      }],
+    })
+
+    await expect(cache.delete('same')).rejects.toThrow(/invalidation failed/)
+    expect(await cache.get('same')).toBeUndefined()
+    await cache.shutdown()
+  })
+
   it('reads a filesystem entry from a new cache instance', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'raffel-tiered-cache-'))
     try {
@@ -251,6 +477,107 @@ describe('TieredCache', () => {
     expect((await cache.get('available'))?.value).toBe(expected)
     await cache.shutdown()
   })
+
+  it('times out a hanging lower read and opens its circuit', async () => {
+    const hangingGet = vi.fn<CacheLayer['get']>(() => new Promise(() => undefined))
+    const providerGet = vi.fn<CacheLayer['get']>().mockResolvedValue({
+      value: { source: 'provider' },
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      version: 1,
+    })
+    const cache = createTieredCache({
+      namespace: 'read-timeout',
+      layers: [
+        {
+          id: 'l2',
+          ttlMs: 60_000,
+          readTimeoutMs: 5,
+          circuitBreaker: { failureThreshold: 1, cooldownMs: 60_000 },
+          get: hangingGet,
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+        {
+          id: 'l3',
+          ttlMs: 60_000,
+          get: providerGet,
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+      ],
+    })
+
+    expect((await cache.get('available'))?.value).toEqual({ source: 'provider' })
+    expect((await cache.get('available'))?.value).toEqual({ source: 'provider' })
+    expect(hangingGet).toHaveBeenCalledTimes(1)
+    expect(providerGet).toHaveBeenCalledTimes(2)
+    await cache.shutdown()
+  })
+
+  it('applies the tiered read timeout when a custom layer omits one', async () => {
+    const providerGet = vi.fn<CacheLayer['get']>().mockResolvedValue({
+      value: { source: 'provider' },
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      version: 1,
+    })
+    const cache = createTieredCache({
+      namespace: 'default-read-timeout',
+      readTimeoutMs: 5,
+      layers: [
+        {
+          id: 'custom',
+          get: () => new Promise(() => undefined),
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+        {
+          id: 'provider',
+          get: providerGet,
+          set: vi.fn(),
+          delete: vi.fn(),
+          clearNamespace: vi.fn(),
+        },
+      ],
+    })
+
+    expect((await cache.get('available'))?.value).toEqual({ source: 'provider' })
+    await cache.shutdown()
+  })
+
+  it('rejects values that cannot round-trip consistently through lower layers', async () => {
+    const cache = createTieredCache({
+      namespace: 'json-safe',
+      layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
+    })
+
+    await cache.set('response', new Response('one-shot'))
+    await cache.set('date', { createdAt: new Date() })
+
+    expect(await cache.get('response')).toBeUndefined()
+    expect(await cache.get('date')).toBeUndefined()
+    await cache.shutdown()
+  })
+
+  it('surfaces namespace invalidation failures to the caller', async () => {
+    const cache = createTieredCache({
+      namespace: 'clear-errors',
+      layers: [{
+        id: 'l1',
+        get: vi.fn(),
+        set: vi.fn(),
+        delete: vi.fn(),
+        clearNamespace: vi.fn().mockRejectedValue(new Error('SCAN unavailable')),
+      }],
+    })
+
+    await expect(cache.clearNamespace()).rejects.toThrow(/invalidation failed/)
+    await cache.shutdown()
+  })
 })
 
 describe('Redis/Valkey cache layer', () => {
@@ -281,5 +608,56 @@ describe('Redis/Valkey cache layer', () => {
     expect(sets[0]?.[2]).toBe('PX')
     expect(sets[0]?.[3]).toBe(15_000)
     expect((await layer.get('catalog:one'))?.value).toEqual({ id: 1 })
+  })
+
+  it('uses pSetEx for node-redis compatible clients', async () => {
+    const pSetEx = vi.fn(async () => 'OK')
+    const client = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => { throw new Error('wrong set signature') }),
+      pSetEx,
+      del: vi.fn(async () => 1),
+    }
+    const layer = createRedisCacheLayer({ id: 'l3', client, ttlMs: 60_000 })
+
+    await layer.set('one', {
+      value: { ok: true },
+      createdAt: Date.now(),
+      expiresAt: Date.now(),
+      version: 1,
+    }, 2_000, 500)
+
+    expect(pSetEx).toHaveBeenCalledWith('raffel:cache:one', 2_500, expect.any(String))
+    expect(client.set).not.toHaveBeenCalled()
+  })
+
+  it('surfaces unsupported namespace invalidation', async () => {
+    const layer = createRedisCacheLayer({
+      id: 'l3',
+      ttlMs: 60_000,
+      client: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del: vi.fn(async () => 0),
+      },
+    })
+
+    await expect(layer.clearNamespace('catalog')).rejects.toThrow(/SCAN/)
+  })
+
+  it('ships safe read and operation timeouts for direct adapter usage', () => {
+    const layer = createRedisCacheLayer({
+      id: 'l3',
+      ttlMs: 60_000,
+      client: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del: vi.fn(async () => 0),
+      },
+    })
+
+    expect(layer.readTimeoutMs).toBeGreaterThan(0)
+    expect(layer.operationTimeoutMs).toBeGreaterThan(0)
+    expect(layer.circuitBreaker?.failureThreshold).toBeGreaterThan(0)
   })
 })

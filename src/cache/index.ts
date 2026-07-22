@@ -96,6 +96,10 @@ export {
   createTieredCache,
   createMemoryCacheLayer,
   createFileSystemCacheLayer,
+  DEFAULT_CACHE_CIRCUIT_COOLDOWN_MS,
+  DEFAULT_CACHE_CIRCUIT_FAILURE_THRESHOLD,
+  DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+  DEFAULT_CACHE_READ_TIMEOUT_MS,
   DEFAULT_L1_MAX_ENTRIES,
   DEFAULT_L1_MAX_MEMORY_BYTES,
   DEFAULT_L2_MAX_FILES,
@@ -105,6 +109,7 @@ export { createRedisCacheLayer } from './redis-layer.js'
 export { procedureCacheKey, procedureCacheKeyFor } from './key.js'
 export type {
   CacheLayer,
+  CacheCircuitBreakerOptions,
   CacheLayerStats,
   CacheLookup,
   CacheRecord,
@@ -114,7 +119,7 @@ export type {
   TieredCacheOptions,
 } from './tiered.js'
 export type { FileSystemCacheLayerOptions } from './fs-layer.js'
-export type { RedisCacheLayerOptions } from './redis-layer.js'
+export type { RedisCacheLayerClient, RedisCacheLayerOptions } from './redis-layer.js'
 export type { CacheIdentityScope } from './key.js'
 export type {
   CacheRule,
@@ -126,4 +131,4 @@ export type {
   ServerCacheController,
   ServerCacheLayerConfig,
 } from './server-runtime.js'
-export type { WriteBehindQueueOptions } from './write-behind-queue.js'
+export type { WriteBehindQueueOptions, WriteBehindQueueStats } from './write-behind-queue.js'

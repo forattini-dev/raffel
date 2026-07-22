@@ -205,7 +205,9 @@ export function registerDiscoveredHandlers(
     // Create interceptors from route config
     const routeInterceptors = createRouteInterceptors(route)
     const authzInterceptors = buildCoLocatedAuthzInterceptors(route, policyHook)
-    const cacheInterceptor = cacheInterceptorFor?.(route.name, route.meta?.cache)
+    const cacheInterceptor = route.kind === 'procedure'
+      ? cacheInterceptorFor?.(route.name, route.meta?.cache)
+      : undefined
     const interceptors = [
       ...globalInterceptors,
       ...routeInterceptors,

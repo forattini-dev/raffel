@@ -291,10 +291,10 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
 
       // Execute middleware chain
       let index = 0
-      const executeNext = async (): Promise<void> => {
+      const executeNext = async (): Promise<Response | undefined> => {
         if (index < allMiddlewares.length) {
           const middleware = allMiddlewares[index++]
-          const result = await middleware(ctx, executeNext)
+          const result = await middleware(ctx, executeNext as () => Promise<void>)
           // If middleware returns a Response, set it
           if (result instanceof Response) {
             ctx.res = result
@@ -303,6 +303,7 @@ export class HttpApp<E extends Record<string, unknown> = Record<string, unknown>
           // Execute route handler
           ctx.res = await matchedRoute.handler(ctx)
         }
+        return ctx.res
       }
 
       await executeNext()

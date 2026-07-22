@@ -619,6 +619,10 @@ export {
   createRedisCacheLayer,
   procedureCacheKey,
   procedureCacheKeyFor,
+  DEFAULT_CACHE_CIRCUIT_COOLDOWN_MS,
+  DEFAULT_CACHE_CIRCUIT_FAILURE_THRESHOLD,
+  DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+  DEFAULT_CACHE_READ_TIMEOUT_MS,
   DEFAULT_L1_MAX_ENTRIES,
   DEFAULT_L1_MAX_MEMORY_BYTES,
   DEFAULT_L2_MAX_FILES,
@@ -642,6 +646,7 @@ export type {
   EvictionInfo as CacheEvictionInfo,
   PressureInfo as CachePressureInfo,
   CacheLayer,
+  CacheCircuitBreakerOptions,
   CacheLayerStats,
   CacheLookup,
   CacheRecord,
@@ -651,6 +656,7 @@ export type {
   TieredCacheOptions,
   FileSystemCacheLayerOptions,
   RedisCacheLayerOptions,
+  RedisCacheLayerClient,
   CacheIdentityScope,
   CacheRule,
   FileSystemLayerConfig,
@@ -661,6 +667,7 @@ export type {
   ServerCacheController,
   ServerCacheLayerConfig,
   WriteBehindQueueOptions,
+  WriteBehindQueueStats,
 } from './cache/index.js'
 
 // === Metrics (Prometheus-style) ===

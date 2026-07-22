@@ -6,6 +6,7 @@ import {
   createMemoryCacheLayer,
   createTieredCache,
   type CacheLayer,
+  type CacheCircuitBreakerOptions,
   type CacheWriteOptions,
   type TieredCache,
   type TieredCacheOptions,
@@ -27,6 +28,12 @@ interface CacheLayerConfigBase {
   enabled?: boolean
   ttlMs?: number
   writeBehind?: WriteBehindQueueOptions
+  /** Maximum time spent on one layer read before failing open. */
+  timeoutMs?: number
+  /** Maximum time spent on one layer mutation before failing open. */
+  operationTimeoutMs?: number
+  /** Read circuit breaker; set false to disable it. */
+  circuitBreaker?: CacheCircuitBreakerOptions | false
 }
 
 export interface MemoryLayerConfig extends CacheLayerConfigBase {
@@ -94,7 +101,14 @@ function providerLayer(config: ProviderLayerConfig, id: string): BoundProviderLa
   return {
     bind(services) {
       const candidate = services[config.provider]
-      if (candidate && typeof candidate === 'object' && 'get' in candidate && 'set' in candidate) {
+      if (
+        candidate &&
+        typeof candidate === 'object' &&
+        'get' in candidate &&
+        'set' in candidate &&
+        'delete' in candidate &&
+        'clearNamespace' in candidate
+      ) {
         delegate = candidate as CacheLayer
       }
     },
@@ -102,11 +116,18 @@ function providerLayer(config: ProviderLayerConfig, id: string): BoundProviderLa
       id,
       ttlMs: config.ttlMs ?? 60 * 60_000,
       writeBehind: config.writeBehind,
+      readTimeoutMs: config.timeoutMs ?? 100,
+      operationTimeoutMs: config.operationTimeoutMs,
+      circuitBreaker: config.circuitBreaker === false
+        ? { failureThreshold: Number.MAX_SAFE_INTEGER }
+        : config.circuitBreaker,
       get: (key) => requireDelegate().get(key),
       set: (key, record, ttlMs, staleMs) =>
         requireDelegate().set(key, record, ttlMs, staleMs),
       delete: (key) => requireDelegate().delete(key),
       clearNamespace: (namespace) => requireDelegate().clearNamespace(namespace),
+      stats: () => delegate?.stats?.() ?? { totalItems: 0 },
+      shutdown: () => delegate?.shutdown?.(),
     },
   }
 }
@@ -118,6 +139,10 @@ function isSuccessful(value: unknown): boolean {
     'type' in value &&
     (value as { type?: string }).type === 'error'
   )
+}
+
+function cloneResponse(value: unknown): unknown {
+  return value instanceof Response ? value.clone() : value
 }
 
 function createProcedureInterceptor(
@@ -182,7 +207,7 @@ export class ServerCacheRuntime {
 
   executeOnce(key: string, next: () => Promise<unknown>, config: RouteCacheConfig): Promise<unknown> {
     const existing = this.pending.get(key)
-    if (existing) return existing
+    if (existing) return existing.then(cloneResponse)
     const execution = next()
       .then(async (value) => {
         if (isSuccessful(value)) await this.cache.set(key, value, config)
@@ -190,7 +215,7 @@ export class ServerCacheRuntime {
       })
       .finally(() => this.pending.delete(key))
     this.pending.set(key, execution)
-    return execution
+    return execution.then(cloneResponse)
   }
 
   revalidate(key: string, next: () => Promise<unknown>, config: RouteCacheConfig): void {
@@ -211,6 +236,21 @@ export class ServerCacheRuntime {
       if (layer.ttlMs !== undefined && layer.ttlMs <= 0) {
         throw new Error(`Cache layer "${id}" ttlMs must be greater than zero`)
       }
+      if (layer.timeoutMs !== undefined && layer.timeoutMs <= 0) {
+        throw new Error(`Cache layer "${id}" timeoutMs must be greater than zero`)
+      }
+      if (layer.operationTimeoutMs !== undefined && layer.operationTimeoutMs <= 0) {
+        throw new Error(`Cache layer "${id}" operationTimeoutMs must be greater than zero`)
+      }
+      if (
+        layer.circuitBreaker &&
+        (layer.circuitBreaker.failureThreshold ?? 3) <= 0
+      ) {
+        throw new Error(`Cache layer "${id}" circuit failureThreshold must be greater than zero`)
+      }
+      if (layer.circuitBreaker && (layer.circuitBreaker.cooldownMs ?? 10_000) <= 0) {
+        throw new Error(`Cache layer "${id}" circuit cooldownMs must be greater than zero`)
+      }
       if (layer.driver === 'memory') {
         layers.push({
           ...createMemoryCacheLayer({
@@ -221,6 +261,11 @@ export class ServerCacheRuntime {
             eviction: layer.eviction,
           }),
           writeBehind: layer.writeBehind,
+          readTimeoutMs: layer.timeoutMs,
+          operationTimeoutMs: layer.operationTimeoutMs,
+          circuitBreaker: layer.circuitBreaker === false
+            ? { failureThreshold: Number.MAX_SAFE_INTEGER }
+            : layer.circuitBreaker,
         })
       } else if (layer.driver === 'fs') {
         layers.push({
@@ -230,6 +275,11 @@ export class ServerCacheRuntime {
             directory: layer.directory ?? '.raffel/cache',
             maxFiles: layer.maxFiles,
             maxSizeBytes: layer.maxSizeBytes,
+            readTimeoutMs: layer.timeoutMs,
+            operationTimeoutMs: layer.operationTimeoutMs,
+            circuitBreaker: layer.circuitBreaker === false
+              ? { failureThreshold: Number.MAX_SAFE_INTEGER }
+              : layer.circuitBreaker,
           }),
           writeBehind: layer.writeBehind,
         })

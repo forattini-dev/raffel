@@ -66,6 +66,8 @@ const server = createServer({
         driver: 'provider',
         enabled: true,
         ttlMs: 60 * 60_000,
+        timeoutMs: 100,
+        operationTimeoutMs: 1_000,
         provider: 'sharedCache',
       },
     ],
@@ -99,6 +101,10 @@ server.provide('sharedCache', () => createRedisCacheLayer({
 The adapter stores `ttlMs + staleMs` with Redis/Valkey's native `PX` TTL. It
 does not assume a maximum L3 size and does not close a user-owned client unless
 `closeOnShutdown: true` is explicitly set.
+
+Both ioredis-style `SET ... PX` and node-redis `pSetEx` clients are supported.
+Namespace invalidation requires non-blocking `SCAN`; a blocking `KEYS` fallback
+is available only with `allowBlockingClear: true`.
 
 ### Route configuration
 
@@ -147,7 +153,27 @@ lower layer receives a fresh upper-layer TTL. `staleMs` enables a bounded stale
 window; it is off by default.
 
 Lower-layer writes are write-behind, coalesced per key, bounded, and ordered for
-the same key. Cache failures fail open so the request handler can still run.
+the same key. Invalidation is placed on the same ordering barrier, so a pending
+write cannot resurrect deleted data. Cache failures fail open so the request
+handler can still run. Reads time out after 250 ms by default (100 ms for the
+Redis/Valkey adapter and server provider layers), mutations after one second,
+and three consecutive read failures open a 10-second circuit. Override these
+with `timeoutMs`, `operationTimeoutMs`, and `circuitBreaker` on a layer, or with
+`readTimeoutMs` and `operationTimeoutMs` when constructing `createTieredCache`
+directly.
+
+If an unabortable layer operation exceeds its deadline, that key (or namespace
+for `clear`) is fenced off in the affected layer. A late write is compensated
+with a delete before the fence is released, so timed-out work cannot republish
+an invalidated entry. Reads and newer lower-layer writes skip the fence and the
+request path continues through the remaining layers or handler.
+
+Procedure values must be JSON-safe plain data. `Response`, `Date`, `Buffer`,
+`Map`, class instances, cyclic objects, and other values that cannot round-trip
+identically through L2/L3 are not admitted. Raw `Response` objects should use
+the `HttpApp` middleware below. When a procedure nevertheless returns a native
+`Response`, each concurrent single-flight waiter receives its own clone rather
+than sharing one consumable body.
 
 ### Invalidation
 
@@ -182,7 +208,10 @@ app.use('/catalog/*', createHttpCacheMiddleware(cache))
 
 The HTTP middleware defaults to GET/HEAD and successful responses. It bypasses
 `private`, `no-store`, `Set-Cookie`, event streams, oversized bodies, and
-credential-bearing requests without a canonical runtime identity.
+credential-bearing requests without a canonical runtime identity. Bodies are
+read incrementally with a 1 MiB limit and a one-second deadline by default, so
+an unbounded stream cannot block cache admission. Configure those guards with
+`maxBodyBytes` and `bodyReadTimeoutMs`.
 
 ## Memory Driver
 

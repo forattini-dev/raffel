@@ -6,35 +6,71 @@ export interface WriteBehindQueueOptions {
   onDrop?: (key: string) => void
 }
 
+export interface WriteBehindQueueStats {
+  active: number
+  pending: number
+  dropped: number
+}
+
 type WriteTask = () => void | Promise<void>
 
+interface QueueEntry {
+  key: string
+  task: WriteTask
+  barrier: boolean
+  resolve?: () => void
+  reject?: (error: unknown) => void
+}
+
 export class WriteBehindQueue {
-  private readonly pending = new Map<string, WriteTask>()
-  private readonly order: string[] = []
+  private readonly pending = new Map<string, QueueEntry>()
+  private readonly order: QueueEntry[] = []
   private readonly waiters = new Set<() => void>()
   private readonly activeKeys = new Set<string>()
   private active = 0
+  private dropped = 0
 
   constructor(private readonly options: WriteBehindQueueOptions = {}) {}
 
   enqueue(key: string, task: WriteTask): void {
-    if (this.pending.has(key)) {
-      this.pending.set(key, task)
+    const existing = this.pending.get(key)
+    if (existing) {
+      existing.task = task
       return
     }
 
     const maxPending = this.options.maxPending ?? 1_024
     if (this.pending.size >= maxPending) {
-      const dropped = this.order.shift()
-      if (dropped !== undefined) {
-        this.pending.delete(dropped)
-        this.options.onDrop?.(dropped)
+      const dropped = this.order.find((entry) => !entry.barrier)
+      if (dropped) {
+        this.removePending(dropped)
+        this.dropped++
+        this.options.onDrop?.(dropped.key)
       }
     }
 
-    this.pending.set(key, task)
-    this.order.push(key)
+    const entry: QueueEntry = { key, task, barrier: false }
+    this.pending.set(key, entry)
+    this.order.push(entry)
     this.pump()
+  }
+
+  enqueueBarrier(key: string, task: WriteTask): Promise<void> {
+    const pending = this.pending.get(key)
+    if (pending) this.removePending(pending)
+    return new Promise<void>((resolve, reject) => {
+      this.order.push({ key, task, barrier: true, resolve, reject })
+      this.pump()
+    })
+  }
+
+  async drain(): Promise<void> {
+    if (this.isIdle()) return
+    await new Promise<void>((resolve) => this.waiters.add(resolve))
+  }
+
+  stats(): WriteBehindQueueStats {
+    return { active: this.active, pending: this.order.length, dropped: this.dropped }
   }
 
   async flush(timeoutMs = this.options.shutdownTimeoutMs ?? 2_000): Promise<void> {
@@ -52,22 +88,27 @@ export class WriteBehindQueue {
     const concurrency = this.options.concurrency ?? 4
     let scanBudget = this.order.length
     while (this.active < concurrency && this.order.length > 0 && scanBudget-- > 0) {
-      const key = this.order.shift()!
-      if (this.activeKeys.has(key)) {
-        this.order.push(key)
+      const entry = this.order.shift()!
+      if (this.activeKeys.has(entry.key)) {
+        this.order.push(entry)
         continue
       }
-      const task = this.pending.get(key)
-      this.pending.delete(key)
-      if (!task) continue
+      if (!entry.barrier) {
+        if (this.pending.get(entry.key) !== entry) continue
+        this.pending.delete(entry.key)
+      }
       this.active++
-      this.activeKeys.add(key)
+      this.activeKeys.add(entry.key)
       Promise.resolve()
-        .then(task)
-        .catch((error) => this.options.onError?.(error))
+        .then(entry.task)
+        .then(() => entry.resolve?.())
+        .catch((error) => {
+          this.options.onError?.(error)
+          entry.reject?.(error)
+        })
         .finally(() => {
           this.active--
-          this.activeKeys.delete(key)
+          this.activeKeys.delete(entry.key)
           this.pump()
           this.resolveWaitersIfIdle()
         })
@@ -75,7 +116,13 @@ export class WriteBehindQueue {
   }
 
   private isIdle(): boolean {
-    return this.active === 0 && this.pending.size === 0
+    return this.active === 0 && this.order.length === 0
+  }
+
+  private removePending(entry: QueueEntry): void {
+    if (this.pending.get(entry.key) === entry) this.pending.delete(entry.key)
+    const index = this.order.indexOf(entry)
+    if (index >= 0) this.order.splice(index, 1)
   }
 
   private resolveWaitersIfIdle(): void {

@@ -20,6 +20,7 @@ export interface HttpCacheMiddlewareOptions extends CacheWriteOptions {
   methods?: readonly string[]
   varyHeaders?: readonly string[]
   maxBodyBytes?: number
+  bodyReadTimeoutMs?: number
   cacheableStatus?: (status: number) => boolean
 }
 
@@ -84,7 +85,11 @@ async function serializeResponse(
   options: HttpCacheMiddlewareOptions,
 ): Promise<CachedHttpResponse | undefined> {
   const cacheControl = response.headers.get('cache-control')?.toLowerCase() ?? ''
-  if (cacheControl.includes('no-store') || cacheControl.includes('private')) return undefined
+  if (
+    cacheControl.includes('no-store') ||
+    cacheControl.includes('no-cache') ||
+    cacheControl.includes('private')
+  ) return undefined
   if (response.headers.has('set-cookie')) return undefined
   if (response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) return undefined
   if (!(options.cacheableStatus ?? ((status) => status >= 200 && status < 300 && status !== 206))(response.status)) {
@@ -99,15 +104,63 @@ async function serializeResponse(
   }
 
   const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024
-  const declaredLength = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) return undefined
-  const body = Buffer.from(await response.clone().arrayBuffer())
-  if (body.byteLength > maxBodyBytes) return undefined
+  const contentLength = response.headers.get('content-length')
+  const declaredLength = contentLength === null ? undefined : Number(contentLength)
+  if (declaredLength !== undefined && Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) {
+    return undefined
+  }
+  const body = await readBodyWithinLimits(
+    response,
+    maxBodyBytes,
+    options.bodyReadTimeoutMs ?? 1_000,
+  )
+  if (!body) return undefined
   return {
     status: response.status,
     statusText: response.statusText,
     headers: [...response.headers.entries()],
     bodyBase64: body.toString('base64'),
+  }
+}
+
+async function readBodyWithinLimits(
+  response: Response,
+  maxBodyBytes: number,
+  timeoutMs: number,
+): Promise<Buffer | undefined> {
+  let clone: Response
+  try {
+    clone = response.clone()
+  } catch {
+    return undefined
+  }
+  if (!clone.body) return Buffer.alloc(0)
+  const reader = clone.body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  let timedOut = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true
+      reject(new Error('HTTP cache body read timed out'))
+    }, timeoutMs)
+    timer.unref()
+  })
+  try {
+    while (true) {
+      const { done, value } = await Promise.race([reader.read(), deadline])
+      if (done) return Buffer.concat(chunks, total)
+      total += value.byteLength
+      if (total > maxBodyBytes) return undefined
+      chunks.push(Buffer.from(value))
+    }
+  } catch {
+    return undefined
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (timedOut || total > maxBodyBytes) void reader.cancel()
+    reader.releaseLock()
   }
 }
 
@@ -131,8 +184,26 @@ export function createHttpCacheMiddleware(
     const key = cacheKey(context, options)
     if (!key) return next()
 
+    const executeAndStore = async (): Promise<CachedHttpResponse | undefined> => {
+      const downstream = await (next as unknown as () => Promise<Response | undefined>)()
+      const response = downstream ?? context.res
+      if (!response) return undefined
+      const serialized = await serializeResponse(response, options)
+      if (serialized) await cache.set(key, serialized, options)
+      return serialized
+    }
+
     const hit = await cache.get<CachedHttpResponse>(key)
     if (hit && !hit.stale) return responseFrom(hit.value, context.req.method)
+    if (hit?.stale) {
+      const staleResponse = responseFrom(hit.value, context.req.method)
+      if (!pending.has(key)) {
+        const refresh = executeAndStore().finally(() => pending.delete(key))
+        pending.set(key, refresh)
+        void refresh.catch(() => undefined)
+      }
+      return staleResponse
+    }
 
     const existing = pending.get(key)
     if (existing) {
@@ -141,13 +212,7 @@ export function createHttpCacheMiddleware(
       return next()
     }
 
-    const execution = (async () => {
-      await next()
-      if (!context.res) return undefined
-      const serialized = await serializeResponse(context.res, options)
-      if (serialized) await cache.set(key, serialized, options)
-      return serialized
-    })().finally(() => pending.delete(key))
+    const execution = executeAndStore().finally(() => pending.delete(key))
     pending.set(key, execution)
     await execution
   }

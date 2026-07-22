@@ -9,6 +9,7 @@ import { createContext } from '../../src/types/context.js'
 import type { Envelope } from '../../src/types/index.js'
 import { createZodAdapter } from '../../src/validation/adapters/zod.js'
 import { registerValidator } from '../../src/validation/index.js'
+import { ServerCacheRuntime } from '../../src/cache/server-runtime.js'
 
 beforeAll(() => registerValidator(createZodAdapter(z)))
 
@@ -31,6 +32,29 @@ function request(
 }
 
 describe('server tiered cache', () => {
+  it('gives each single-flight waiter its own Response body', async () => {
+    const runtime = new ServerCacheRuntime({
+      enabled: true,
+      layers: [{ driver: 'memory' }],
+    })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const next = async () => {
+      await gate
+      return new Response('shared body')
+    }
+
+    const first = runtime.executeOnce('response', next, {})
+    const second = runtime.executeOnce('response', next, {})
+    release()
+    const [firstResponse, secondResponse] = await Promise.all([first, second]) as Response[]
+
+    expect(firstResponse).not.toBe(secondResponse)
+    expect(await firstResponse.text()).toBe('shared body')
+    expect(await secondResponse.text()).toBe('shared body')
+    await runtime.stop()
+  })
+
   it('applies an enabled global rule to a declared procedure', async () => {
     let executions = 0
     const server = createServer({
