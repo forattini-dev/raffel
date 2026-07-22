@@ -20,6 +20,8 @@ export type {
   HttpErrorHandler,
   HttpNotFoundHandler,
 } from './app.js'
+export { createHttpCacheMiddleware } from './cache.js'
+export type { HttpCacheMiddlewareOptions } from './cache.js'
 export {
   HttpRouteTable,
   compilePath,

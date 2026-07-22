@@ -28,6 +28,8 @@ import type { Interceptor, ProcedureHandler, StreamHandler, EventHandler } from 
 import type { HandlerSchema } from '../../validation/index.js'
 import type { ProcedurePolicyConfig } from '../../middleware/policy/types.js'
 import type { RuntimeInspectionOperationRegistration } from '../../inspect/index.js'
+import type { RouteCacheConfig } from '../../cache/server-runtime.js'
+import { insertCacheInterceptor } from '../interceptor-utils.js'
 import type {
   RaffelServer,
   RouterModule,
@@ -70,6 +72,10 @@ export interface ProgrammaticRegistrationDeps {
   registerUdpHandler: (handler: LoadedUdpHandler) => void
   logger: { debug(obj: unknown, msg: string): void }
   getServer: () => RaffelServer
+  cacheInterceptorFor?: (
+    procedureName: string,
+    config: RouteCacheConfig | false | undefined,
+  ) => Interceptor | undefined
 }
 
 export function createProgrammaticRegistration(
@@ -92,6 +98,7 @@ export function createProgrammaticRegistration(
     registerUdpHandler,
     logger,
     getServer,
+    cacheInterceptorFor,
   } = deps
 
   return {
@@ -120,7 +127,7 @@ export function createProgrammaticRegistration(
           }
         }
 
-        const interceptors = normalizeInterceptors(
+        let interceptors = normalizeInterceptors(
           [
             ...globalInterceptors,
             ...mountInterceptors,
@@ -130,6 +137,12 @@ export function createProgrammaticRegistration(
           ],
           routeSchema
         )
+        const cacheInterceptor = route.kind === 'procedure'
+          ? cacheInterceptorFor?.(fullName, route.cache)
+          : undefined
+        if (cacheInterceptor) {
+          interceptors = insertCacheInterceptor(interceptors, cacheInterceptor)
+        }
 
         if (route.schema) {
           schemaRegistry.register(fullName, route.schema)
@@ -187,6 +200,9 @@ export function createProgrammaticRegistration(
       const policies = 'meta' in input
         ? policyMetadataFromRouteMeta(input.meta)
         : (input as AddProcedureInput).policies
+      const cache = 'meta' in input
+        ? input.meta?.cache
+        : (input as AddProcedureInput).cache
       const routeInterceptors = 'middlewares' in input ? createRouteInterceptors(input as LoadedRoute) : []
       const inputInterceptors = 'interceptors' in input ? (input as AddProcedureInput).interceptors ?? [] : []
 
@@ -204,6 +220,7 @@ export function createProgrammaticRegistration(
         jsonrpc,
         grpc,
         policies,
+        cache,
         interceptors: [...routeInterceptors, ...inputInterceptors],
         registration: {
           source: 'filePath' in input

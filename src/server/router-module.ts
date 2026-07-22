@@ -18,6 +18,7 @@ import type {
   ContractPolicies,
 } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
+import type { RouteCacheConfig } from '../cache/server-runtime.js'
 import { createProcedureBuilder } from './handler-builders.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import type {
@@ -53,6 +54,8 @@ export interface ModuleRoute {
   policies?: ContractPolicies
   /** Authorization policy config (synthesized at server.mount time). */
   authz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
+  /** Response cache override, applied by the host server at mount time. */
+  cache?: RouteCacheConfig | false
   moduleInterceptors: Interceptor[]
   interceptors: Interceptor[]
   schema?: HandlerSchema
@@ -245,6 +248,7 @@ function createModuleView(
             grpc: registration.grpc,
             policies: registration.policies,
             authz: registration.authz ?? definition.defaultAuthz,
+            cache: registration.cache,
             moduleInterceptors: [...moduleInterceptors],
             interceptors:
               registration.interceptors.length > 0 ? [...registration.interceptors] : [],

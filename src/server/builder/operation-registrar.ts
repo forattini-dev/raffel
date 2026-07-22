@@ -7,6 +7,8 @@ import type { ContractPolicies } from '../../types/index.js'
 import type { AddProcedureInput } from '../types.js'
 import type { RuntimeInspectionOperationRegistration } from '../../inspect/index.js'
 import type { RuntimeInspectionSource } from '../../inspect/index.js'
+import type { RouteCacheConfig } from '../../cache/server-runtime.js'
+import { insertCacheInterceptor } from '../interceptor-utils.js'
 
 export interface ProcedureOperationInput {
   name: string
@@ -23,6 +25,7 @@ export interface ProcedureOperationInput {
   jsonrpc?: AddProcedureInput['jsonrpc']
   grpc?: AddProcedureInput['grpc']
   policies?: ContractPolicies
+  cache?: RouteCacheConfig | false
   interceptors?: Interceptor[]
   registration?: RuntimeInspectionOperationRegistration
 }
@@ -37,6 +40,10 @@ export function createProcedureOperationRegistrar(input: {
     registration: RuntimeInspectionOperationRegistration
   ) => void
   programmaticSource: (kind?: RuntimeInspectionSource['kind']) => RuntimeInspectionSource
+  cacheInterceptorFor?: (
+    procedureName: string,
+    config: RouteCacheConfig | false | undefined,
+  ) => Interceptor | undefined
 }): (operation: ProcedureOperationInput) => void {
   const {
     globalInterceptors,
@@ -45,6 +52,7 @@ export function createProcedureOperationRegistrar(input: {
     normalizeInterceptors,
     recordOperationRegistration,
     programmaticSource,
+    cacheInterceptorFor,
   } = input
 
   return (operation) => {
@@ -63,6 +71,7 @@ export function createProcedureOperationRegistrar(input: {
       jsonrpc,
       grpc,
       policies,
+      cache,
       interceptors = [],
       registration = { source: programmaticSource() },
     } = operation
@@ -75,6 +84,11 @@ export function createProcedureOperationRegistrar(input: {
       if (outputSchema) schema.output = outputSchema
       schemaRegistry.register(name, schema)
       normalizedInterceptors = normalizeInterceptors(normalizedInterceptors, schema)
+    }
+
+    const cacheInterceptor = cacheInterceptorFor?.(name, cache)
+    if (cacheInterceptor) {
+      normalizedInterceptors = insertCacheInterceptor(normalizedInterceptors, cacheInterceptor)
     }
 
     registry.procedure(name, handler, {

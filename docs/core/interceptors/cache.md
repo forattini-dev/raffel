@@ -31,6 +31,159 @@ await cache.clear() // Clear all
 await cache.clear('users:') // Clear by prefix
 ```
 
+## Hierarchical response cache (L1 + L2 + L3)
+
+The server response cache uses one ordered motor for all layers:
+
+1. L1 is an in-process memory cache. Its defaults are 16 MiB, 10,000 entries,
+   LRU eviction, and reference-preserving reads.
+2. L2 is a local filesystem cache. Its defaults are 64 MiB and 50,000 files.
+3. L3 is an optional provider layer. Redis/Valkey owns its own capacity and
+   eviction configuration.
+
+The global flag only enables the infrastructure. A route is cached when a
+matching rule or a route-level override enables it.
+
+```ts
+import { createServer } from 'raffel'
+
+const server = createServer({
+  port: 3000,
+  cache: {
+    enabled: true,
+    namespace: 'catalog-api',
+    layers: [
+      { id: 'l1', driver: 'memory', enabled: true, ttlMs: 60_000 },
+      {
+        id: 'l2',
+        driver: 'fs',
+        enabled: true,
+        ttlMs: 10 * 60_000,
+        directory: '.raffel/cache',
+      },
+      {
+        id: 'l3',
+        driver: 'provider',
+        enabled: true,
+        ttlMs: 60 * 60_000,
+        provider: 'sharedCache',
+      },
+    ],
+    rules: [
+      { match: 'catalog.**', enabled: true },
+      { match: 'catalog.private.**', enabled: false },
+    ],
+  },
+})
+```
+
+`id` is optional; omitted ids become `l1`, `l2`, and so on based on their
+configured position. Disabled layers are removed from the hot path.
+
+### Redis or Valkey as L3
+
+```ts
+import Redis from 'ioredis'
+import { createRedisCacheLayer } from 'raffel/cache'
+
+const redis = new Redis(process.env.REDIS_URL)
+
+server.provide('sharedCache', () => createRedisCacheLayer({
+  id: 'l3',
+  client: redis,
+  ttlMs: 60 * 60_000,
+  prefix: 'my-service:',
+}))
+```
+
+The adapter stores `ttlMs + staleMs` with Redis/Valkey's native `PX` TTL. It
+does not assume a maximum L3 size and does not close a user-owned client unless
+`closeOnShutdown: true` is explicitly set.
+
+### Route configuration
+
+Fluent, direct, declarative, mounted-module, HTTP-namespace, and discovered
+procedures all use the same cache motor.
+
+```ts
+server.procedure('catalog.list')
+  .cache({
+    enabled: true,
+    ttlMs: { l1: 30_000, l2: 5 * 60_000, l3: 30 * 60_000 },
+    staleMs: { l1: 10_000, l2: 60_000 },
+  })
+  .handler(async (input, ctx) => listCatalog(input, ctx))
+
+server.procedures({
+  'catalog.featured': {
+    cache: { enabled: true, ttlMs: 60_000 },
+    handler: async () => featuredProducts(),
+  },
+})
+```
+
+For filesystem discovery:
+
+```ts
+export const meta = {
+  cache: { enabled: true, ttlMs: 60_000 },
+}
+
+export default async function handler() {
+  return loadCatalog()
+}
+```
+
+`scope: 'auto'` is the default: anonymous requests share an anonymous entry;
+authenticated requests are partitioned by tenant and principal. Use
+`scope: 'public'` only for data that is intentionally identical for everyone.
+
+### TTL behavior
+
+Fixed TTL is the default. L1 and L2 use one shared expiration wheel per layer,
+not one timer per key. L2 rebuilds that wheel from persisted metadata on
+startup. L3 delegates physical expiry to the provider. A hit promoted from a
+lower layer receives a fresh upper-layer TTL. `staleMs` enables a bounded stale
+window; it is off by default.
+
+Lower-layer writes are write-behind, coalesced per key, bounded, and ordered for
+the same key. Cache failures fail open so the request handler can still run.
+
+### Invalidation
+
+```ts
+// Exact logical key when you already have it
+await server.cache?.invalidate(key)
+
+// Exact procedure/input/identity entry
+await server.cache?.invalidateProcedure('catalog.list', input, ctx)
+
+// This server instance's complete cache namespace
+await server.cache?.clear()
+```
+
+L1 and L2 are local to each process. Without pub/sub invalidation, other
+instances converge when their TTL expires.
+
+### HttpApp middleware
+
+```ts
+import { HttpApp, createHttpCacheMiddleware } from 'raffel/http'
+import { createMemoryCacheLayer, createTieredCache } from 'raffel/cache'
+
+const cache = createTieredCache({
+  namespace: 'http-app',
+  layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
+})
+
+const app = new HttpApp()
+app.use('/catalog/*', createHttpCacheMiddleware(cache))
+```
+
+The HTTP middleware defaults to GET/HEAD and successful responses. It bypasses
+`private`, `no-store`, `Set-Cookie`, event streams, oversized bodies, and
+credential-bearing requests without a canonical runtime identity.
+
 ## Memory Driver
 
 High-performance in-memory cache with advanced features ported from Recker.

@@ -7,6 +7,7 @@ import { createRegistry, createRouter } from '../dist/core/index.js'
 import { createContext } from '../dist/types/index.js'
 import { detectSinglePortProtocolFromChunk } from '../dist/server/index.js'
 import { createFrontDoorBootstrap } from '../dist/server/front-door.js'
+import { createMemoryCacheLayer, createTieredCache } from '../dist/cache/index.js'
 
 const ROOT = process.cwd()
 const BUDGETS_PATH = path.join(ROOT, 'bench', 'budgets.json')
@@ -134,6 +135,31 @@ function createCoreBenchmarks() {
   ]
 }
 
+function createCacheBenchmarks() {
+  const expected = { id: 42, name: 'cached' }
+  const cache = createTieredCache({
+    namespace: 'benchmark',
+    layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
+  })
+  let primed = false
+
+  return [{
+    name: 'tiered_cache_l1_hit',
+    iterations: 100000,
+    warmupIterations: 1000,
+    fn: async () => {
+      if (!primed) {
+        await cache.set('product:42', expected)
+        primed = true
+      }
+      const result = await cache.get('product:42')
+      if (result?.value !== expected || result.layer !== 'l1') {
+        throw new Error('Unexpected L1 cache benchmark result')
+      }
+    },
+  }]
+}
+
 function createProtocolFusionBenchmarks() {
   const httpChunk = Buffer.from('GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n')
   const frontDoor = createFrontDoorBootstrap({
@@ -194,6 +220,7 @@ async function main() {
   const definitions = [
     ...createHttpBenchmarks(),
     ...createCoreBenchmarks(),
+    ...createCacheBenchmarks(),
     ...createProtocolFusionBenchmarks(),
   ]
 

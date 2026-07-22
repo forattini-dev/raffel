@@ -28,6 +28,7 @@ import type {
   RuntimeInspectionGraph,
 } from '../../inspect/index.js'
 import type { TrustedProxyConfig } from '../../utils/client-ip.js'
+import type { ServerCacheConfig } from '../../cache/server-runtime.js'
 import type {
   RaffelServer,
   ProtocolExtensionConfig,
@@ -578,6 +579,9 @@ export interface ServerOptions {
    * ```
    */
   middleware?: Interceptor[]
+
+  /** Hierarchical response cache. Routes remain opt-in through rules or route metadata. */
+  cache?: ServerCacheConfig | false
 
   // === File-System Discovery ===
 

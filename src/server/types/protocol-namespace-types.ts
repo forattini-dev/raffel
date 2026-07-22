@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type { Context, Interceptor, ProcedureHandler } from '../../types/index.js'
+import type { RouteCacheConfig } from '../../cache/server-runtime.js'
 
 // === HTTP Route Types ===
 
@@ -29,6 +30,8 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
   tags?: string[]
   /** Middleware interceptors */
   use?: Interceptor[]
+  /** Response cache override for this HTTP route. */
+  cache?: RouteCacheConfig | false
   /**
    * HTTP status code returned on a successful response. Defaults to `200`.
    * Resource auto-CRUD applies REST conventions when this is unset:

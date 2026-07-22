@@ -53,6 +53,10 @@ export {
   validate,
   // Interceptors
   createValidationInterceptor,
+  createInputValidationInterceptor,
+  createOutputValidationInterceptor,
+  isOutputValidationInterceptor,
+  splitValidationInterceptor,
   createSchemaValidationInterceptor,
   // Schema registry
   createSchemaRegistry,
