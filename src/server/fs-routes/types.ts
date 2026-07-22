@@ -15,6 +15,7 @@ import type {
   GrpcMeta,
 } from '../../types/index.js'
 import type { HttpContextInterface } from '../../http/context.js'
+import type { RouteCacheConfig } from '../../cache/server-runtime.js'
 
 // === Discovery Configuration ===
 
@@ -334,6 +335,9 @@ export interface HandlerMeta {
     limit: number
     window: number
   }
+
+  /** Response cache override for this discovered route. */
+  cache?: RouteCacheConfig | false
 
   /** Custom interceptors for this handler */
   interceptors?: Interceptor[]

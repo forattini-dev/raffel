@@ -6,6 +6,7 @@ right now:
 - HTTP front-door overhead
 - HTTP route lookup (early and late exact routes under the same budget)
 - Core router dispatch
+- Tiered-cache L1 hit (including the async public API)
 - Shared-port protocol detection
 - Front-door protocol rejection path
 - Shared-port blocked-protocol rejection path

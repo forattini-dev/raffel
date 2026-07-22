@@ -14,6 +14,9 @@
     "core_router_dispatch": {
       "minOpsPerSec": 250000
     },
+    "tiered_cache_l1_hit": {
+      "minOpsPerSec": 250000
+    },
     "single_port_detect_http": {
       "minOpsPerSec": 500000
     },

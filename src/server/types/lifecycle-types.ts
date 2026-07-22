@@ -78,6 +78,9 @@ import type {
 } from './handler-types.js'
 
 export interface RaffelServer {
+  /** Cache invalidation and inspection API when server caching is enabled. */
+  readonly cache?: import('../../cache/server-runtime.js').ServerCacheController
+
   // === Protocol Configuration ===
 
   /**

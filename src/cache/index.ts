@@ -90,3 +90,45 @@ export {
   RedisDriver,
   createRedisDriver,
 } from './drivers/index.js'
+
+// Hierarchical response cache (L1 memory → L2 filesystem → L3 provider)
+export {
+  createTieredCache,
+  createMemoryCacheLayer,
+  createFileSystemCacheLayer,
+  DEFAULT_CACHE_CIRCUIT_COOLDOWN_MS,
+  DEFAULT_CACHE_CIRCUIT_FAILURE_THRESHOLD,
+  DEFAULT_CACHE_OPERATION_TIMEOUT_MS,
+  DEFAULT_CACHE_READ_TIMEOUT_MS,
+  DEFAULT_L1_MAX_ENTRIES,
+  DEFAULT_L1_MAX_MEMORY_BYTES,
+  DEFAULT_L2_MAX_FILES,
+  DEFAULT_L2_MAX_SIZE_BYTES,
+} from './tiered.js'
+export { createRedisCacheLayer } from './redis-layer.js'
+export { procedureCacheKey, procedureCacheKeyFor } from './key.js'
+export type {
+  CacheLayer,
+  CacheCircuitBreakerOptions,
+  CacheLayerStats,
+  CacheLookup,
+  CacheRecord,
+  CacheWriteOptions,
+  MemoryCacheLayerOptions,
+  TieredCache,
+  TieredCacheOptions,
+} from './tiered.js'
+export type { FileSystemCacheLayerOptions } from './fs-layer.js'
+export type { RedisCacheLayerClient, RedisCacheLayerOptions } from './redis-layer.js'
+export type { CacheIdentityScope } from './key.js'
+export type {
+  CacheRule,
+  FileSystemLayerConfig,
+  MemoryLayerConfig,
+  ProviderLayerConfig,
+  RouteCacheConfig,
+  ServerCacheConfig,
+  ServerCacheController,
+  ServerCacheLayerConfig,
+} from './server-runtime.js'
+export type { WriteBehindQueueOptions, WriteBehindQueueStats } from './write-behind-queue.js'

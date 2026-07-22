@@ -80,7 +80,10 @@ import {
 } from './discovery-utils.js'
 import { createRegistrationService } from './orchestration/registration.js'
 import { createRuntimePreviewService } from './orchestration/runtime-preview.js'
-import { normalizeInterceptors as normalizeInterceptorsShared } from './interceptor-utils.js'
+import {
+  insertCacheInterceptor,
+  normalizeInterceptors as normalizeInterceptorsShared,
+} from './interceptor-utils.js'
 import { createFrontDoorBootstrap } from './front-door.js'
 import { createProtocolFusionDiagnosticsStore } from './protocol-fusion-diagnostics.js'
 import { createDiscoveryBootstrap } from './discovery-bootstrap.js'
@@ -121,6 +124,7 @@ import {
 } from './builder/metadata.js'
 import { createServerPluginRuntime } from './builder/plugin-runtime.js'
 import { createProcedureOperationRegistrar } from './builder/operation-registrar.js'
+import { createServerCacheRuntime } from '../cache/server-runtime.js'
 
 const logger = createLogger('server')
 const loggerPort = adaptPinoLogger(logger)
@@ -262,6 +266,7 @@ export function createServer(options: ServerOptions): RaffelServer {
 
   // Global interceptors (from options + added via .use())
   const globalInterceptors: Interceptor[] = middleware ? [...middleware] : []
+  const serverCacheRuntime = createServerCacheRuntime(options.cache)
 
   const envelopeInterceptor = createEnvelopeInterceptorFromOptions(envelope)
   if (envelopeInterceptor) {
@@ -478,6 +483,7 @@ export function createServer(options: ServerOptions): RaffelServer {
     normalizeInterceptors,
     recordOperationRegistration,
     programmaticSource,
+    cacheInterceptorFor: (name, cache) => serverCacheRuntime?.interceptorFor(name, cache),
   })
 
   // Adapt resource routes for the orchestration layer: convert per-route
@@ -510,6 +516,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         onRegistered,
         policyBootstrap ? { bootstrap: policyBootstrap } : undefined,
         previouslyDiscovered,
+        (name, cache) => serverCacheRuntime?.interceptorFor(name, cache),
       )
     },
     buildAuthzInterceptorsForOperation: (operationName, coLocatedPolicies, diagnosticsFilePath, policyConfig) =>
@@ -740,6 +747,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       httpPath: path,
       httpMethod: method,
       httpSuccessStatus: options.successStatus,
+      cache: options.cache,
       interceptors: [...httpInterceptors, ...(options.use ?? [])],
       registration: { source: programmaticSource('http-namespace') },
     })
@@ -781,9 +789,11 @@ export function createServer(options: ServerOptions): RaffelServer {
     registerUdpHandler,
     logger,
     getServer: () => server,
+    cacheInterceptorFor: (name, cache) => serverCacheRuntime?.interceptorFor(name, cache),
   })
 
   const server: RaffelServer = {
+    cache: serverCacheRuntime?.controller,
     // === Authorization (policies) ===
     policy: policyNamespace,
 
@@ -1101,6 +1111,10 @@ export function createServer(options: ServerOptions): RaffelServer {
         hooksResolver,
         envelopeInterceptor,
         (procedureName, procedureHandler, registration) => {
+          const cacheInterceptor = serverCacheRuntime?.interceptorFor(
+            procedureName,
+            registration.cache
+          )
           registry.procedure(procedureName, procedureHandler as any, {
             summary: registration.summary,
             description: registration.description,
@@ -1112,7 +1126,9 @@ export function createServer(options: ServerOptions): RaffelServer {
             grpc: registration.grpc,
             policies: registration.policies,
             authz: registration.authz,
-            interceptors: registration.interceptors,
+            interceptors: cacheInterceptor
+              ? insertCacheInterceptor(registration.interceptors, cacheInterceptor)
+              : registration.interceptors,
           })
           recordOperationRegistration(procedureName, { source: programmaticSource() })
         },
@@ -1203,6 +1219,7 @@ export function createServer(options: ServerOptions): RaffelServer {
           httpPath,
           httpMethod,
           policies: def.policies,
+          cache: def.cache,
           interceptors: def.use ?? [],
         })
 
@@ -1266,6 +1283,7 @@ export function createServer(options: ServerOptions): RaffelServer {
 
       const startPlugins = pluginRuntime.getPluginsInStartOrder()
       const startController = new AbortController()
+      serverCacheRuntime?.start()
 
       try {
         await pluginRuntime.runPluginRuntimeHooks('beforeStart', startPlugins, startController.signal)
@@ -1296,6 +1314,7 @@ export function createServer(options: ServerOptions): RaffelServer {
           }
         }
 
+        await serverCacheRuntime?.stop()
         throw error
       } finally {
         startController.abort()
@@ -1304,6 +1323,7 @@ export function createServer(options: ServerOptions): RaffelServer {
 
     async stop() {
       if (!serverState.running.value) {
+        await serverCacheRuntime?.stop()
         return
       }
 
@@ -1315,6 +1335,7 @@ export function createServer(options: ServerOptions): RaffelServer {
         await serverLifecycle.stop()
         await pluginRuntime.runPluginRuntimeHooks('afterStop', stopPlugins, stopController.signal)
       } finally {
+        await serverCacheRuntime?.stop()
         stopController.abort()
       }
     },

@@ -14,6 +14,7 @@ import { createHttpAwareProcedureHandler } from './http-lifecycle/index.js'
 import { createLogger } from '../utils/logger.js'
 import type { PolicyBootstrap } from '../middleware/policy/bootstrap.js'
 import type { Policy, ProcedurePolicyConfig } from '../middleware/policy/types.js'
+import type { RouteCacheConfig } from '../cache/server-runtime.js'
 
 const logger = createLogger('server')
 
@@ -158,6 +159,10 @@ export function registerDiscoveredHandlers(
   }) => void,
   policyHook?: DiscoveryRegistrationPolicyHook,
   previouslyDiscovered?: ReadonlySet<string>,
+  cacheInterceptorFor?: (
+    routeName: string,
+    config: RouteCacheConfig | false | undefined,
+  ) => Interceptor | undefined,
 ): { discoveredNames: Set<string> } {
   const newNames = new Set<string>()
 
@@ -200,7 +205,15 @@ export function registerDiscoveredHandlers(
     // Create interceptors from route config
     const routeInterceptors = createRouteInterceptors(route)
     const authzInterceptors = buildCoLocatedAuthzInterceptors(route, policyHook)
-    const interceptors = [...globalInterceptors, ...routeInterceptors, ...authzInterceptors]
+    const cacheInterceptor = route.kind === 'procedure'
+      ? cacheInterceptorFor?.(route.name, route.meta?.cache)
+      : undefined
+    const interceptors = [
+      ...globalInterceptors,
+      ...routeInterceptors,
+      ...authzInterceptors,
+      ...(cacheInterceptor ? [cacheInterceptor] : []),
+    ]
 
     // Register schema if defined
     if (route.inputSchema || route.outputSchema) {

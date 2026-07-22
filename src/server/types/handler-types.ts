@@ -6,6 +6,7 @@
  */
 
 import type { z } from 'zod'
+import type { RouteCacheConfig } from '../../cache/server-runtime.js'
 import type {
   Context,
   Interceptor,
@@ -89,6 +90,8 @@ export interface ProcedureBuilder<TInput = unknown, TOutput = unknown> {
   tags(tags: string[]): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
+  /** Enable or override hierarchical response caching for this procedure. */
+  cache(config?: RouteCacheConfig | false): this
   /** Attach contract-bound runtime policies */
   policy(policies: ContractPolicies): this
   /**
@@ -337,6 +340,8 @@ export interface ProcedureDef<TInput = unknown, TOutput = unknown> {
   tags?: string[]
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
+  /** Response cache override for this procedure. */
+  cache?: RouteCacheConfig | false
   /** Interceptors/middleware */
   use?: Interceptor[]
 }
@@ -520,6 +525,8 @@ export interface AddProcedureInput {
   grpc?: GrpcMeta
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
+  /** Response cache override for this procedure. */
+  cache?: RouteCacheConfig | false
   /** Interceptors */
   interceptors?: Interceptor[]
 }

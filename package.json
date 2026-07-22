@@ -23,6 +23,10 @@
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"
     },
+    "./cache": {
+      "types": "./dist/cache/index.d.ts",
+      "import": "./dist/cache/index.js"
+    },
     "./policy": {
       "types": "./dist/policy.d.ts",
       "import": "./dist/policy.js"

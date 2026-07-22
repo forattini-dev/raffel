@@ -204,6 +204,11 @@ async function runSchemaValidatedHandler(
   envelope: Envelope,
   next: () => Promise<unknown>,
 ): Promise<unknown> {
+  validateInput(schema, envelope)
+  return validateOutput(schema, await next())
+}
+
+function validateInput(schema: HandlerSchema, envelope: Envelope): void {
   const validatorType = schema.validator ?? globalConfig.defaultValidator
   const validator = getValidator(validatorType)
 
@@ -217,10 +222,12 @@ async function runSchemaValidatedHandler(
     }
     envelope.payload = result.data
   }
+}
 
-  const handlerResult = await next()
-
+function validateOutput(schema: HandlerSchema, handlerResult: unknown): unknown {
   if (schema.output) {
+    const validatorType = schema.validator ?? globalConfig.defaultValidator
+    const validator = getValidator(validatorType)
     const result = validator.validate(schema.output, handlerResult)
     if (!result.success) {
       throw new RaffelError('OUTPUT_VALIDATION_ERROR', 'Output validation failed', {
@@ -234,10 +241,51 @@ async function runSchemaValidatedHandler(
   return handlerResult
 }
 
+const validationSchemas = new WeakMap<Interceptor, HandlerSchema>()
+
 export function createValidationInterceptor<TInput, TOutput>(
   schema: HandlerSchema<TInput, TOutput>
 ): Interceptor {
-  return async (envelope, _ctx, next) => runSchemaValidatedHandler(schema as HandlerSchema, envelope, next)
+  const interceptor: Interceptor = async (envelope, _ctx, next) =>
+    runSchemaValidatedHandler(schema as HandlerSchema, envelope, next)
+  validationSchemas.set(interceptor, schema as HandlerSchema)
+  return interceptor
+}
+
+const outputInterceptors = new WeakSet<Interceptor>()
+
+export function createInputValidationInterceptor<TInput>(
+  schema: HandlerSchema<TInput, unknown>,
+): Interceptor {
+  return async (envelope, _ctx, next) => {
+    validateInput(schema as HandlerSchema, envelope)
+    return next()
+  }
+}
+
+export function createOutputValidationInterceptor<TOutput>(
+  schema: HandlerSchema<unknown, TOutput>,
+): Interceptor {
+  const interceptor: Interceptor = async (_envelope, _ctx, next) =>
+    validateOutput(schema as HandlerSchema, await next())
+  outputInterceptors.add(interceptor)
+  return interceptor
+}
+
+export function isOutputValidationInterceptor(interceptor: Interceptor): boolean {
+  return outputInterceptors.has(interceptor)
+}
+
+export function splitValidationInterceptor(interceptor: Interceptor): {
+  input?: Interceptor
+  output?: Interceptor
+} | undefined {
+  const schema = validationSchemas.get(interceptor)
+  if (!schema) return undefined
+  return {
+    input: schema.input ? createInputValidationInterceptor(schema) : undefined,
+    output: schema.output ? createOutputValidationInterceptor(schema) : undefined,
+  }
 }
 
 /**

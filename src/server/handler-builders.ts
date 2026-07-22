@@ -17,6 +17,7 @@ import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import { normalizeInterceptors } from './interceptor-utils.js'
 import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
+import type { RouteCacheConfig } from '../cache/server-runtime.js'
 import type {
   ProcedureBuilder,
   StreamBuilder,
@@ -73,6 +74,7 @@ export interface ProcedureRegistrationMeta {
   grpc?: GrpcMeta
   policies?: ContractPolicies
   authz?: ProcedurePolicyConfig
+  cache?: RouteCacheConfig | false
   interceptors: Interceptor[]
   schema?: HandlerSchema
   beforeHooks?: BeforeHook<any>[]
@@ -135,6 +137,7 @@ export function createProcedureBuilder(
   let grpcMeta: GrpcMeta | undefined
   let policies: ContractPolicies | undefined
   let authzConfig: ProcedurePolicyConfig | undefined
+  let cacheConfig: RouteCacheConfig | false | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
 
   // Local hooks (procedure-specific)
@@ -182,6 +185,10 @@ export function createProcedureBuilder(
     },
     use(interceptor) {
       interceptors.push(interceptor)
+      return builder
+    },
+    cache(config = {}) {
+      cacheConfig = config === false ? false : { enabled: true, ...config }
       return builder
     },
     policy(policyMeta) {
@@ -268,6 +275,7 @@ export function createProcedureBuilder(
           grpc: grpcMeta,
           policies,
           authz: authzConfig,
+          cache: cacheConfig,
           interceptors: normalizedInterceptors,
           schema: hasSchema ? schema : undefined,
         })
@@ -316,6 +324,7 @@ export function createProcedureBuilder(
         jsonrpc: jsonrpcMeta,
         grpc: grpcMeta,
         policies,
+        cache: cacheConfig,
         interceptors: normalizedInterceptors,
         schema: hasSchema ? schema : undefined,
         beforeHooks: allBeforeHooks,
