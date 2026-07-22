@@ -140,6 +140,22 @@ describe('TieredCache', () => {
     await cache.shutdown()
   })
 
+  it('releases generation metadata after high-cardinality operations settle', async () => {
+    const cache = createTieredCache({
+      namespace: 'metadata-budget',
+      layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000, maxEntries: 10 })],
+    })
+
+    for (let index = 0; index < 100; index++) {
+      await cache.set(`key:${index}`, { index })
+      await cache.delete(`key:${index}`)
+    }
+
+    expect(cache.stats()[0]?.trackedKeys).toBe(0)
+    expect(cache.stats()[0]?.fencedKeys).toBe(0)
+    await cache.shutdown()
+  })
+
   it('reclaims expired L1 entries through one shared expiration scheduler', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-22T12:00:00Z'))
@@ -564,18 +580,29 @@ describe('TieredCache', () => {
   })
 
   it('surfaces namespace invalidation failures to the caller', async () => {
+    const record = {
+      value: { stillAvailable: true },
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      version: 1,
+    }
     const cache = createTieredCache({
       namespace: 'clear-errors',
       layers: [{
         id: 'l1',
-        get: vi.fn(),
+        get: vi.fn().mockReturnValue(record),
         set: vi.fn(),
         delete: vi.fn(),
-        clearNamespace: vi.fn().mockRejectedValue(new Error('SCAN unavailable')),
+        clearNamespace: vi.fn()
+          .mockRejectedValueOnce(new Error('SCAN unavailable'))
+          .mockResolvedValue(undefined),
       }],
     })
 
     await expect(cache.clearNamespace()).rejects.toThrow(/invalidation failed/)
+    expect(await cache.get('one')).toBeUndefined()
+    await expect(cache.clearNamespace()).resolves.toBeUndefined()
+    expect((await cache.get('one'))?.value).toEqual({ stillAvailable: true })
     await cache.shutdown()
   })
 })

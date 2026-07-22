@@ -61,6 +61,8 @@ export interface CacheLayerStats {
   readFailures?: number
   circuitOpen?: boolean
   writeQueue?: WriteBehindQueueStats
+  trackedKeys?: number
+  fencedKeys?: number
 }
 
 export interface CacheCircuitBreakerOptions {
@@ -284,6 +286,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
   let clearInProgress: Promise<void> | undefined
   const keyEpochs = new Map<string, number>()
   const keyWriteVersions = new Map<string, number>()
+  const keyActivity = new Map<string, number>()
   const deletions = new Map<string, Promise<void>>()
   const foregroundWrites = new Map<string, Promise<void>>()
   const readHealth = new Map<CacheLayer, { failures: number; openUntil: number }>()
@@ -293,6 +296,32 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
     failedNamespace: false,
     failedKeys: new Set<string>(),
   }))
+
+  function keyHasFence(key: string): boolean {
+    return layerFences.some((fence) => fence.keys.has(key) || fence.failedKeys.has(key))
+  }
+
+  function cleanupKeyState(key: string): void {
+    if (
+      keyActivity.has(key) || deletions.has(key) || foregroundWrites.has(key) ||
+      keyHasFence(key)
+    ) return
+    keyEpochs.delete(key)
+    keyWriteVersions.delete(key)
+  }
+
+  function retainKey(key: string): () => void {
+    keyActivity.set(key, (keyActivity.get(key) ?? 0) + 1)
+    let active = true
+    return () => {
+      if (!active) return
+      active = false
+      const count = (keyActivity.get(key) ?? 1) - 1
+      if (count === 0) keyActivity.delete(key)
+      else keyActivity.set(key, count)
+      cleanupKeyState(key)
+    }
+  }
 
   function addLayerFence(index: number, key?: string): () => void {
     const fence = layerFences[index]!
@@ -309,6 +338,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       const count = (fence.keys.get(key) ?? 1) - 1
       if (count === 0) fence.keys.delete(key)
       else fence.keys.set(key, count)
+      cleanupKeyState(key)
     }
   }
 
@@ -321,13 +351,19 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
   function markLayerFailure(index: number, key?: string): void {
     const fence = layerFences[index]!
     if (key === undefined) fence.failedNamespace = true
-    else fence.failedKeys.add(key)
+    else {
+      fence.failedKeys.add(key)
+      cleanupKeyState(key)
+    }
   }
 
   function clearLayerFailure(index: number, key?: string): void {
     const fence = layerFences[index]!
     if (key === undefined) fence.failedNamespace = false
-    else fence.failedKeys.delete(key)
+    else {
+      fence.failedKeys.delete(key)
+      cleanupKeyState(key)
+    }
   }
 
   async function withDeadline<T>(
@@ -369,11 +405,13 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
   }
 
   function trackForegroundWrite(key: string, task: () => Promise<void>): Promise<void> {
+    const releaseKey = retainKey(key)
     const previous = foregroundWrites.get(key)
     const execution = Promise.resolve(previous).then(task)
     foregroundWrites.set(key, execution)
     return execution.finally(() => {
       if (foregroundWrites.get(key) === execution) foregroundWrites.delete(key)
+      releaseKey()
     })
   }
 
@@ -511,79 +549,91 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
   return {
     async get<T>(key: string) {
       const namespacedKey = prefix + key
-      if (clearInProgress) await clearInProgress.catch(() => undefined)
-      const deletion = deletions.get(namespacedKey)
-      if (deletion) await deletion.catch(() => undefined)
-      const capturedNamespaceEpoch = namespaceEpoch
-      const capturedKeyEpoch = keyEpochs.get(namespacedKey) ?? 0
-      const capturedWriteVersion = keyWriteVersions.get(namespacedKey)
-      const readIsCurrent = () =>
-        namespaceEpoch === capturedNamespaceEpoch &&
-        (keyEpochs.get(namespacedKey) ?? 0) === capturedKeyEpoch &&
-        keyWriteVersions.get(namespacedKey) === capturedWriteVersion
-      let staleHit: CacheLookup<T> | undefined
-      for (let index = 0; index < layers.length; index++) {
-        const layer = layers[index]!
-        if (isLayerFenced(index, namespacedKey)) continue
-        let record: CacheRecord | undefined
-        try {
-          if (layer.synchronous) {
-            record = layer.get(namespacedKey) as CacheRecord | undefined
-          } else {
-            const candidate = guardedRead(layer, namespacedKey)
-            record = isThenable(candidate) ? await candidate : candidate
-          }
-        } catch (error) {
-          options.onLayerError?.(layer.id, 'get', error)
-          continue
-        }
-        if (!readIsCurrent()) return undefined
-        if (!record) continue
-        const now = Date.now()
-        if (now >= (record.staleUntil ?? record.expiresAt)) {
-          try {
-            await deleteLayer(index, namespacedKey)
-          } catch (error) {
-            options.onLayerError?.(layer.id, 'delete', error)
-          }
-          continue
-        }
-        const stale = now >= record.expiresAt && now < (record.staleUntil ?? record.expiresAt)
-        if (stale) {
-          staleHit ??= { value: record.value as T, layer: layer.id, stale: true }
-          continue
-        }
-        if (index > 0) {
-          await Promise.all(layers.slice(0, index).map(async (upper, upperIndex) => {
-            await trackForegroundWrite(namespacedKey, async () => {
-              if (!readIsCurrent()) return
-              try {
-                await writeLayer(
-                  upperIndex,
-                  namespacedKey,
-                  record,
-                  upper.ttlMs ?? 60_000,
-                  0,
-                  capturedNamespaceEpoch,
-                  capturedKeyEpoch,
-                  capturedWriteVersion,
-                )
-              } catch (error) {
-                options.onLayerError?.(upper.id, 'set', error)
-              }
-            })
-          }))
-        }
-        if (!readIsCurrent()) return undefined
-        return { value: record.value as T, layer: layer.id, stale: false }
+      let releaseKey: (() => void) | undefined
+      const ensureRetained = () => {
+        releaseKey ??= retainKey(namespacedKey)
       }
-      return readIsCurrent() ? staleHit : undefined
+      try {
+        if (clearInProgress) await clearInProgress.catch(() => undefined)
+        const deletion = deletions.get(namespacedKey)
+        if (deletion) await deletion.catch(() => undefined)
+        const capturedNamespaceEpoch = namespaceEpoch
+        const capturedKeyEpoch = keyEpochs.get(namespacedKey) ?? 0
+        const capturedWriteVersion = keyWriteVersions.get(namespacedKey)
+        const readIsCurrent = () =>
+          namespaceEpoch === capturedNamespaceEpoch &&
+          (keyEpochs.get(namespacedKey) ?? 0) === capturedKeyEpoch &&
+          keyWriteVersions.get(namespacedKey) === capturedWriteVersion
+        let staleHit: CacheLookup<T> | undefined
+        for (let index = 0; index < layers.length; index++) {
+          const layer = layers[index]!
+          if (isLayerFenced(index, namespacedKey)) continue
+          let record: CacheRecord | undefined
+          try {
+            if (layer.synchronous) {
+              record = layer.get(namespacedKey) as CacheRecord | undefined
+            } else {
+              ensureRetained()
+              const candidate = guardedRead(layer, namespacedKey)
+              record = isThenable(candidate) ? await candidate : candidate
+            }
+          } catch (error) {
+            options.onLayerError?.(layer.id, 'get', error)
+            continue
+          }
+          if (!readIsCurrent()) return undefined
+          if (!record) continue
+          const now = Date.now()
+          if (now >= (record.staleUntil ?? record.expiresAt)) {
+            ensureRetained()
+            try {
+              await deleteLayer(index, namespacedKey)
+            } catch (error) {
+              options.onLayerError?.(layer.id, 'delete', error)
+            }
+            continue
+          }
+          const stale = now >= record.expiresAt && now < (record.staleUntil ?? record.expiresAt)
+          if (stale) {
+            staleHit ??= { value: record.value as T, layer: layer.id, stale: true }
+            continue
+          }
+          if (index > 0) {
+            await Promise.all(layers.slice(0, index).map(async (upper, upperIndex) => {
+              await trackForegroundWrite(namespacedKey, async () => {
+                if (!readIsCurrent()) return
+                try {
+                  await writeLayer(
+                    upperIndex,
+                    namespacedKey,
+                    record,
+                    upper.ttlMs ?? 60_000,
+                    0,
+                    capturedNamespaceEpoch,
+                    capturedKeyEpoch,
+                    capturedWriteVersion,
+                  )
+                } catch (error) {
+                  options.onLayerError?.(upper.id, 'set', error)
+                }
+              })
+            }))
+          }
+          if (!readIsCurrent()) return undefined
+          return { value: record.value as T, layer: layer.id, stale: false }
+        }
+        return readIsCurrent() ? staleHit : undefined
+      } finally {
+        releaseKey?.()
+      }
     },
     async set(key, value, writeOptions = {}) {
       if (clearInProgress) await clearInProgress.catch(() => undefined)
       const namespacedKey = prefix + key
       const deletion = deletions.get(namespacedKey)
       if (deletion) await deletion.catch(() => undefined)
+      const releaseKey = retainKey(namespacedKey)
+      try {
       const capturedNamespaceEpoch = namespaceEpoch
       const capturedKeyEpoch = keyEpochs.get(namespacedKey) ?? 0
       const now = Date.now()
@@ -618,6 +668,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       }
       for (let index = 1; index < layers.length; index++) {
         const layer = layers[index]!
+        const releaseQueuedKey = retainKey(namespacedKey)
         writeQueues[index - 1]!.enqueue(namespacedKey, async () => {
           if (
             namespaceEpoch !== capturedNamespaceEpoch ||
@@ -638,7 +689,10 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
           } catch (error) {
             options.onLayerError?.(layer.id, 'set', error)
           }
-        })
+        }, releaseQueuedKey)
+      }
+      } finally {
+        releaseKey()
       }
     },
     async delete(key) {
@@ -646,6 +700,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       const namespacedKey = prefix + key
       const existing = deletions.get(namespacedKey)
       if (existing) return existing
+      const releaseKey = retainKey(namespacedKey)
       keyEpochs.set(namespacedKey, (keyEpochs.get(namespacedKey) ?? 0) + 1)
       keyWriteVersions.delete(namespacedKey)
       const operation = (async () => {
@@ -678,6 +733,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
         if (deletions.get(namespacedKey) === operation) {
           deletions.delete(namespacedKey)
         }
+        releaseKey()
       }
     },
     async clearNamespace() {
@@ -731,6 +787,14 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
             readFailures: health.failures,
             circuitOpen: health.openUntil > Date.now(),
           } : {}),
+          ...(index === 0 ? {
+            trackedKeys: new Set([
+              ...keyActivity.keys(),
+              ...keyEpochs.keys(),
+              ...keyWriteVersions.keys(),
+            ]).size,
+          } : {}),
+          fencedKeys: layerFences[index]!.keys.size + layerFences[index]!.failedKeys.size,
           ...(index > 0 ? { writeQueue: writeQueues[index - 1]!.stats() } : {}),
         }
       })

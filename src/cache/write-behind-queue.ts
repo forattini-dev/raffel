@@ -20,6 +20,7 @@ interface QueueEntry {
   barrier: boolean
   resolve?: () => void
   reject?: (error: unknown) => void
+  settle?: () => void
 }
 
 export class WriteBehindQueue {
@@ -32,10 +33,12 @@ export class WriteBehindQueue {
 
   constructor(private readonly options: WriteBehindQueueOptions = {}) {}
 
-  enqueue(key: string, task: WriteTask): void {
+  enqueue(key: string, task: WriteTask, settle?: () => void): void {
     const existing = this.pending.get(key)
     if (existing) {
+      existing.settle?.()
       existing.task = task
+      existing.settle = settle
       return
     }
 
@@ -44,12 +47,13 @@ export class WriteBehindQueue {
       const dropped = this.order.find((entry) => !entry.barrier)
       if (dropped) {
         this.removePending(dropped)
+        dropped.settle?.()
         this.dropped++
         this.options.onDrop?.(dropped.key)
       }
     }
 
-    const entry: QueueEntry = { key, task, barrier: false }
+    const entry: QueueEntry = { key, task, barrier: false, settle }
     this.pending.set(key, entry)
     this.order.push(entry)
     this.pump()
@@ -57,7 +61,10 @@ export class WriteBehindQueue {
 
   enqueueBarrier(key: string, task: WriteTask): Promise<void> {
     const pending = this.pending.get(key)
-    if (pending) this.removePending(pending)
+    if (pending) {
+      this.removePending(pending)
+      pending.settle?.()
+    }
     return new Promise<void>((resolve, reject) => {
       this.order.push({ key, task, barrier: true, resolve, reject })
       this.pump()
@@ -107,6 +114,7 @@ export class WriteBehindQueue {
           entry.reject?.(error)
         })
         .finally(() => {
+          entry.settle?.()
           this.active--
           this.activeKeys.delete(entry.key)
           this.pump()
