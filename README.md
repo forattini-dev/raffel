@@ -718,6 +718,13 @@ This gives you one documentation surface:
 - `docsDir: true` automatically loads the project `./docs` directory with
   file-backed Markdown `README.md`, `_sidebar.md`, `_navbar.md`, `_coverpage.md`, and
   `_404.md` conventions.
+- If no explicit `ui.favicon` or `documentation.favicon` is configured,
+  `docs/favicon.ico` is linked as `<basePath>/favicon.ico` and served with
+  `image/x-icon`; when absent, that exact route returns 404 instead of the SPA.
+- Global social metadata can be set with `ui.openGraph` or portable
+  `documentation.openGraph`. UI fields override USD fields one by one;
+  title, description, and type default from `info`/`website`, while URL,
+  image, image alt, site name, and locale are emitted only when explicit.
 
 `basePath` is the real HTTP mount path, so use it to avoid API route
 collisions. `docsDir.routeBase` is only the in-app Markdown route prefix:

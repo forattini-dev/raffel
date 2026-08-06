@@ -9,6 +9,9 @@
 
 import { describe, it, expect, afterEach } from 'vitest'
 import { createServer as createNodeHttpServer } from 'node:http'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { HttpApp } from '../../src/http/app.js'
 import { serve } from '../../src/http/serve.js'
 import { mountUSDDocs } from '../../src/docs/usd-middleware.js'
@@ -138,6 +141,41 @@ describe('mountUSDDocs (issue #111)', () => {
     const unsupported = await fetch(`${base}/coding/openapi.xml`)
     expect(unsupported.status).toBe(406)
     expect(unsupported.headers.get('content-type')).toBe('application/problem+json; charset=utf-8')
+  })
+
+  it('serves docsDir favicon.ico at the exact basePath route before the SPA wildcard', async () => {
+    const docsRoot = mkdtempSync(join(tmpdir(), 'raffel-docs-favicon-'))
+    try {
+      const faviconBytes = new Uint8Array([0, 0, 1, 0, 5, 8])
+      writeFileSync(join(docsRoot, 'README.md'), '# Home\n')
+      writeFileSync(join(docsRoot, 'favicon.ico'), faviconBytes)
+
+      const app = new HttpApp()
+      const registry = createRegistry()
+      const schemaRegistry = createSchemaRegistry()
+
+      mountUSDDocs(app, { registry, schemaRegistry }, {
+        basePath: '/coding',
+        docsDir: docsRoot,
+      })
+
+      const port = await getFreePort()
+      const server = serve({ fetch: app.fetch.bind(app), port, hostname: '127.0.0.1' })
+      stop = () => new Promise<void>((resolve) => server.close(() => resolve()))
+      const base = `http://127.0.0.1:${port}`
+
+      const response = await fetch(`${base}/coding/favicon.ico`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('image/x-icon')
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(faviconBytes)
+
+      rmSync(join(docsRoot, 'favicon.ico'))
+      const missing = await fetch(`${base}/coding/favicon.ico`)
+      expect(missing.status).toBe(404)
+      expect(missing.headers.get('content-type') ?? '').not.toContain('text/html')
+    } finally {
+      rmSync(docsRoot, { recursive: true, force: true })
+    }
   })
 
   it('mounts the opt-in request proxy against declared server origins', async () => {

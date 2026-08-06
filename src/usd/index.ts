@@ -114,6 +114,7 @@ export type {
   USDValidationError,
   USDExportOptions,
   USDDocumentation,
+  OpenGraphConfig,
   USDDocumentationSidebarItem,
   USDDocumentationPage,
   USDHero,

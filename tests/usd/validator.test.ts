@@ -213,6 +213,29 @@ describe('validate function', () => {
     assert.equal(result.errors.length, 0)
   })
 
+  test('validates documentation Open Graph metadata', () => {
+    const result = validate({
+      ...validMinimalDoc,
+      'x-usd': {
+        documentation: {
+          openGraph: {
+            title: 'Social API',
+            description: 'Social API docs',
+            type: 'website',
+            url: 'https://example.com/docs',
+            image: 'https://example.com/card.png',
+            imageAlt: 'Documentation preview',
+            siteName: 'Example Docs',
+            locale: 'en_US',
+          },
+        },
+      },
+    })
+
+    assert.ok(result.valid)
+    assert.equal(result.errors.length, 0)
+  })
+
   test('validates WebSocket document', () => {
     const result = validate(validWebSocketDoc)
     assert.ok(result.valid)

@@ -12,7 +12,7 @@
  * 3. JSON data is escaped for script embedding to prevent XSS
  */
 
-import type { BreadcrumbsConfig, NavItem, PageNavConfig, TryItOutConfig, UIGeneratorOptions } from './types.js'
+import type { BreadcrumbsConfig, NavItem, OpenGraphConfig, PageNavConfig, TryItOutConfig, UIGeneratorOptions } from './types.js'
 
 const _startupTs = Date.now()
 import { generateStyles } from './styles.js'
@@ -48,6 +48,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const favicon = ui?.favicon ?? usdDocumentation?.favicon
   const title = doc.info.title
   const version = doc.info.version
+  const openGraph = resolveOpenGraphConfig(ui?.openGraph, usdDocumentation?.openGraph, doc.info)
   const sidebar = ui?.sidebar
   const docsPages = usdDocumentation?.pages ?? []
   const docsAliases = usdDocumentation?.aliases ?? {}
@@ -115,6 +116,7 @@ ${styles}
   const customCssHtml = normalizeCustomCss(ui?.customCss)
     .map(href => `<link rel="stylesheet" href="${escapeHtml(href)}" data-raffel-custom-css>`)
     .join('\n  ')
+  const openGraphHtml = generateOpenGraphTags(openGraph)
   const dataScript = generateClientDataScript(
     escapedSpec,
     escapedTagGroups,
@@ -180,7 +182,8 @@ ${generateClientRuntimeScript()}
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
-  ${favicon ? `<link rel="icon" href="${escapeHtml(favicon)}">` : ''}
+  ${favicon ? `<link rel="icon"${isIcoFaviconUrl(favicon) ? ' type="image/x-icon"' : ''} href="${escapeHtml(favicon)}">` : ''}
+  ${openGraphHtml}
   ${stylesHtml}
   ${customCssHtml}
 </head>
@@ -220,6 +223,53 @@ function normalizeCustomCss(customCss: string | string[] | undefined): string[] 
   return (Array.isArray(customCss) ? customCss : customCss ? [customCss] : [])
     .map(href => href.trim())
     .filter(Boolean)
+}
+
+function resolveOpenGraphConfig(
+  uiOpenGraph: OpenGraphConfig | undefined,
+  usdOpenGraph: OpenGraphConfig | undefined,
+  info: { title?: string; description?: string } | undefined,
+): OpenGraphConfig {
+  return {
+    title: firstDefined(uiOpenGraph?.title, usdOpenGraph?.title, info?.title),
+    description: firstDefined(uiOpenGraph?.description, usdOpenGraph?.description, info?.description),
+    type: firstDefined(uiOpenGraph?.type, usdOpenGraph?.type, 'website'),
+    url: firstDefined(uiOpenGraph?.url, usdOpenGraph?.url),
+    image: firstDefined(uiOpenGraph?.image, usdOpenGraph?.image),
+    imageAlt: firstDefined(uiOpenGraph?.imageAlt, usdOpenGraph?.imageAlt),
+    siteName: firstDefined(uiOpenGraph?.siteName, usdOpenGraph?.siteName),
+    locale: firstDefined(uiOpenGraph?.locale, usdOpenGraph?.locale),
+  }
+}
+
+function generateOpenGraphTags(openGraph: OpenGraphConfig): string {
+  const tags: Array<[string, string | undefined]> = [
+    ['og:title', openGraph.title],
+    ['og:description', openGraph.description],
+    ['og:type', openGraph.type],
+    ['og:url', openGraph.url],
+    ['og:image', openGraph.image],
+    ['og:image:alt', openGraph.image ? openGraph.imageAlt : undefined],
+    ['og:site_name', openGraph.siteName],
+    ['og:locale', openGraph.locale],
+  ]
+
+  return tags
+    .filter(([, content]) => Boolean(content))
+    .map(([property, content]) => `<meta property="${property}" content="${escapeHtml(content!)}">`)
+    .join('\n  ')
+}
+
+function isIcoFaviconUrl(favicon: string): boolean {
+  return favicon.replace(/[?#].*$/, '').toLowerCase().endsWith('.ico')
+}
+
+function firstDefined(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    return value.trim()
+  }
+  return undefined
 }
 
 function normalizePageNav(value: boolean | PageNavConfig | undefined): { enabled: boolean; hide: string[] } {

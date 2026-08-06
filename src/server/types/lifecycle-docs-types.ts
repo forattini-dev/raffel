@@ -9,7 +9,7 @@ import type {
 } from '../../usd/index.js'
 import type { OpenAPIDocument } from '../../usd/export/openapi.js'
 import type { MarkdownDocsSource } from '../../docs/markdown-loader.js'
-import type { TryItOutConfig } from '../../docs/ui/types.js'
+import type { OpenGraphConfig, TryItOutConfig } from '../../docs/ui/types.js'
 
 // === USD Documentation Types ===
 
@@ -75,6 +75,8 @@ export interface USDDocsConfig {
     logo?: string
     /** Favicon URL */
     favicon?: string
+    /** Global Open Graph metadata for generated documentation pages */
+    openGraph?: OpenGraphConfig
     /** External CSS files loaded after the built-in stylesheet */
     customCss?: string | string[]
     /** Enable "Try It Out" feature */
@@ -174,6 +176,8 @@ export interface USDDocsConfig {
     logo?: string
     /** Favicon URL */
     favicon?: string
+    /** Global Open Graph metadata for generated documentation pages */
+    openGraph?: OpenGraphConfig
     /** External links */
     externalLinks?: Array<{ title: string; url: string; description?: string }>
     /** Footer markdown/text */
@@ -270,6 +274,8 @@ export interface USDDocsHandlers {
   serveUISearchModal: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
+  /** Serve the conventional docsDir/favicon.ico file as an exact route. */
+  serveFavicon: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
   serveDocsAsset: (pathname: string) => Response | null
   /** Get the USD document */
