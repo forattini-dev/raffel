@@ -9,6 +9,7 @@ import type {
 } from '../../usd/index.js'
 import type { OpenAPIDocument } from '../../usd/export/openapi.js'
 import type { MarkdownDocsSource } from '../../docs/markdown-loader.js'
+import type { TryItOutConfig } from '../../docs/ui/types.js'
 
 // === USD Documentation Types ===
 
@@ -52,6 +53,12 @@ export interface USDDocsConfig {
   /** Default security requirement */
   defaultSecurity?: Array<Record<string, string[]>>
 
+  /** Interactive authentication recipes keyed by security scheme. */
+  authentication?: USDDocument['x-usd-authentication']
+
+  /** OpenAPI 3.1 inbound webhook contracts. */
+  webhooks?: USDDocument['webhooks']
+
   /** Tags for grouping */
   tags?: USDTag[]
 
@@ -71,11 +78,11 @@ export interface USDDocsConfig {
     /** External CSS files loaded after the built-in stylesheet */
     customCss?: string | string[]
     /** Enable "Try It Out" feature */
-    tryItOut?: boolean
+    tryItOut?: boolean | TryItOutConfig
     /** Code generation options */
     codeGeneration?: {
       enabled?: boolean
-      languages?: ('typescript' | 'python' | 'go' | 'curl')[]
+      languages?: ('curl' | 'typescript' | 'rust' | 'python' | 'go')[]
     }
     /** Hero section configuration (file-backed Markdown cover page) */
     hero?: {

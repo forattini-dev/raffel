@@ -26,16 +26,17 @@ export function generateShellStyles(
       --code-panel-text: #cfd8dc;
       --code-panel-header: #37474f;
 
-      /* Type scale (#111 #3) — body 16 / small 14 / xs 12, headings descending */
-      --font-size-body: 16px;
-      --font-size-small: 14px;
-      --font-size-xs: 12px;
-      --font-size-h1: 36px;
-      --font-size-h2: 28px;
-      --font-size-h3: 22px;
-      --font-size-h4: 18px;
-      --font-size-h5: 16px;
-      --font-size-h6: 14px;
+      /* Compact documentation type scale. */
+      --font-size-body: 14px;
+      --font-size-small: 13px;
+      --font-size-xs: 11px;
+      --font-size-h1: 30px;
+      --font-size-h2: 24px;
+      --font-size-h3: 19px;
+      --font-size-h4: 16px;
+      --font-size-h5: 14px;
+      --font-size-h6: 13px;
+      --font-size-code: 12px;
       --line-height-body: 1.6;
       --line-height-tight: 1.25;
     }
@@ -137,7 +138,13 @@ export function generateShellStyles(
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
       background: var(--bg-color);
       color: var(--text-color);
+      font-size: var(--font-size-body);
       line-height: 1.6;
+    }
+
+    code,
+    pre {
+      font-size: var(--font-size-code);
     }
 
     /* ========== TOP NAVIGATION ========== */

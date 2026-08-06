@@ -14,10 +14,10 @@ export interface UIConfig {
   favicon?: string
   /** External CSS files loaded after the built-in stylesheet so they can override variables and component styles. */
   customCss?: string | string[]
-  tryItOut?: boolean
+  tryItOut?: boolean | TryItOutConfig
   codeGeneration?: {
     enabled?: boolean
-    languages?: ('typescript' | 'python' | 'go' | 'curl')[]
+    languages?: ('curl' | 'typescript' | 'rust' | 'python' | 'go')[]
   }
   hero?: HeroConfig
   sidebar?: SidebarConfig
@@ -61,6 +61,17 @@ export interface UIConfig {
    * to avoid the customCss-can-only-load-CSS gap when a consumer needs diagrams.
    */
   mermaid?: boolean | MermaidConfig
+}
+
+export interface TryItOutConfig {
+  /** Browser fetch, or a same-origin bounded server proxy for APIs without docs CORS. */
+  mode?: 'direct' | 'proxy'
+  /** Extra exact origins accepted by proxy mode in addition to document servers. */
+  allowedOrigins?: string[]
+  /** Abort an upstream proxy request after this duration. Default: 15000. */
+  timeoutMs?: number
+  /** Maximum buffered upstream response. Default: 1 MiB. */
+  maxResponseBytes?: number
 }
 
 export interface MermaidConfig {

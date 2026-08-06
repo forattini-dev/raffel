@@ -45,6 +45,23 @@ describe('API Documentation freshness', () => {
     expect(server.getOpenAPIDocument()).toBeNull()
   })
 
+  it('mounts dynamic OpenAPI and USD format routes on the server builder', async () => {
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' }).enableUSD({ basePath: '/docs' })
+    await server.start()
+
+    const openapi = await fetch(`http://127.0.0.1:${port}/docs/openapi.toon`)
+    expect(openapi.status).toBe(200)
+    expect(openapi.headers.get('content-type')).toBe('text/toon; charset=utf-8')
+
+    const usd = await fetch(`http://127.0.0.1:${port}/docs/usd.yaml`)
+    expect(usd.status).toBe(200)
+    expect(usd.headers.get('content-type')).toBe('application/yaml; charset=utf-8')
+
+    const unsupported = await fetch(`http://127.0.0.1:${port}/docs/usd.xml`)
+    expect(unsupported.status).toBe(406)
+  })
+
   it('mounts docs after startup discovery and invalidates generated docs after a newer discovery revision', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-docs-freshness-'))
     const routesDir = path.join(dir, 'routes')

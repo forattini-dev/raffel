@@ -12,7 +12,7 @@
  * 3. JSON data is escaped for script embedding to prevent XSS
  */
 
-import type { BreadcrumbsConfig, NavItem, PageNavConfig, UIGeneratorOptions } from './types.js'
+import type { BreadcrumbsConfig, NavItem, PageNavConfig, TryItOutConfig, UIGeneratorOptions } from './types.js'
 
 const _startupTs = Date.now()
 import { generateStyles } from './styles.js'
@@ -31,6 +31,7 @@ import {
   generateClientRuntimeScript,
 } from './client-script/index.js'
 import { buildDocsSearchIndex } from '../search-index.js'
+import { buildSerializedResponseExamples } from './response-examples.js'
 
 /**
  * Generate HTML for USD documentation UI
@@ -94,6 +95,8 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   const escapedBreadcrumbs = escapeJsonForScript(breadcrumbs)
   const escapedPageNav = escapeJsonForScript(pageNav)
   const escapedMermaid = escapeJsonForScript(normalizeMermaidConfig(ui?.mermaid))
+  const escapedResponseExamples = escapeJsonForScript(buildSerializedResponseExamples(doc as Record<string, any>))
+  const escapedTryIt = escapeJsonForScript(normalizeTryItOut(ui?.tryItOut, assetBasePath))
 
   // Generate hero background CSS
   const heroBackgroundCSS = generateHeroBackgroundCSS(
@@ -129,7 +132,9 @@ ${styles}
     escapedDocsRepo,
     escapedBreadcrumbs,
     escapedPageNav,
-    escapedMermaid
+    escapedMermaid,
+    escapedResponseExamples,
+    escapedTryIt
   )
   const runtimeScript = assetMode === 'external'
     ? `<script>
@@ -224,6 +229,16 @@ function normalizePageNav(value: boolean | PageNavConfig | undefined): { enabled
     ? value.hide.map(item => String(item)).filter(Boolean)
     : []
   return { enabled: true, hide }
+}
+
+function normalizeTryItOut(value: boolean | TryItOutConfig | undefined, basePath: string): Record<string, unknown> {
+  if (!value) return { enabled: false, mode: 'direct', proxyUrl: `${basePath}/-/request` }
+  if (value === true) return { enabled: true, mode: 'direct', proxyUrl: `${basePath}/-/request` }
+  return {
+    enabled: true,
+    mode: value.mode === 'proxy' ? 'proxy' : 'direct',
+    proxyUrl: `${basePath}/-/request`,
+  }
 }
 
 /**

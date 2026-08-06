@@ -42,6 +42,7 @@ import type {
 import type { GraphQLOptions } from '../graphql/index.js'
 import {
   createMarkdownDocsState,
+  DOCUMENTATION_FORMATS,
   joinDocsEndpoint,
   normalizeDocsBasePath,
   type USDHandlers,
@@ -452,9 +453,12 @@ export function createServer(options: ServerOptions): RaffelServer {
               usdJson: joinDocsEndpoint(base, '/usd.json'),
               usdYaml: joinDocsEndpoint(base, '/usd.yaml'),
               openApiJson: joinDocsEndpoint(base, '/openapi.json'),
+              usdTemplate: joinDocsEndpoint(base, '/usd.{extension}'),
+              openApiTemplate: joinDocsEndpoint(base, '/openapi.{extension}'),
               state: joinDocsEndpoint(base, '/state.json'),
             }
           : {},
+        formats: [...DOCUMENTATION_FORMATS],
         routeCounts: {
           procedures: registry.listProcedures().length,
           restRoutes: restResourceRegistry.reduce((sum, resource) => sum + resource.routes.length, 0),

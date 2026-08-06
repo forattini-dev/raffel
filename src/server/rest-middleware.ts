@@ -26,6 +26,11 @@ import {
   sendErrorResponse,
 } from './http-lifecycle/index.js'
 import { bindContextToSpan, setHttpTelemetryRoute } from '../tracing/index.js'
+import {
+  HttpRouteTable,
+  type HttpMethod,
+  type HttpRouteMethod,
+} from '../http/route-table.js'
 
 const logger = createLogger('server')
 
@@ -379,27 +384,52 @@ export function createDocsRouteMiddleware(
     method: string
     path: string
     prefix?: boolean
-    handler: (pathname: string) => Response | null
+    handler: (pathname: string, params: Record<string, string>, req: any) => Response | null | Promise<Response | null>
   }>
 ): (req: any, res: any) => Promise<boolean> {
+  type DocsRoute = (typeof routes)[number]
+  const routeTable = new HttpRouteTable<DocsRoute, never>()
+  const prefixRoutes: DocsRoute[] = []
+  for (const route of routes) {
+    if (route.prefix) {
+      prefixRoutes.push(route)
+      continue
+    }
+    routeTable.register({
+      method: route.method as HttpRouteMethod,
+      path: route.path,
+      handler: route,
+    })
+  }
+
   return async (req: any, res: any) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
-    for (const route of routes) {
-      const matches = route.prefix
-        ? url.pathname.startsWith(route.path.endsWith('/') ? route.path : `${route.path}/`)
-        : url.pathname === route.path || url.pathname === route.path + '/'
-      if (req.method === route.method && matches) {
-        const response = route.handler(url.pathname)
-        if (response) {
-          const contentType = response.headers.get('Content-Type') || 'application/octet-stream'
-          const headers: Record<string, string> = { 'Content-Type': contentType }
-          const cacheControl = response.headers.get('Cache-Control')
-          if (cacheControl) headers['Cache-Control'] = cacheControl
-          res.writeHead(response.status, headers)
-          res.end(Buffer.from(await response.arrayBuffer()))
-          return true
-        }
+    const match = routeTable.match(req.method as HttpMethod, url.pathname)
+    const trailingSlashMatch = match.route || !url.pathname.endsWith('/')
+      ? match
+      : routeTable.match(req.method as HttpMethod, url.pathname.slice(0, -1))
+    let route = trailingSlashMatch.route?.handler
+    let params = trailingSlashMatch.params
+
+    if (!route) {
+      route = prefixRoutes.find(candidate => (
+        req.method === candidate.method &&
+        url.pathname.startsWith(candidate.path.endsWith('/') ? candidate.path : `${candidate.path}/`)
+      ))
+      params = {}
+    }
+
+    if (route) {
+      const response = await route.handler(url.pathname, params, req)
+      if (response) {
+        const contentType = response.headers.get('Content-Type') || 'application/octet-stream'
+        const headers: Record<string, string> = { 'Content-Type': contentType }
+        const cacheControl = response.headers.get('Cache-Control')
+        if (cacheControl) headers['Cache-Control'] = cacheControl
+        res.writeHead(response.status, headers)
+        res.end(Buffer.from(await response.arrayBuffer()))
+        return true
       }
     }
     return false

@@ -12,3 +12,6 @@ allowBuilds:
   protobufjs: true
   recker: false
   ssh2: false
+
+minimumReleaseAgeExclude:
+  - '@reddb-io/toon@0.13.2'

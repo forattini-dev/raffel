@@ -16,6 +16,20 @@ describe('HttpRouteTable', () => {
     expect(match.params).toEqual({ id: 'alice a', bookId: 'book-1' })
   })
 
+  it('matches parameters embedded in a static path segment', () => {
+    const table = new HttpRouteTable<string, string>()
+    table.register({
+      method: 'GET',
+      path: '/docs/openapi.:extension',
+      handler: 'serve-openapi',
+    })
+
+    const match = table.match('GET', '/docs/openapi.toon')
+
+    expect(match.route?.handler).toBe('serve-openapi')
+    expect(match.params).toEqual({ extension: 'toon' })
+  })
+
   it('matches terminal wildcard routes and catch-all routes', () => {
     const table = new HttpRouteTable<string, string>()
     table.register({ method: 'GET', path: '/assets/*', handler: 'asset' })

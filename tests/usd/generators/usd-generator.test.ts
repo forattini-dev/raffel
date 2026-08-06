@@ -85,6 +85,49 @@ describe('USD Generator (Orchestrator)', () => {
         assert.equal(result.document.info.version, '1.0.0')
       })
 
+      it('should preserve interactive authentication recipes and inbound webhooks', () => {
+        const result = generateUSD(ctx, {
+          ...baseOptions,
+          authentication: {
+            schemes: {
+              bearerAuth: {
+                strategy: 'operation',
+                operationId: 'sessions.create',
+                tokenPointers: { accessToken: '/accessToken' },
+              },
+            },
+          },
+          webhooks: {
+            paymentSettled: {
+              post: {
+                responses: {
+                  '204': { description: 'Webhook accepted' },
+                },
+              },
+            },
+          },
+        })
+
+        assert.deepEqual(result.document['x-usd-authentication'], {
+          schemes: {
+            bearerAuth: {
+              strategy: 'operation',
+              operationId: 'sessions.create',
+              tokenPointers: { accessToken: '/accessToken' },
+            },
+          },
+        })
+        assert.deepEqual(result.document.webhooks, {
+          paymentSettled: {
+            post: {
+              responses: {
+                '204': { description: 'Webhook accepted' },
+              },
+            },
+          },
+        })
+      })
+
       it('should include description when provided', () => {
         const result = generateUSD(ctx, {
           info: {

@@ -6,11 +6,24 @@ import type {
   ServerRuntimePlan,
 } from '../runtime-plan.js'
 import type { ServerLifecycleExecutionContext } from './execution-types.js'
+import type { IncomingMessage } from 'node:http'
 
 type DocsHttpMiddlewareStep = Extract<
   ServerRuntimeHttpMiddlewareStep,
   { kind: 'docs' }
 >
+
+async function readDocsProxyPayload(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += buffer.byteLength
+    if (size > 1_048_576) return null
+    chunks.push(buffer)
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { return null }
+}
 
 export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext) {
   const { logger, state } = context
@@ -59,6 +72,8 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         contentTypes: docsConfig.contentTypes,
         securitySchemes: docsConfig.securitySchemes,
         defaultSecurity: docsConfig.defaultSecurity,
+        authentication: docsConfig.authentication,
+        webhooks: docsConfig.webhooks,
         tags: docsConfig.tags,
         tagGroups: docsConfig.tagGroups,
         externalDocs: docsConfig.externalDocs,
@@ -76,10 +91,22 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
 
     httpMiddleware.push(createDocsRouteMiddleware([
       { method: 'GET', path: docsBasePath, handler: state.usdDocsHandlers.value.serveUI },
-      { method: 'GET', path: `${docsBasePath}/usd.json`, handler: state.usdDocsHandlers.value.serveUSD },
-      { method: 'GET', path: `${docsBasePath}/usd.yaml`, handler: state.usdDocsHandlers.value.serveUSDYaml },
-      { method: 'GET', path: `${docsBasePath}/openapi.json`, handler: state.usdDocsHandlers.value.serveOpenAPI },
+      {
+        method: 'GET',
+        path: `${docsBasePath}/usd.:extension`,
+        handler: (_pathname, params) => state.usdDocsHandlers.value!.serveUSDFormat(params.extension ?? ''),
+      },
+      {
+        method: 'GET',
+        path: `${docsBasePath}/openapi.:extension`,
+        handler: (_pathname, params) => state.usdDocsHandlers.value!.serveOpenAPIFormat(params.extension ?? ''),
+      },
       { method: 'GET', path: `${docsBasePath}/state.json`, handler: state.usdDocsHandlers.value.serveDocsState },
+      {
+        method: 'POST',
+        path: `${docsBasePath}/-/request`,
+        handler: async (_pathname, _params, req) => state.usdDocsHandlers.value!.serveTryItProxy(await readDocsProxyPayload(req)),
+      },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.js`, handler: state.usdDocsHandlers.value.serveUIRuntime },
       { method: 'GET', path: `${docsBasePath}/-/marked.umd.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownEngine },
       { method: 'GET', path: `${docsBasePath}/-/prism.js`, handler: state.usdDocsHandlers.value.serveUISyntaxHighlighter },

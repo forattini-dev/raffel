@@ -25,6 +25,7 @@ import type {
   USDResponse,
   USDRequestBody,
   USDExample,
+  USDAuthentication,
 } from '../../usd/index.js'
 import { DEFAULT_USD_CONTENT_TYPES } from '../../usd/index.js'
 import type { Registry } from '../../core/registry.js'
@@ -106,6 +107,12 @@ export interface USDGeneratorOptions {
 
   /** Default security requirement */
   defaultSecurity?: Array<Record<string, string[]>>
+
+  /** Interactive authentication recipes keyed by OpenAPI security scheme. */
+  authentication?: USDAuthentication
+
+  /** OpenAPI 3.1 inbound webhook contracts. */
+  webhooks?: USDDocument['webhooks']
 
   /** Tags for grouping */
   tags?: USDTag[]
@@ -270,6 +277,8 @@ export function generateUSD(
     udp: udpOptions = {},
     securitySchemes,
     defaultSecurity,
+    authentication,
+    webhooks,
     tags: customTags = [],
     tagGroups: customTagGroups = [],
     externalDocs,
@@ -564,6 +573,8 @@ export function generateUSD(
   }
 
   const result = assembly.build()
+  if (authentication) result.document['x-usd-authentication'] = authentication
+  if (webhooks) result.document.webhooks = webhooks
 
   return {
     document: result.document,

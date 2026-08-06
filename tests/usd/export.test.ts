@@ -374,6 +374,64 @@ describe('WebSocket to Webhooks conversion', () => {
     assert.equal(post.summary, 'Receive notifications')
   })
 
+  it('should preserve declared webhooks, merge converted WebSocket webhooks, and omit interactive auth recipes', () => {
+    const usd = document({ title: 'Test', version: '1.0.0' })
+      .websocket()
+        .public('notifications')
+          .subscribe({ type: 'object' })
+          .done()
+        .done()
+      .build()
+
+    usd.webhooks = {
+      paymentSettled: {
+        post: {
+          responses: {
+            '204': { description: 'Webhook accepted' },
+          },
+        },
+      },
+    }
+    usd['x-usd-authentication'] = {
+      schemes: {
+        bearerAuth: {
+          strategy: 'operation',
+          operationId: 'sessions.create',
+          tokenPointers: { accessToken: '/accessToken' },
+        },
+      },
+    }
+
+    const openapi = exportOpenAPI(usd, { includeWebSocketAsWebhooks: true })
+
+    assert.ok(openapi.webhooks?.paymentSettled)
+    assert.ok(openapi.webhooks?.['ws-notifications-receive'])
+    assert.equal((openapi as Record<string, unknown>)['x-usd-authentication'], undefined)
+  })
+
+  it('should keep an explicitly declared webhook when a converted channel uses the same name', () => {
+    const usd = document({ title: 'Test', version: '1.0.0' })
+      .websocket()
+        .public('notifications')
+          .subscribe({ type: 'object' }, { summary: 'Generated notification' })
+          .done()
+        .done()
+      .build()
+    usd.webhooks = {
+      'ws-notifications-receive': {
+        post: {
+          summary: 'Declared notification',
+          responses: { '204': { description: 'Accepted' } },
+        },
+      },
+    }
+
+    const openapi = exportOpenAPI(usd, { includeWebSocketAsWebhooks: true })
+    const webhook = openapi.webhooks?.['ws-notifications-receive'] as Record<string, any>
+
+    assert.equal(webhook.post.summary, 'Declared notification')
+  })
+
   it('should include request body in webhook', () => {
     const usd = document({ title: 'Test', version: '1.0.0' })
       .websocket()

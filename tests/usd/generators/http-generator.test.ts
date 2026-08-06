@@ -166,6 +166,17 @@ describe('HTTP Generator', () => {
 
         assert.ok(result.paths['/api/health'])
       })
+
+      it('should generate default code samples in the documented language order', () => {
+        registry.procedure('health', async () => ({ status: 'ok' }))
+
+        const result = generateHttpPaths(ctx)
+
+        assert.deepEqual(
+          result.paths['/health'].post?.['x-codeSamples']?.map(sample => sample.label),
+          ['cURL', 'TypeScript', 'Rust', 'Python', 'Go']
+        )
+      })
     })
 
     describe('with namespace grouping', () => {
