@@ -34,6 +34,20 @@ const CONTENT_TYPES_SCHEMA = {
   },
 } as const
 
+const OPEN_GRAPH_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    description: { type: 'string' },
+    type: { type: 'string' },
+    url: { type: 'string' },
+    image: { type: 'string' },
+    imageAlt: { type: 'string' },
+    siteName: { type: 'string' },
+    locale: { type: 'string' },
+  },
+} as const
+
 /**
  * USD JSON Schema for validation
  *
@@ -176,6 +190,14 @@ const USD_SCHEMA = {
         },
         contentTypes: CONTENT_TYPES_SCHEMA,
         messages: { $ref: '#/properties/components/properties/x-usd-messages' },
+        documentation: {
+          type: 'object',
+          properties: {
+            openGraph: OPEN_GRAPH_SCHEMA,
+            favicon: { type: 'string' },
+            logo: { type: 'string' },
+          },
+        },
         websocket: { $ref: '#/properties/x-usd-websocket' },
         streams: { $ref: '#/properties/x-usd-streams' },
         jsonrpc: { $ref: '#/properties/x-usd-jsonrpc' },
