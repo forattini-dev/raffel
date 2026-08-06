@@ -1250,7 +1250,23 @@ The Documentation Object allows customizing the generated documentation UI, incl
 | introduction | `string` | Markdown content displayed after the hero, before API endpoints. |
 | logo | `string` | Custom logo URL. |
 | favicon | `string` | Custom favicon URL. |
+| openGraph | [Open Graph Object](#open-graph-object) | Global Open Graph metadata for generated documentation pages. |
 | externalLinks | [[External Link Object](#external-link-object)] | External documentation links. |
+
+### Open Graph Object
+
+Global social metadata for generated documentation pages. `ui.openGraph` may override these fields at render time. `title` and `description` fall back to `info.title` and `info.description`; `type` falls back to `website`; all other fields are emitted only when explicit.
+
+| Field Name | Type | Description |
+|------------|------|-------------|
+| title | `string` | `og:title` content. |
+| description | `string` | `og:description` content. |
+| type | `string` | `og:type` content. Defaults to `website`. |
+| url | `string` | `og:url` content. |
+| image | `string` | `og:image` content. |
+| imageAlt | `string` | `og:image:alt` content. |
+| siteName | `string` | `og:site_name` content. |
+| locale | `string` | `og:locale` content. |
 
 ### Hero Object
 
@@ -1301,6 +1317,11 @@ x-usd:
   documentation:
     logo: https://example.com/logo.svg
     favicon: https://example.com/favicon.ico
+    openGraph:
+      image: https://example.com/social-card.png
+      imageAlt: Example API documentation preview
+      siteName: Example Docs
+      locale: en_US
     hero:
       tagline: A powerful multi-protocol API
       features:
