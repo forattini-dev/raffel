@@ -6,6 +6,9 @@
 
 import { describe, it, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   createUSDHandlers,
   type USDMiddlewareConfig,
@@ -594,6 +597,59 @@ describe('USD Middleware', () => {
         const html = await response.text()
 
         assert.ok(html.includes('data-theme="auto"'))
+      })
+
+      it('should autodetect docsDir favicon.ico when no explicit favicon is configured', async () => {
+        const docsRoot = mkdtempSync(join(tmpdir(), 'raffel-docs-favicon-'))
+        try {
+          const faviconBytes = Buffer.from([0, 0, 1, 0, 2, 3])
+          writeFileSync(join(docsRoot, 'README.md'), '# Home\n')
+          writeFileSync(join(docsRoot, 'favicon.ico'), faviconBytes)
+
+          const ctx = createMinimalContext()
+          const handlers = createUSDHandlers(ctx, {
+            basePath: '/custom-docs',
+            docsDir: docsRoot,
+          })
+
+          const html = await handlers.serveUI().text()
+          assert.ok(html.includes('<link rel="icon" href="/custom-docs/favicon.ico">'))
+
+          const response = handlers.serveFavicon()
+          assert.equal(response.status, 200)
+          assert.equal(response.headers.get('Content-Type'), 'image/x-icon')
+          assert.deepEqual(Buffer.from(await response.arrayBuffer()), faviconBytes)
+        } finally {
+          rmSync(docsRoot, { recursive: true, force: true })
+        }
+      })
+
+      it('should prefer explicit UI and USD favicons over docsDir convention and 404 when convention is absent', async () => {
+        const docsRoot = mkdtempSync(join(tmpdir(), 'raffel-docs-favicon-'))
+        try {
+          writeFileSync(join(docsRoot, 'README.md'), '# Home\n')
+
+          const ctx = createMinimalContext()
+          const uiHandlers = createUSDHandlers(ctx, {
+            basePath: '/custom-docs',
+            docsDir: docsRoot,
+            documentation: { favicon: '/usd.ico' },
+            ui: { favicon: '/ui.ico' },
+          })
+          assert.ok((await uiHandlers.serveUI().text()).includes('<link rel="icon" href="/ui.ico">'))
+
+          const usdHandlers = createUSDHandlers(ctx, {
+            basePath: '/custom-docs',
+            docsDir: docsRoot,
+            documentation: { favicon: '/usd.ico' },
+          })
+          assert.ok((await usdHandlers.serveUI().text()).includes('<link rel="icon" href="/usd.ico">'))
+
+          const missing = usdHandlers.serveFavicon()
+          assert.equal(missing.status, 404)
+        } finally {
+          rmSync(docsRoot, { recursive: true, force: true })
+        }
       })
     })
 
