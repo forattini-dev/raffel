@@ -116,11 +116,14 @@ export function exportOpenAPI(
   if (doc.paths) {
     openapi.paths = stripPathsExtensions(doc.paths, stripExtensions)
   }
+  if (doc.webhooks) {
+    openapi.webhooks = stripExtensionsFromObject(doc.webhooks, stripExtensions)
+  }
 
   // Convert WebSocket channels to webhooks
   const websocket = xUsd?.websocket
   if (includeWebSocketAsWebhooks && websocket) {
-    openapi.webhooks = convertWebSocketToWebhooks(websocket)
+    openapi.webhooks = { ...convertWebSocketToWebhooks(websocket), ...(openapi.webhooks ?? {}) }
   }
 
   // Convert JSON-RPC methods to POST endpoints

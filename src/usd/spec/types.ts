@@ -45,6 +45,9 @@ export interface USDDocument {
   /** HTTP paths (standard OpenAPI) */
   paths?: USDPaths
 
+  /** OpenAPI 3.1 inbound webhook contracts. */
+  webhooks?: Record<string, USDPathItem | { $ref: string }>
+
   /** Reusable components */
   components?: USDComponents
 
@@ -62,6 +65,9 @@ export interface USDDocument {
 
   /** USD extension namespace */
   'x-usd'?: USDX
+
+  /** Interactive authentication recipes used by the documentation UI. */
+  'x-usd-authentication'?: USDAuthentication
 
   /**
    * Authorization catalog — top-level Raffel extension. Present only when
@@ -651,6 +657,34 @@ export interface USDOAuthFlow {
   tokenUrl?: string
   refreshUrl?: string
   scopes: Record<string, string>
+}
+
+export interface USDAuthentication {
+  /** Per-security-scheme overrides. Schemes without an override are inferred from OpenAPI. */
+  schemes?: Record<string, USDAuthenticationScheme>
+}
+
+export interface USDAuthenticationScheme {
+  /** Use an OpenAPI operation as the token endpoint. */
+  strategy: 'operation'
+  /** OpenAPI operationId invoked to obtain a token. */
+  operationId: string
+  /** Optional OpenAPI operationId invoked immediately before expiry. */
+  refreshOperationId?: string
+  /** Optional explicit request body used instead of the operation example. */
+  requestBody?: unknown
+  /** Optional explicit refresh body. `$refreshToken` is replaced at runtime. */
+  refreshRequestBody?: unknown
+  /** RFC 6901 JSON Pointers into the token response. */
+  tokenPointers: USDAuthenticationTokenPointers
+}
+
+export interface USDAuthenticationTokenPointers {
+  accessToken: string
+  refreshToken?: string
+  expiresIn?: string
+  expiresAt?: string
+  tokenType?: string
 }
 
 // =============================================================================

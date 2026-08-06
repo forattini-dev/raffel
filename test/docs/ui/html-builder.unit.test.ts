@@ -220,6 +220,21 @@ describe('Documentation UI HTML builder', () => {
     expect(css).toContain('.nav-subitem')
   })
 
+  it('uses the compact documentation type scale', () => {
+    const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
+
+    expect(css).toContain('--font-size-body: 14px;')
+    expect(css).toContain('--font-size-small: 13px;')
+    expect(css).toContain('--font-size-xs: 11px;')
+    expect(css).toContain('--font-size-h1: 30px;')
+    expect(css).toContain('--font-size-h2: 24px;')
+    expect(css).toContain('--font-size-h3: 19px;')
+    expect(css).toContain('--font-size-h4: 16px;')
+    expect(css).toContain('--font-size-h5: 14px;')
+    expect(css).toContain('--font-size-h6: 13px;')
+    expect(css).toContain('--font-size-code: 12px;')
+  })
+
   it('can hide the sidebar for file-backed Markdown hideSidebar behavior', () => {
     const html = generateUIHTML({
       basePath: '/docs',

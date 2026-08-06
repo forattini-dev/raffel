@@ -22,6 +22,9 @@ importers:
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
+      '@reddb-io/toon':
+        specifier: ^0.13.2
+        version: 0.13.2
       ajv:
         specifier: ^8.18.0
         version: 8.20.0
@@ -482,6 +485,10 @@ packages:
 
   '@protobufjs/utf8@1.1.1':
     resolution: {integrity: sha512-oOAWABowe8EAbMyWKM0tYDKi8Yaox52D+HWZhAIJqQXbqe0xI/GV7FhLWqlEKreMkfDjshR5FKgi3mnle0h6Eg==}
+
+  '@reddb-io/toon@0.13.2':
+    resolution: {integrity: sha512-vRLWci2xM1NpsrbIWlTIXhzC68MXOM+Ojk2GQO+/TEAZE0ESDgPJ9P23LDfovPj3VlZT61zFmOGmn1nevnA/8Q==}
+    engines: {node: '>=18'}
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     resolution: {integrity: sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg==}
@@ -1905,6 +1912,8 @@ snapshots:
   '@protobufjs/pool@1.1.0': {}
 
   '@protobufjs/utf8@1.1.1': {}
+
+  '@reddb-io/toon@0.13.2': {}
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     optional: true

@@ -36,7 +36,7 @@ export interface HttpGeneratorOptions {
   /**
    * Code sample generation.
    * - `false` disables code samples entirely
-   * - `{ languages }` enables specific languages (default: ['curl', 'typescript', 'python', 'go'])
+   * - `{ languages }` enables specific languages (default: ['curl', 'typescript', 'rust', 'python', 'go'])
    */
   codeSamples?: false | { languages?: string[] }
   /** Base URL for code samples (default: first server URL or 'https://api.example.com') */
@@ -186,7 +186,7 @@ export function generateHttpPaths(
 
     // Add code samples
     if (codeSamples !== false) {
-      const languages = (codeSamples as { languages?: string[] } | undefined)?.languages ?? ['curl', 'typescript', 'python', 'go']
+      const languages = (codeSamples as { languages?: string[] } | undefined)?.languages ?? ['curl', 'typescript', 'rust', 'python', 'go']
       const sampleCtx: CodeSampleContext = {
         method: method.toUpperCase(),
         path,
@@ -496,7 +496,7 @@ function createRestOperation(
   const resourceName = resource.name
   const operationId = `${resourceName}_${route.operation}`
   const schemaRef = capitalizeFirst(resourceName)
-  const pagination = route.operation === 'list' ? resource.config.pagination : false
+  const pagination = route.operation === 'list' ? resource.config?.pagination : false
 
   const operation: USDOperation = {
     operationId,

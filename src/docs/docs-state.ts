@@ -5,6 +5,8 @@ import type {
   ResolvedMarkdownDocsSource,
 } from './markdown-loader.js'
 
+export const DOCUMENTATION_FORMATS = ['json', 'yaml', 'yml', 'toon'] as const
+
 export interface DocsSurfaceState {
   enabled: boolean
   mounted: boolean
@@ -18,6 +20,7 @@ export interface DocsSurfaceState {
 
 export interface ApiDocsState extends DocsSurfaceState {
   revision: number
+  formats: Array<(typeof DOCUMENTATION_FORMATS)[number]>
   routeCounts: {
     procedures: number
     restRoutes: number

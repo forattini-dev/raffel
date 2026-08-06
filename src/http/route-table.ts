@@ -298,6 +298,26 @@ export function compilePath(path: string): CompiledPattern {
       continue
     }
 
+    const embeddedParamPattern = /:([a-zA-Z_][a-zA-Z0-9_]*)/g
+    let embeddedMatch: RegExpExecArray | null
+    let embeddedCursor = 0
+    let embeddedPattern = ''
+    while ((embeddedMatch = embeddedParamPattern.exec(segment)) !== null) {
+      embeddedPattern += segment
+        .slice(embeddedCursor, embeddedMatch.index)
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      paramNames.push(embeddedMatch[1])
+      embeddedPattern += '([^/]+)'
+      embeddedCursor = embeddedMatch.index + embeddedMatch[0].length
+    }
+    if (embeddedCursor > 0) {
+      embeddedPattern += segment
+        .slice(embeddedCursor)
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      pattern += `/${embeddedPattern}`
+      continue
+    }
+
     pattern += `/${segment.replace(/[.+^${}()|[\]\\]/g, '\\$&')}`
   }
 

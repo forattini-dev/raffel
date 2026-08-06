@@ -355,6 +355,45 @@ describe('USD Middleware', () => {
         assert.ok(doc.components?.securitySchemes?.apiKey)
         assert.equal(doc.components.securitySchemes.apiKey.name, 'X-API-Key')
       })
+
+      it('should include interactive authentication recipes without secrets', () => {
+        const ctx = createMinimalContext()
+        const handlers = createUSDHandlers(ctx, {
+          securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer' },
+          },
+          authentication: {
+            schemes: {
+              bearerAuth: {
+                strategy: 'operation',
+                operationId: 'sessions.create',
+                refreshOperationId: 'sessions.refresh',
+                tokenPointers: {
+                  accessToken: '/accessToken',
+                  refreshToken: '/refreshToken',
+                  expiresIn: '/expiresIn',
+                },
+              },
+            },
+          },
+        })
+
+        assert.deepEqual(handlers.getUSDDocument()['x-usd-authentication'], {
+          schemes: {
+            bearerAuth: {
+              strategy: 'operation',
+              operationId: 'sessions.create',
+              refreshOperationId: 'sessions.refresh',
+              tokenPointers: {
+                accessToken: '/accessToken',
+                refreshToken: '/refreshToken',
+                expiresIn: '/expiresIn',
+              },
+            },
+          },
+        })
+        assert.equal(JSON.stringify(handlers.getUSDDocument()).includes('clientSecret'), false)
+      })
     })
 
     describe('Config: defaultSecurity', () => {
@@ -590,6 +629,20 @@ describe('USD Middleware', () => {
         // Pretty-printed JSON has newlines
         assert.ok(text.includes('\n'))
       })
+
+      it('serves the USD document through the dynamic format handler', async () => {
+        const handlers = createUSDHandlers(createMinimalContext())
+
+        const response = (handlers as USDHandlers & {
+          serveUSDFormat: (extension: string) => Response
+        }).serveUSDFormat('toon')
+        const body = await response.text()
+
+        assert.equal(response.status, 200)
+        assert.equal(response.headers.get('Content-Type'), 'text/toon; charset=utf-8')
+        assert.match(body, /usd: 1\.0\.0/)
+        assert.match(body, /openapi: 3\.1\.0/)
+      })
     })
 
     describe('serveUSDYaml()', () => {
@@ -667,6 +720,53 @@ describe('USD Middleware', () => {
 
         // Should not have USD-specific extensions
         assert.equal(json['x-usd']?.websocket, undefined)
+      })
+
+      it('serves the OpenAPI document as TOON', async () => {
+        const handlers = createUSDHandlers(createMinimalContext(), {
+          info: { title: 'TOON Test API', version: '3.1.0' },
+        })
+
+        const response = (handlers as USDHandlers & {
+          serveOpenAPIFormat: (extension: string) => Response
+        }).serveOpenAPIFormat('toon')
+        const body = await response.text()
+
+        assert.equal(response.status, 200)
+        assert.equal(response.headers.get('Content-Type'), 'text/toon; charset=utf-8')
+        assert.match(body, /openapi: 3\.1\.0/)
+        assert.match(body, /title: TOON Test API/)
+      })
+
+      it('returns a problem response for an unsupported OpenAPI extension', async () => {
+        const handlers = createUSDHandlers(createMinimalContext())
+
+        const response = handlers.serveOpenAPIFormat('xml')
+        const problem = await response.json() as {
+          title: string
+          supportedFormats: string[]
+        }
+
+        assert.equal(response.status, 406)
+        assert.equal(response.headers.get('Content-Type'), 'application/problem+json; charset=utf-8')
+        assert.equal(problem.title, 'Unsupported documentation format')
+        assert.deepEqual(problem.supportedFormats, ['json', 'yaml', 'yml', 'toon'])
+      })
+
+      it('serves JSON and both YAML extensions through the format handler', async () => {
+        const handlers = createUSDHandlers(createMinimalContext())
+
+        const json = handlers.serveOpenAPIFormat('json')
+        const yaml = handlers.serveOpenAPIFormat('yaml')
+        const yml = handlers.serveOpenAPIFormat('yml')
+
+        assert.equal(json.status, 200)
+        assert.equal(json.headers.get('Content-Type'), 'application/json; charset=utf-8')
+        assert.equal((await json.json() as { openapi: string }).openapi, '3.1.0')
+        assert.equal(yaml.headers.get('Content-Type'), 'application/yaml; charset=utf-8')
+        assert.match(await yaml.text(), /openapi: 3\.1\.0/)
+        assert.equal(yml.headers.get('Content-Type'), 'application/yaml; charset=utf-8')
+        assert.match(await yml.text(), /openapi: 3\.1\.0/)
       })
     })
 

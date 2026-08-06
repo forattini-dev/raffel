@@ -108,9 +108,10 @@ const win = globalThis as unknown as {
   document?: any; location?: any; history?: any
   scrollTo?: (options: unknown) => void
   addEventListener?: (...args: unknown[]) => void
+  btoa?: (value: string) => string
   fetch?: typeof fetch
   setInterval?: typeof setInterval
-  navigator?: any; localStorage?: any; mermaid?: any; marked?: any; Prism?: any
+  navigator?: any; localStorage?: any; sessionStorage?: any; mermaid?: any; marked?: any; Prism?: any
   __RAFFEL_DOCS__?: any; __RAFFEL_DOCS_PLUGINS__?: unknown[]; RaffelDocs?: any
 }
 const doc = win.document
@@ -128,6 +129,8 @@ const footerMarkdown = data.footerMarkdown ?? null
 const tocConfig = data.tocConfig ?? {}
 const markdownConfig = data.markdownConfig ?? {}
 const mermaidConfig = data.mermaidConfig ?? { enabled: true, src: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js', viewer: true }
+const serializedResponseExamples = data.responseExamples ?? {}
+const tryItConfig = data.tryIt ?? { enabled: false, mode: 'direct' }
 let mermaidLoadPromise: Promise<any> | null = null
 const docsRepoConfig = (data.docsRepoConfig ?? null) as DocsRepoRuntimeConfig | null
 const breadcrumbsConfig = (data.breadcrumbsConfig && typeof data.breadcrumbsConfig === 'object')
@@ -135,6 +138,7 @@ const breadcrumbsConfig = (data.breadcrumbsConfig && typeof data.breadcrumbsConf
   : { enabled: true, hideOnHome: true }
 const pageNavConfig: { enabled?: boolean; hide?: string[] } = data.pageNavConfig ?? { enabled: true, hide: [] }
 const xUsd = spec['x-usd'] ?? {}
+const authenticationConfig = spec['x-usd-authentication'] ?? {}
 const { websocket: wsSpec = {}, graphql: graphqlSpec = {}, streams: streamsSpec = {}, jsonrpc: jsonrpcSpec = {}, grpc: grpcSpec = {}, tcp: tcpSpec = {}, udp: udpSpec = {} } = xUsd
 const docsRouteBase = String(xUsd.documentation?.routeBase ?? '').replace(/^#/, '').replace(/\/+$/, '')
 const protocolData = detectProtocols()
@@ -148,6 +152,9 @@ const protocolRank = (name: string): number => {
 }
 const protocols = Object.keys(protocolData).sort((a, b) => protocolRank(a) - protocolRank(b))
 let activeProtocol = protocols[0] ?? 'http'
+type RuntimeEnvironment = { id: string; label: string; url: string; variables: Record<string, string> }
+const environments = resolveEnvironments(spec.servers)
+let selectedEnvironmentUrl = inferEnvironmentUrl(environments)
 let searchQuery = ''
 let routeState = parseRouteHash()
 let activePagePath = resolveDocsAlias(routeState.pagePath)
@@ -947,6 +954,25 @@ function detectProtocols(): Record<string, number> {
   return out
 }
 
+function mergePathItemParameters(pathParameters: any, operationParameters: any): any[] {
+  const resolvedParameters = (parameters: any): any[] => (
+    Array.isArray(parameters) ? parameters.map(parameter => resolveSchema(parameter) ?? parameter) : []
+  )
+  const inherited = resolvedParameters(pathParameters)
+  const declared = resolvedParameters(operationParameters)
+  const declaredKeys = new Set(declared.map(parameter => {
+    const resolved = resolveSchema(parameter) as any
+    return `${String(resolved?.in ?? '')}\0${String(resolved?.name ?? '')}`
+  }))
+  return [
+    ...inherited.filter(parameter => {
+      const resolved = resolveSchema(parameter) as any
+      return !declaredKeys.has(`${String(resolved?.in ?? '')}\0${String(resolved?.name ?? '')}`)
+    }),
+    ...declared,
+  ]
+}
+
 function getEndpointsForProtocol(protocol: string): Endpoint[] {
   const endpoints: Endpoint[] = []
   let id = 0
@@ -963,7 +989,10 @@ function getEndpointsForProtocol(protocol: string): Endpoint[] {
     for (const [path, methods] of Object.entries(spec.paths) as Array<[string, any]>) {
       for (const [method, operation] of Object.entries(methods ?? {}) as Array<[string, any]>) {
         if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue
-        add(path, method.toUpperCase(), operation)
+        add(path, method.toUpperCase(), {
+          ...operation,
+          parameters: mergePathItemParameters(methods.parameters, operation.parameters),
+        })
       }
     }
   }
@@ -1298,9 +1327,16 @@ function appendSidebarGroup(
   nav.appendChild(group)
 }
 
-function generateExampleFromSchema(schema: any): any {
+function generateExampleFromSchema(schema: any, refStack = new Set<string>()): any {
   if (!schema) return null
-  if (schema.$ref) return { $ref: schema.$ref }
+  if (schema.$ref) {
+    const pointer = String(schema.$ref)
+    const name = pointer.split('/').pop() || pointer
+    if (refStack.has(pointer)) return `Recursive schema: ${name}`
+    const resolved = resolveSchema(schema)
+    if (resolved === schema) return `Unresolved schema reference: ${name}`
+    return generateExampleFromSchema(resolved, new Set([...refStack, pointer]))
+  }
   if (schema.example !== undefined) return schema.example
   if (schema.default !== undefined) return schema.default
   if (schema.enum && schema.enum.length > 0) return schema.enum[0]
@@ -1310,20 +1346,78 @@ function generateExampleFromSchema(schema: any): any {
     case 'number': return 0
     case 'integer': return 0
     case 'boolean': return true
-    case 'array': return schema.items ? [generateExampleFromSchema(schema.items)] : []
+    case 'array': return schema.items ? [generateExampleFromSchema(schema.items, refStack)] : []
     case 'object':
       if (!schema.properties) return {}
       const obj: any = {}
       Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
-        obj[key] = generateExampleFromSchema(prop)
+        obj[key] = generateExampleFromSchema(prop, refStack)
       })
       return obj
     default: return null
   }
 }
 
+function resolveEnvironments(servers: any): RuntimeEnvironment[] {
+  const resolved: RuntimeEnvironment[] = []
+  const list = Array.isArray(servers) && servers.length > 0
+    ? servers
+    : [{ url: win.location?.origin ?? 'http://localhost:3000', description: 'Current origin' }]
+  list.forEach((server: any, serverIndex: number) => {
+    const template = String(server?.url ?? '')
+    const variables = server?.variables && typeof server.variables === 'object' ? server.variables : {}
+    let combinations: Array<Record<string, string>> = [{}]
+    for (const [name, definition] of Object.entries(variables) as Array<[string, any]>) {
+      const values: string[] = Array.isArray(definition?.enum) && definition.enum.length > 0
+        ? definition.enum.map(String)
+        : [String(definition?.default ?? '')]
+      combinations = combinations.flatMap(current => values.map(value => ({ ...current, [name]: value }))).slice(0, 64)
+    }
+    combinations.forEach((values, variantIndex) => {
+      const expandedUrl = Object.entries(values).reduce(
+        (current, [name, value]) => current.replaceAll(`{${name}}`, encodeURIComponent(value)),
+        template
+      )
+      const url = String(safeRuntimeUrl(expandedUrl)?.toString() ?? expandedUrl).replace(/\/$/, '')
+      const described = String(server?.description ?? '')
+      const label = Object.entries(values).reduce(
+        (current, [name, value]) => current.replaceAll(`{${name}}`, value),
+        described
+      ) || Object.values(values).join(' / ') || `Server ${serverIndex + 1}`
+      resolved.push({ id: `${serverIndex}:${variantIndex}`, label, url, variables: values })
+    })
+  })
+  return resolved
+}
+
+function inferEnvironmentUrl(options: RuntimeEnvironment[]): string {
+  if (options.length === 0) return String(win.location?.origin ?? 'http://localhost:3000')
+  const current = safeRuntimeUrl(String(win.location?.href ?? ''))
+  if (!current) return options[0].url
+  const scored = options.map((environment, index) => {
+    const candidate = safeRuntimeUrl(environment.url)
+    if (!candidate) return { environment, score: -index }
+    let score = -index
+    if (candidate.origin === current.origin) score += 1000
+    if (current.href.startsWith(candidate.href.replace(/\/$/, ''))) score += 100
+    if (candidate.hostname === current.hostname) score += 50
+    score += candidate.pathname === '/' ? 0 : candidate.pathname.length
+    return { environment, score }
+  })
+  scored.sort((a, b) => b.score - a.score)
+  return scored[0].environment.url
+}
+
+function safeRuntimeUrl(value: string): URL | null {
+  try { return new URL(value, win.location?.origin ?? 'http://localhost:3000') } catch { return null }
+}
+
+function selectedEnvironment(): RuntimeEnvironment {
+  return environments.find(environment => environment.url === selectedEnvironmentUrl) ?? environments[0]
+}
+
 function httpBaseUrl(): string {
-  return String(spec?.servers?.[0]?.url ?? 'http://localhost:3000').replace(/\/$/, '')
+  return String(selectedEnvironment()?.url ?? spec?.servers?.[0]?.url ?? 'http://localhost:3000').replace(/\/$/, '')
 }
 
 // Collect JSON-Schema validation constraints as readable chips.
@@ -1392,42 +1486,152 @@ function pyLiteral(value: any): string {
   return 'None'
 }
 
-// Build request samples in cURL, JavaScript, Python and Rust.
-function buildHttpSamples(method: string, url: string, body: any): Record<string, string> {
+type StructuredHttpRequest = { method: string; url: string; headers: Record<string, string>; body: any }
+
+function parameterSample(parameter: any): unknown {
+  const schema = parameter?.schema ?? {}
+  if (parameter?.example !== undefined) return parameter.example
+  if (schema.example !== undefined) return schema.example
+  if (schema.default !== undefined) return schema.default
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0]
+  return parameter?.required ? generateExampleFromSchema(schema) : undefined
+}
+
+function serializeParameter(value: unknown): string {
+  if (Array.isArray(value)) return value.map(item => serializeParameter(item)).join(',')
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  return String(value ?? '')
+}
+
+function hasStoredCredential(schemeName: string): boolean {
+  const scheme = spec?.components?.securitySchemes?.[schemeName]
+  const credential = readStoredCredential(schemeName)
+  if (!scheme) return false
+  if (scheme.type === 'http' && String(scheme.scheme).toLowerCase() === 'bearer') return Boolean(credential.accessToken)
+  if (scheme.type === 'http' && String(scheme.scheme).toLowerCase() === 'basic') return Boolean(credential.username || credential.password)
+  if (scheme.type === 'oauth2' || scheme.type === 'openIdConnect') return Boolean(credential.accessToken)
+  if (scheme.type === 'apiKey') return Boolean(credential.apiKey)
+  return false
+}
+
+function selectedSecurityRequirement(operation: any): Record<string, unknown> | null {
+  const requirements = operation.security === undefined ? (spec.security ?? []) : operation.security
+  if (!Array.isArray(requirements) || requirements.length === 0) return null
+  return requirements.find(requirement => (
+    requirement &&
+    typeof requirement === 'object' &&
+    Object.keys(requirement).every(hasStoredCredential)
+  )) ?? requirements[0]
+}
+
+function buildStructuredHttpRequest(endpoint: Endpoint, operation: any): StructuredHttpRequest {
+  const method = String(endpoint.method || 'GET').toUpperCase()
+  const requestContent = operation.requestBody?.content
+  const body = requestContent ? operationRequestExample(operation) : null
+  const headers: Record<string, string> = {}
+  let url = `${httpBaseUrl()}${endpoint.path || '/'}`
+  if (body !== null && body !== undefined && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    headers['Content-Type'] = 'application/json'
+  }
+  const query = new URLSearchParams()
+  const cookies: string[] = []
+  for (const parameter of operation.parameters ?? []) {
+    const sample = parameterSample(parameter)
+    if (sample === undefined) continue
+    const serialized = serializeParameter(sample)
+    if (parameter.in === 'path') {
+      url = url.replaceAll(`{${parameter.name}}`, encodeURIComponent(serialized)).replaceAll(`:${parameter.name}`, encodeURIComponent(serialized))
+    } else if (parameter.in === 'query') {
+      query.set(parameter.name, serialized)
+    } else if (parameter.in === 'header') {
+      headers[parameter.name] = serialized
+    } else if (parameter.in === 'cookie') {
+      cookies.push(`${parameter.name}=${encodeURIComponent(serialized)}`)
+    }
+  }
+  const queryText = query.toString()
+  if (queryText) url += `${url.includes('?') ? '&' : '?'}${queryText}`
+  if (cookies.length > 0) headers.Cookie = cookies.join('; ')
+  const requirement = selectedSecurityRequirement(operation)
+  if (requirement && typeof requirement === 'object') {
+    for (const schemeName of Object.keys(requirement)) {
+      const scheme = spec?.components?.securitySchemes?.[schemeName]
+      const credential = readStoredCredential(schemeName)
+      if (!scheme) continue
+      if (scheme.type === 'http' && String(scheme.scheme).toLowerCase() === 'bearer' && credential.accessToken) {
+        headers.Authorization = `Bearer ${credential.accessToken}`
+      } else if (scheme.type === 'http' && String(scheme.scheme).toLowerCase() === 'basic' && credential.username) {
+        const encoded = typeof win.btoa === 'function'
+          ? win.btoa(`${credential.username}:${credential.password ?? ''}`)
+          : `${credential.username}:${credential.password ?? ''}`
+        headers.Authorization = `Basic ${encoded}`
+      } else if ((scheme.type === 'oauth2' || scheme.type === 'openIdConnect') && credential.accessToken) {
+        headers.Authorization = `${credential.tokenType || 'Bearer'} ${credential.accessToken}`
+      } else if (scheme.type === 'apiKey' && credential.apiKey) {
+        if (scheme.in === 'query') {
+          const parsed = safeRuntimeUrl(url)
+          if (parsed) { parsed.searchParams.set(scheme.name || schemeName, credential.apiKey); url = parsed.toString() }
+        } else if (scheme.in === 'cookie') {
+          headers.Cookie = `${scheme.name || schemeName}=${credential.apiKey}`
+        } else {
+          headers[scheme.name || schemeName] = credential.apiKey
+        }
+      }
+    }
+  }
+  return { method, url, headers, body }
+}
+
+// Build display-only request samples. Execution always uses the structured
+// fetch request model, never one of these language snippets.
+function buildHttpSamples(request: StructuredHttpRequest): Record<string, string> {
+  const { method, url, body } = request
   const hasBody = body !== null && body !== undefined && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
   const jsonPretty = hasBody ? JSON.stringify(body, null, 2) : ''
   const samples: Record<string, string> = {}
 
   let curl = `curl -X ${method} "${url}"`
-  if (hasBody) curl += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body)}'`
+  Object.entries(request.headers).forEach(([name, value]) => { curl += ` \\\n  -H ${JSON.stringify(`${name}: ${value}`)}` })
+  if (hasBody) curl += ` \\\n  -d '${JSON.stringify(body)}'`
   samples.curl = curl
 
   let js = `const res = await fetch(${JSON.stringify(url)}, {\n  method: ${JSON.stringify(method)},`
-  if (hasBody) js += `\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(${jsonPretty.split('\n').join('\n  ')}),`
+  if (Object.keys(request.headers).length > 0) js += `\n  headers: ${JSON.stringify(request.headers, null, 2).split('\n').join('\n  ')},`
+  if (hasBody) js += `\n  body: JSON.stringify(${jsonPretty.split('\n').join('\n  ')}),`
   js += `\n});\nconst data = await res.json();\nconsole.log(data);`
-  samples.javascript = js
+  samples.typescript = js
 
   let py = `import requests\n\nres = requests.${method.toLowerCase()}(\n    ${JSON.stringify(url)},`
+  if (Object.keys(request.headers).length > 0) py += `\n    headers=${JSON.stringify(request.headers)},`
   if (hasBody) py += `\n    json=${pyLiteral(body)},`
   py += `\n)\nprint(res.json())`
   samples.python = py
 
   let rust = `use reqwest::Client;\n\nlet client = Client::new();\nlet res = client\n    .${method.toLowerCase()}(${JSON.stringify(url)})`
+  Object.entries(request.headers).forEach(([name, value]) => { rust += `\n    .header(${JSON.stringify(name)}, ${JSON.stringify(value)})` })
   if (hasBody) rust += `\n    .json(&serde_json::json!(${jsonPretty.split('\n').join('\n    ')}))`
   rust += `\n    .send()\n    .await?;\nlet body = res.text().await?;\nprintln!("{}", body);`
   samples.rust = rust
+
+  const goImports = hasBody ? '"net/http"\n  "strings"' : '"net/http"'
+  const goBody = hasBody ? `strings.NewReader(${JSON.stringify(JSON.stringify(body))})` : 'nil'
+  let go = `package main\n\nimport (\n  ${goImports}\n)\n\nfunc main() {\n  req, err := http.NewRequest(${JSON.stringify(method)}, ${JSON.stringify(url)}, ${goBody})\n  if err != nil { panic(err) }`
+  Object.entries(request.headers).forEach(([name, value]) => { go += `\n  req.Header.Set(${JSON.stringify(name)}, ${JSON.stringify(value)})` })
+  go += `\n  res, err := http.DefaultClient.Do(req)\n  if err != nil { panic(err) }\n  defer res.Body.Close()\n}`
+  samples.go = go
 
   return samples
 }
 
 function renderCodeExamples(endpoint: any, data: any): any {
-  const method = (endpoint.method || 'GET').toUpperCase()
-  const url = `${httpBaseUrl()}${endpoint.path || '/'}`
-  const reqContent = data.requestBody?.content
-  const reqSchema = reqContent ? reqContent[Object.keys(reqContent)[0]]?.schema : null
-  const bodyExample = reqSchema ? generateExampleFromSchema(reqSchema) : null
-  const samples = buildHttpSamples(method, url, bodyExample)
-  const langs: Array<[string, string]> = [['curl', 'cURL'], ['javascript', 'JavaScript'], ['python', 'Python'], ['rust', 'Rust']]
+  const samples = buildHttpSamples(buildStructuredHttpRequest(endpoint, data))
+  const langs: Array<[string, string, string]> = [
+    ['curl', 'cURL', 'bash'],
+    ['typescript', 'TypeScript', 'typescript'],
+    ['rust', 'Rust', 'rust'],
+    ['python', 'Python', 'python'],
+    ['go', 'Go', 'go'],
+  ]
 
   const wrap = doc.createElement('div')
   wrap.className = 'http-code-samples'
@@ -1436,7 +1640,7 @@ function renderCodeExamples(endpoint: any, data: any): any {
   const contents = doc.createElement('div')
   contents.className = 'code-contents'
 
-  langs.forEach(([key, label], index) => {
+  langs.forEach(([key, label, language], index) => {
     const tab = doc.createElement('button')
     tab.type = 'button'
     tab.className = `code-tab${index === 0 ? ' active' : ''}`
@@ -1445,7 +1649,10 @@ function renderCodeExamples(endpoint: any, data: any): any {
     content.className = `code-content${index === 0 ? ' active' : ''}`
     const pre = doc.createElement('pre')
     pre.className = 'http-code-sample-pre'
-    pre.textContent = samples[key]
+    const code = doc.createElement('code')
+    code.className = `language-${language}`
+    code.textContent = samples[key]
+    pre.appendChild(code)
     content.appendChild(pre)
     tab.onclick = () => {
       tabs.querySelectorAll('.code-tab').forEach((t: any) => t.classList.remove('active'))
@@ -1479,6 +1686,67 @@ function renderCodeExamples(endpoint: any, data: any): any {
   return wrap
 }
 
+async function executeStructuredHttpRequest(endpoint: Endpoint, operation: any, button: any, result: any): Promise<void> {
+  button.disabled = true
+  result.textContent = 'Sending request…'
+  try {
+    await refreshCredentialsBeforeRequest(operation)
+    const request = buildStructuredHttpRequest(endpoint, operation)
+    let status: number
+    let statusText: string
+    let responseHeaders: Record<string, string> = {}
+    let responseBody: string
+    if (tryItConfig.mode === 'proxy') {
+      const proxyResponse = await win.fetch?.(tryItConfig.proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      })
+      if (!proxyResponse) throw new Error('Fetch is not available in this browser.')
+      const payload: any = await proxyResponse.json()
+      if (!proxyResponse.ok) throw new Error(payload?.detail || payload?.message || `Proxy failed with ${proxyResponse.status}.`)
+      status = payload.status
+      statusText = payload.statusText ?? ''
+      responseHeaders = payload.headers ?? {}
+      responseBody = payload.body ?? ''
+    } else {
+      const response = await win.fetch?.(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body === null || request.body === undefined ? undefined : JSON.stringify(request.body),
+        credentials: 'include',
+      })
+      if (!response) throw new Error('Fetch is not available in this browser.')
+      status = response.status
+      statusText = response.statusText
+      response.headers?.forEach?.((value: string, name: string) => { responseHeaders[name] = value })
+      responseBody = await response.text()
+    }
+    const headerText = Object.entries(responseHeaders).map(([name, value]) => `${name}: ${value}`).join('\n')
+    result.textContent = `${status} ${statusText}`.trim() + `${headerText ? `\n${headerText}` : ''}${responseBody ? `\n\n${responseBody}` : ''}`
+  } catch (error) {
+    result.textContent = `Request failed: ${String((error as Error)?.message ?? error)}`
+  } finally {
+    button.disabled = false
+  }
+}
+
+function renderHttpExecutor(endpoint: Endpoint, operation: any): any {
+  const wrapper = doc.createElement('div')
+  wrapper.className = 'http-try'
+  const button = doc.createElement('button')
+  button.type = 'button'
+  button.className = 'http-try-run'
+  button.textContent = 'Run request'
+  const result = doc.createElement('pre')
+  result.className = 'http-try-result'
+  result.textContent = tryItConfig.mode === 'proxy' ? 'Ready · server proxy' : 'Ready · browser fetch'
+  button.onclick = () => { void executeStructuredHttpRequest(endpoint, operation, button, result) }
+  wrapper.appendChild(button)
+  wrapper.appendChild(result)
+  return wrapper
+}
+
 // Append a JSON example block to a container.
 // Syntax-highlight a JSON value into HTML using the .sample-json token classes.
 function highlightJsonHtml(value: any): string {
@@ -1499,7 +1767,7 @@ function highlightJsonHtml(value: any): string {
 
 // Right-panel response samples: one status tab per response, each showing the
 // generated JSON example (colorized) — ReDoc's response sample switcher.
-function renderResponseSamples(responses: Record<string, any>): any {
+function renderResponseSamples(responses: Record<string, any>, endpoint: Endpoint): any {
   const wrap = doc.createElement('div')
   const tabs = doc.createElement('div')
   tabs.className = 'sample-tabs'
@@ -1517,21 +1785,46 @@ function renderResponseSamples(responses: Record<string, any>): any {
     tab.textContent = status
     const content = doc.createElement('div')
     content.className = `sample-content${index === 0 ? ' active' : ''}`
-    const ct = resp.content ? Object.keys(resp.content)[0] : null
-    const schema = ct ? resp.content[ct]?.schema : null
-    const example = schema ? generateExampleFromSchema(schema) : null
-    if (example !== null && example !== undefined) {
-      if (ct) {
-        const typeLine = doc.createElement('div')
-        typeLine.className = 'sample-content-type'
-        typeLine.textContent = ct
-        content.appendChild(typeLine)
+    const operationKey = `${String(endpoint.method).toUpperCase()} ${endpoint.path}`
+    const mediaEntries = Object.entries(resp.content ?? {}) as Array<[string, any]>
+    mediaEntries.forEach(([mediaType, media]) => {
+      const mediaBlock = doc.createElement('div')
+      mediaBlock.className = 'response-media-sample'
+      const typeLine = doc.createElement('div')
+      typeLine.className = 'sample-content-type'
+      typeLine.textContent = mediaType
+      mediaBlock.appendChild(typeLine)
+      const prepared = serializedResponseExamples?.[operationKey]?.[status]?.[mediaType] as any[] | undefined
+      const isToonl = mediaType.toLowerCase().includes('toonl')
+      const examples = prepared?.length
+        ? prepared
+        : isToonl
+          ? [{ name: 'example required', language: 'text', value: 'TOONL examples require an explicit array of flat object records.', error: true }]
+          : media?.schema
+          ? [{ name: 'generated', language: 'json', value: JSON.stringify(generateExampleFromSchema(media.schema), null, 2) }]
+          : []
+      examples.forEach(example => {
+        const label = doc.createElement('div')
+        label.className = 'response-example-name'
+        label.textContent = example.summary || example.name
+        mediaBlock.appendChild(label)
+        const pre = doc.createElement('pre')
+        pre.className = `sample-code${example.error ? ' sample-code-error' : ''}`
+        const code = doc.createElement('code')
+        code.className = `language-${example.language || 'text'}`
+        code.textContent = example.value
+        pre.appendChild(code)
+        mediaBlock.appendChild(pre)
+      })
+      if (examples.length === 0) {
+        const empty = doc.createElement('div')
+        empty.className = 'no-example'
+        empty.textContent = 'No example provided.'
+        mediaBlock.appendChild(empty)
       }
-      const pre = doc.createElement('pre')
-      pre.className = 'sample-json'
-      pre.innerHTML = highlightJsonHtml(example)
-      content.appendChild(pre)
-    } else {
+      content.appendChild(mediaBlock)
+    })
+    if (mediaEntries.length === 0) {
       const empty = doc.createElement('div')
       empty.className = 'no-example'
       empty.textContent = resp.description || 'No response body.'
@@ -1553,6 +1846,7 @@ function renderResponseSamples(responses: Record<string, any>): any {
 
 function renderSchemaTree(parent: any, schema: any, depth = 0): void {
   if (!schema) return
+  schema = resolveSchema(schema)
   const div = doc.createElement('div')
   div.style.paddingLeft = depth > 0 ? `${depth * 12}px` : '0'
   div.style.marginTop = depth === 0 ? '8px' : '0'
@@ -1561,7 +1855,7 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
     const refName = String(schema.$ref).split('/').pop()
     const row = doc.createElement('div')
     row.style.padding = '4px 0'
-    row.innerHTML = `<span style="color: #888; font-style: italic;">$ref: ${esc(refName)}</span>`
+    row.innerHTML = `<span style="color: #888; font-style: italic;">Unresolved schema reference: ${esc(refName)}</span>`
     div.appendChild(row)
   } else if (schema.type === 'object' && schema.properties) {
     Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
@@ -1684,16 +1978,44 @@ function renderResponseAccordion(status: string, resp: any, openByDefault: boole
   }
 
   const content = resp.content
-  const contentType = content ? Object.keys(content)[0] : null
-  const schema = contentType ? content[contentType]?.schema : null
-  if (schema) {
+  for (const [contentType, media] of Object.entries(content ?? {}) as Array<[string, any]>) {
     const block = doc.createElement('div')
     block.className = 'response-block'
     const sub = doc.createElement('div')
     sub.className = 'response-subhead'
-    sub.textContent = `Response Body${contentType ? ` · ${contentType}` : ''}`
+    sub.textContent = `Response Body · ${contentType}`
     block.appendChild(sub)
-    renderSchemaTree(block, schema)
+    if (media?.schema) renderSchemaTree(block, media.schema)
+    else {
+      const note = doc.createElement('div')
+      note.className = 'response-desc-only'
+      note.textContent = media?.examples || 'example' in (media ?? {}) ? 'Example available' : 'No schema provided.'
+      block.appendChild(note)
+    }
+    body.appendChild(block)
+  }
+
+  if (resp.links && Object.keys(resp.links).length > 0) {
+    const block = doc.createElement('div')
+    block.className = 'response-block response-links'
+    const sub = doc.createElement('div')
+    sub.className = 'response-subhead'
+    sub.textContent = 'Response links'
+    block.appendChild(sub)
+    Object.entries(resp.links).forEach(([name, rawLink]: [string, any]) => {
+      const link = resolveSchema(rawLink) as any
+      const card = doc.createElement('div')
+      card.className = 'response-link'
+      const target = link?.operationId || link?.operationRef || 'Linked operation'
+      card.innerHTML = `<strong>${esc(name)}</strong><code>${esc(target)}</code>${link?.description ? `<span>${esc(link.description)}</span>` : ''}`
+      if (link?.parameters && Object.keys(link.parameters).length > 0) {
+        const parameters = doc.createElement('pre')
+        parameters.className = 'response-link-parameters'
+        parameters.textContent = JSON.stringify(link.parameters, null, 2)
+        card.appendChild(parameters)
+      }
+      block.appendChild(card)
+    })
     body.appendChild(block)
   }
 
@@ -1708,6 +2030,51 @@ function renderResponseAccordion(status: string, resp: any, openByDefault: boole
   acc.appendChild(header)
   acc.appendChild(body)
   return acc
+}
+
+const OPENAPI_HTTP_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
+
+function appendPathItemContract(container: any, expression: string, rawPathItem: any): void {
+  const pathItem = resolveSchema(rawPathItem) as any
+  const contract = doc.createElement('div')
+  contract.className = 'async-contract'
+  const expressionLine = doc.createElement('code')
+  expressionLine.className = 'async-contract-expression'
+  expressionLine.textContent = expression
+  contract.appendChild(expressionLine)
+  OPENAPI_HTTP_METHODS.forEach(method => {
+    const operation = pathItem?.[method]
+    if (!operation) return
+    const row = doc.createElement('div')
+    row.className = 'async-contract-operation'
+    const requestTypes = Object.keys(operation.requestBody?.content ?? {})
+    const statuses = Object.keys(operation.responses ?? {})
+    row.innerHTML = `<span class="badge badge-${method}">${method.toUpperCase()}</span><strong>${esc(operation.summary || operation.operationId || expression)}</strong>${requestTypes.length ? `<span>body: ${esc(requestTypes.join(', '))}</span>` : ''}${statuses.length ? `<span>responses: ${esc(statuses.join(', '))}</span>` : ''}`
+    contract.appendChild(row)
+  })
+  container.appendChild(contract)
+}
+
+function renderAsyncContracts(title: string, entries: Record<string, any>, callbacks = false): any | null {
+  if (!entries || Object.keys(entries).length === 0) return null
+  const section = doc.createElement('section')
+  section.className = `async-contracts ${title.toLowerCase()}-section`
+  section.innerHTML = `<div class="subsection-label">${esc(title.toUpperCase())}</div><h2>${esc(title)}</h2><p class="async-contract-note">Read-only contract. Raffel never executes callbacks or webhooks from this page.</p>`
+  Object.entries(entries).forEach(([name, rawEntry]: [string, any]) => {
+    const entry = resolveSchema(rawEntry) as any
+    const group = doc.createElement('div')
+    group.className = 'async-contract-group'
+    const heading = doc.createElement('h3')
+    heading.textContent = name
+    group.appendChild(heading)
+    if (callbacks) {
+      Object.entries(entry ?? {}).forEach(([expression, pathItem]) => appendPathItemContract(group, expression, pathItem))
+    } else {
+      appendPathItemContract(group, name, entry)
+    }
+    section.appendChild(group)
+  })
+  return section
 }
 
 function renderEndpointDetails(endpoint: Endpoint): any {
@@ -1752,6 +2119,32 @@ function renderEndpointDetails(endpoint: Endpoint): any {
       section.innerHTML = `<div class="subsection-label">REQUEST BODY${reqBody.required ? ' <span style="color:#ef4444">required</span>' : ''}${contentType ? ` · ${esc(contentType)}` : ''}</div>`
       const bodyContent = reqBody.content[contentType]
       if (bodyContent?.schema) renderSchemaTree(section, bodyContent.schema)
+      const requestExamples = Object.entries(bodyContent?.examples ?? {}) as Array<[string, any]>
+      if (requestExamples.length > 0 || bodyContent && 'example' in bodyContent) {
+        const examplesTitle = doc.createElement('div')
+        examplesTitle.className = 'response-subhead request-examples-title'
+        examplesTitle.textContent = 'Request examples'
+        section.appendChild(examplesTitle)
+        const examples = requestExamples.length > 0
+          ? requestExamples
+          : [['example', { value: bodyContent.example }]] as Array<[string, any]>
+        examples.forEach(([name, example]) => {
+          const wrapper = doc.createElement('div')
+          wrapper.className = 'request-example'
+          const label = doc.createElement('div')
+          label.className = 'response-example-name'
+          label.textContent = example?.summary || name
+          const pre = doc.createElement('pre')
+          pre.className = 'sample-code'
+          const code = doc.createElement('code')
+          code.className = 'language-json'
+          code.textContent = JSON.stringify(example?.value, null, 2)
+          pre.appendChild(code)
+          wrapper.appendChild(label)
+          wrapper.appendChild(pre)
+          section.appendChild(wrapper)
+        })
+      }
       left.appendChild(section)
     }
     const responses = data.responses
@@ -1772,12 +2165,15 @@ function renderEndpointDetails(endpoint: Endpoint): any {
       }
       left.appendChild(section)
     }
+    const callbacks = renderAsyncContracts('Callbacks', data.callbacks ?? {}, true)
+    if (callbacks) left.appendChild(callbacks)
 
-    // Right column: request samples (cURL / JavaScript / Python / Rust).
+    // Right column: request samples (cURL / TypeScript / Rust / Python / Go).
     const samplesSection = doc.createElement('div')
     samplesSection.className = 'endpoint-right-section'
     samplesSection.innerHTML = '<div class="endpoint-right-header">Request samples</div>'
     samplesSection.appendChild(renderCodeExamples(endpoint, data))
+    if (tryItConfig.enabled) samplesSection.appendChild(renderHttpExecutor(endpoint, data))
     right.appendChild(samplesSection)
 
     // Right column: response samples (JSON examples per status code).
@@ -1785,7 +2181,7 @@ function renderEndpointDetails(endpoint: Endpoint): any {
       const respSamples = doc.createElement('div')
       respSamples.className = 'endpoint-right-section'
       respSamples.innerHTML = '<div class="endpoint-right-header">Response samples</div>'
-      respSamples.appendChild(renderResponseSamples(responses))
+      respSamples.appendChild(renderResponseSamples(responses, endpoint))
       right.appendChild(respSamples)
     }
 
@@ -1872,7 +2268,12 @@ function resolveMessagePayload(message: any): unknown {
 
 function resolveSchema(schema: any): unknown {
   if (!schema) return null
-  if (schema.$ref) return resolveRef(schema.$ref) ?? schema
+  if (schema.$ref) {
+    const resolved = resolveRef(schema.$ref)
+    if (!resolved || typeof resolved !== 'object') return schema
+    const { $ref: _ref, ...siblings } = schema
+    return { ...(resolved as Record<string, unknown>), ...siblings }
+  }
   return schema
 }
 
@@ -1880,6 +2281,634 @@ function resolveRef(ref: unknown): unknown {
   const pointer = String(ref ?? '')
   if (!pointer.startsWith('#/')) return null
   return pointer.slice(2).split('/').map(part => part.replace(/~1/g, '/').replace(/~0/g, '~')).reduce((current: any, part) => current?.[part], spec)
+}
+
+function credentialStorageKey(schemeName: string): string {
+  return `raffel-docs:auth:${encodeURIComponent(selectedEnvironmentUrl)}:${encodeURIComponent(schemeName)}`
+}
+
+function readStoredCredential(schemeName: string): Record<string, any> {
+  try {
+    const value = win.sessionStorage?.getItem?.(credentialStorageKey(schemeName))
+    return value ? JSON.parse(value) : {}
+  } catch { return {} }
+}
+
+function storeCredential(schemeName: string, value: Record<string, any>): void {
+  try { win.sessionStorage?.setItem?.(credentialStorageKey(schemeName), JSON.stringify(value)) } catch { /* unavailable storage */ }
+}
+
+function authSchemeKind(scheme: any): string {
+  if (scheme?.type === 'http' && String(scheme.scheme).toLowerCase() === 'bearer') return 'Bearer token'
+  if (scheme?.type === 'http' && String(scheme.scheme).toLowerCase() === 'basic') return 'HTTP Basic'
+  if (scheme?.type === 'apiKey') return 'API key'
+  if (scheme?.type === 'oauth2') return 'OAuth 2.0'
+  if (scheme?.type === 'openIdConnect') return 'OpenID Connect'
+  if (scheme?.type === 'mutualTLS') return 'Mutual TLS'
+  return String(scheme?.type ?? 'Authentication')
+}
+
+function findHttpOperation(operationId: string): { path: string; method: string; operation: any } | null {
+  for (const [path, pathItem] of Object.entries(spec.paths ?? {}) as Array<[string, any]>) {
+    for (const [method, operation] of Object.entries(pathItem ?? {}) as Array<[string, any]>) {
+      if (operation?.operationId === operationId) return { path, method: method.toUpperCase(), operation }
+    }
+  }
+  return null
+}
+
+function operationRequestExample(operation: any): unknown {
+  const media = Object.values(operation?.requestBody?.content ?? {})[0] as any
+  if (!media) return {}
+  if ('example' in media) return media.example
+  const named = Object.values(media.examples ?? {})[0] as any
+  if (named && typeof named === 'object' && 'value' in named) return named.value
+  return generateExampleFromSchema(media.schema) ?? {}
+}
+
+function readJsonPointer(value: any, pointer: unknown): any {
+  const path = String(pointer ?? '')
+  if (path === '') return value
+  if (!path.startsWith('/')) return undefined
+  return path.slice(1).split('/').map(part => part.replace(/~1/g, '/').replace(/~0/g, '~')).reduce((current: any, part) => current?.[part], value)
+}
+
+function tokenExpiry(response: any, pointers: any): number | undefined {
+  const expiresAt = readJsonPointer(response, pointers?.expiresAt)
+  if (expiresAt !== undefined) {
+    if (typeof expiresAt === 'number') return expiresAt > 1e12 ? expiresAt : expiresAt * 1000
+    const parsed = Date.parse(String(expiresAt))
+    if (Number.isFinite(parsed)) return parsed
+  }
+  const expiresIn = Number(readJsonPointer(response, pointers?.expiresIn))
+  return Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : undefined
+}
+
+type JsonHttpResult = { ok: boolean; status: number; payload: any }
+
+async function executeJsonHttpRequest(url: string, init: RequestInit = {}): Promise<JsonHttpResult> {
+  if (tryItConfig.mode === 'proxy') {
+    const proxyResponse = await win.fetch?.(tryItConfig.proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        method: String(init.method ?? 'GET').toUpperCase(),
+        headers: init.headers ?? {},
+        body: init.body,
+      }),
+    })
+    if (!proxyResponse) throw new Error('Fetch is not available in this browser.')
+    const envelope: any = await proxyResponse.json()
+    if (!proxyResponse.ok) {
+      throw new Error(envelope?.detail || envelope?.message || `Proxy failed with ${proxyResponse.status}.`)
+    }
+    const status = Number(envelope?.status ?? 502)
+    let payload: any = {}
+    try { payload = JSON.parse(String(envelope?.body ?? '')) } catch { /* callers report a missing token or discovery field */ }
+    return { ok: status >= 200 && status < 300, status, payload }
+  }
+
+  const response = await win.fetch?.(url, init)
+  if (!response) throw new Error('Fetch is not available in this browser.')
+  return { ok: response.ok, status: response.status, payload: await response.json() }
+}
+
+async function requestOperationToken(
+  schemeName: string,
+  recipe: any,
+  operation: { path: string; method: string; operation: any },
+  rawBody: string,
+  status: any
+): Promise<void> {
+  try {
+    status.textContent = 'Requesting token…'
+    const parsedBody = rawBody.trim() ? JSON.parse(rawBody) : undefined
+    const headers: Record<string, string> = parsedBody === undefined ? {} : { 'Content-Type': 'application/json' }
+    const response = await executeJsonHttpRequest(`${httpBaseUrl()}${operation.path}`, {
+      method: operation.method,
+      headers,
+      body: parsedBody === undefined ? undefined : JSON.stringify(parsedBody),
+    })
+    const payload = response.payload
+    if (!response.ok) throw new Error(payload?.message || `Token request failed with ${response.status}.`)
+    const accessToken = readJsonPointer(payload, recipe.tokenPointers?.accessToken)
+    if (accessToken === undefined || accessToken === null || accessToken === '') {
+      throw new Error('The access-token JSON Pointer did not match the response.')
+    }
+    storeCredential(schemeName, {
+      accessToken: String(accessToken),
+      refreshToken: readJsonPointer(payload, recipe.tokenPointers?.refreshToken),
+      expiresAt: tokenExpiry(payload, recipe.tokenPointers),
+      tokenType: readJsonPointer(payload, recipe.tokenPointers?.tokenType) ?? 'Bearer',
+    })
+    render()
+  } catch (error) {
+    status.textContent = String((error as Error)?.message ?? error)
+    status.classList.add('auth-status-error')
+  }
+}
+
+function oauthFlowLabel(flowName: string): string {
+  if (flowName === 'authorizationCode') return 'Authorization code'
+  if (flowName === 'clientCredentials') return 'Client credentials'
+  if (flowName === 'password') return 'Resource owner password'
+  return 'Implicit'
+}
+
+function oauthScopeValue(flow: any): string {
+  return Object.keys(flow?.scopes ?? {}).join(' ')
+}
+
+async function requestOAuthToken(
+  schemeName: string,
+  flowName: string,
+  flow: any,
+  fieldset: any,
+  status: any
+): Promise<void> {
+  try {
+    const value = (name: string) => String(fieldset.querySelector(`input[name="${name}"]`)?.value ?? '')
+    const body = new URLSearchParams()
+    body.set('grant_type', flowName === 'clientCredentials' ? 'client_credentials' : 'password')
+    if (value('clientId')) body.set('client_id', value('clientId'))
+    if (value('clientSecret')) body.set('client_secret', value('clientSecret'))
+    if (value('scopes')) body.set('scope', value('scopes'))
+    if (flowName === 'password') {
+      body.set('username', value('username'))
+      body.set('password', value('password'))
+    }
+    status.textContent = 'Requesting token…'
+    const response = await executeJsonHttpRequest(flow.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    const payload = response.payload
+    if (!response.ok) throw new Error(payload?.error_description || payload?.error || `Token request failed with ${response.status}.`)
+    if (!payload.access_token) throw new Error('The token response did not include access_token.')
+    storeCredential(schemeName, {
+      accessToken: String(payload.access_token),
+      refreshToken: payload.refresh_token,
+      expiresAt: Number(payload.expires_in) > 0 ? Date.now() + Number(payload.expires_in) * 1000 : undefined,
+      tokenType: payload.token_type || 'Bearer',
+      clientId: value('clientId'),
+      clientSecret: value('clientSecret'),
+      scopes: value('scopes'),
+      tokenUrl: flow.tokenUrl,
+      refreshUrl: flow.refreshUrl,
+    })
+    render()
+  } catch (error) {
+    status.textContent = String((error as Error)?.message ?? error)
+    status.classList.add('auth-status-error')
+  }
+}
+
+function randomOAuthState(): string {
+  const values = new Uint32Array(4)
+  try { (globalThis.crypto ?? (win as any).crypto)?.getRandomValues?.(values) } catch { values[0] = Date.now() }
+  return Array.from(values).map(value => value.toString(16)).join('') || String(Date.now())
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = ''
+  bytes.forEach(byte => { binary += String.fromCharCode(byte) })
+  return (win.btoa as (value: string) => string)(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function randomOAuthVerifier(): string {
+  const values = new Uint8Array(32)
+  const cryptoApi = globalThis.crypto ?? (win as any).crypto
+  try { cryptoApi?.getRandomValues?.(values) } catch { /* use the state-based fallback below */ }
+  if (values.every(value => value === 0)) {
+    const fallback = `${randomOAuthState()}${randomOAuthState()}`
+    values.forEach((_, index) => { values[index] = fallback.charCodeAt(index % fallback.length) })
+  }
+  return base64Url(values)
+}
+
+async function oauthCodeChallenge(verifier: string): Promise<{ challenge: string; method: 'S256' | 'plain' }> {
+  const cryptoApi = globalThis.crypto ?? (win as any).crypto
+  if (!cryptoApi?.subtle?.digest) return { challenge: verifier, method: 'plain' }
+  try {
+    const bytes = Uint8Array.from(verifier, character => character.charCodeAt(0))
+    const digest = await cryptoApi.subtle.digest('SHA-256', bytes)
+    return { challenge: base64Url(new Uint8Array(digest)), method: 'S256' }
+  } catch {
+    return { challenge: verifier, method: 'plain' }
+  }
+}
+
+async function startOAuthAuthorization(schemeName: string, flowName: string, flow: any, fieldset: any): Promise<void> {
+  const value = (name: string) => String(fieldset.querySelector(`input[name="${name}"]`)?.value ?? '')
+  const redirectUri = `${String(win.location?.href ?? '').split('#')[0].split('?')[0]}?raffel_oauth_callback=1`
+  const state = randomOAuthState()
+  const authorization = new URL(flow.authorizationUrl)
+  const popup = (win as any).open?.('', 'raffel-oauth', 'popup,width=540,height=720')
+  authorization.searchParams.set('response_type', flowName === 'implicit' ? 'token' : 'code')
+  authorization.searchParams.set('client_id', value('clientId'))
+  authorization.searchParams.set('redirect_uri', redirectUri)
+  authorization.searchParams.set('state', state)
+  if (value('scopes')) authorization.searchParams.set('scope', value('scopes'))
+  let codeVerifier: string | undefined
+  if (flowName !== 'implicit') {
+    codeVerifier = randomOAuthVerifier()
+    const pkce = await oauthCodeChallenge(codeVerifier)
+    authorization.searchParams.set('code_challenge', pkce.challenge)
+    authorization.searchParams.set('code_challenge_method', pkce.method)
+  }
+  try {
+    win.sessionStorage?.setItem?.(`${credentialStorageKey(schemeName)}:pending`, JSON.stringify({
+      schemeName, flowName, state, redirectUri, tokenUrl: flow.tokenUrl,
+      clientId: value('clientId'), clientSecret: value('clientSecret'), scopes: value('scopes'),
+      codeVerifier,
+    }))
+  } catch { /* unavailable storage */ }
+  if (popup) {
+    if (typeof popup.location?.replace === 'function') popup.location.replace(authorization.toString())
+    else popup.location = authorization.toString()
+  } else {
+    (win.location as any)?.assign?.(authorization.toString())
+  }
+}
+
+function appendOAuthFlowFields(form: any, schemeName: string, scheme: any, stored: Record<string, any>): void {
+  Object.entries(scheme.flows ?? {}).forEach(([flowName, flow]: [string, any]) => {
+    const fieldset = doc.createElement('fieldset')
+    fieldset.className = 'auth-oauth-flow'
+    fieldset.dataset.oauthFlow = flowName
+    const legend = doc.createElement('legend')
+    legend.textContent = oauthFlowLabel(flowName)
+    fieldset.appendChild(legend)
+    fieldset.appendChild(createAuthInput('clientId', 'Client ID', 'text', stored.clientId ?? ''))
+    if (flowName !== 'implicit') fieldset.appendChild(createAuthInput('clientSecret', 'Client secret', 'password', stored.clientSecret ?? ''))
+    if (flowName === 'password') {
+      fieldset.appendChild(createAuthInput('username', 'Username'))
+      fieldset.appendChild(createAuthInput('password', 'Password', 'password'))
+    }
+    fieldset.appendChild(createAuthInput('scopes', 'Scopes', 'text', stored.scopes ?? oauthScopeValue(flow)))
+    const actions = doc.createElement('div')
+    actions.className = 'auth-actions'
+    const button = doc.createElement('button')
+    button.type = 'button'
+    const status = doc.createElement('span')
+    status.className = 'auth-status'
+    status.textContent = stored.accessToken ? 'Ready' : 'Not authenticated'
+    if (flowName === 'clientCredentials' || flowName === 'password') {
+      button.className = 'auth-oauth-token'
+      button.textContent = 'Request token'
+      button.onclick = () => { void requestOAuthToken(schemeName, flowName, flow, fieldset, status) }
+    } else {
+      button.className = 'auth-oauth-authorize'
+      button.textContent = 'Authorize in popup'
+      button.onclick = () => { void startOAuthAuthorization(schemeName, flowName, flow, fieldset) }
+    }
+    actions.appendChild(button)
+    actions.appendChild(status)
+    fieldset.appendChild(actions)
+    form.appendChild(fieldset)
+  })
+}
+
+function appendOidcFields(form: any, schemeName: string, scheme: any, stored: Record<string, any>): void {
+  const fieldset = doc.createElement('fieldset')
+  fieldset.className = 'auth-oauth-flow'
+  fieldset.dataset.oauthFlow = 'oidc'
+  const legend = doc.createElement('legend')
+  legend.textContent = 'OpenID discovery'
+  fieldset.appendChild(legend)
+  fieldset.appendChild(createAuthInput('clientId', 'Client ID', 'text', stored.clientId ?? ''))
+  fieldset.appendChild(createAuthInput('clientSecret', 'Client secret', 'password', stored.clientSecret ?? ''))
+  fieldset.appendChild(createAuthInput('scopes', 'Scopes', 'text', stored.scopes ?? 'openid profile'))
+  const actions = doc.createElement('div')
+  actions.className = 'auth-actions'
+  const button = doc.createElement('button')
+  button.type = 'button'
+  button.className = 'auth-oidc-authorize'
+  button.textContent = 'Discover and authorize'
+  const status = doc.createElement('span')
+  status.className = 'auth-status'
+  status.textContent = stored.accessToken ? 'Ready' : 'Not authenticated'
+  button.onclick = async () => {
+    try {
+      status.textContent = 'Loading discovery…'
+      const response = await executeJsonHttpRequest(scheme.openIdConnectUrl)
+      if (!response.ok) throw new Error('OpenID discovery failed.')
+      const discovery = response.payload
+      await startOAuthAuthorization(schemeName, 'authorizationCode', {
+        authorizationUrl: discovery.authorization_endpoint,
+        tokenUrl: discovery.token_endpoint,
+        scopes: {},
+      }, fieldset)
+      status.textContent = 'Authorization opened'
+    } catch (error) {
+      status.textContent = String((error as Error)?.message ?? error)
+      status.classList.add('auth-status-error')
+    }
+  }
+  actions.appendChild(button)
+  actions.appendChild(status)
+  fieldset.appendChild(actions)
+  form.appendChild(fieldset)
+}
+
+function oauthCallbackParams(): URLSearchParams | null {
+  const query = new URLSearchParams(String(win.location?.search ?? ''))
+  const fragment = new URLSearchParams(String(win.location?.hash ?? '').replace(/^#/, ''))
+  if (query.has('code') || query.has('error')) return query
+  if (fragment.has('access_token') || fragment.has('error')) return fragment
+  return null
+}
+
+function findPendingOAuth(state: string | null): any | null {
+  if (!state) return null
+  for (const schemeName of Object.keys(spec?.components?.securitySchemes ?? {})) {
+    try {
+      const key = `${credentialStorageKey(schemeName)}:pending`
+      const raw = win.sessionStorage?.getItem?.(key)
+      if (!raw) continue
+      const pending = JSON.parse(raw)
+      if (pending.state === state) return { ...pending, key }
+    } catch { /* ignore malformed pending state */ }
+  }
+  return null
+}
+
+async function finishOAuthAuthorization(params: URLSearchParams): Promise<void> {
+  const pending = findPendingOAuth(params.get('state'))
+  if (!pending) return
+  if (params.get('error')) throw new Error(params.get('error_description') || params.get('error') || 'Authorization failed.')
+  let payload: any = Object.fromEntries(params.entries())
+  if (!payload.access_token && params.get('code')) {
+    if (!pending.tokenUrl) throw new Error('The authorization-code flow has no tokenUrl.')
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: String(params.get('code')),
+      redirect_uri: pending.redirectUri,
+      client_id: pending.clientId,
+    })
+    if (pending.codeVerifier) body.set('code_verifier', pending.codeVerifier)
+    if (pending.clientSecret) body.set('client_secret', pending.clientSecret)
+    const response = await executeJsonHttpRequest(pending.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    payload = response.payload
+    if (!response.ok) throw new Error(payload?.error_description || payload?.error || 'Token exchange failed.')
+  }
+  if (!payload.access_token) throw new Error('The authorization response did not include an access token.')
+  storeCredential(pending.schemeName, {
+    accessToken: String(payload.access_token),
+    refreshToken: payload.refresh_token,
+    expiresAt: Number(payload.expires_in) > 0 ? Date.now() + Number(payload.expires_in) * 1000 : undefined,
+    tokenType: payload.token_type || 'Bearer',
+    clientId: pending.clientId,
+    clientSecret: pending.clientSecret,
+    scopes: pending.scopes,
+    tokenUrl: pending.tokenUrl,
+  })
+  try { win.sessionStorage?.removeItem?.(pending.key) } catch { /* unavailable storage */ }
+  render()
+}
+
+function clearOAuthCallbackLocation(): void {
+  const current = safeRuntimeUrl(String(win.location?.href ?? ''))
+  if (!current) return
+  ;['raffel_oauth_callback', 'code', 'state', 'error', 'error_description'].forEach(name => current.searchParams.delete(name))
+  const fragment = new URLSearchParams(current.hash.replace(/^#/, ''))
+  if (fragment.has('access_token') || fragment.has('error')) current.hash = ''
+  win.history?.replaceState?.(null, '', `${current.pathname}${current.search}${current.hash}`)
+}
+
+function installOAuthCallback(): void {
+  const params = oauthCallbackParams()
+  if (params) {
+    if ((win as any).opener && (win as any).opener !== win) {
+      ;(win as any).opener.postMessage({ type: 'raffel-oauth-callback', params: params.toString() }, win.location?.origin)
+      ;(win as any).close?.()
+    } else {
+      void finishOAuthAuthorization(params).catch(() => {}).finally(clearOAuthCallbackLocation)
+    }
+  }
+  win.addEventListener?.('message', (event: any) => {
+    if (event?.origin !== win.location?.origin || event?.data?.type !== 'raffel-oauth-callback') return
+    void finishOAuthAuthorization(new URLSearchParams(String(event.data.params ?? ''))).catch(() => {})
+  })
+}
+
+function securitySchemeNames(operation: any): string[] {
+  const requirement = selectedSecurityRequirement(operation)
+  return requirement && typeof requirement === 'object' ? Object.keys(requirement) : []
+}
+
+function substituteRefreshToken(value: unknown, refreshToken: string): unknown {
+  if (value === '$refreshToken') return refreshToken
+  if (Array.isArray(value)) return value.map(item => substituteRefreshToken(item, refreshToken))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substituteRefreshToken(item, refreshToken)]))
+  }
+  return value
+}
+
+async function refreshCredential(schemeName: string): Promise<void> {
+  const credential = readStoredCredential(schemeName)
+  if (!credential.accessToken || !credential.refreshToken || !credential.expiresAt) return
+  if (Number(credential.expiresAt) > Date.now() + 30_000) return
+  const recipe = authenticationConfig?.schemes?.[schemeName]
+  if (recipe?.strategy === 'operation' && recipe.refreshOperationId) {
+    const operation = findHttpOperation(recipe.refreshOperationId)
+    if (!operation) throw new Error(`Refresh operation ${recipe.refreshOperationId} was not found.`)
+    const body = substituteRefreshToken(recipe.refreshRequestBody ?? { refreshToken: '$refreshToken' }, credential.refreshToken)
+    const response = await executeJsonHttpRequest(`${httpBaseUrl()}${operation.path}`, {
+      method: operation.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const payload = response.payload
+    if (!response.ok) throw new Error(payload?.message || `Token refresh failed with ${response.status}.`)
+    const accessToken = readJsonPointer(payload, recipe.tokenPointers?.accessToken)
+    if (!accessToken) throw new Error('The refreshed access-token JSON Pointer did not match the response.')
+    storeCredential(schemeName, {
+      ...credential,
+      accessToken: String(accessToken),
+      refreshToken: readJsonPointer(payload, recipe.tokenPointers?.refreshToken) ?? credential.refreshToken,
+      expiresAt: tokenExpiry(payload, recipe.tokenPointers),
+      tokenType: readJsonPointer(payload, recipe.tokenPointers?.tokenType) ?? credential.tokenType ?? 'Bearer',
+    })
+    return
+  }
+  const scheme = spec?.components?.securitySchemes?.[schemeName]
+  if (scheme?.type === 'oauth2' || scheme?.type === 'openIdConnect') {
+    const tokenUrl = credential.refreshUrl || credential.tokenUrl
+    if (!tokenUrl) return
+    const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: credential.refreshToken })
+    if (credential.clientId) body.set('client_id', credential.clientId)
+    if (credential.clientSecret) body.set('client_secret', credential.clientSecret)
+    const response = await executeJsonHttpRequest(tokenUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
+    })
+    const payload = response.payload
+    if (!response.ok || !payload.access_token) throw new Error(payload?.error_description || payload?.error || 'Token refresh failed.')
+    storeCredential(schemeName, {
+      ...credential,
+      accessToken: String(payload.access_token),
+      refreshToken: payload.refresh_token ?? credential.refreshToken,
+      expiresAt: Number(payload.expires_in) > 0 ? Date.now() + Number(payload.expires_in) * 1000 : undefined,
+      tokenType: payload.token_type ?? credential.tokenType ?? 'Bearer',
+    })
+  }
+}
+
+async function refreshCredentialsBeforeRequest(operation: any): Promise<void> {
+  for (const schemeName of securitySchemeNames(operation)) await refreshCredential(schemeName)
+}
+
+function createAuthInput(name: string, labelText: string, type = 'text', value = ''): any {
+  const label = doc.createElement('label')
+  label.className = 'auth-field'
+  const caption = doc.createElement('span')
+  caption.className = 'auth-field-label'
+  caption.textContent = labelText
+  const input = doc.createElement('input')
+  input.className = 'auth-input'
+  input.name = name
+  input.type = type
+  input.autocomplete = type === 'password' ? 'off' : 'on'
+  input.value = value
+  label.appendChild(caption)
+  label.appendChild(input)
+  return label
+}
+
+function renderAuthenticationSection(): any | null {
+  const schemes = spec?.components?.securitySchemes ?? {}
+  if (!schemes || Object.keys(schemes).length === 0) return null
+  const section = doc.createElement('section')
+  section.className = 'authentication-section'
+  section.id = 'authentication'
+  const heading = doc.createElement('div')
+  heading.className = 'authentication-header'
+  heading.innerHTML = '<div><div class="subsection-label">AUTHENTICATION</div><h2>Authentication</h2><p>Credentials saved here are shared with every protected route in this environment.</p></div>'
+  section.appendChild(heading)
+
+  const environmentField = doc.createElement('label')
+  environmentField.className = 'auth-environment'
+  environmentField.innerHTML = '<span class="auth-field-label">Current environment</span>'
+  const select = doc.createElement('select')
+  select.className = 'auth-environment-select'
+  environments.forEach(environment => {
+    const option = doc.createElement('option')
+    option.value = environment.url
+    option.textContent = `${environment.label} — ${environment.url}`
+    if (environment.url === selectedEnvironmentUrl) option.setAttribute('selected', '')
+    select.appendChild(option)
+  })
+  select.value = selectedEnvironmentUrl
+  select.onchange = () => {
+    selectedEnvironmentUrl = select.value
+    render()
+  }
+  environmentField.appendChild(select)
+  section.appendChild(environmentField)
+
+  const cards = doc.createElement('div')
+  cards.className = 'auth-schemes'
+  Object.entries(schemes).forEach(([schemeName, scheme]: [string, any]) => {
+    const card = doc.createElement('article')
+    card.className = 'auth-scheme'
+    card.dataset.scheme = schemeName
+    const stored = readStoredCredential(schemeName)
+    const title = doc.createElement('div')
+    title.className = 'auth-scheme-title'
+    title.innerHTML = `<strong>${esc(schemeName)}</strong><span>${esc(authSchemeKind(scheme))}</span>`
+    card.appendChild(title)
+    if (scheme.description) {
+      const description = doc.createElement('p')
+      description.className = 'auth-scheme-description'
+      description.textContent = scheme.description
+      card.appendChild(description)
+    }
+    const form = doc.createElement('div')
+    form.className = 'auth-form'
+    const recipe = authenticationConfig?.schemes?.[schemeName]
+    if (recipe?.strategy === 'operation') {
+      const operation = findHttpOperation(recipe.operationId)
+      if (!operation) {
+        const error = doc.createElement('div')
+        error.className = 'auth-status auth-status-error'
+        error.textContent = `Operation ${recipe.operationId} was not found.`
+        form.appendChild(error)
+      } else {
+        const label = doc.createElement('label')
+        label.className = 'auth-field'
+        label.innerHTML = `<span class="auth-field-label">Request body · ${esc(operation.method)} ${esc(operation.path)}</span>`
+        const textarea = doc.createElement('textarea')
+        textarea.className = 'auth-operation-body'
+        textarea.value = JSON.stringify(recipe.requestBody ?? operationRequestExample(operation.operation), null, 2)
+        label.appendChild(textarea)
+        form.appendChild(label)
+        const actions = doc.createElement('div')
+        actions.className = 'auth-actions'
+        const requestToken = doc.createElement('button')
+        requestToken.type = 'button'
+        requestToken.className = 'auth-request-token'
+        requestToken.textContent = stored.accessToken ? 'Request new token' : 'Request token'
+        const status = doc.createElement('span')
+        status.className = 'auth-status'
+        status.textContent = stored.accessToken ? 'Ready' : 'Not authenticated'
+        requestToken.onclick = () => { void requestOperationToken(schemeName, recipe, operation, textarea.value, status) }
+        actions.appendChild(requestToken)
+        actions.appendChild(status)
+        form.appendChild(actions)
+      }
+    } else if (scheme.type === 'http' && String(scheme.scheme).toLowerCase() === 'bearer') {
+      form.appendChild(createAuthInput('accessToken', 'Bearer token', 'password', stored.accessToken ?? ''))
+    } else if (scheme.type === 'http' && String(scheme.scheme).toLowerCase() === 'basic') {
+      form.appendChild(createAuthInput('username', 'Username', 'text', stored.username ?? ''))
+      form.appendChild(createAuthInput('password', 'Password', 'password', stored.password ?? ''))
+    } else if (scheme.type === 'apiKey') {
+      form.appendChild(createAuthInput('apiKey', scheme.name || 'API key', 'password', stored.apiKey ?? ''))
+      const location = doc.createElement('div')
+      location.className = 'auth-scheme-meta'
+      location.textContent = `${scheme.in ?? 'header'} · ${scheme.name ?? schemeName}`
+      form.appendChild(location)
+    } else if (scheme.type === 'oauth2') {
+      appendOAuthFlowFields(form, schemeName, scheme, stored)
+    } else if (scheme.type === 'openIdConnect') {
+      appendOidcFields(form, schemeName, scheme, stored)
+    } else {
+      const note = doc.createElement('div')
+      note.className = 'auth-scheme-meta'
+      note.textContent = 'This authentication method must be configured by the HTTP client.'
+      form.appendChild(note)
+    }
+    if (!recipe && ['http', 'apiKey'].includes(scheme.type)) {
+      const save = doc.createElement('button')
+      save.type = 'button'
+      save.className = 'auth-save'
+      save.textContent = stored.accessToken || stored.apiKey || stored.username ? 'Update credential' : 'Use credential'
+      const status = doc.createElement('span')
+      status.className = 'auth-status'
+      status.textContent = stored.accessToken || stored.apiKey || stored.username ? 'Ready' : 'Not configured'
+      save.onclick = () => {
+        const credential: Record<string, string> = {}
+        form.querySelectorAll('input[name]').forEach((input: any) => { credential[input.name] = input.value })
+        storeCredential(schemeName, credential)
+        render()
+      }
+      const actions = doc.createElement('div')
+      actions.className = 'auth-actions'
+      actions.appendChild(save)
+      actions.appendChild(status)
+      form.appendChild(actions)
+    }
+    card.appendChild(form)
+    cards.appendChild(card)
+  })
+  section.appendChild(cards)
+  return section
 }
 
 function renderContent(): void {
@@ -1914,6 +2943,10 @@ function renderContent(): void {
   // mid-search, in which case the search results take the surface.
   if (!searchQuery) {
     main.appendChild(renderDocsOverview())
+    const authentication = renderAuthenticationSection()
+    if (authentication) main.appendChild(authentication)
+    const webhooks = renderAsyncContracts('Webhooks', spec.webhooks ?? {})
+    if (webhooks) main.appendChild(webhooks)
   }
 
   if (searchQuery) renderDocsSearch(main)
@@ -1926,7 +2959,9 @@ function renderContent(): void {
     const section = doc.createElement('section')
     section.className = 'endpoint-section'
     section.id = endpoint.id
-    section.innerHTML = `<div class="endpoint-header"><div><div class="endpoint-method-path"><span class="badge badge-${esc(endpoint.method.toLowerCase())}">${esc(endpoint.method)}</span><span class="endpoint-path">${esc(endpoint.path)}</span></div><h2 class="endpoint-title">${esc(endpoint.summary ?? endpoint.path)}</h2>${endpoint.description ? `<div class="endpoint-description markdown-content">${parseMarkdown(endpoint.description)}</div>` : ''}</div></div>`
+    const endpointData = (endpoint.data ?? {}) as any
+    const deprecated = endpointData.deprecated ? '<span class="endpoint-deprecated">Deprecated</span>' : ''
+    section.innerHTML = `<div class="endpoint-header"><div><div class="endpoint-method-path"><span class="badge badge-${esc(endpoint.method.toLowerCase())}">${esc(endpoint.method)}</span><span class="endpoint-path">${esc(endpoint.path)}</span>${deprecated}</div><h2 class="endpoint-title">${esc(endpoint.summary ?? endpoint.path)}</h2>${endpoint.description ? `<div class="endpoint-description markdown-content">${parseMarkdown(endpoint.description)}</div>` : ''}</div></div>`
     section.appendChild(renderEndpointDetails(endpoint))
     main.appendChild(section)
   }
@@ -1982,7 +3017,17 @@ function renderDocsOverview(): any {
         const desc = s?.description
           ? `<span class="docs-overview-server-desc">${esc(String(s.description))}</span>`
           : ''
-        return `<li class="docs-overview-server"><code class="docs-overview-server-url">${url}</code>${desc}</li>`
+        const variables = Object.entries(s?.variables ?? {}).map(([name, definition]: [string, any]) => {
+          const allowed = Array.isArray(definition?.enum) && definition.enum.length > 0
+            ? `<span>allowed: ${esc(definition.enum.join(', '))}</span>`
+            : ''
+          const description = definition?.description ? `<span>${esc(definition.description)}</span>` : ''
+          return `<li><code>${esc(name)}</code><span>default: ${esc(definition?.default ?? '')}</span>${allowed}${description}</li>`
+        }).join('')
+        const variableBlock = variables
+          ? `<div class="docs-overview-server-variables"><strong>Server variables</strong><ul>${variables}</ul></div>`
+          : ''
+        return `<li class="docs-overview-server"><code class="docs-overview-server-url">${url}</code>${desc}${variableBlock}</li>`
       })
       .join('')
     section.innerHTML = `<h2 class="docs-overview-subtitle">${servers.length > 1 ? 'Servers' : 'Server'}</h2><ul class="docs-overview-server-list">${rows}</ul>`
@@ -2643,6 +3688,7 @@ function init(): void {
   if (!doc) return
   const storedTheme = win.localStorage?.getItem?.(themeStorageKey)
   if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light' || storedTheme === 'custom') doc.documentElement.setAttribute('data-theme', storedTheme)
+  installOAuthCallback()
   installDocsPluginApi()
   if (activePagePath && activePagePath !== routeState.pagePath) {
     win.history?.replaceState?.(null, '', routeToHash(activePagePath, activeHeadingId))

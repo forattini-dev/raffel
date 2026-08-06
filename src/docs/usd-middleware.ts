@@ -33,9 +33,13 @@ import type { LoadedTcpHandler } from './generators/tcp-generator.js'
 import type { LoadedUdpHandler } from './generators/udp-generator.js'
 import { exportOpenAPI } from '../usd/export/openapi.js'
 import { dump as yamlStringify } from 'js-yaml'
+import { serialize as toonStringify, type JsonValue as ToonJsonValue } from '@reddb-io/toon'
 import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from './ui/index.js'
+import type { TryItOutConfig } from './ui/types.js'
+import { executeDocsTryItProxy, type DocsTryItRequest } from './try-it-proxy.js'
 import {
   createMarkdownDocsState,
+  DOCUMENTATION_FORMATS,
   joinDocsEndpoint,
   normalizeDocsBasePath,
   type DocsState,
@@ -117,6 +121,53 @@ function jsonResponse(data: unknown): Response {
   })
 }
 
+function unsupportedDocumentationFormat(extension: string): Response {
+  return new Response(JSON.stringify({
+    type: 'about:blank',
+    title: 'Unsupported documentation format',
+    status: 406,
+    detail: `The .${extension} documentation format is not supported.`,
+    supportedFormats: [...DOCUMENTATION_FORMATS],
+  }), {
+    status: 406,
+    headers: {
+      'Content-Type': 'application/problem+json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
+function documentationFormatResponse(document: unknown, extension: string): Response {
+  const normalized = extension.toLowerCase()
+  let body: string
+  let contentType: string
+
+  switch (normalized) {
+    case 'json':
+      body = JSON.stringify(document, null, 2)
+      contentType = 'application/json; charset=utf-8'
+      break
+    case 'yaml':
+    case 'yml':
+      body = yamlStringify(document)
+      contentType = 'application/yaml; charset=utf-8'
+      break
+    case 'toon':
+      body = toonStringify(JSON.parse(JSON.stringify(document)) as ToonJsonValue)
+      contentType = 'text/toon; charset=utf-8'
+      break
+    default:
+      return unsupportedDocumentationFormat(extension)
+  }
+
+  return new Response(body, {
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -162,6 +213,12 @@ export interface USDMiddlewareConfig {
   /** Default security requirement */
   defaultSecurity?: USDGeneratorOptions['defaultSecurity']
 
+  /** Interactive authentication recipes keyed by security scheme. */
+  authentication?: USDGeneratorOptions['authentication']
+
+  /** OpenAPI 3.1 inbound webhook contracts. */
+  webhooks?: USDGeneratorOptions['webhooks']
+
   /** Tags for grouping */
   tags?: USDGeneratorOptions['tags']
 
@@ -178,10 +235,10 @@ export interface USDMiddlewareConfig {
     logo?: string
     favicon?: string
     customCss?: string | string[]
-    tryItOut?: boolean
+    tryItOut?: boolean | TryItOutConfig
     codeGeneration?: {
       enabled?: boolean
-      languages?: ('typescript' | 'python' | 'go' | 'curl')[]
+      languages?: ('curl' | 'typescript' | 'rust' | 'python' | 'go')[]
     }
     /** Hero section (landing page header) */
     hero?: {
@@ -311,8 +368,12 @@ export interface USDHandlers {
   serveUSD: () => Response
   /** Serve USD document as YAML */
   serveUSDYaml: () => Response
+  /** Serve the USD document using a registered file extension. */
+  serveUSDFormat: (extension: string) => Response
   /** Serve pure OpenAPI 3.1 JSON (for Swagger UI compatibility) */
   serveOpenAPI: () => Response
+  /** Serve pure OpenAPI 3.1 using a registered file extension. */
+  serveOpenAPIFormat: (extension: string) => Response
   /** Serve reusable docs UI JavaScript runtime */
   serveUIRuntime: () => Response
   /** Serve reusable Markdown engine support asset */
@@ -335,6 +396,8 @@ export interface USDHandlers {
   serveUIStyles: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
   serveDocsAsset: (pathname: string) => Response | null
+  /** Execute one opt-in, allowlisted documentation request through the bounded proxy. */
+  serveTryItProxy: (payload: unknown) => Promise<Response>
   /** Get the USD document */
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */
@@ -402,6 +465,8 @@ export function createUSDHandlers(
     contentTypes,
     securitySchemes,
     defaultSecurity,
+    authentication,
+    webhooks,
     tags,
     externalDocs,
     jsonrpc,
@@ -461,8 +526,11 @@ export function createUSDHandlers(
           usdJson: joinDocsEndpoint(normalizedBasePath, '/usd.json'),
           usdYaml: joinDocsEndpoint(normalizedBasePath, '/usd.yaml'),
           openApiJson: joinDocsEndpoint(normalizedBasePath, '/openapi.json'),
+          usdTemplate: joinDocsEndpoint(normalizedBasePath, '/usd.{extension}'),
+          openApiTemplate: joinDocsEndpoint(normalizedBasePath, '/openapi.{extension}'),
           state: joinDocsEndpoint(normalizedBasePath, '/state.json'),
         },
+        formats: [...DOCUMENTATION_FORMATS],
         routeCounts: {
           procedures,
           restRoutes,
@@ -509,6 +577,8 @@ export function createUSDHandlers(
         contentTypes,
         securitySchemes,
         defaultSecurity,
+        authentication,
+        webhooks,
         tags,
         externalDocs,
         documentation: mergedDocumentation,
@@ -582,6 +652,8 @@ export function createUSDHandlers(
       })
     },
 
+    serveUSDFormat: (extension: string) => documentationFormatResponse(getUSD(), extension),
+
     serveOpenAPI: () => {
       const doc = getOpenAPI()
       return new Response(JSON.stringify(doc, null, 2), {
@@ -590,6 +662,8 @@ export function createUSDHandlers(
         },
       })
     },
+
+    serveOpenAPIFormat: (extension: string) => documentationFormatResponse(getOpenAPI(), extension),
 
     serveUIRuntime: () => {
       const runtime = readBuiltDocsRuntime() ?? generateUIRuntimeJS()
@@ -681,6 +755,38 @@ export function createUSDHandlers(
       return response
     },
 
+    serveTryItProxy: async (payload: unknown) => {
+      const proxy = typeof mergedUI?.tryItOut === 'object' && mergedUI.tryItOut.mode === 'proxy'
+        ? mergedUI.tryItOut
+        : null
+      if (!proxy) {
+        return new Response(JSON.stringify({
+          type: 'about:blank',
+          title: 'Documentation request proxy is disabled',
+          status: 404,
+        }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/problem+json; charset=utf-8' },
+        })
+      }
+      if (!payload || typeof payload !== 'object') {
+        return new Response(JSON.stringify({
+          type: 'about:blank',
+          title: 'Invalid documentation request',
+          status: 400,
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/problem+json; charset=utf-8' },
+        })
+      }
+      return executeDocsTryItProxy(payload as DocsTryItRequest, {
+        servers: getUSD().servers,
+        allowedOrigins: proxy.allowedOrigins,
+        timeoutMs: proxy.timeoutMs,
+        maxResponseBytes: proxy.maxResponseBytes,
+      })
+    },
+
     getUSDDocument: getUSD,
     getOpenAPIDocument: getOpenAPI,
     getMarkdownDocsState,
@@ -697,7 +803,12 @@ export function createUSDHandlers(
  * compatible `.get(path, handler)` method.
  */
 export interface USDDocsApp {
-  get(path: string, handler: (c: { req: Request | { url: string } }) => Response | Promise<Response>): unknown
+  get(path: string, handler: (c: {
+    req: Request | { url: string; param?: (name: string) => string | undefined }
+  }) => Response | Promise<Response>): unknown
+  post?(path: string, handler: (c: {
+    req: Request | { url: string; json?: <T = unknown>() => Promise<T> }
+  }) => Response | Promise<Response>): unknown
 }
 
 /**
@@ -732,6 +843,15 @@ export function mountUSDDocs(
   const basePath = (config.basePath ?? '/docs').replace(/\/$/, '') || '/docs'
 
   const reply = (fn: () => Response) => () => fn()
+  const replyFormat = (
+    fn: (extension: string) => Response,
+  ) => (c: { req: Request | { url: string; param?: (name: string) => string | undefined } }) => {
+    const request = c.req as { url: string; param?: (name: string) => string | undefined }
+    const extension = request.param?.('extension')
+      ?? new URL(request.url, 'http://x').pathname.split('.').pop()
+      ?? ''
+    return fn(extension)
+  }
   const replyOrFallback = (
     fn: (pathname: string) => Response | null,
   ) => (c: { req: { url: string } }) => {
@@ -751,12 +871,19 @@ export function mountUSDDocs(
   app.get(`${basePath}/-/code-block-toolbar.js`, reply(() => handlers.serveUICodeBlockToolbar()))
   app.get(`${basePath}/-/page-nav.js`, reply(() => handlers.serveUIPageNav()))
   app.get(`${basePath}/-/search-modal.js`, reply(() => handlers.serveUISearchModal()))
+  app.post?.(`${basePath}/-/request`, async (c) => {
+    const request = c.req as Request & { json?: <T = unknown>() => Promise<T> }
+    try {
+      return handlers.serveTryItProxy(await request.json?.())
+    } catch {
+      return handlers.serveTryItProxy(null)
+    }
+  })
 
   // Spec endpoints.
   app.get(`${basePath}/state.json`, reply(() => handlers.serveDocsState()))
-  app.get(`${basePath}/openapi.json`, reply(() => handlers.serveOpenAPI()))
-  app.get(`${basePath}/usd.json`, reply(() => handlers.serveUSD()))
-  app.get(`${basePath}/usd.yaml`, reply(() => handlers.serveUSDYaml()))
+  app.get(`${basePath}/openapi.:extension`, replyFormat(handlers.serveOpenAPIFormat))
+  app.get(`${basePath}/usd.:extension`, replyFormat(handlers.serveUSDFormat))
 
   // Static Markdown assets (images / extra JS shipped with the docs dir).
   app.get(`${basePath}/-/assets/*`, replyOrFallback(handlers.serveDocsAsset))

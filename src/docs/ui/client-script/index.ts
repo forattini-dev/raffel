@@ -44,7 +44,9 @@ export function generateClientDataScript(
   escapedDocsRepo: string = 'null',
   escapedBreadcrumbs: string = '{"enabled":true,"hideOnHome":true}',
   escapedPageNav: string = '{"enabled":true,"hide":[]}',
-  escapedMermaid: string = '{"enabled":true,"src":"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js","viewer":true}'
+  escapedMermaid: string = '{"enabled":true,"src":"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js","viewer":true}',
+  escapedResponseExamples: string = '{}',
+  escapedTryIt: string = '{"enabled":false,"mode":"direct"}'
 ): string {
   return `
     window.__RAFFEL_DOCS__ = {
@@ -64,7 +66,9 @@ export function generateClientDataScript(
       docsRepoConfig: ${escapedDocsRepo},
       breadcrumbsConfig: ${escapedBreadcrumbs},
       pageNavConfig: ${escapedPageNav},
-      mermaidConfig: ${escapedMermaid}
+      mermaidConfig: ${escapedMermaid},
+      responseExamples: ${escapedResponseExamples},
+      tryIt: ${escapedTryIt}
     };
 `
 }

@@ -313,7 +313,7 @@ const routeBaseDocs = {
 function injectBrowserSmoke(html, assetMode = 'external') {
   const runtimeTagPattern = assetMode === 'external'
     ? /<script type="module" data-raffel-runtime="external" src="\/docs\/-\/raffel-docs\.js(?:\?v=[^"]+)?"><\/script>/
-    : /<script type="module" data-raffel-runtime="inline">/
+    : /<script data-raffel-runtime="inline">/
   const runtimeTag = html.match(runtimeTagPattern)?.[0]
   if (!runtimeTag) {
     throw new Error(`Generated HTML did not include the expected ${assetMode} runtime script tag`)

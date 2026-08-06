@@ -93,9 +93,12 @@ describe('mountUSDDocs (issue #111)', () => {
         mounted: true,
         fresh: true,
         basePath: '/coding',
+        formats: ['json', 'yaml', 'yml', 'toon'],
         endpoints: {
           state: '/coding/state.json',
           openApiJson: '/coding/openapi.json',
+          openApiTemplate: '/coding/openapi.{extension}',
+          usdTemplate: '/coding/usd.{extension}',
         },
       },
       markdown: {
@@ -109,5 +112,61 @@ describe('mountUSDDocs (issue #111)', () => {
     const spa = await fetch(`${base}/coding/anything-else`)
     expect(spa.status).toBe(200)
     expect(spa.headers.get('content-type')).toMatch(/html/)
+  })
+
+  it('serves OpenAPI and USD through dynamic format routes before the SPA wildcard', async () => {
+    const app = new HttpApp()
+    const registry = createRegistry()
+    const schemaRegistry = createSchemaRegistry()
+
+    mountUSDDocs(app, { registry, schemaRegistry }, { basePath: '/coding' })
+
+    const port = await getFreePort()
+    const server = serve({ fetch: app.fetch.bind(app), port, hostname: '127.0.0.1' })
+    stop = () => new Promise<void>((resolve) => server.close(() => resolve()))
+    const base = `http://127.0.0.1:${port}`
+
+    const openapiToon = await fetch(`${base}/coding/openapi.toon`)
+    expect(openapiToon.status).toBe(200)
+    expect(openapiToon.headers.get('content-type')).toBe('text/toon; charset=utf-8')
+    await expect(openapiToon.text()).resolves.toMatch(/openapi: 3\.1\.0/)
+
+    const usdYaml = await fetch(`${base}/coding/usd.yml`)
+    expect(usdYaml.status).toBe(200)
+    expect(usdYaml.headers.get('content-type')).toBe('application/yaml; charset=utf-8')
+
+    const unsupported = await fetch(`${base}/coding/openapi.xml`)
+    expect(unsupported.status).toBe(406)
+    expect(unsupported.headers.get('content-type')).toBe('application/problem+json; charset=utf-8')
+  })
+
+  it('mounts the opt-in request proxy against declared server origins', async () => {
+    const port = await getFreePort()
+    const base = `http://127.0.0.1:${port}`
+    const app = new HttpApp()
+    const registry = createRegistry()
+    const schemaRegistry = createSchemaRegistry()
+    app.get('/health', c => c.json({ status: 'healthy' }))
+
+    mountUSDDocs(app, { registry, schemaRegistry }, {
+      basePath: '/coding',
+      servers: [{ url: base }],
+      ui: { tryItOut: { mode: 'proxy' } },
+    })
+
+    const server = serve({ fetch: app.fetch.bind(app), port, hostname: '127.0.0.1' })
+    stop = () => new Promise<void>((resolve) => server.close(() => resolve()))
+
+    const response = await fetch(`${base}/coding/-/request`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: `${base}/health`, method: 'GET', headers: {} }),
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      status: 200,
+      body: '{"status":"healthy"}',
+    })
   })
 })
