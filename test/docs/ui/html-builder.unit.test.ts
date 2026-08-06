@@ -64,6 +64,67 @@ describe('Documentation UI HTML builder', () => {
     expect(html).not.toContain('</script><script>alert(1)</script>')
   })
 
+  it('renders global Open Graph tags with field-level precedence, defaults, omission, and escaping', () => {
+    const html = generateUIHTML({
+      basePath: '/docs',
+      doc: {
+        info: {
+          title: 'Info <Title>',
+          version: '1.0.0',
+          description: 'Info "description"',
+        },
+        paths: {},
+        'x-usd': {
+          documentation: {
+            openGraph: {
+              title: 'USD Title',
+              description: 'USD Description',
+              image: 'https://cdn.example.com/social.png',
+              imageAlt: 'Preview "card"',
+              siteName: 'Docs & API',
+              locale: 'pt_BR',
+              url: '',
+            },
+          },
+        },
+      },
+      ui: {
+        openGraph: {
+          description: 'UI <Description>',
+        },
+      },
+    })
+
+    expect(html).toContain('<meta property="og:title" content="USD Title">')
+    expect(html).toContain('<meta property="og:description" content="UI &lt;Description&gt;">')
+    expect(html).toContain('<meta property="og:type" content="website">')
+    expect(html).toContain('<meta property="og:image" content="https://cdn.example.com/social.png">')
+    expect(html).toContain('<meta property="og:image:alt" content="Preview &quot;card&quot;">')
+    expect(html).toContain('<meta property="og:site_name" content="Docs &amp; API">')
+    expect(html).toContain('<meta property="og:locale" content="pt_BR">')
+    expect(html).not.toContain('property="og:url"')
+    expect(html).not.toContain('Info &quot;description&quot;')
+  })
+
+  it('defaults Open Graph title and description from info', () => {
+    const html = generateUIHTML({
+      basePath: '/docs',
+      doc: {
+        info: {
+          title: 'Default API',
+          version: '1.0.0',
+          description: 'Default API docs',
+        },
+        paths: {},
+      },
+    })
+
+    expect(html).toContain('<meta property="og:title" content="Default API">')
+    expect(html).toContain('<meta property="og:description" content="Default API docs">')
+    expect(html).toContain('<meta property="og:type" content="website">')
+    expect(html).not.toContain('property="og:image"')
+  })
+
   it('assembles the client script from the documentation behavior modules', () => {
     const script = generateClientScript(
       escapeJsonForScript({ info: { title: 'API', version: '1.0.0' }, paths: {} }),
