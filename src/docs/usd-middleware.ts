@@ -35,7 +35,7 @@ import { exportOpenAPI } from '../usd/export/openapi.js'
 import { dump as yamlStringify } from 'js-yaml'
 import { serialize as toonStringify, type JsonValue as ToonJsonValue } from '@reddb-io/toon'
 import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from './ui/index.js'
-import type { TryItOutConfig } from './ui/types.js'
+import type { OpenGraphConfig, TryItOutConfig } from './ui/types.js'
 import { executeDocsTryItProxy, type DocsTryItRequest } from './try-it-proxy.js'
 import {
   createMarkdownDocsState,
@@ -73,6 +73,33 @@ export function readDocsAsset(rootDir: string, relativePath: string): Response |
       'Cache-Control': 'no-store',
     },
   })
+}
+
+function readDocsFavicon(rootDir: string): Response | null {
+  const faviconPath = path.resolve(rootDir, 'favicon.ico')
+  const rootPath = path.resolve(rootDir)
+  if (!faviconPath.startsWith(`${rootPath}${path.sep}`)) return null
+  if (!existsSync(faviconPath)) return null
+  const stats = statSync(faviconPath)
+  if (!stats.isFile()) return null
+
+  return new Response(readFileSync(faviconPath), {
+    headers: {
+      'Content-Type': 'image/x-icon',
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
+function hasDocsFavicon(rootDir: string): boolean {
+  const faviconPath = path.resolve(rootDir, 'favicon.ico')
+  const rootPath = path.resolve(rootDir)
+  if (!faviconPath.startsWith(`${rootPath}${path.sep}`)) return false
+  try {
+    return statSync(faviconPath).isFile()
+  } catch {
+    return false
+  }
 }
 
 function contentTypeForAsset(filePath: string): string {
@@ -234,6 +261,7 @@ export interface USDMiddlewareConfig {
     primaryColor?: string
     logo?: string
     favicon?: string
+    openGraph?: OpenGraphConfig
     customCss?: string | string[]
     tryItOut?: boolean | TryItOutConfig
     codeGeneration?: {
@@ -394,6 +422,8 @@ export interface USDHandlers {
   serveUISearchModal: () => Response
   /** Serve docs UI stylesheet */
   serveUIStyles: () => Response
+  /** Serve the conventional docsDir/favicon.ico file as an exact route. */
+  serveFavicon: () => Response
   /** Serve static assets referenced by Markdown docsDir pages */
   serveDocsAsset: (pathname: string) => Response | null
   /** Execute one opt-in, allowlisted documentation request through the bounded proxy. */
@@ -485,9 +515,15 @@ export function createUSDHandlers(
   const loadedMarkdownDocs = docsDir ? loadMarkdownDocs(docsDir) : undefined
   const markdownDocsSource = docsDir ? resolveMarkdownDocsSource(docsDir) : undefined
   const mergedDocumentation = mergeMarkdownDocumentation(documentation, loadedMarkdownDocs?.documentation)
-  const mergedUI = loadedMarkdownDocs?.navbar && !ui?.navbar
+  const conventionFavicon = !ui?.favicon && !mergedDocumentation?.favicon && markdownDocsSource && hasDocsFavicon(markdownDocsSource.rootDir)
+    ? joinDocsEndpoint(normalizedBasePath, '/favicon.ico')
+    : undefined
+  const mergedUIBase = loadedMarkdownDocs?.navbar && !ui?.navbar
     ? { ...ui, navbar: loadedMarkdownDocs.navbar }
     : ui
+  const mergedUI = conventionFavicon
+    ? { ...mergedUIBase, favicon: conventionFavicon }
+    : mergedUIBase
 
   // Cache for generated documents
   let cachedUSD: USDDocument | null = null
@@ -746,6 +782,11 @@ export function createUSDHandlers(
       })
     },
 
+    serveFavicon: () => {
+      if (!markdownDocsSource) return new Response(null, { status: 404 })
+      return readDocsFavicon(markdownDocsSource.rootDir) ?? new Response(null, { status: 404 })
+    },
+
     serveDocsAsset: (pathname: string) => {
       if (!markdownDocsSource) return null
       const prefix = `${basePath.replace(/\/$/, '')}/-/assets/`
@@ -884,6 +925,7 @@ export function mountUSDDocs(
   app.get(`${basePath}/state.json`, reply(() => handlers.serveDocsState()))
   app.get(`${basePath}/openapi.:extension`, replyFormat(handlers.serveOpenAPIFormat))
   app.get(`${basePath}/usd.:extension`, replyFormat(handlers.serveUSDFormat))
+  app.get(`${basePath}/favicon.ico`, reply(() => handlers.serveFavicon()))
 
   // Static Markdown assets (images / extra JS shipped with the docs dir).
   app.get(`${basePath}/-/assets/*`, replyOrFallback(handlers.serveDocsAsset))
