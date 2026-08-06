@@ -12,6 +12,7 @@ export interface UIConfig {
   primaryColor?: string
   logo?: string
   favicon?: string
+  openGraph?: OpenGraphConfig
   /** External CSS files loaded after the built-in stylesheet so they can override variables and component styles. */
   customCss?: string | string[]
   tryItOut?: boolean | TryItOutConfig
@@ -61,6 +62,17 @@ export interface UIConfig {
    * to avoid the customCss-can-only-load-CSS gap when a consumer needs diagrams.
    */
   mermaid?: boolean | MermaidConfig
+}
+
+export interface OpenGraphConfig {
+  title?: string
+  description?: string
+  type?: string
+  url?: string
+  image?: string
+  imageAlt?: string
+  siteName?: string
+  locale?: string
 }
 
 export interface TryItOutConfig {
