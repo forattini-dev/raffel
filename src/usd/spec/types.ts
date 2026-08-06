@@ -206,11 +206,25 @@ export interface USDDocumentation {
   /** Custom favicon URL */
   favicon?: string
 
+  /** Global Open Graph metadata for generated documentation pages */
+  openGraph?: OpenGraphConfig
+
   /** Custom logo URL */
   logo?: string
 
   /** Footer markdown/text rendered after docs content */
   footer?: string
+}
+
+export interface OpenGraphConfig {
+  title?: string
+  description?: string
+  type?: string
+  url?: string
+  image?: string
+  imageAlt?: string
+  siteName?: string
+  locale?: string
 }
 
 export interface USDDocumentationSidebarItem {
