@@ -613,7 +613,7 @@ describe('USD Middleware', () => {
           })
 
           const html = await handlers.serveUI().text()
-          assert.ok(html.includes('<link rel="icon" href="/custom-docs/favicon.ico">'))
+          assert.ok(html.includes('<link rel="icon" type="image/x-icon" href="/custom-docs/favicon.ico">'))
 
           const response = handlers.serveFavicon()
           assert.equal(response.status, 200)

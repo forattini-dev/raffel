@@ -75,13 +75,20 @@ export function readDocsAsset(rootDir: string, relativePath: string): Response |
   })
 }
 
-function readDocsFavicon(rootDir: string): Response | null {
+function resolveDocsFaviconPath(rootDir: string): string | null {
   const faviconPath = path.resolve(rootDir, 'favicon.ico')
   const rootPath = path.resolve(rootDir)
   if (!faviconPath.startsWith(`${rootPath}${path.sep}`)) return null
-  if (!existsSync(faviconPath)) return null
-  const stats = statSync(faviconPath)
-  if (!stats.isFile()) return null
+  try {
+    return statSync(faviconPath).isFile() ? faviconPath : null
+  } catch {
+    return null
+  }
+}
+
+function readDocsFavicon(rootDir: string): Response | null {
+  const faviconPath = resolveDocsFaviconPath(rootDir)
+  if (!faviconPath) return null
 
   return new Response(readFileSync(faviconPath), {
     headers: {
@@ -92,14 +99,7 @@ function readDocsFavicon(rootDir: string): Response | null {
 }
 
 function hasDocsFavicon(rootDir: string): boolean {
-  const faviconPath = path.resolve(rootDir, 'favicon.ico')
-  const rootPath = path.resolve(rootDir)
-  if (!faviconPath.startsWith(`${rootPath}${path.sep}`)) return false
-  try {
-    return statSync(faviconPath).isFile()
-  } catch {
-    return false
-  }
+  return resolveDocsFaviconPath(rootDir) !== null
 }
 
 function contentTypeForAsset(filePath: string): string {

@@ -168,6 +168,11 @@ describe('mountUSDDocs (issue #111)', () => {
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toBe('image/x-icon')
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(faviconBytes)
+
+      rmSync(join(docsRoot, 'favicon.ico'))
+      const missing = await fetch(`${base}/coding/favicon.ico`)
+      expect(missing.status).toBe(404)
+      expect(missing.headers.get('content-type') ?? '').not.toContain('text/html')
     } finally {
       rmSync(docsRoot, { recursive: true, force: true })
     }
