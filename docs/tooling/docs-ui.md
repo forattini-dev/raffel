@@ -155,6 +155,7 @@ This mounts the docs system at:
 | `/internal-docs` | Unified docs UI |
 | `/internal-docs/usd.json` | USD JSON |
 | `/internal-docs/openapi.json` | OpenAPI JSON |
+| `/internal-docs/favicon.ico` | Conventional `docsDir/favicon.ico` when present |
 | `/internal-docs/-/assets/*` | Static assets from `docsDir` |
 
 Use `docsDir.routeBase` to avoid in-app route collisions between file-backed Markdown pages and other docs UI states:
@@ -184,6 +185,10 @@ server.enableUSD({
   docsDir: './handbook',
 })
 ```
+
+If neither `ui.favicon` nor `documentation.favicon` is configured and the docs directory contains `favicon.ico` at its root, the generated HTML links to `<basePath>/favicon.ico`. Raffel serves that exact route before the SPA wildcard with the original ICO bytes and `image/x-icon`; if the file is absent the exact route returns 404.
+
+Global Open Graph metadata can be configured in `ui.openGraph` or portable `documentation.openGraph`. Fields merge one by one with UI taking precedence over USD. `og:title` defaults to `info.title`, `og:description` defaults to `info.description`, and `og:type` defaults to `website`; `url`, `image`, `imageAlt`, `siteName`, and `locale` are emitted only when explicitly configured.
 
 Use the object form when you need route aliases, a route prefix, a custom homepage, or excluded directories:
 
