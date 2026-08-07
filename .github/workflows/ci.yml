@@ -317,6 +317,11 @@ jobs:
           echo "::error::Git tag v$VERSION did not produce a visible npm package raffel@$VERSION"
           exit 1
 
+      - name: Promote Highest Stable Version on NPM
+        run: node scripts/promote-latest.mjs raffel
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Setup Node.js (GitHub Packages)
         uses: actions/setup-node@v4
         with:
@@ -333,6 +338,13 @@ jobs:
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
           pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote Highest Stable Version on GitHub Packages
+        run: |
+          node scripts/promote-latest.mjs @forattini-dev/raffel \
+            --registry=https://npm.pkg.github.com
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
