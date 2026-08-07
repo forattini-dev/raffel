@@ -28,6 +28,12 @@ function renderReference(spec: Record<string, unknown>, url?: string): string {
   return win.document.getElementById('mainContent')?.innerHTML ?? ''
 }
 
+function renderReferenceSurface(spec: Record<string, unknown>, url?: string): { html: string; text: string } {
+  const win = createReference(spec, url)
+  const main = win.document.getElementById('mainContent')
+  return { html: main?.innerHTML ?? '', text: main?.textContent ?? '' }
+}
+
 describe('HTTP reference documentation', () => {
   it('renders a referenced error schema instead of its JSON pointer', () => {
     const html = renderReference({
@@ -139,7 +145,7 @@ describe('HTTP reference documentation', () => {
       { id: 1, name: 'Ada' },
       { id: 2, name: 'Lin' },
     ]
-    const html = renderReference({
+    const { html, text } = renderReferenceSurface({
       openapi: '3.1.0',
       info: { title: 'Exports API', version: '1.0.0' },
       paths: {
@@ -176,7 +182,7 @@ describe('HTTP reference documentation', () => {
     expect(html).toContain('Backup rows')
     expect(html).toContain('id,name')
     expect(html).toContain('[2]{id,name}:')
-    expect(html).toContain('{"id":1,"name":"Ada"}')
+    expect(text).toContain('{"id":1,"name":"Ada"}')
     expect(html).toContain('[]{id,name}:')
     expect(html).toContain('[=2]')
   })
@@ -214,7 +220,7 @@ describe('HTTP reference documentation', () => {
   })
 
   it('shows highlighted request samples in the supported language order', () => {
-    const html = renderReference({
+    const { html, text } = renderReferenceSurface({
       openapi: '3.1.0',
       info: { title: 'Samples API', version: '1.0.0' },
       servers: [{ url: 'https://api.example.com' }],
@@ -244,8 +250,8 @@ describe('HTTP reference documentation', () => {
     expect(html).toContain('class="language-rust"')
     expect(html).toContain('class="language-python"')
     expect(html).toContain('class="language-go"')
-    expect(html).toContain('fetch("https://api.example.com/widgets"')
-    expect(html).toContain('http.NewRequest(')
+    expect(text).toContain('fetch("https://api.example.com/widgets"')
+    expect(text).toContain('http.NewRequest(')
   })
 
   it('renders authentication before routes and infers the viewed environment', () => {
