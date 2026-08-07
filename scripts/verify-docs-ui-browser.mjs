@@ -30,7 +30,22 @@ const docs = {
     '/health': {
       get: {
         summary: 'Health check',
-        responses: { '200': { description: 'OK' } },
+        responses: {
+          '200': {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string' },
+                    healthy: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     },
   },
@@ -413,6 +428,28 @@ window.__runRaffelDocsSmoke = function () {
   ))
   document.documentElement.setAttribute('data-marked-renderer-ok', String(Boolean(window.marked) && document.documentElement.getAttribute('data-markdown-engine') === 'marked'))
   document.documentElement.setAttribute('data-prism-ok', String(Boolean(window.Prism) && Boolean(document.querySelector('pre code[data-prism-highlighted="true"]')) && document.documentElement.getAttribute('data-syntax-highlight') === 'prism'))
+  if (!document.documentElement.hasAttribute('data-http-request-copy-ok')) {
+    const httpRequestSample = document.querySelector('.http-code-samples')
+    const httpResponseSample = document.querySelector('.response-media-sample')
+    document.documentElement.setAttribute('data-http-request-copy-ok', String(
+      httpRequestSample?.querySelectorAll('.http-code-copy').length === 1 &&
+      httpRequestSample?.querySelectorAll('.code-block-copy').length === 0
+    ))
+    document.documentElement.setAttribute('data-http-response-copy-ok', String(
+      httpResponseSample?.querySelectorAll('.sample-code-copy').length === 1 &&
+      httpResponseSample?.querySelectorAll('.code-block-copy').length === 0
+    ))
+    const requestCode = httpRequestSample?.querySelector('code.language-bash')
+    const requestToken = requestCode?.querySelector('.token')
+    const responseCode = httpResponseSample?.querySelector('code.language-json')
+    const responseToken = responseCode?.querySelector('.token.property, .token.string, .token.boolean, .token.number')
+    document.documentElement.setAttribute('data-http-request-highlight-ok', String(
+      Boolean(requestToken) && getComputedStyle(requestToken).color !== getComputedStyle(requestCode).color
+    ))
+    document.documentElement.setAttribute('data-http-response-highlight-ok', String(
+      Boolean(responseToken) && getComputedStyle(responseToken).color !== getComputedStyle(responseCode).color
+    ))
+  }
   document.documentElement.setAttribute('data-custom-css-ok', String(getComputedStyle(document.documentElement).getPropertyValue('--custom-smoke-token').trim() === 'loaded'))
   const openSidebarGroups = Array.from(document.querySelectorAll('.docs-sidebar-group:not(.collapsed) > .tag-group-header')).map((item) => item.textContent || '').join('|')
   const collapsedSidebarGroups = Array.from(document.querySelectorAll('.docs-sidebar-group.collapsed > .tag-group-header')).map((item) => item.textContent || '').join('|')
@@ -616,7 +653,8 @@ function assertDom(dom, checks) {
   if (missing.length === 0) return
   const details = missing.map(({ label, needle }) => `- ${label}: missing ${JSON.stringify(needle)}`).join('\n')
   const debug = dom.match(/data-link-debug="([^"]*)"/)?.[1]
-  throw new Error(`Docs UI browser smoke failed:\n${details}${debug ? `\nlink-debug: ${debug}` : ''}`)
+  const httpDebug = dom.match(/data-http-[\w-]+="[^"]*"/g)?.join(' ')
+  throw new Error(`Docs UI browser smoke failed:\n${details}${debug ? `\nlink-debug: ${debug}` : ''}${httpDebug ? `\nhttp-debug: ${httpDebug}` : ''}`)
 }
 
 function assertDomMissing(dom, checks) {
@@ -746,6 +784,10 @@ async function run() {
     const searchDom = await dumpDom(chrome, `${origin}/docs`)
     assertDom(searchDom, [
       { label: 'search smoke completion marker', needle: 'data-smoke-ready="yes"' },
+      { label: 'single request sample copy button', needle: 'data-http-request-copy-ok="true"' },
+      { label: 'single response sample copy button', needle: 'data-http-response-copy-ok="true"' },
+      { label: 'request sample syntax highlight', needle: 'data-http-request-highlight-ok="true"' },
+      { label: 'response sample syntax highlight', needle: 'data-http-response-highlight-ok="true"' },
       { label: 'auto-generated WebSocket docs', needle: 'data-protocol-websocket-ok="true"' },
       { label: 'auto-generated GraphQL docs', needle: 'data-protocol-graphql-ok="true"' },
       { label: 'auto-generated stream docs', needle: 'data-protocol-streams-ok="true"' },

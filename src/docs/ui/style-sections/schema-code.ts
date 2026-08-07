@@ -768,7 +768,8 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       white-space: pre;
     }
 
-    .http-code-copy {
+    .http-code-copy,
+    .sample-code-copy {
       margin-left: auto;
       padding: 4px 10px;
       background: transparent;
@@ -780,7 +781,11 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       transition: all 0.15s;
     }
 
-    .http-code-copy:hover { color: var(--text-color); border-color: var(--text-muted); }
+    .http-code-copy:hover,
+    .sample-code-copy:hover {
+      color: #fff;
+      border-color: #90a4ae;
+    }
 
     /* Right panel (third column): keep request/response samples dark & legible
        regardless of the active theme, matching ReDoc's sample column. */
@@ -801,6 +806,80 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .endpoint-right .http-code-sample-pre {
       color: var(--code-panel-text);
     }
+
+    .response-example-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 28px;
+      margin: 4px 0 8px;
+    }
+
+    .response-example-toolbar .response-example-name {
+      margin: 0;
+    }
+
+    .endpoint-right .sample-code {
+      margin: 0;
+      padding: 14px;
+      overflow-x: auto;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.25);
+      color: var(--code-panel-text);
+      white-space: pre;
+      word-break: normal;
+    }
+
+    .endpoint-right .sample-code code {
+      color: inherit;
+      font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: inherit;
+    }
+
+    .endpoint-right .token.comment,
+    .endpoint-right .token.prolog,
+    .endpoint-right .token.doctype,
+    .endpoint-right .token.cdata {
+      color: #90a4ae;
+    }
+
+    .endpoint-right .token.punctuation { color: #cfd8dc; }
+
+    .endpoint-right .token.property,
+    .endpoint-right .token.tag,
+    .endpoint-right .token.boolean,
+    .endpoint-right .token.number,
+    .endpoint-right .token.constant,
+    .endpoint-right .token.symbol {
+      color: #f8b500;
+    }
+
+    .endpoint-right .token.selector,
+    .endpoint-right .token.attr-name,
+    .endpoint-right .token.string,
+    .endpoint-right .token.char,
+    .endpoint-right .token.builtin {
+      color: #a5d6a7;
+    }
+
+    .endpoint-right .token.operator,
+    .endpoint-right .token.entity,
+    .endpoint-right .token.url,
+    .endpoint-right .token.variable {
+      color: #89ddff;
+    }
+
+    .endpoint-right .token.atrule,
+    .endpoint-right .token.attr-value,
+    .endpoint-right .token.function,
+    .endpoint-right .token.class-name {
+      color: #82aaff;
+    }
+
+    .endpoint-right .token.keyword { color: #c792ea; }
 
     .endpoint-right .code-tab {
       color: #90a4ae;

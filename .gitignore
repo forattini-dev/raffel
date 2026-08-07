@@ -44,3 +44,4 @@ pnpm-debug.log*
 tmp/
 temp/
 .tmp-scaffold-debug-*/
+.red/tmp/

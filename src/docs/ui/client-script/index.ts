@@ -20,6 +20,7 @@ import { cardsAndCodeClientScript } from './cards-and-code.js'
 import { schemaRenderingClientScript } from './schema-rendering.js'
 import { endpointDetailsClientScript } from './endpoint-details.js'
 import { initClientScript } from './init.js'
+import { generatePrismBrowserBundle } from '../prism-browser-bundle.js'
 
 const require = createRequire(import.meta.url)
 let cachedSharedRuntimeScript: string | null = null
@@ -87,7 +88,7 @@ export function generateClientRuntimeScript(): string {
 export function generateInlineRuntimeDependencyScripts(): string {
   return [
     inlineDependencyScript('marked', readOptionalDependency('marked/lib/marked.umd.js')),
-    inlineDependencyScript('prism', readOptionalDependency('prismjs/prism.js')),
+    inlineDependencyScript('prism', generatePrismBrowserBundle()),
   ].filter(Boolean).join('\n  ')
 }
 
