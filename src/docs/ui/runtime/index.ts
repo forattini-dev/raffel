@@ -1865,29 +1865,24 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
   if (!schema) return
   schema = resolveSchema(schema)
   const div = doc.createElement('div')
-  div.style.paddingLeft = depth > 0 ? `${depth * 12}px` : '0'
-  div.style.marginTop = depth === 0 ? '8px' : '0'
+  div.className = depth === 0 ? 'schema-tree schema-tree-root' : 'schema-tree schema-tree-nested'
 
   if (schema.$ref) {
     const refName = String(schema.$ref).split('/').pop()
     const row = doc.createElement('div')
-    row.style.padding = '4px 0'
-    row.innerHTML = `<span style="color: #888; font-style: italic;">Unresolved schema reference: ${esc(refName)}</span>`
+    row.className = 'schema-tree-row schema-tree-unresolved'
+    row.textContent = `Unresolved schema reference: ${refName}`
     div.appendChild(row)
   } else if (schema.type === 'object' && schema.properties) {
     Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
       const row = doc.createElement('div')
-      row.style.padding = '6px 0'
-      row.style.borderLeft = depth === 0 ? '2px solid var(--border-color)' : 'none'
-      row.style.paddingLeft = depth === 0 ? '8px' : '0'
+      row.className = 'schema-tree-row'
       const type = (prop as any).type || 'any'
-      const required = schema.required?.includes(key) ? '<span style="color: #ef4444; margin-left: 4px;">*</span>' : ''
-      row.innerHTML = `<div style="font-weight: 500; color: var(--text-primary); display: flex; align-items: center;">${esc(key)}${required} <span class="schema-type type-${esc((prop as any).type || 'null')}" style="margin-left: 8px;">${esc(type)}</span></div>`
+      const required = schema.required?.includes(key) ? '<span class="schema-tree-required">*</span>' : ''
+      row.innerHTML = `<div class="schema-tree-property">${esc(key)}${required}<span class="schema-type type-${esc((prop as any).type || 'null')}">${esc(type)}</span></div>`
       if ((prop as any).description) {
         const desc = doc.createElement('div')
-        desc.style.fontSize = '12px'
-        desc.style.color = 'var(--text-muted)'
-        desc.style.marginTop = '4px'
+        desc.className = 'schema-tree-description'
         desc.textContent = (prop as any).description
         row.appendChild(desc)
       }
@@ -1901,16 +1896,16 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
     })
   } else if (schema.type === 'array' && schema.items) {
     const row = doc.createElement('div')
-    row.style.padding = '6px 0'
-    row.innerHTML = `<span style="color: var(--text-primary); font-weight: 500;">array</span> <span style="color: var(--text-secondary);">of ${esc((schema.items as any).type || 'object')}</span>`
+    row.className = 'schema-tree-row'
+    row.innerHTML = `<span class="schema-tree-label">array</span> <span class="schema-tree-meta">of ${esc((schema.items as any).type || 'object')}</span>`
     div.appendChild(row)
     if ((schema.items as any).properties) {
       renderSchemaTree(div, schema.items, depth + 1)
     }
   } else {
     const row = doc.createElement('div')
-    row.style.padding = '6px 0'
-    row.innerHTML = `<span style="color: var(--text-secondary);">${esc(schema.type || 'any')}</span>`
+    row.className = 'schema-tree-row schema-tree-meta'
+    row.textContent = schema.type || 'any'
     appendConstraintChips(row, schema)
     div.appendChild(row)
   }

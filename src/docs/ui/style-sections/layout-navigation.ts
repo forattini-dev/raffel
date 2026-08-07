@@ -23,7 +23,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .app-container {
       display: grid;
-      grid-template-columns: 300px 1fr;
+      grid-template-columns: 280px 1fr;
       min-height: calc(100vh - 300px);
     }
 
@@ -53,7 +53,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .sidebar {
       background: var(--sidebar-bg);
       border-right: 1px solid var(--border-color);
-      padding: 24px 0;
+      padding: 18px 0;
       overflow-y: auto;
       position: sticky;
       top: 0;
@@ -65,9 +65,9 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .sidebar-header {
-      padding: 0 20px 20px;
+      padding: 0 14px 14px;
       border-bottom: 1px solid var(--border-color);
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
 
     .sidebar-logo {
@@ -86,10 +86,10 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .sidebar-search input {
       width: 100%;
-      padding: 10px 12px 10px 36px;
+      padding: 8px 10px 8px 32px;
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      font-size: 14px;
+      font-size: var(--font-size-small);
       background: var(--bg-color);
       color: var(--text-color);
       outline: none;
@@ -103,24 +103,24 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .sidebar-search::before {
       content: '🔍';
       position: absolute;
-      left: 12px;
+      left: 10px;
       top: 50%;
       transform: translateY(-50%);
-      font-size: 14px;
+      font-size: var(--font-size-small);
     }
 
     .protocol-tabs {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      padding: 0 20px;
-      margin-bottom: 20px;
+      gap: 5px;
+      padding: 0 14px;
+      margin-bottom: 14px;
     }
 
     .protocol-tab {
-      padding: 6px 12px;
+      padding: 5px 10px;
       border-radius: 20px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       background: var(--code-bg);
@@ -158,7 +158,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     /* ========== TAG GROUPS ========== */
     .sidebar-nav {
-      padding: 0 12px;
+      padding: 0 10px;
     }
 
     .tag-group {
@@ -168,11 +168,11 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .tag-group-header {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
+      gap: 6px;
+      padding: 8px 10px;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       color: var(--text-secondary);
       transition: all 0.2s;
@@ -216,8 +216,8 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .nav-item {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 6px 12px 6px 14px;
+      gap: 8px;
+      padding: 4px 10px 4px 12px;
       border-left: 2px solid transparent;
       border-radius: 0;
       text-decoration: none;
@@ -252,9 +252,9 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       color: var(--text-muted);
       cursor: pointer;
       font: inherit;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.35;
-      padding: 5px 8px;
+      padding: 4px 7px;
       text-align: left;
       border-radius: 5px;
       overflow: hidden;
@@ -287,8 +287,8 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .docs-sidebar-depth-6 { margin-left: 16px; }
 
     .nav-item-intro {
-      margin-bottom: 16px;
-      padding: 10px 12px;
+      margin-bottom: 12px;
+      padding: 8px 10px;
       background: var(--surface-color);
       border: 1px solid var(--border-color);
       font-weight: 500;
@@ -304,11 +304,11 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .nav-item-intro .nav-item-text {
-      font-size: 14px;
+      font-size: 13px;
     }
 
     .nav-item-method {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       padding: 1px 4px;
       border: 1px solid var(--border-color);
@@ -344,7 +344,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .nav-item-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 13px;
+      font-size: 12px;
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;

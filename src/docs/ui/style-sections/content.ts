@@ -1,6 +1,6 @@
 export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .main {
-      padding: 40px;
+      padding: 32px;
       overflow-y: auto;
       width: 100%;
     }
@@ -105,10 +105,10 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     /* ========== INTRODUCTION SECTION ========== */
     .intro-section {
-      padding: 32px 40px;
+      padding: 24px 32px;
       background: var(--surface-color);
       border-bottom: 1px solid var(--border-color);
-      margin: -40px -40px 40px -40px;
+      margin: -32px -32px 32px -32px;
     }
 
     .intro-section .markdown-content {
@@ -276,7 +276,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     /* ========== ENDPOINT SECTIONS (Redoc-style) ========== */
     .endpoint-section {
-      padding: 32px 0;
+      padding: 24px 0;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -287,23 +287,23 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .endpoint-header {
       display: flex;
       align-items: flex-start;
-      gap: 16px;
-      margin-bottom: 20px;
+      gap: 12px;
+      margin-bottom: 14px;
     }
 
     .endpoint-method-path {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
     }
 
     .badge {
       display: inline-flex;
       align-items: center;
-      padding: 6px 12px;
+      padding: 4px 9px;
       border-radius: 4px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       font-family: 'SF Mono', 'Monaco', monospace;
@@ -318,23 +318,24 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .endpoint-path {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 500;
       color: var(--text-color);
     }
 
     .endpoint-title {
-      font-size: 24px;
+      font-size: 21px;
       font-weight: 600;
-      margin-bottom: 8px;
+      line-height: 1.3;
+      margin-bottom: 6px;
       color: var(--text-color);
     }
 
     .endpoint-description {
       color: var(--text-muted);
-      font-size: 15px;
-      line-height: 1.7;
-      margin-bottom: 24px;
+      font-size: 13px;
+      line-height: 1.55;
+      margin-bottom: 18px;
     }
 
     /* Markdown content styles */
@@ -967,7 +968,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .endpoint-content {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 40px;
+      gap: 32px;
     }
 
     @media (min-width: 1400px) {
@@ -994,18 +995,18 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       min-width: 0; /* Prevent overflow */
       background: var(--code-panel-bg);
       border-radius: 8px;
-      padding: 20px;
+      padding: 16px;
       color: var(--code-panel-text);
     }
 
     .endpoint-right-header {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #90a4ae;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 7px;
       border-bottom: 1px solid rgba(255,255,255,0.1);
     }
 
@@ -1016,17 +1017,17 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .endpoint-subsection {
-      margin-bottom: 28px;
+      margin-bottom: 20px;
     }
 
     .endpoint-subsection-title {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -1037,12 +1038,12 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     /* ========== REDOC-STYLE PARAMETER LABELS ========== */
     .subsection-label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 16px;
+      margin-bottom: 10px;
     }
 
     .content-type {
@@ -1061,8 +1062,8 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     /* ========== REDOC-STYLE PARAMETERS ========== */
     .param-row {
       display: flex;
-      padding: 12px;
-      margin-bottom: 12px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
       border: 1px solid var(--border-color);
       border-radius: 6px;
       background: var(--surface-color);
@@ -1101,14 +1102,14 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .param-header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 8px;
+      gap: 8px;
+      margin-bottom: 4px;
       flex-wrap: wrap;
     }
 
     .param-name-text {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-color);
     }
@@ -1116,7 +1117,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .param-required-badge {
       font-size: 10px;
       font-weight: 700;
-      padding: 3px 8px;
+      padding: 2px 6px;
       border-radius: 4px;
       background: #fee2e2;
       color: #991b1b;
@@ -1198,17 +1199,17 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .param-description {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-color);
-      line-height: 1.5;
-      margin-top: 8px;
+      line-height: 1.4;
+      margin-top: 4px;
     }
 
     /* ========== REDOC-STYLE RESPONSES ========== */
     .response-item {
       border: 1px solid var(--border-color);
       border-radius: 6px;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       overflow: hidden;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
@@ -1220,8 +1221,8 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .response-header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 14px 16px;
+      gap: 8px;
+      padding: 10px 12px;
       cursor: pointer;
       transition: background 0.15s;
       background: var(--surface-color);
@@ -1244,9 +1245,9 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-status {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 4px;
       min-width: 50px;
       text-align: center;
@@ -1285,13 +1286,13 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-desc {
-      font-size: 14px;
+      font-size: 12px;
       color: var(--text-color);
     }
 
     .response-body {
       display: none;
-      padding: 16px;
+      padding: 12px;
       border-top: 1px solid var(--border-color);
       background: var(--code-bg);
     }
@@ -1305,7 +1306,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .response-schema-label .content-type {
@@ -1313,8 +1314,8 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-headers-section {
-      margin-bottom: 20px;
-      padding-bottom: 16px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -1323,13 +1324,13 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .response-header-row {
       display: flex;
       align-items: flex-start;
-      padding: 8px 0;
+      padding: 5px 0;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -1339,11 +1340,11 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .response-header-name {
       font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-color);
-      min-width: 180px;
-      margin-right: 16px;
+      min-width: 150px;
+      margin-right: 12px;
     }
 
     .response-header-info {
@@ -1351,13 +1352,13 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-header-type {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--primary-color);
       margin-bottom: 4px;
     }
 
     .response-header-desc {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
     }
 
