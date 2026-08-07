@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const htmlBuilderUrl = pathToFileURL(join(root, 'dist/docs/ui/html-builder.js')).href
 const { generateUICSS } = await import(htmlBuilderUrl)
+const { generatePrismBrowserBundle } = await import(pathToFileURL(join(root, 'dist/docs/ui/prism-browser-bundle.js')).href)
 
 const assetsDir = join(root, 'dist/docs/ui/assets')
 await mkdir(assetsDir, { recursive: true })
@@ -19,7 +20,7 @@ await copySupportAsset('dist/docs/ui/runtime/code-block-toolbar.js', 'code-block
 await copySupportAsset('dist/docs/ui/runtime/page-nav.js', 'page-nav.js')
 await copySupportAsset('dist/docs/ui/runtime/search-modal.js', 'search-modal.js')
 await copySupportAsset('node_modules/marked/lib/marked.umd.js', 'marked.umd.js')
-await copySupportAsset('node_modules/prismjs/prism.js', 'prism.js')
+await writeFile(join(assetsDir, 'prism.js'), generatePrismBrowserBundle(), 'utf8')
 
 await writeFile(
   join(assetsDir, 'raffel-docs.css'),

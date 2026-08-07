@@ -11,6 +11,8 @@
  */
 
 const ENHANCED_ATTR = 'data-code-toolbar-enhanced'
+const TOOLBAR_MODE_ATTR = 'data-code-toolbar'
+const MANAGED_TOOLBAR_MODE = 'managed'
 const LANG_CLASS_PREFIX = 'language-'
 const COPY_LABEL = 'Copy'
 const COPIED_LABEL = 'Copied'
@@ -38,7 +40,11 @@ export function enhanceCodeBlockToolbars(
   const codes = root.querySelectorAll(`pre > code[class*="${LANG_CLASS_PREFIX}"]`)
   for (const code of Array.from(codes) as any[]) {
     const pre = code.parentElement
-    if (!pre || pre.getAttribute?.(ENHANCED_ATTR) === 'true') continue
+    if (
+      !pre
+      || pre.getAttribute?.(ENHANCED_ATTR) === 'true'
+      || pre.getAttribute?.(TOOLBAR_MODE_ATTR) === MANAGED_TOOLBAR_MODE
+    ) continue
     pre.setAttribute(ENHANCED_ATTR, 'true')
     if (pre.style && !pre.style.position) pre.style.position = 'relative'
     const lang = extractLanguage(code.className)

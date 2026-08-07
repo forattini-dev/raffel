@@ -86,6 +86,29 @@ describe('enhanceCodeBlockToolbars', () => {
     expect(legacy.hasAttribute('hidden')).toBe(true)
   })
 
+  it('leaves generated reference samples with their own copy controls untouched', () => {
+    const { dom, root } = setupDom(`
+      <div class="http-code-samples">
+        <button type="button" class="http-code-copy">Copy</button>
+        <pre class="http-code-sample-pre" data-code-toolbar="managed">
+          <code class="language-bash">curl https://example.test</code>
+        </pre>
+      </div>
+      <div class="response-media-sample">
+        <button type="button" class="sample-code-copy">Copy</button>
+        <pre class="sample-code" data-code-toolbar="managed">
+          <code class="language-json">{"ok":true}</code>
+        </pre>
+      </div>
+    `)
+
+    enhanceCodeBlockToolbars(root, { document: dom.window.document, navigator: dom.window.navigator })
+
+    expect(root.querySelectorAll('.http-code-samples button')).toHaveLength(1)
+    expect(root.querySelectorAll('.response-media-sample button')).toHaveLength(1)
+    expect(root.querySelectorAll('.code-block-toolbar')).toHaveLength(0)
+  })
+
   it('skips quietly when given a null root or a root without query support', () => {
     expect(() => enhanceCodeBlockToolbars(null)).not.toThrow()
     expect(() => enhanceCodeBlockToolbars({})).not.toThrow()

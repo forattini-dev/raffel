@@ -1623,6 +1623,28 @@ function buildHttpSamples(request: StructuredHttpRequest): Record<string, string
   return samples
 }
 
+function createSampleCopyButton(className: string, getText: () => string): any {
+  const button = doc.createElement('button')
+  button.type = 'button'
+  button.className = className
+  button.textContent = 'Copy'
+  button.onclick = () => {
+    const text = getText()
+    const finish = () => {
+      button.textContent = 'Copied'
+      setTimeout(() => { if (button.textContent === 'Copied') button.textContent = 'Copy' }, 1200)
+    }
+    try {
+      const result = win.navigator?.clipboard?.writeText?.(text)
+      if (result && typeof result.then === 'function') result.then(finish).catch(finish)
+      else finish()
+    } catch {
+      finish()
+    }
+  }
+  return button
+}
+
 function renderCodeExamples(endpoint: any, data: any): any {
   const samples = buildHttpSamples(buildStructuredHttpRequest(endpoint, data))
   const langs: Array<[string, string, string]> = [
@@ -1649,6 +1671,7 @@ function renderCodeExamples(endpoint: any, data: any): any {
     content.className = `code-content${index === 0 ? ' active' : ''}`
     const pre = doc.createElement('pre')
     pre.className = 'http-code-sample-pre'
+    pre.setAttribute('data-code-toolbar', 'managed')
     const code = doc.createElement('code')
     code.className = `language-${language}`
     code.textContent = samples[key]
@@ -1664,21 +1687,10 @@ function renderCodeExamples(endpoint: any, data: any): any {
     contents.appendChild(content)
   })
 
-  const copy = doc.createElement('button')
-  copy.type = 'button'
-  copy.className = 'http-code-copy'
-  copy.textContent = 'Copy'
-  copy.onclick = () => {
+  const copy = createSampleCopyButton('http-code-copy', () => {
     const active = contents.querySelector('.code-content.active pre')
-    const text = active?.textContent ?? ''
-    const clip = (globalThis as any).navigator?.clipboard
-    if (clip?.writeText) {
-      clip.writeText(text).then(() => {
-        copy.textContent = 'Copied'
-        setTimeout(() => { copy.textContent = 'Copy' }, 1200)
-      })
-    }
-  }
+    return active?.textContent ?? ''
+  })
   tabs.appendChild(copy)
 
   wrap.appendChild(tabs)
@@ -1807,13 +1819,18 @@ function renderResponseSamples(responses: Record<string, any>, endpoint: Endpoin
         const label = doc.createElement('div')
         label.className = 'response-example-name'
         label.textContent = example.summary || example.name
-        mediaBlock.appendChild(label)
         const pre = doc.createElement('pre')
         pre.className = `sample-code${example.error ? ' sample-code-error' : ''}`
+        pre.setAttribute('data-code-toolbar', 'managed')
         const code = doc.createElement('code')
         code.className = `language-${example.language || 'text'}`
         code.textContent = example.value
         pre.appendChild(code)
+        const toolbar = doc.createElement('div')
+        toolbar.className = 'response-example-toolbar'
+        toolbar.appendChild(label)
+        toolbar.appendChild(createSampleCopyButton('sample-code-copy', () => code.textContent ?? ''))
+        mediaBlock.appendChild(toolbar)
         mediaBlock.appendChild(pre)
       })
       if (examples.length === 0) {
