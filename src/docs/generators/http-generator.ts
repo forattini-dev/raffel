@@ -158,6 +158,8 @@ export function generateHttpPaths(
       method = 'post'
     }
 
+    const openApiPath = convertPathParams(path)
+
     // Determine tags: use meta.tags if available, otherwise extract from namespace
     let operationTags: string[] | undefined
     if (meta.tags && meta.tags.length > 0) {
@@ -180,7 +182,7 @@ export function generateHttpPaths(
       operationTags,
       includeErrorResponses,
       defaultSecurity,
-      path,
+      openApiPath,
       method
     )
 
@@ -189,7 +191,7 @@ export function generateHttpPaths(
       const languages = (codeSamples as { languages?: string[] } | undefined)?.languages ?? ['curl', 'typescript', 'rust', 'python', 'go']
       const sampleCtx: CodeSampleContext = {
         method: method.toUpperCase(),
-        path,
+        path: openApiPath,
         baseUrl,
         requestBodySchema: operation.requestBody?.content?.['application/json']?.schema as USDSchema | undefined,
         parameters: operation.parameters,
@@ -200,10 +202,10 @@ export function generateHttpPaths(
     }
 
     // Initialize path if needed
-    if (!paths[path]) {
-      paths[path] = {}
+    if (!paths[openApiPath]) {
+      paths[openApiPath] = {}
     }
-    ;(paths[path] as Record<string, USDOperation>)[method] = operation
+    ;(paths[openApiPath] as Record<string, USDOperation>)[method] = operation
   }
 
   return {
@@ -257,8 +259,8 @@ function createProcedureOperation(
   const method = httpMethod?.toLowerCase() || 'post'
   const isBodyMethod = ['post', 'put', 'patch'].includes(method)
 
-  if (handlerSchema?.input && httpPath) {
-    const extracted = extractParameters(handlerSchema.input, httpPath)
+  if (httpPath) {
+    const extracted = extractParameters(handlerSchema?.input, httpPath)
 
     // Add path parameters
     for (const param of extracted.path) {
@@ -272,7 +274,7 @@ function createProcedureOperation(
     }
 
     // Add query parameters (only for GET/DELETE, for POST/PUT/PATCH all go to body)
-    if (!isBodyMethod) {
+    if (handlerSchema?.input && !isBodyMethod) {
       for (const param of extracted.query) {
         parameters.push({
           name: param.name,
@@ -285,18 +287,20 @@ function createProcedureOperation(
     }
 
     // Add header parameters
-    for (const param of extracted.header) {
-      parameters.push({
-        name: param.name,
-        in: 'header',
-        required: param.required,
-        description: param.description,
-        schema: param.schema,
-      })
+    if (handlerSchema?.input) {
+      for (const param of extracted.header) {
+        parameters.push({
+          name: param.name,
+          in: 'header',
+          required: param.required,
+          description: param.description,
+          schema: param.schema,
+        })
+      }
     }
 
     // Build body schema for POST/PUT/PATCH - all non-path, non-header params go to body
-    if (isBodyMethod) {
+    if (handlerSchema?.input && isBodyMethod) {
       const bodyProps: Record<string, USDSchema> = {}
       const bodyRequired: string[] = []
       const inputSchema = convertSchema(handlerSchema.input)
