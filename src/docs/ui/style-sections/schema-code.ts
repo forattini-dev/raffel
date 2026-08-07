@@ -1,10 +1,10 @@
 export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel) ========== */
     .response-samples {
-      margin-top: 20px;
+      margin-top: 16px;
     }
 
     .response-samples-header {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--code-panel-text);
       margin-bottom: 12px;
@@ -12,14 +12,14 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .sample-tabs {
       display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
+      gap: 6px;
+      margin-bottom: 12px;
     }
 
     .sample-tab {
-      padding: 6px 14px;
+      padding: 4px 10px;
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       background: transparent;
@@ -50,19 +50,19 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .sample-content-type {
-      font-size: 12px;
+      font-size: 11px;
       color: #90a4ae;
       margin-bottom: 8px;
     }
 
     .sample-actions {
       display: flex;
-      gap: 16px;
-      margin-bottom: 12px;
+      gap: 12px;
+      margin-bottom: 8px;
     }
 
     .sample-action {
-      font-size: 12px;
+      font-size: 11px;
       color: #90a4ae;
       cursor: pointer;
       background: none;
@@ -78,10 +78,10 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .sample-json {
       background: rgba(0,0,0,0.3);
       border-radius: 6px;
-      padding: 14px;
+      padding: 10px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
-      line-height: 1.5;
+      font-size: 11px;
+      line-height: 1.4;
       color: #e2e8f0;
       overflow-x: auto;
       white-space: pre-wrap;
@@ -98,7 +98,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .right-panel-content {
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 18px;
     }
 
     .right-section {
@@ -106,13 +106,13 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .right-section-header {
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 600;
       color: #90a4ae;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 16px;
-      padding-bottom: 8px;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
       border-bottom: 1px solid rgba(255,255,255,0.1);
     }
 
@@ -157,9 +157,9 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 14px;
+      padding: 8px 10px;
       background: var(--code-panel-header);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: #90a4ae;
       text-transform: uppercase;
@@ -172,32 +172,33 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border: none;
       border-radius: 0;
       color: #e2e8f0;
-      padding: 14px;
+      padding: 10px;
     }
 
     .code-example code {
       color: #e2e8f0;
       white-space: pre-wrap;
       word-break: break-word;
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     /* Code language tabs */
     .code-tabs {
       display: flex;
       gap: 2px;
-      padding: 8px 14px;
+      padding: 6px 10px;
       background: var(--code-panel-header);
       border-bottom: 1px solid rgba(255,255,255,0.1);
     }
 
     .code-tab {
-      padding: 6px 12px;
+      padding: 4px 9px;
       border: none;
       border-radius: 4px;
       background: transparent;
       color: #90a4ae;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.15s;
@@ -227,12 +228,12 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     pre {
       background: var(--code-bg);
-      padding: 16px;
+      padding: 12px;
       border-radius: 8px;
       overflow-x: auto;
       font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-      font-size: 13px;
-      line-height: 1.5;
+      font-size: 11px;
+      line-height: 1.45;
       border: 1px solid var(--border-color);
     }
 
@@ -247,7 +248,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .schema-row {
       display: flex;
       align-items: flex-start;
-      padding: 12px 16px;
+      padding: 8px 12px;
       border-bottom: 1px solid var(--border-color);
       transition: background 0.15s;
     }
@@ -274,7 +275,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .schema-name {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-color);
     }
@@ -282,17 +283,17 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .schema-required {
       color: #ef4444;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 12px;
     }
 
     .schema-type {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 2px 8px;
+      padding: 1px 6px;
       border-radius: 4px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
     }
 
@@ -319,8 +320,62 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .schema-desc {
       color: var(--text-muted);
-      font-size: 13px;
+      font-size: 12px;
       margin-bottom: 4px;
+    }
+
+    /* Compact response-body tree. Nested wrappers use a fixed step so
+       indentation grows predictably instead of compounding by depth. */
+    .schema-tree-root {
+      margin-top: 6px;
+    }
+
+    .schema-tree-nested {
+      padding-left: 10px;
+    }
+
+    .schema-tree-row {
+      padding: 4px 0;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .schema-tree-root > .schema-tree-row {
+      padding-left: 6px;
+      border-left: 1px solid var(--border-color);
+    }
+
+    .schema-tree-property {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .schema-tree-required {
+      color: #ef4444;
+    }
+
+    .schema-tree-description {
+      margin-top: 2px;
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .schema-tree-label {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .schema-tree-meta {
+      color: var(--text-secondary);
+    }
+
+    .schema-tree-unresolved {
+      color: var(--text-muted);
+      font-style: italic;
     }
 
     .schema-constraints {
@@ -569,11 +624,11 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     /* ========== HTTP ENDPOINT (ReDoc-style) ========== */
     .http-param-group {
-      margin-bottom: 20px;
+      margin-bottom: 14px;
     }
 
     .http-param-group-title {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -588,7 +643,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .http-param {
-      padding: 12px 16px;
+      padding: 8px 12px;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -598,12 +653,12 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
     }
 
     .http-param-name {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-color);
     }
@@ -626,22 +681,22 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .http-param-desc {
       color: var(--text-muted);
-      font-size: 13px;
-      margin-top: 6px;
-      line-height: 1.5;
+      font-size: 12px;
+      margin-top: 4px;
+      line-height: 1.4;
     }
 
     /* Validation constraint chips (reuses .schema-constraint look) */
     .constraint-chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
+      gap: 4px;
+      margin-top: 5px;
     }
 
     .constraint-chip {
-      font-size: 11px;
-      padding: 2px 8px;
+      font-size: 10px;
+      padding: 1px 6px;
       border-radius: 4px;
       background: var(--code-bg);
       color: var(--text-muted);
@@ -664,21 +719,21 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .response-accordion {
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       overflow: hidden;
     }
 
     .response-accordion-header {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       width: 100%;
-      padding: 12px 14px;
+      padding: 9px 12px;
       background: var(--code-bg);
       border: none;
       cursor: pointer;
       text-align: left;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-color);
       transition: background 0.15s;
     }
@@ -697,8 +752,8 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .response-status-dot {
-      width: 9px;
-      height: 9px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       flex-shrink: 0;
     }
@@ -718,7 +773,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .response-accordion-body {
-      padding: 14px;
+      padding: 10px 12px;
       border-top: 1px solid var(--border-color);
       display: none;
     }
@@ -726,15 +781,15 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .response-accordion.open .response-accordion-body { display: block; }
 
     .response-subhead {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
-      margin: 0 0 8px;
+      margin: 0 0 6px;
     }
 
-    .response-block + .response-block { margin-top: 16px; }
+    .response-block + .response-block { margin-top: 12px; }
 
     /* Multi-language code samples */
     .http-code-samples {
@@ -756,14 +811,14 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .http-code-sample-pre {
       margin: 0;
-      padding: 14px;
+      padding: 10px;
       background: transparent;
       border: none;
       border-radius: 0;
       overflow-x: auto;
       font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-      font-size: 12px;
-      line-height: 1.55;
+      font-size: 11px;
+      line-height: 1.4;
       color: var(--text-color);
       white-space: pre;
     }
@@ -771,12 +826,12 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .http-code-copy,
     .sample-code-copy {
       margin-left: auto;
-      padding: 4px 10px;
+      padding: 3px 8px;
       background: transparent;
       border: 1px solid var(--border-color);
       border-radius: 4px;
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 10px;
       cursor: pointer;
       transition: all 0.15s;
     }
@@ -790,7 +845,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     /* Right panel (third column): keep request/response samples dark & legible
        regardless of the active theme, matching ReDoc's sample column. */
     .endpoint-right .endpoint-right-section + .endpoint-right-section {
-      margin-top: 24px;
+      margin-top: 18px;
     }
 
     .endpoint-right .http-code-samples {
@@ -810,9 +865,9 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .response-example-toolbar {
       display: flex;
       align-items: center;
-      gap: 12px;
-      min-height: 28px;
-      margin: 4px 0 8px;
+      gap: 8px;
+      min-height: 24px;
+      margin: 2px 0 6px;
     }
 
     .response-example-toolbar .response-example-name {
@@ -821,7 +876,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .endpoint-right .sample-code {
       margin: 0;
-      padding: 14px;
+      padding: 10px;
       overflow-x: auto;
       border: 1px solid rgba(255,255,255,0.1);
       border-radius: 6px;
@@ -834,8 +889,8 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .endpoint-right .sample-code code {
       color: inherit;
       font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-      font-size: 12px;
-      line-height: 1.55;
+      font-size: 11px;
+      line-height: 1.4;
       white-space: inherit;
     }
 

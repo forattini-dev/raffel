@@ -27,17 +27,17 @@ export function generateShellStyles(
       --code-panel-header: #37474f;
 
       /* Compact documentation type scale. */
-      --font-size-body: 14px;
-      --font-size-small: 13px;
-      --font-size-xs: 11px;
-      --font-size-h1: 30px;
-      --font-size-h2: 24px;
-      --font-size-h3: 19px;
-      --font-size-h4: 16px;
-      --font-size-h5: 14px;
-      --font-size-h6: 13px;
-      --font-size-code: 12px;
-      --line-height-body: 1.6;
+      --font-size-body: 13px;
+      --font-size-small: 12px;
+      --font-size-xs: 10px;
+      --font-size-h1: 28px;
+      --font-size-h2: 22px;
+      --font-size-h3: 18px;
+      --font-size-h4: 15px;
+      --font-size-h5: 13px;
+      --font-size-h6: 12px;
+      --font-size-code: 11px;
+      --line-height-body: 1.5;
       --line-height-tight: 1.25;
     }
 
@@ -139,7 +139,7 @@ export function generateShellStyles(
       background: var(--bg-color);
       color: var(--text-color);
       font-size: var(--font-size-body);
-      line-height: 1.6;
+      line-height: var(--line-height-body);
     }
 
     code,
@@ -154,9 +154,9 @@ export function generateShellStyles(
       z-index: 50;
       display: flex;
       align-items: center;
-      gap: 24px;
-      min-height: 56px;
-      padding: 0 24px;
+      gap: 20px;
+      min-height: 48px;
+      padding: 0 20px;
       border-bottom: 1px solid var(--border-color);
       background: color-mix(in srgb, var(--bg-color) 92%, transparent);
       backdrop-filter: blur(10px);
@@ -188,7 +188,7 @@ export function generateShellStyles(
     .top-nav-menu summary {
       color: var(--text-color);
       text-decoration: none;
-      font-size: 14px;
+      font-size: var(--font-size-body);
       font-weight: 500;
       white-space: nowrap;
     }
@@ -285,23 +285,23 @@ export function generateShellStyles(
     .docs-state-pill {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
       min-width: 0;
-      height: 26px;
-      padding: 0 8px;
+      height: 22px;
+      padding: 0 6px;
       border: 1px solid var(--border-color);
       border-radius: 6px;
       background: color-mix(in srgb, var(--surface-color) 84%, transparent);
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size: var(--font-size-xs);
       font-weight: 600;
       line-height: 1;
       white-space: nowrap;
     }
 
     .docs-state-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 999px;
       background: var(--text-muted);
       flex: 0 0 auto;

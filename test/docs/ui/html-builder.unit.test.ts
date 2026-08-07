@@ -336,16 +336,29 @@ describe('Documentation UI HTML builder', () => {
   it('uses the compact documentation type scale', () => {
     const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
 
-    expect(css).toContain('--font-size-body: 14px;')
-    expect(css).toContain('--font-size-small: 13px;')
-    expect(css).toContain('--font-size-xs: 11px;')
-    expect(css).toContain('--font-size-h1: 30px;')
-    expect(css).toContain('--font-size-h2: 24px;')
-    expect(css).toContain('--font-size-h3: 19px;')
-    expect(css).toContain('--font-size-h4: 16px;')
-    expect(css).toContain('--font-size-h5: 14px;')
-    expect(css).toContain('--font-size-h6: 13px;')
-    expect(css).toContain('--font-size-code: 12px;')
+    expect(css).toContain('--font-size-body: 13px;')
+    expect(css).toContain('--font-size-small: 12px;')
+    expect(css).toContain('--font-size-xs: 10px;')
+    expect(css).toContain('--font-size-h1: 28px;')
+    expect(css).toContain('--font-size-h2: 22px;')
+    expect(css).toContain('--font-size-h3: 18px;')
+    expect(css).toContain('--font-size-h4: 15px;')
+    expect(css).toContain('--font-size-h5: 13px;')
+    expect(css).toContain('--font-size-h6: 12px;')
+    expect(css).toContain('--font-size-code: 11px;')
+    expect(css).toContain('--line-height-body: 1.5;')
+  })
+
+  it('keeps nested HTTP reference surfaces compact', () => {
+    const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
+
+    expect(css).toContain('.tag-group-header {\n      display: flex;\n      align-items: center;\n      gap: 6px;\n      padding: 8px 10px;')
+    expect(css).toContain('.http-param {\n      padding: 8px 12px;')
+    expect(css).toContain('.response-accordion-body {\n      padding: 10px 12px;')
+    expect(css).toContain('.schema-tree-row {\n      padding: 4px 0;')
+    expect(css).toContain('.endpoint-right .sample-code {\n      margin: 0;\n      padding: 10px;')
+    expect(css).toContain('.endpoint-right .sample-code code {\n      color: inherit;\n      font-family:')
+    expect(css).toContain('font-size: 11px;\n      line-height: 1.4;')
   })
 
   it('can hide the sidebar for file-backed Markdown hideSidebar behavior', () => {
