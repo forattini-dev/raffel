@@ -121,7 +121,16 @@ export const get = async (id) => notifications.get(id) ?? null
 
     const openApi = server.getOpenAPIDocument()
     expect(openApi?.paths['/api/v1/leads/notifications']?.get?.operationId).toBe('apiV1LeadsNotificationsList')
-    expect(openApi?.paths['/api/v1/leads/notifications/:id']?.get?.operationId).toBe('apiV1LeadsNotificationsGet')
+    const getOperation = openApi?.paths['/api/v1/leads/notifications/{id}']?.get
+    expect(getOperation?.operationId).toBe('apiV1LeadsNotificationsGet')
+    expect(getOperation?.parameters).toEqual([
+      expect.objectContaining({
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      }),
+    ])
   })
 
   it('serves schema-first .rest resource anchors from Routes Root and includes them in OpenAPI docs', async () => {
@@ -467,9 +476,9 @@ export const adapter = {
       .toBe('apiV1LeadsNotificationsExport')
     expect(openApi?.paths['/api/v1/leads/notifications/export']?.get?.tags)
       .toEqual(['Leads'])
-    expect(openApi?.paths['/api/v1/leads/notifications/:id/archive']?.post?.operationId)
+    expect(openApi?.paths['/api/v1/leads/notifications/{id}/archive']?.post?.operationId)
       .toBe('apiV1LeadsNotificationsArchive')
-    expect(openApi?.paths['/api/v1/leads/notifications/:id/archive']?.post?.tags)
+    expect(openApi?.paths['/api/v1/leads/notifications/{id}/archive']?.post?.tags)
       .toEqual(['Leads'])
   })
 
@@ -553,9 +562,9 @@ export const get = async (c) => c.json({ id: c.req.param('id'), detail: true })
 
     const openApi = server.getOpenAPIDocument()
     expect(openApi?.paths['/api/v1/leads/notifications']?.get).toBeDefined()
-    expect(openApi?.paths['/api/v1/leads/notifications/:id']?.get).toBeDefined()
+    expect(openApi?.paths['/api/v1/leads/notifications/{id}']?.get).toBeDefined()
     expect(openApi?.paths['/api/v1/leads/notifications/export']?.post).toBeDefined()
-    expect(openApi?.paths['/api/v1/leads/notifications/:id/archive']?.post).toBeDefined()
+    expect(openApi?.paths['/api/v1/leads/notifications/{id}/archive']?.post).toBeDefined()
     expect(openApi?.paths['/api/v1/leads/health']?.get).toBeDefined()
   })
 

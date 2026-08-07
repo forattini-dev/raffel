@@ -200,18 +200,28 @@ export function extractParameters(
     header: [],
   }
 
-  if (!schema) return result
-
-  const jsonSchema = convertSchema(schema)
-
   // Extract path parameter names from template
-  const pathParamNames = new Set<string>()
-  const pathParamMatches = pathTemplate.match(/\{(\w+)\}/g)
-  if (pathParamMatches) {
-    for (const match of pathParamMatches) {
-      pathParamNames.add(match.slice(1, -1))
+  const pathParamNames: string[] = []
+  const seenPathParams = new Set<string>()
+  for (const match of pathTemplate.matchAll(/\{(\w+)\}/g)) {
+    const name = match[1]
+    if (!seenPathParams.has(name)) {
+      seenPathParams.add(name)
+      pathParamNames.push(name)
     }
   }
+
+  if (!schema) {
+    result.path = pathParamNames.map((name) => ({
+      name,
+      schema: { type: 'string' },
+      required: true,
+    }))
+    return result
+  }
+
+  const jsonSchema = convertSchema(schema)
+  const pathParamsByName = new Map<string, ExtractedParameters['path'][number]>()
 
   // If schema has properties, extract them
   if (jsonSchema.type === 'object' && jsonSchema.properties) {
@@ -220,9 +230,9 @@ export function extractParameters(
     for (const [name, propSchema] of Object.entries(jsonSchema.properties)) {
       const prop = propSchema as USDSchema
 
-      if (pathParamNames.has(name)) {
+      if (seenPathParams.has(name)) {
         // Path parameter
-        result.path.push({
+        pathParamsByName.set(name, {
           name,
           schema: prop,
           required: true, // Path params are always required
@@ -251,6 +261,15 @@ export function extractParameters(
     // If not an object schema, treat entire schema as body
     result.body = jsonSchema
   }
+
+  // OpenAPI requires every template segment to have a corresponding required
+  // path parameter. Preserve URL order and fall back to string when the input
+  // schema does not declare the segment.
+  result.path = pathParamNames.map((name) => pathParamsByName.get(name) ?? ({
+    name,
+    schema: { type: 'string' },
+    required: true,
+  }))
 
   return result
 }
