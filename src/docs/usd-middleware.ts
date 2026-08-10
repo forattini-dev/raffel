@@ -304,6 +304,14 @@ export interface USDMiddlewareConfig {
       docsPages?: boolean
       /** Hide the sidebar entirely */
       hide?: boolean
+      /** Allow readers to resize the sidebar. Default: true. */
+      resizable?: boolean
+      /** Initial sidebar width in pixels. Default: 280. */
+      width?: number
+      /** Minimum reader-selectable width in pixels. Default: 220. */
+      minWidth?: number
+      /** Maximum reader-selectable width in pixels. Default: 560. */
+      maxWidth?: number
       /** Declarative sidebar tree. Order and hierarchy are preserved as declared. */
       items?: Array<{ title: string; path?: string; href?: string; children?: Array<{ title: string; path?: string; href?: string; children?: any[] }> }>
       /** file-backed Markdown heading depth to include under the active docs page */

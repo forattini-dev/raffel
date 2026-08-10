@@ -8,7 +8,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     /* ========== BREADCRUMBS ========== */
     .docs-breadcrumb {
       margin: 0 0 16px 0;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
     }
 
@@ -92,7 +92,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .section { margin-bottom: 48px; }
 
     .section-title {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 700;
       margin-bottom: 8px;
       color: var(--text-color);
@@ -116,7 +116,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .intro-section .markdown-content h2 {
-      font-size: 24px;
+      font-size: 21px;
       font-weight: 600;
       margin: 32px 0 16px 0;
       color: var(--text-color);
@@ -127,7 +127,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .intro-section .markdown-content p {
-      font-size: 16px;
+      font-size: 14px;
       line-height: 1.7;
       color: var(--text-color);
       margin-bottom: 16px;
@@ -139,7 +139,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .intro-section .markdown-content li {
-      font-size: 15px;
+      font-size: 13px;
       line-height: 1.6;
       color: var(--text-color);
       margin-bottom: 8px;
@@ -149,7 +149,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       background: var(--code-bg);
       padding: 2px 6px;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 12px;
       font-family: 'SF Mono', Monaco, Consolas, monospace;
     }
 
@@ -181,7 +181,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       align-items: baseline;
       flex-wrap: wrap;
       gap: 12px;
-      font-size: 32px;
+      font-size: 28px;
       font-weight: 700;
       line-height: 1.2;
       margin: 0;
@@ -189,7 +189,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .docs-overview-version {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.02em;
       padding: 3px 10px;
@@ -204,7 +204,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       flex-wrap: wrap;
       align-items: center;
       gap: 10px;
-      font-size: 14px;
+      font-size: 12px;
       color: var(--text-muted);
       margin: 0 0 24px 0;
     }
@@ -227,7 +227,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .docs-overview-subtitle {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -257,7 +257,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .docs-overview-server-url {
       font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 14px;
+      font-size: 12px;
       color: var(--text-color);
       background: var(--code-bg);
       padding: 4px 10px;
@@ -266,7 +266,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .docs-overview-server-desc {
-      font-size: 14px;
+      font-size: 12px;
       color: var(--text-muted);
     }
 
@@ -303,7 +303,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       align-items: center;
       padding: 4px 9px;
       border-radius: 4px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       font-family: 'SF Mono', 'Monaco', monospace;
@@ -318,13 +318,13 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .endpoint-path {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-color);
     }
 
     .endpoint-title {
-      font-size: 21px;
+      font-size: 18px;
       font-weight: 600;
       line-height: 1.3;
       margin-bottom: 6px;
@@ -333,7 +333,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .endpoint-description {
       color: var(--text-muted);
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.55;
       margin-bottom: 18px;
     }
@@ -374,7 +374,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .markdown-content .md-h2 {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 600;
       color: var(--text-primary);
       margin: 24px 0 12px 0;
@@ -383,14 +383,14 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .markdown-content .md-h3 {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
       margin: 20px 0 10px 0;
     }
 
     .markdown-content .md-h4 {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-secondary);
       margin: 16px 0 8px 0;
@@ -416,7 +416,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       padding: 2px 6px;
       border-radius: 4px;
       font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--accent);
     }
 
@@ -453,7 +453,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       background: var(--bg-primary);
       color: var(--text-muted);
       padding: 4px 8px;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 16px;
       cursor: pointer;
     }
@@ -529,7 +529,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .markdown-content .md-code-block code {
       font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.6;
       color: var(--text-primary);
       white-space: pre;
@@ -691,7 +691,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       border-radius: 4px;
       cursor: pointer;
       font-family: ui-sans-serif, system-ui, sans-serif;
-      font-size: 14px;
+      font-size: 12px;
       line-height: 1;
       transition: background 0.15s ease, color 0.15s ease;
     }
@@ -709,7 +709,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       text-align: left;
       white-space: pre;
       font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
     }
 
@@ -780,7 +780,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       border: 1px solid var(--border);
       border-radius: 50%;
       cursor: pointer;
-      font-size: 16px;
+      font-size: 14px;
       line-height: 1;
       z-index: 3;
       transition: background 0.15s ease;
@@ -843,7 +843,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       border-radius: 50%;
       background: rgba(15, 23, 42, 0.75);
       color: #fff;
-      font-size: 24px;
+      font-size: 21px;
       line-height: 1;
       cursor: pointer;
     }
@@ -857,7 +857,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .markdown-content .md-table {
       border-collapse: collapse;
       margin: 16px 0;
-      font-size: 14px;
+      font-size: 12px;
       border-radius: 6px;
       overflow: hidden;
       border: 1px solid var(--border);
@@ -879,7 +879,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       font-weight: 600;
       background: var(--bg-tertiary);
       color: var(--text-primary);
-      font-size: 12px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -936,7 +936,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       background: transparent;
       color: var(--text-muted);
       padding: 10px 14px;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       white-space: nowrap;
     }
@@ -1000,7 +1000,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .endpoint-right-header {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -1021,7 +1021,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .endpoint-subsection-title {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
@@ -1038,7 +1038,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     /* ========== REDOC-STYLE PARAMETER LABELS ========== */
     .subsection-label {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
@@ -1054,7 +1054,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .auth-value {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 14px;
+      font-size: 12px;
       color: var(--text-color);
       margin-left: 8px;
     }
@@ -1109,13 +1109,13 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .param-name-text {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-color);
     }
 
     .param-required-badge {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 700;
       padding: 2px 6px;
       border-radius: 4px;
@@ -1132,7 +1132,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .param-type-info {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
+      font-size: 11px;
       padding: 2px 8px;
       border-radius: 4px;
       background: rgba(99, 102, 241, 0.1);
@@ -1154,7 +1154,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .param-constraint {
       display: inline-block;
-      font-size: 10px;
+      font-size: 9px;
       padding: 3px 8px;
       border-radius: 4px;
       background: #fef3c7;
@@ -1171,7 +1171,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .param-default {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       margin-top: 6px;
     }
@@ -1181,11 +1181,11 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       padding: 3px 6px;
       border-radius: 3px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .param-example {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       margin-top: 6px;
     }
@@ -1195,11 +1195,11 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       padding: 3px 6px;
       border-radius: 3px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .param-description {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-color);
       line-height: 1.4;
       margin-top: 4px;
@@ -1233,7 +1233,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-arrow {
-      font-size: 11px;
+      font-size: 10px;
       transition: transform 0.2s;
       color: var(--text-muted);
       width: 16px;
@@ -1245,7 +1245,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-status {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       padding: 3px 8px;
       border-radius: 4px;
@@ -1286,7 +1286,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-desc {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-color);
     }
 
@@ -1302,7 +1302,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-schema-label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -1320,7 +1320,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-headers-label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -1340,7 +1340,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .response-header-name {
       font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-color);
       min-width: 150px;
@@ -1352,19 +1352,19 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     }
 
     .response-header-type {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--primary-color);
       margin-bottom: 4px;
     }
 
     .response-header-desc {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
     }
 
     .response-header-required {
       color: #ef4444;
-      font-size: 11px;
+      font-size: 10px;
       margin-left: 8px;
     }
 
@@ -1395,7 +1395,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       display: block;
       margin-top: 4px;
       color: var(--text-muted);
-      font-size: 14px;
+      font-size: 12px;
     }
 
     .docs-pagination {
@@ -1432,7 +1432,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .docs-pagination-label {
       display: block;
       color: var(--text-muted);
-      font-size: 12px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -1482,7 +1482,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
     .page-nav-eyebrow {
       display: block;
       color: var(--text-secondary);
-      font-size: 12px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }

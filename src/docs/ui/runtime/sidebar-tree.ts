@@ -43,6 +43,7 @@ function appendSidebarItem(parent: any, item: RuntimeSidebarItem, depth: number,
     group.className = `tag-group docs-sidebar-group docs-sidebar-depth-${depth}${expanded ? '' : ' collapsed'}`
     const header = deps.doc.createElement('div')
     header.className = `tag-group-header${active ? ' active' : ''}`
+    header.title = title
     header.innerHTML = `<span class="tag-group-arrow">▼</span>${deps.esc(title)}<span class="tag-group-count">${countLeaves(children)}</span>`
     const childContainer = deps.doc.createElement('div')
     childContainer.className = 'tag-group-items'
@@ -70,6 +71,7 @@ function appendSidebarItem(parent: any, item: RuntimeSidebarItem, depth: number,
 function createPageItem(item: RuntimeSidebarItem, title: string, active: boolean, depth: number, deps: SidebarTreeDeps): any {
   const element = deps.doc.createElement('div')
   element.className = `nav-item docs-page-nav-item docs-sidebar-page docs-sidebar-depth-${depth}${active ? ' active' : ''}`
+  element.title = title
   const normalizedPath = item.path ? deps.normalizeDocsPath(item.path) : ''
   const isHome = depth === 0 && (normalizedPath === '/' || normalizedPath === '')
   element.innerHTML = isHome
@@ -101,6 +103,7 @@ function appendActivePageHeadings(parent: any, path: string, deps: SidebarTreeDe
     childElement.type = 'button'
     childElement.className = `nav-subitem nav-subitem-level-${child.level}${child.id === deps.activeHeadingId ? ' active' : ''}`
     childElement.textContent = child.title
+    childElement.title = child.title
     childElement.onclick = (event: any) => {
       event.stopPropagation()
       deps.setDocsPage(deps.activePagePath || path, child.id)

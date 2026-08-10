@@ -69,6 +69,10 @@ const server = createServer({ port: 3000 })
         search: true,
         docsPages: true,
         subMaxLevel: 3,
+        resizable: true,
+        width: 280,
+        minWidth: 220,
+        maxWidth: 560,
         items: [
           {
             title: 'Guides',
@@ -88,6 +92,12 @@ const server = createServer({ port: 3000 })
 
 await server.start()
 ```
+
+The sidebar is resizable by default. Readers can drag its right edge, use the
+arrow keys while the resize handle is focused, or double-click the handle to
+restore the configured width. The selected width is persisted in the browser.
+Set `resizable: false` to lock it, or use `width`, `minWidth`, and `maxWidth` to
+control its pixel bounds.
 
 See [Docs UI Complete Project Example](./docs-ui-complete-example.md) for a full project layout with generated API/protocol reference and Markdown guides in one UI. See [Docs UI Protocol Examples](./docs-ui-protocol-examples.md) for HTTP, WebSocket, streams, JSON-RPC, gRPC, TCP, and UDP examples.
 

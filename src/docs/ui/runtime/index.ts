@@ -111,6 +111,7 @@ const win = globalThis as unknown as {
   btoa?: (value: string) => string
   fetch?: typeof fetch
   setInterval?: typeof setInterval
+  innerWidth?: number
   navigator?: any; localStorage?: any; sessionStorage?: any; mermaid?: any; marked?: any; Prism?: any
   __RAFFEL_DOCS__?: any; __RAFFEL_DOCS_PLUGINS__?: unknown[]; RaffelDocs?: any
 }
@@ -159,7 +160,12 @@ let searchQuery = ''
 let routeState = parseRouteHash()
 let activePagePath = resolveDocsAlias(routeState.pagePath)
 let activeHeadingId = routeState.headingId
-const docsPlugins: DocsRuntimePlugin[] = [], themeStorageKey = 'raffel-docs-theme'
+const docsPlugins: DocsRuntimePlugin[] = []
+const themeStorageKey = 'raffel-docs-theme'
+const sidebarWidthStorageKey = 'raffel-docs-sidebar-width'
+const defaultSidebarWidth = 280
+const defaultSidebarMinWidth = 220
+const defaultSidebarMaxWidth = 560
 const docsStatePollMs = 10000
 const docsStateRevisionNoticeMs = 15000
 let docsStateSnapshot: DocsStateRuntimeSnapshot = {
@@ -1036,6 +1042,88 @@ function byId(id: string): any {
   return doc?.getElementById(id)
 }
 
+function finiteSidebarNumber(value: unknown, fallback: number): number {
+  if (value === null || value === undefined || value === '') return fallback
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+function sidebarWidthLimits(): { min: number, max: number, initial: number } {
+  const min = Math.max(180, Math.round(finiteSidebarNumber(sidebarConfig.minWidth, defaultSidebarMinWidth)))
+  const configuredMax = Math.max(min, Math.round(finiteSidebarNumber(sidebarConfig.maxWidth, defaultSidebarMaxWidth)))
+  const viewportMax = Math.max(min, Math.floor(finiteSidebarNumber(win.innerWidth, 1440) * 0.6))
+  const max = Math.min(configuredMax, viewportMax)
+  const initial = Math.max(min, Math.min(max, Math.round(finiteSidebarNumber(sidebarConfig.width, defaultSidebarWidth))))
+  return { min, max, initial }
+}
+
+function initSidebarResize(): void {
+  const app = byId('docs')
+  const handle = byId('sidebarResizer')
+  if (!app || !handle || app.dataset?.sidebarHidden === 'true') return
+
+  let limits = sidebarWidthLimits()
+  const stored = finiteSidebarNumber(win.localStorage?.getItem?.(sidebarWidthStorageKey), limits.initial)
+  let width = Math.max(limits.min, Math.min(limits.max, Math.round(stored)))
+  let dragging = false
+
+  const applyWidth = (nextWidth: number, persist = false): void => {
+    limits = sidebarWidthLimits()
+    width = Math.max(limits.min, Math.min(limits.max, Math.round(nextWidth)))
+    app.style?.setProperty?.('--sidebar-width', `${width}px`)
+    handle.setAttribute?.('aria-valuemin', String(limits.min))
+    handle.setAttribute?.('aria-valuemax', String(limits.max))
+    handle.setAttribute?.('aria-valuenow', String(width))
+    if (persist) win.localStorage?.setItem?.(sidebarWidthStorageKey, String(width))
+  }
+
+  applyWidth(width)
+  if (sidebarConfig.resizable === false) {
+    handle.hidden = true
+    return
+  }
+
+  const widthFromPointer = (event: any): number => {
+    const left = Number(app.getBoundingClientRect?.().left ?? 0)
+    return Number(event.clientX ?? width) - left
+  }
+  const finishResize = (event?: any): void => {
+    if (!dragging) return
+    dragging = false
+    doc.documentElement?.classList?.remove?.('sidebar-is-resizing')
+    if (event?.pointerId !== undefined) handle.releasePointerCapture?.(event.pointerId)
+    applyWidth(width, true)
+  }
+
+  handle.addEventListener?.('pointerdown', (event: any) => {
+    if (event.button !== undefined && event.button !== 0) return
+    dragging = true
+    handle.setPointerCapture?.(event.pointerId)
+    doc.documentElement?.classList?.add?.('sidebar-is-resizing')
+    applyWidth(widthFromPointer(event))
+    event.preventDefault?.()
+  })
+  handle.addEventListener?.('pointermove', (event: any) => {
+    if (!dragging) return
+    applyWidth(widthFromPointer(event))
+  })
+  handle.addEventListener?.('pointerup', finishResize)
+  handle.addEventListener?.('pointercancel', finishResize)
+  handle.addEventListener?.('dblclick', () => applyWidth(limits.initial, true))
+  handle.addEventListener?.('keydown', (event: any) => {
+    const step = event.shiftKey ? 32 : 16
+    let next: number | null = null
+    if (event.key === 'ArrowLeft') next = width - step
+    else if (event.key === 'ArrowRight') next = width + step
+    else if (event.key === 'Home') next = limits.min
+    else if (event.key === 'End') next = limits.max
+    if (next === null) return
+    event.preventDefault?.()
+    applyWidth(next, true)
+  })
+  win.addEventListener?.('resize', () => applyWidth(width))
+}
+
 function renderProtocolTabs(): void {
   const container = byId('protocolTabs')
   if (!container) return
@@ -1207,6 +1295,7 @@ function renderDocsPagesNav(nav: any): void {
     wrapper.className = `tag-group docs-pages-group${hasActiveDocPage || sidebarConfig.expandAll ? '' : ' collapsed'}`
     const header = doc.createElement('div')
     header.className = 'tag-group-header'
+    header.title = String(groupLabel)
     header.innerHTML = `<span class="tag-group-arrow">▼</span>${esc(groupLabel)}<span class="tag-group-count">${allPages.length}</span>`
     const inner = doc.createElement('div')
     inner.className = 'tag-group-items'
@@ -1283,6 +1372,7 @@ function appendSidebarGroup(
   group.className = 'tag-group'
   const header = doc.createElement('div')
   header.className = 'tag-group-header'
+  header.title = title
   header.innerHTML = `<span class="tag-group-arrow">▼</span>${esc(title)}<span class="tag-group-count">${items.length}</span>`
   const itemContainer = doc.createElement('div')
   itemContainer.className = 'tag-group-items'
@@ -1296,6 +1386,7 @@ function appendSidebarGroup(
   for (const item of items) {
     const el = doc.createElement('div')
     el.className = `nav-item${item.active ? ' active' : ''}`
+    el.title = item.label
     const isHome = item.path === '/' || item.path === ''
     el.innerHTML = isHome
       ? `<span class="docs-sidebar-home">${HOME_ICON_SVG}<span class="nav-item-path">${esc(item.label)}</span></span>`
@@ -1313,6 +1404,7 @@ function appendSidebarGroup(
         childEl.type = 'button'
         childEl.className = `nav-subitem nav-subitem-level-${child.level}${child.id === activeHeadingId ? ' active' : ''}`
         childEl.textContent = child.title
+        childEl.title = child.title
         childEl.onclick = (event: any) => {
           event.stopPropagation()
           setDocsPage(activePagePath || item.label, child.id)
@@ -3839,6 +3931,7 @@ function init(): void {
   }
   const intro = byId('introductionContent')
   if (intro && introductionMarkdown) intro.innerHTML = parseMarkdown(introductionMarkdown)
+  initSidebarResize()
   bindEvents()
   renderFooter()
   render()

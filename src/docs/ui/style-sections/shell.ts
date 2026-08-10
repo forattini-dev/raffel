@@ -26,18 +26,19 @@ export function generateShellStyles(
       --code-panel-text: #cfd8dc;
       --code-panel-header: #37474f;
 
-      /* Compact documentation type scale. */
-      --font-size-body: 13px;
-      --font-size-small: 12px;
-      --font-size-xs: 10px;
-      --font-size-h1: 28px;
-      --font-size-h2: 22px;
-      --font-size-h3: 18px;
-      --font-size-h4: 15px;
-      --font-size-h5: 13px;
-      --font-size-h6: 12px;
-      --font-size-code: 11px;
-      --line-height-body: 1.5;
+      /* Dense documentation type scale. Component styles inherit these
+         tokens so large references keep more context inside the viewport. */
+      --font-size-body: 12px;
+      --font-size-small: 11px;
+      --font-size-xs: 9px;
+      --font-size-h1: 24px;
+      --font-size-h2: 19px;
+      --font-size-h3: 16px;
+      --font-size-h4: 14px;
+      --font-size-h5: 12px;
+      --font-size-h6: 11px;
+      --font-size-code: 10px;
+      --line-height-body: 1.45;
       --line-height-tight: 1.25;
     }
 
@@ -235,7 +236,7 @@ export function generateShellStyles(
       content: '▾';
       margin-left: 6px;
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .top-nav-submenu {

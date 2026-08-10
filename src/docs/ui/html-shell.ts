@@ -192,6 +192,19 @@ export function generateAppContainer(
       </div>
       <div class="protocol-tabs" id="protocolTabs"></div>
       <nav class="sidebar-nav" id="sidebarNav"></nav>
+      <button
+        type="button"
+        class="sidebar-resizer"
+        id="sidebarResizer"
+        role="separator"
+        aria-label="Resize navigation sidebar"
+        aria-controls="sidebarNav"
+        aria-orientation="vertical"
+        aria-valuemin="220"
+        aria-valuemax="560"
+        aria-valuenow="280"
+        title="Drag to resize the sidebar; use arrow keys for precise control"
+      ></button>
     </aside>
     <main class="main-shell">
       <div class="main" id="mainContent"></div>
