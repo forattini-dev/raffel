@@ -35,6 +35,39 @@ function renderReferenceSurface(spec: Record<string, unknown>, url?: string): { 
 }
 
 describe('HTTP reference documentation', () => {
+  it('resizes the route sidebar with keyboard controls and exposes full long paths', () => {
+    const longPath = '/organizations/{organizationId}/workspaces/{workspaceId}/tasks/{taskId}/activity'
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Tasks API', version: '1.0.0' },
+      paths: {
+        [longPath]: {
+          get: { responses: { '200': { description: 'OK' } } },
+        },
+      },
+    }, 'https://docs.example.com/', {
+      sidebar: { width: 300, minWidth: 240, maxWidth: 420 },
+    })
+
+    const app = win.document.getElementById('docs')
+    const handle = win.document.getElementById('sidebarResizer')
+    const route = win.document.querySelector(`.nav-item[title="${longPath}"]`)
+    expect(app.style.getPropertyValue('--sidebar-width')).toBe('300px')
+    expect(handle.getAttribute('aria-valuemin')).toBe('240')
+    expect(handle.getAttribute('aria-valuemax')).toBe('420')
+    expect(route?.getAttribute('title')).toBe(longPath)
+
+    handle.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight' }))
+    expect(app.style.getPropertyValue('--sidebar-width')).toBe('316px')
+    expect(handle.getAttribute('aria-valuenow')).toBe('316')
+    expect(win.localStorage.getItem('raffel-docs-sidebar-width')).toBe('316')
+
+    handle.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'End' }))
+    expect(app.style.getPropertyValue('--sidebar-width')).toBe('420px')
+    handle.dispatchEvent(new win.MouseEvent('dblclick'))
+    expect(app.style.getPropertyValue('--sidebar-width')).toBe('300px')
+  })
+
   it('renders compact contract rows with requiredness, examples, rich descriptions, and collapsed nesting', () => {
     const win = createReference({
       openapi: '3.1.0',

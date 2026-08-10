@@ -25,7 +25,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
     }
 
     .try-it-title {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: #90a4ae;
       text-transform: uppercase;
@@ -36,7 +36,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       background: none;
       border: none;
       color: #90a4ae;
-      font-size: 12px;
+      font-size: 11px;
       cursor: pointer;
       transition: transform 0.2s;
     }
@@ -60,7 +60,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
     }
 
     .try-it-section-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: #90a4ae;
       text-transform: uppercase;
@@ -78,7 +78,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
 
     .try-it-label {
       display: block;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       color: var(--code-panel-text);
       margin-bottom: 6px;
@@ -95,7 +95,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 6px;
       color: var(--code-panel-text);
-      font-size: 13px;
+      font-size: 12px;
       font-family: 'SF Mono', 'Monaco', monospace;
       outline: none;
       transition: border-color 0.15s;
@@ -117,7 +117,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 6px;
       color: var(--code-panel-text);
-      font-size: 12px;
+      font-size: 11px;
       font-family: 'SF Mono', 'Monaco', monospace;
       line-height: 1.5;
       resize: vertical;
@@ -145,7 +145,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       color: var(--primary-color);
       border: 1px solid var(--primary-color);
       border-radius: 5px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       letter-spacing: 0.2px;
       cursor: pointer;
@@ -176,7 +176,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
     }
 
     .try-it-response-status {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
     }
 
@@ -185,7 +185,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
     .try-it-response-status.status-5xx { color: #ef4444; }
 
     .try-it-response-time {
-      font-size: 13px;
+      font-size: 12px;
       color: #90a4ae;
     }
 
@@ -197,7 +197,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       background: rgba(0,0,0,0.3);
       padding: 12px;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.6;
       color: #90a4ae;
       margin: 0;
@@ -217,7 +217,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border-radius: 6px;
       padding: 12px 16px;
       color: #ef4444;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     /* WebSocket Try It Out */
@@ -234,7 +234,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       padding: 12px 16px;
       background: rgba(0, 0, 0, 0.15);
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
     }
 
@@ -266,7 +266,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border-radius: 6px;
       color: var(--text-primary);
       font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .try-it-ws-url input:focus {
@@ -281,7 +281,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: none;
       border-radius: 6px;
       font-weight: 500;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       transition: all 0.2s ease;
       white-space: nowrap;
@@ -302,7 +302,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
 
     .try-it-ws-params h4 {
       margin: 0 0 12px 0;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-secondary);
       text-transform: uppercase;
@@ -316,7 +316,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
 
     .try-it-ws-message h4 {
       margin: 0 0 12px 0;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-secondary);
       text-transform: uppercase;
@@ -332,7 +332,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border-radius: 6px;
       color: var(--text-primary);
       font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
+      font-size: 12px;
       resize: vertical;
       box-sizing: border-box;
     }
@@ -350,7 +350,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: none;
       border-radius: 6px;
       font-weight: 500;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -377,7 +377,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
 
     .try-it-ws-log-header h4 {
       margin: 0;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-secondary);
       text-transform: uppercase;
@@ -390,7 +390,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 4px;
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size: 10px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -413,7 +413,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       gap: 8px;
       padding: 8px 0;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: 12px;
+      font-size: 11px;
       font-family: 'JetBrains Mono', monospace;
     }
 
@@ -430,7 +430,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       flex-shrink: 0;
       padding: 2px 6px;
       border-radius: 3px;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       text-transform: uppercase;
     }
@@ -470,7 +470,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       text-align: center;
       color: var(--text-tertiary);
       padding: 24px;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     /* Streams (SSE) Try It Out */
@@ -487,7 +487,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       padding: 12px 16px;
       background: rgba(0, 0, 0, 0.15);
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
     }
 
@@ -521,7 +521,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: none;
       border-radius: 6px;
       font-weight: 500;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -546,7 +546,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       background: rgba(139, 92, 246, 0.2);
       border: 1px solid rgba(139, 92, 246, 0.4);
       border-radius: 4px;
-      font-size: 12px;
+      font-size: 11px;
       color: #a78bfa;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -585,7 +585,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 4px;
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size: 10px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -624,7 +624,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       align-items: center;
       gap: 8px;
       margin-bottom: 8px;
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .sse-event-time {
@@ -638,7 +638,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       color: #a78bfa;
       font-weight: 600;
       text-transform: uppercase;
-      font-size: 10px;
+      font-size: 9px;
     }
 
     .try-it-sse-event-error .sse-event-type {
@@ -657,7 +657,7 @@ export const tryItStyles = `    /* ========== TRY IT OUT ========== */
       background: rgba(0, 0, 0, 0.2);
       border-radius: 4px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-primary);
       white-space: pre-wrap;
       word-break: break-all;

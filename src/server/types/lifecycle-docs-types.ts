@@ -116,6 +116,10 @@ export interface USDDocsConfig {
       showCounts?: boolean
       docsPages?: boolean
       hide?: boolean
+      resizable?: boolean
+      width?: number
+      minWidth?: number
+      maxWidth?: number
       items?: Array<{ title: string; path?: string; href?: string; children?: Array<{ title: string; path?: string; href?: string; children?: any[] }> }>
       subMaxLevel?: number
     }

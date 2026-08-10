@@ -4,7 +4,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .response-samples-header {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--code-panel-text);
       margin-bottom: 12px;
@@ -19,7 +19,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .sample-tab {
       padding: 4px 10px;
       border-radius: 4px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
       cursor: pointer;
       background: transparent;
@@ -50,7 +50,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .sample-content-type {
-      font-size: 11px;
+      font-size: 10px;
       color: #90a4ae;
       margin-bottom: 8px;
     }
@@ -62,7 +62,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .sample-action {
-      font-size: 11px;
+      font-size: 10px;
       color: #90a4ae;
       cursor: pointer;
       background: none;
@@ -80,7 +80,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border-radius: 6px;
       padding: 10px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.4;
       color: #e2e8f0;
       overflow-x: auto;
@@ -106,7 +106,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .right-section-header {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: #90a4ae;
       text-transform: uppercase;
@@ -131,7 +131,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .no-example {
       color: #90a4ae;
       font-style: italic;
-      font-size: 13px;
+      font-size: 12px;
       padding: 12px;
       background: rgba(0,0,0,0.2);
       border-radius: 6px;
@@ -139,7 +139,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .response-desc-only {
       color: #90a4ae;
-      font-size: 13px;
+      font-size: 12px;
       padding: 12px;
       background: rgba(0,0,0,0.2);
       border-radius: 6px;
@@ -159,7 +159,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       justify-content: space-between;
       padding: 8px 10px;
       background: var(--code-panel-header);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: #90a4ae;
       text-transform: uppercase;
@@ -179,7 +179,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       color: #e2e8f0;
       white-space: pre-wrap;
       word-break: break-word;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.4;
     }
 
@@ -198,7 +198,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border-radius: 4px;
       background: transparent;
       color: #90a4ae;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.15s;
@@ -232,7 +232,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border-radius: 8px;
       overflow-x: auto;
       font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.45;
       border: 1px solid var(--border-color);
     }
@@ -275,7 +275,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .schema-name {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-color);
     }
@@ -283,7 +283,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .schema-required {
       color: #ef4444;
       font-weight: 700;
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .schema-type {
@@ -293,7 +293,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       padding: 1px 6px;
       border-radius: 4px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 500;
     }
 
@@ -320,7 +320,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .schema-desc {
       color: var(--text-muted);
-      font-size: 12px;
+      font-size: 11px;
       margin-bottom: 4px;
     }
 
@@ -345,7 +345,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       gap: 14px;
       padding: 7px 0 7px 10px;
       border-bottom: 1px solid var(--border-color);
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.4;
     }
 
@@ -373,7 +373,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       overflow-wrap: anywhere;
       background: transparent;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-primary);
       font-weight: 500;
     }
@@ -407,7 +407,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       background: transparent;
       color: var(--primary-color);
       cursor: pointer;
-      font-size: 16px;
+      font-size: 14px;
       line-height: 14px;
       transition: transform 120ms ease;
     }
@@ -418,14 +418,14 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .schema-tree-type {
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.35;
     }
 
     .schema-tree-description {
       margin-top: 3px;
       color: var(--text-color);
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.42;
     }
 
@@ -453,7 +453,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       gap: 5px;
       margin-top: 2px;
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .schema-tree-example code {
@@ -463,7 +463,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border-radius: 2px;
       background: var(--code-bg);
       color: var(--text-color);
-      font-size: 10px;
+      font-size: 9px;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -472,7 +472,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       display: inline-block;
       margin-top: 3px;
       color: var(--text-muted);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       text-transform: uppercase;
     }
@@ -497,7 +497,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .schema-constraint {
-      font-size: 11px;
+      font-size: 10px;
       padding: 2px 6px;
       border-radius: 4px;
       background: var(--code-bg);
@@ -513,7 +513,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .schema-enum-value {
-      font-size: 11px;
+      font-size: 10px;
       padding: 2px 8px;
       border-radius: 4px;
       background: #fef3c7;
@@ -527,7 +527,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .schema-default {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       margin-top: 4px;
     }
@@ -543,7 +543,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       cursor: pointer;
       user-select: none;
       color: var(--primary-color);
-      font-size: 12px;
+      font-size: 11px;
       margin-left: 8px;
     }
 
@@ -572,7 +572,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       padding: 8px 12px;
       background: rgba(0,0,0,0.05);
       border-bottom: 1px solid var(--border-color);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
@@ -581,7 +581,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .schema-example-body {
       padding: 12px;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
+      font-size: 11px;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -596,7 +596,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .response-tab {
       padding: 8px 16px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       border: none;
@@ -634,7 +634,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .params-table th {
       text-align: left;
       padding: 8px 12px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
       color: var(--text-muted);
@@ -645,7 +645,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .params-table td {
       padding: 10px 12px;
       border-bottom: 1px solid var(--border-color);
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .params-table tr:last-child td { border-bottom: none; }
@@ -656,7 +656,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .param-in {
-      font-size: 10px;
+      font-size: 9px;
       padding: 2px 6px;
       border-radius: 3px;
       background: var(--code-bg);
@@ -686,7 +686,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .info-card-title {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -694,7 +694,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .info-card-value {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--text-color);
     }
@@ -710,15 +710,16 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
         width: 300px;
         z-index: 100;
       }
-      .sidebar.mobile-open { display: block; }
+      .sidebar-resizer { display: none; }
+      .sidebar.mobile-open { display: flex; }
       .hero { padding: 40px 24px; min-height: 100vh; }
       .hero-logo { height: 80px; margin-bottom: 24px; }
-      .hero-title { font-size: 36px; }
-      .hero-version { font-size: 12px; margin-left: 8px; }
-      .hero-tagline { font-size: 17px; margin-bottom: 20px; }
+      .hero-title { font-size: 32px; }
+      .hero-version { font-size: 11px; margin-left: 8px; }
+      .hero-tagline { font-size: 15px; margin-bottom: 20px; }
       .hero-features { flex-direction: column; align-items: center; gap: 12px; }
-      .hero-features li { font-size: 15px; }
-      .hero-btn { padding: 12px 24px; font-size: 15px; }
+      .hero-features li { font-size: 13px; }
+      .hero-btn { padding: 12px 24px; font-size: 13px; }
       .github-corner svg { width: 60px; height: 60px; }
       .main { padding: 24px; }
     }
@@ -739,7 +740,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .http-param-group-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -770,13 +771,13 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .http-param-name {
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-color);
     }
 
     .http-param-required {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.4px;
@@ -784,7 +785,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .http-param-deprecated {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.4px;
@@ -793,7 +794,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .http-param-desc {
       color: var(--text-muted);
-      font-size: 12px;
+      font-size: 11px;
       margin-top: 4px;
       line-height: 1.4;
     }
@@ -807,7 +808,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .constraint-chip {
-      font-size: 10px;
+      font-size: 9px;
       padding: 1px 6px;
       border-radius: 4px;
       background: var(--code-bg);
@@ -845,7 +846,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border: none;
       cursor: pointer;
       text-align: left;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-color);
       transition: background 0.15s;
     }
@@ -859,7 +860,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     .response-accordion-caret {
       flex-shrink: 0;
-      font-size: 10px;
+      font-size: 9px;
       color: var(--text-muted);
       transition: transform 0.2s ease;
     }
@@ -898,7 +899,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .response-accordion.open .response-accordion-body { display: block; }
 
     .response-subhead {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -943,7 +944,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border-radius: 0;
       overflow-x: auto;
       font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.4;
       color: var(--text-color);
       white-space: pre;
@@ -957,7 +958,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       border: 1px solid var(--border-color);
       border-radius: 4px;
       color: var(--text-muted);
-      font-size: 10px;
+      font-size: 9px;
       cursor: pointer;
       transition: all 0.15s;
     }
@@ -1015,7 +1016,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     .endpoint-right .sample-code code {
       color: inherit;
       font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.4;
       white-space: inherit;
     }

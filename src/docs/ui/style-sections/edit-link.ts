@@ -24,7 +24,7 @@ export const editLinkStyles = `    /* ========== PAGE HEADER WITH EDIT LINK ====
       align-items: center;
       gap: 6px;
       flex: 0 0 auto;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-secondary);
       text-decoration: none;
@@ -46,7 +46,7 @@ export const editLinkStyles = `    /* ========== PAGE HEADER WITH EDIT LINK ====
     }
 
     .docs-edit-link-glyph {
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1;
     }
 `

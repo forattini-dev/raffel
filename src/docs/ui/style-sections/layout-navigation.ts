@@ -22,8 +22,9 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .app-container {
+      --sidebar-width: 280px;
       display: grid;
-      grid-template-columns: 280px 1fr;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
       min-height: calc(100vh - 300px);
     }
 
@@ -53,11 +54,57 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .sidebar {
       background: var(--sidebar-bg);
       border-right: 1px solid var(--border-color);
-      padding: 18px 0;
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 14px 0 0;
+      overflow: visible;
       position: sticky;
       top: 0;
       height: 100vh;
+    }
+
+    .sidebar-resizer {
+      appearance: none;
+      position: absolute;
+      top: 0;
+      right: -5px;
+      z-index: 5;
+      width: 10px;
+      height: 100%;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: col-resize;
+      touch-action: none;
+    }
+
+    .sidebar-resizer::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 4px;
+      width: 1px;
+      background: transparent;
+      transition: background-color 0.15s, box-shadow 0.15s;
+    }
+
+    .sidebar-resizer:hover::before,
+    .sidebar-resizer:focus-visible::before,
+    html.sidebar-is-resizing .sidebar-resizer::before {
+      background: var(--primary-color);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 18%, transparent);
+    }
+
+    .sidebar-resizer:focus-visible {
+      outline: 0;
+    }
+
+    html.sidebar-is-resizing,
+    html.sidebar-is-resizing * {
+      cursor: col-resize !important;
+      user-select: none !important;
     }
 
     .sidebar-hidden {
@@ -78,7 +125,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .sidebar-logo img { height: 32px; }
-    .sidebar-logo h1 { font-size: 18px; font-weight: 600; }
+    .sidebar-logo h1 { font-size: 16px; font-weight: 600; }
 
     .sidebar-search {
       position: relative;
@@ -120,7 +167,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     .protocol-tab {
       padding: 5px 10px;
       border-radius: 20px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
       cursor: pointer;
       background: var(--code-bg);
@@ -147,7 +194,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       height: 18px;
       padding: 0 5px;
       margin-left: 6px;
-      font-size: 10px;
+      font-size: 9px;
       border-radius: 9px;
       background: rgba(0,0,0,0.15);
     }
@@ -158,7 +205,12 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     /* ========== TAG GROUPS ========== */
     .sidebar-nav {
+      flex: 1;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
       padding: 0 10px;
+      scrollbar-gutter: stable;
     }
 
     .tag-group {
@@ -172,7 +224,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       padding: 8px 10px;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-secondary);
       transition: all 0.2s;
@@ -189,7 +241,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .tag-group-arrow {
       transition: transform 0.2s;
-      font-size: 10px;
+      font-size: 9px;
     }
 
     .tag-group.collapsed .tag-group-arrow {
@@ -198,7 +250,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .tag-group-count {
       margin-left: auto;
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-muted);
       font-weight: 400;
     }
@@ -252,7 +304,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       color: var(--text-muted);
       cursor: pointer;
       font: inherit;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.35;
       padding: 4px 7px;
       text-align: left;
@@ -300,11 +352,11 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .nav-item-intro .nav-item-icon {
-      font-size: 16px;
+      font-size: 14px;
     }
 
     .nav-item-intro .nav-item-text {
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .nav-item-method {
@@ -344,8 +396,17 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .nav-item-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
+      font-size: 10px;
       flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .nav-item-text,
+    .docs-sidebar-home {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -504,7 +565,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       padding-left: 21px;
       transition: color 0.15s, border-color 0.15s;
       font-family: 'SF Mono', 'Monaco', monospace;
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .toc-link:hover {
@@ -581,7 +642,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       border-radius: 6px;
       background: var(--bg-color);
       color: var(--text-color);
-      font-size: 15px;
+      font-size: 13px;
       font-family: inherit;
       outline: none;
     }
@@ -592,7 +653,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .search-modal-close {
       padding: 6px 10px;
-      font-size: 12px;
+      font-size: 11px;
       font-family: 'SF Mono', 'Monaco', monospace;
       color: var(--text-muted);
       background: var(--surface-color);
@@ -616,7 +677,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       padding: 24px 16px;
       color: var(--text-muted);
       text-align: center;
-      font-size: 14px;
+      font-size: 12px;
     }
 
     .search-modal-group {
@@ -625,7 +686,7 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
 
     .search-modal-group-heading {
       padding: 8px 12px 4px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
@@ -656,12 +717,12 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
     }
 
     .search-modal-result-title {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
     }
 
     .search-modal-result-desc {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       overflow: hidden;
       text-overflow: ellipsis;

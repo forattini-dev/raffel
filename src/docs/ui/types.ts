@@ -174,6 +174,14 @@ export interface SidebarConfig {
   showCounts?: boolean
   docsPages?: boolean
   hide?: boolean
+  /** Allow readers to drag or keyboard-resize the sidebar. Default: true. */
+  resizable?: boolean
+  /** Initial sidebar width in pixels. Default: 280. */
+  width?: number
+  /** Minimum reader-selectable width in pixels. Default: 220. */
+  minWidth?: number
+  /** Maximum reader-selectable width in pixels. Default: 560. */
+  maxWidth?: number
   /** Declarative sidebar tree. Order is preserved exactly as declared. */
   items?: DocsSidebarItem[]
   /** file-backed Markdown heading depth to include under the active docs page. */
