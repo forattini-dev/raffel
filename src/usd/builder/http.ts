@@ -10,6 +10,7 @@ import type {
   USDOperation,
   USDParameter,
   USDResponse,
+  USDExample,
   USDSchema,
   USDSecurityRequirement,
 } from '../spec/types.js'
@@ -62,6 +63,9 @@ export class OperationBuilder {
     schema: USDSchema | { $ref: string }
     description?: string
     required?: boolean
+    deprecated?: boolean
+    example?: unknown
+    examples?: Record<string, USDExample>
   }): this {
     if (!this.operation.parameters) {
       this.operation.parameters = []
@@ -73,6 +77,9 @@ export class OperationBuilder {
   query(name: string, schema: USDSchema | { $ref: string }, options?: {
     description?: string
     required?: boolean
+    deprecated?: boolean
+    example?: unknown
+    examples?: Record<string, USDExample>
   }): this {
     return this.parameter({
       name,
@@ -85,6 +92,9 @@ export class OperationBuilder {
   header(name: string, schema: USDSchema | { $ref: string }, options?: {
     description?: string
     required?: boolean
+    deprecated?: boolean
+    example?: unknown
+    examples?: Record<string, USDExample>
   }): this {
     return this.parameter({
       name,
@@ -96,6 +106,9 @@ export class OperationBuilder {
 
   path(name: string, schema: USDSchema | { $ref: string }, options?: {
     description?: string
+    deprecated?: boolean
+    example?: unknown
+    examples?: Record<string, USDExample>
   }): this {
     return this.parameter({
       name,
@@ -110,13 +123,19 @@ export class OperationBuilder {
     description?: string
     required?: boolean
     contentType?: string
+    example?: unknown
+    examples?: Record<string, USDExample>
   }): this {
     const contentType = options?.contentType || 'application/json'
     this.operation.requestBody = {
       description: options?.description,
       required: options?.required ?? true,
       content: {
-        [contentType]: { schema },
+        [contentType]: {
+          schema,
+          ...(options?.example !== undefined ? { example: options.example } : {}),
+          ...(options?.examples ? { examples: options.examples } : {}),
+        },
       },
     }
     return this
@@ -128,6 +147,8 @@ export class OperationBuilder {
     options?: {
       description?: string
       contentType?: string
+      example?: unknown
+      examples?: Record<string, USDExample>
     }
   ): this {
     const statusKey = String(status)
@@ -138,7 +159,11 @@ export class OperationBuilder {
     if (schema) {
       const contentType = options?.contentType || 'application/json'
       response.content = {
-        [contentType]: { schema },
+        [contentType]: {
+          schema,
+          ...(options?.example !== undefined ? { example: options.example } : {}),
+          ...(options?.examples ? { examples: options.examples } : {}),
+        },
       }
     }
 

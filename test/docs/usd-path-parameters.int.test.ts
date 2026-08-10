@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { createRegistry } from '../../src/core/registry.js'
 import { createUSDHandlers } from '../../src/docs/usd-middleware.js'
@@ -14,6 +15,56 @@ function getOperation(
 }
 
 describe('USD procedure path parameters', () => {
+  it('preserves parameter descriptions, examples, optionality, and constraints in USD and OpenAPI', () => {
+    const registry = createRegistry()
+    const schemaRegistry = createSchemaRegistry()
+
+    registry.procedure('clients.get', async () => ({}), {
+      httpMethod: 'GET',
+      httpPath: '/clients/:clientId',
+    })
+    schemaRegistry.register('clients.get', {
+      input: z.object({
+        clientId: z.string().uuid().describe('Client identifier').meta({ examples: ['2f7db329-7616-4fe2-bf3b-f9600046b198'] }),
+        after: z.string().min(3).optional().describe('Pagination cursor').meta({ examples: ['cursor_123'] }),
+      }),
+    })
+
+    const handlers = createUSDHandlers(
+      { registry, schemaRegistry },
+      { info: { title: 'Clients', version: '1.0.0' } },
+    )
+    const usdOperation = getOperation(handlers.getUSDDocument().paths, '/clients/{clientId}', 'get')
+    const openApiOperation = getOperation(handlers.getOpenAPIDocument().paths, '/clients/{clientId}', 'get')
+
+    for (const operation of [usdOperation, openApiOperation]) {
+      expect(operation?.parameters).toEqual([
+        expect.objectContaining({
+          name: 'clientId',
+          in: 'path',
+          required: true,
+          description: 'Client identifier',
+          schema: expect.objectContaining({
+            type: 'string',
+            format: 'uuid',
+            examples: ['2f7db329-7616-4fe2-bf3b-f9600046b198'],
+          }),
+        }),
+        expect.objectContaining({
+          name: 'after',
+          in: 'query',
+          required: false,
+          description: 'Pagination cursor',
+          schema: expect.objectContaining({
+            type: 'string',
+            minLength: 3,
+            examples: ['cursor_123'],
+          }),
+        }),
+      ])
+    }
+  })
+
   it('normalizes colon segments and classifies matching input fields as path parameters', () => {
     const registry = createRegistry()
     const schemaRegistry = createSchemaRegistry()

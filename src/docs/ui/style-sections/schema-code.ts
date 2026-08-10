@@ -324,52 +324,163 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       margin-bottom: 4px;
     }
 
-    /* Compact response-body tree. Nested wrappers use a fixed step so
-       indentation grows predictably instead of compounding by depth. */
+    /* Compact ReDoc-style contract tree. Names and requiredness stay in a
+       narrow left rail; type, examples, constraints and prose share the
+       wider detail column. */
     .schema-tree-root {
-      margin-top: 6px;
+      margin-top: 4px;
+      border-left: 1px solid var(--border-color);
+      border-left-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
     }
 
     .schema-tree-nested {
-      padding-left: 10px;
-    }
-
-    .schema-tree-row {
-      padding: 4px 0;
-      font-size: 12px;
-      line-height: 1.35;
-    }
-
-    .schema-tree-root > .schema-tree-row {
-      padding-left: 6px;
+      margin-left: 14px;
       border-left: 1px solid var(--border-color);
     }
 
-    .schema-tree-property {
+    .schema-tree-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(120px, 28%) minmax(0, 1fr);
+      gap: 14px;
+      padding: 7px 0 7px 10px;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .schema-tree-row::before {
+      position: absolute;
+      top: 13px;
+      left: 0;
+      width: 9px;
+      border-top: 1px solid var(--border-color);
+      border-top-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+      content: '';
+    }
+
+    .schema-tree-key {
+      position: relative;
       display: flex;
-      align-items: center;
-      gap: 5px;
+      min-width: 0;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1px;
+      padding-left: 8px;
+    }
+
+    .schema-tree-name {
+      overflow-wrap: anywhere;
+      background: transparent;
+      font-family: 'SF Mono', 'Monaco', monospace;
+      font-size: 11px;
       color: var(--text-primary);
       font-weight: 500;
+    }
+
+    .schema-tree-required,
+    .schema-tree-optional,
+    .schema-tree-deprecated {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.35px;
+      line-height: 1.35;
+      text-transform: uppercase;
     }
 
     .schema-tree-required {
       color: #ef4444;
     }
 
+    .schema-tree-optional { color: var(--text-muted); }
+    .schema-tree-deprecated { color: #d97706; }
+
+    .schema-tree-toggle {
+      position: absolute;
+      top: -1px;
+      left: -8px;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      transform: rotate(0deg);
+      border: 0;
+      background: transparent;
+      color: var(--primary-color);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 14px;
+      transition: transform 120ms ease;
+    }
+
+    .schema-tree-toggle.open { transform: rotate(90deg); }
+
+    .schema-tree-details { min-width: 0; }
+
+    .schema-tree-type {
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
     .schema-tree-description {
+      margin-top: 3px;
+      color: var(--text-color);
+      font-size: 12px;
+      line-height: 1.42;
+    }
+
+    .schema-tree-description.markdown-content p {
+      margin: 0 0 3px;
+      color: inherit;
+      font-size: inherit;
+      line-height: inherit;
+    }
+
+    .schema-tree-description.markdown-content p:last-child { margin-bottom: 0; }
+
+    .schema-tree-description.markdown-content ul,
+    .schema-tree-description.markdown-content ol {
+      margin: 4px 0 2px 16px;
+      padding: 0;
+    }
+
+    .schema-tree-description.markdown-content li { margin: 1px 0; }
+
+    .schema-tree-example {
+      display: flex;
+      min-width: 0;
+      align-items: baseline;
+      gap: 5px;
       margin-top: 2px;
       color: var(--text-muted);
       font-size: 11px;
-      line-height: 1.4;
     }
 
-    .schema-tree-label {
-      color: var(--text-primary);
-      font-weight: 500;
+    .schema-tree-example code {
+      overflow: hidden;
+      padding: 0 3px;
+      border: 1px solid var(--border-color);
+      border-radius: 2px;
+      background: var(--code-bg);
+      color: var(--text-color);
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
+
+    .schema-tree-items-label {
+      display: inline-block;
+      margin-top: 3px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .schema-tree-children.collapsed { display: none; }
 
     .schema-tree-meta {
+      display: block;
       color: var(--text-secondary);
     }
 
@@ -633,18 +744,19 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
-      margin-bottom: 8px;
+      margin-bottom: 0;
+      padding-bottom: 5px;
+      border-bottom: 1px solid var(--border-color);
     }
 
     .http-params {
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      overflow: hidden;
+      overflow: visible;
     }
 
     .http-param {
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border-color);
+      padding-top: 7px;
+      padding-right: 0;
+      padding-bottom: 7px;
     }
 
     .http-param:last-child { border-bottom: none; }
@@ -717,8 +829,8 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
 
     /* Response accordions */
     .response-accordion {
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
+      border: 0;
+      border-radius: 3px;
       margin-bottom: 8px;
       overflow: hidden;
     }
@@ -728,7 +840,7 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       align-items: center;
       gap: 8px;
       width: 100%;
-      padding: 9px 12px;
+      padding: 8px 10px;
       background: var(--code-bg);
       border: none;
       cursor: pointer;
@@ -739,6 +851,11 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .response-accordion-header:hover { background: var(--hover-bg); }
+
+    .response-accordion-header.status-2xx { background: rgba(16,185,129,0.08); }
+    .response-accordion-header.status-3xx { background: rgba(59,130,246,0.08); }
+    .response-accordion-header.status-4xx { background: rgba(245,158,11,0.09); }
+    .response-accordion-header.status-5xx { background: rgba(239,68,68,0.09); }
 
     .response-accordion-caret {
       flex-shrink: 0;
@@ -773,8 +890,8 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
     }
 
     .response-accordion-body {
-      padding: 10px 12px;
-      border-top: 1px solid var(--border-color);
+      padding: 9px 8px 5px;
+      border-top: 0;
       display: none;
     }
 
@@ -786,10 +903,19 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
-      margin: 0 0 6px;
+      margin: 0;
+      padding-bottom: 5px;
+      border-bottom: 1px solid var(--border-color);
     }
 
-    .response-block + .response-block { margin-top: 12px; }
+    .response-block + .response-block { margin-top: 10px; }
+
+    @media (max-width: 640px) {
+      .schema-tree-row {
+        grid-template-columns: minmax(100px, 35%) minmax(0, 1fr);
+        gap: 8px;
+      }
+    }
 
     /* Multi-language code samples */
     .http-code-samples {

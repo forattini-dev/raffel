@@ -353,9 +353,10 @@ describe('Documentation UI HTML builder', () => {
     const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
 
     expect(css).toContain('.tag-group-header {\n      display: flex;\n      align-items: center;\n      gap: 6px;\n      padding: 8px 10px;')
-    expect(css).toContain('.http-param {\n      padding: 8px 12px;')
-    expect(css).toContain('.response-accordion-body {\n      padding: 10px 12px;')
-    expect(css).toContain('.schema-tree-row {\n      padding: 4px 0;')
+    expect(css).toContain('.http-param {\n      padding-top: 7px;')
+    expect(css).toContain('.response-accordion-body {\n      padding: 9px 8px 5px;')
+    expect(css).toContain('grid-template-columns: minmax(120px, 28%) minmax(0, 1fr);')
+    expect(css).toContain('.schema-tree-children.collapsed { display: none; }')
     expect(css).toContain('.endpoint-right .sample-code {\n      margin: 0;\n      padding: 10px;')
     expect(css).toContain('.endpoint-right .sample-code code {\n      color: inherit;\n      font-family:')
     expect(css).toContain('font-size: 11px;\n      line-height: 1.4;')

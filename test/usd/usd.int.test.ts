@@ -692,6 +692,40 @@ describe('USD Document Builder', () => {
   })
 
   describe('protocol builders', () => {
+    it('keeps HTTP descriptions and examples in the USD contract', () => {
+      const builder = USD.document({ title: 'Test', version: '1.0.0' })
+      const operation = builder.http().path('/clients/{id}').get('getClient')
+      operation
+        .path('id', { type: 'string', format: 'uuid' }, {
+          description: 'Client identifier',
+          example: '2f7db329-7616-4fe2-bf3b-f9600046b198',
+        })
+        .query('after', { type: 'string' }, {
+          description: 'Pagination cursor',
+          required: false,
+          examples: { firstPage: { value: 'cursor_123' } },
+        })
+        .response(200, { type: 'object' }, {
+          description: 'Client',
+          example: { id: '2f7db329-7616-4fe2-bf3b-f9600046b198' },
+        })
+
+      const get = builder.build().paths?.['/clients/{id}']?.get
+      expect(get?.parameters?.[0]).toMatchObject({
+        description: 'Client identifier',
+        example: '2f7db329-7616-4fe2-bf3b-f9600046b198',
+        required: true,
+      })
+      expect(get?.parameters?.[1]).toMatchObject({
+        description: 'Pagination cursor',
+        required: false,
+        examples: { firstPage: { value: 'cursor_123' } },
+      })
+      expect(get?.responses['200'].content?.['application/json'].example).toEqual({
+        id: '2f7db329-7616-4fe2-bf3b-f9600046b198',
+      })
+    })
+
     it('should get HTTP builder', () => {
       const builder = USD.document({ title: 'Test', version: '1.0.0' })
       const http = builder.http()
