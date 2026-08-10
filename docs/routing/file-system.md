@@ -354,6 +354,47 @@ request body / response schema and, for path/query params, as parameters. No
 schema means the endpoint is still generated but without typed body or
 responses.
 
+For discovered GET routes, a property whose name matches a dynamic file-system
+segment becomes a required path parameter; the remaining properties become
+query parameters. Zod properties are required by default and `.optional()`
+makes them optional. Descriptions, examples, defaults, enums, formats, patterns,
+and numeric/string limits remain part of both the USD and OpenAPI contracts and
+are rendered by the documentation UI:
+
+```ts
+// src/http/clients/[clientId]/get.ts
+import { z } from 'zod'
+
+export const input = z.object({
+  clientId: z.string()
+    .uuid()
+    .describe('Client identifier')
+    .meta({ examples: ['2f7db329-7616-4fe2-bf3b-f9600046b198'] }),
+
+  after: z.string()
+    .min(3)
+    .optional()
+    .describe('Use the `endCursor` returned by the previous page.')
+    .meta({ examples: ['cursor_123'] }),
+
+  limit: z.coerce.number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .default(20)
+    .describe('Maximum number of clients to return.'),
+})
+
+export default async function handler(input, ctx) {
+  return ctx.services.clients.find(input)
+}
+```
+
+`.meta({ examples: [...] })` uses Zod 4 metadata. `.describe()` works with Zod
+3 and 4. A path parameter is always required by OpenAPI; model an optional
+identifier as a separate route or as a query parameter.
+
 Remember to register a validator adapter once at startup (see
 [Schemas and validators](#schemas-and-validators)); without it the schemas are
 documented but not enforced at request time.

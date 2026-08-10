@@ -546,6 +546,8 @@ export interface USDHeader {
   required?: boolean
   deprecated?: boolean
   schema?: USDSchema
+  example?: unknown
+  examples?: Record<string, USDExample>
 }
 
 export interface USDLink {
@@ -582,6 +584,9 @@ export type USDSchema = JSONSchema7 & {
   /** Reference to another schema */
   $ref?: string
 
+  /** Example values preserved in both USD and OpenAPI 3.1 exports. */
+  examples?: unknown[]
+
   /** Discriminator for polymorphism */
   discriminator?: {
     propertyName: string
@@ -591,7 +596,7 @@ export type USDSchema = JSONSchema7 & {
   /** External documentation */
   externalDocs?: USDExternalDocs
 
-  /** Example value */
+  /** OpenAPI-compatible singular example (JSON Schema 2020-12 uses `examples`). */
   example?: unknown
 
   /** XML metadata */

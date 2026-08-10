@@ -1424,7 +1424,6 @@ function httpBaseUrl(): string {
 function schemaConstraintChips(schema: any): string[] {
   if (!schema || typeof schema !== 'object') return []
   const chips: string[] = []
-  if (schema.format) chips.push(`format: ${schema.format}`)
   if (typeof schema.minLength === 'number') chips.push(`min length: ${schema.minLength}`)
   if (typeof schema.maxLength === 'number') chips.push(`max length: ${schema.maxLength}`)
   if (typeof schema.minimum === 'number') chips.push(`>= ${schema.minimum}`)
@@ -1470,6 +1469,137 @@ function appendConstraintChips(row: any, schema: any): void {
     wrap.appendChild(chip)
   })
   row.appendChild(wrap)
+}
+
+function formatContractExample(value: unknown): string {
+  if (typeof value === 'string') return value
+  const json = JSON.stringify(value)
+  return json === undefined ? String(value) : json
+}
+
+function collectContractExamples(owner: any, schema: any): unknown[] {
+  const examples: unknown[] = []
+  if (owner?.example !== undefined) examples.push(owner.example)
+  Object.values(owner?.examples ?? {}).forEach((example: any) => {
+    if (example && typeof example === 'object' && 'value' in example) examples.push(example.value)
+  })
+  if (schema?.example !== undefined) examples.push(schema.example)
+  if (Array.isArray(schema?.examples)) examples.push(...schema.examples)
+
+  const seen = new Set<string>()
+  return examples.filter(value => {
+    const key = formatContractExample(value)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function contractSchemaType(rawSchema: any, schema: any): { type: string, label: string } {
+  const refName = rawSchema?.$ref ? String(rawSchema.$ref).split('/').pop() : ''
+  const type = Array.isArray(schema?.type)
+    ? schema.type.join(' | ')
+    : schema?.type || (refName ? 'object' : 'any')
+  if (type === 'array') {
+    const items = resolveSchema(schema?.items) as any
+    const itemType = items?.type || (schema?.items?.$ref ? String(schema.items.$ref).split('/').pop() : 'any')
+    const itemFormat = items?.format ? ` <${items.format}>` : ''
+    return { type, label: `array of ${itemType}${itemFormat}` }
+  }
+  const format = schema?.format ? ` <${schema.format}>` : ''
+  const reference = refName ? ` <${refName}>` : ''
+  return { type, label: `${type}${format}${reference}` }
+}
+
+function appendContractDescription(parent: any, description: unknown, className: string): void {
+  if (!description) return
+  const desc = doc.createElement('div')
+  desc.className = `${className} markdown-content`
+  desc.innerHTML = parseMarkdown(description)
+  parent.appendChild(desc)
+}
+
+function appendContractExamples(parent: any, examples: unknown[], prefix = ''): void {
+  examples.forEach((value, index) => {
+    const line = doc.createElement('div')
+    line.className = 'schema-tree-example'
+    const label = examples.length > 1 ? `Example ${index + 1}:` : 'Example:'
+    const rendered = prefix ? `${prefix}${formatContractExample(value)}` : formatContractExample(value)
+    line.innerHTML = `<span>${label}</span><code>${esc(rendered)}</code>`
+    parent.appendChild(line)
+  })
+}
+
+function createContractRow(
+  name: string,
+  rawSchema: any,
+  required: boolean,
+  options: { owner?: any, description?: unknown, deprecated?: boolean, examplePrefix?: string } = {},
+): { row: any, toggle: any | null, nestedSchema: any | null } {
+  const schema = resolveSchema(rawSchema) as any ?? {}
+  const nestedSchema = schema.type === 'object' && schema.properties
+    ? rawSchema
+    : schema.type === 'array' && (resolveSchema(schema.items) as any)?.properties
+      ? schema.items
+      : null
+  const row = doc.createElement('div')
+  row.className = `schema-tree-row${nestedSchema ? ' schema-tree-row-expandable' : ''}`
+
+  const key = doc.createElement('div')
+  key.className = 'schema-tree-key'
+  let toggle: any | null = null
+  if (nestedSchema) {
+    toggle = doc.createElement('button')
+    toggle.type = 'button'
+    toggle.className = 'schema-tree-toggle'
+    toggle.setAttribute('aria-expanded', 'false')
+    toggle.setAttribute('aria-label', `Expand ${name}`)
+    toggle.textContent = '›'
+    key.appendChild(toggle)
+  }
+  const nameEl = doc.createElement('code')
+  nameEl.className = 'schema-tree-name'
+  nameEl.textContent = name
+  key.appendChild(nameEl)
+  const state = doc.createElement('span')
+  state.className = required ? 'schema-tree-required' : 'schema-tree-optional'
+  state.textContent = required ? 'required' : 'optional'
+  key.appendChild(state)
+  if (options.deprecated) {
+    const deprecated = doc.createElement('span')
+    deprecated.className = 'schema-tree-deprecated'
+    deprecated.textContent = 'deprecated'
+    key.appendChild(deprecated)
+  }
+
+  const details = doc.createElement('div')
+  details.className = 'schema-tree-details'
+  const schemaType = contractSchemaType(rawSchema, schema)
+  const type = doc.createElement('div')
+  type.className = `schema-tree-type type-text-${esc(schemaType.type)}`
+  type.textContent = schemaType.label
+  details.appendChild(type)
+  appendContractExamples(
+    details,
+    collectContractExamples(options.owner, schema),
+    options.examplePrefix ?? '',
+  )
+  appendContractDescription(details, options.description ?? schema.description, 'schema-tree-description')
+  appendConstraintChips(details, schema)
+  if (schema.type === 'array' && schema.items) {
+    const items = resolveSchema(schema.items) as any
+    if (Array.isArray(items?.enum) && items.enum.length > 0) {
+      const label = doc.createElement('div')
+      label.className = 'schema-tree-items-label'
+      label.textContent = 'Items'
+      details.appendChild(label)
+      appendConstraintChips(details, items)
+    }
+  }
+
+  row.appendChild(key)
+  row.appendChild(details)
+  return { row, toggle, nestedSchema }
 }
 
 // Render a JSON value as a Python literal (for the Python request sample).
@@ -1861,8 +1991,17 @@ function renderResponseSamples(responses: Record<string, any>, endpoint: Endpoin
   return wrap
 }
 
-function renderSchemaTree(parent: any, schema: any, depth = 0): void {
+function renderSchemaTree(parent: any, schema: any, depth = 0, refStack = new Set<string>()): void {
   if (!schema) return
+  const pointer = schema.$ref ? String(schema.$ref) : ''
+  if (pointer && refStack.has(pointer)) {
+    const recursive = doc.createElement('div')
+    recursive.className = 'schema-tree-row schema-tree-unresolved'
+    recursive.textContent = `Recursive schema: ${pointer.split('/').pop()}`
+    parent.appendChild(recursive)
+    return
+  }
+  const nextRefStack = pointer ? new Set([...refStack, pointer]) : refStack
   schema = resolveSchema(schema)
   const div = doc.createElement('div')
   div.className = depth === 0 ? 'schema-tree schema-tree-root' : 'schema-tree schema-tree-nested'
@@ -1875,32 +2014,34 @@ function renderSchemaTree(parent: any, schema: any, depth = 0): void {
     div.appendChild(row)
   } else if (schema.type === 'object' && schema.properties) {
     Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
-      const row = doc.createElement('div')
-      row.className = 'schema-tree-row'
-      const type = (prop as any).type || 'any'
-      const required = schema.required?.includes(key) ? '<span class="schema-tree-required">*</span>' : ''
-      row.innerHTML = `<div class="schema-tree-property">${esc(key)}${required}<span class="schema-type type-${esc((prop as any).type || 'null')}">${esc(type)}</span></div>`
-      if ((prop as any).description) {
-        const desc = doc.createElement('div')
-        desc.className = 'schema-tree-description'
-        desc.textContent = (prop as any).description
-        row.appendChild(desc)
-      }
-      appendConstraintChips(row, prop)
-      div.appendChild(row)
-      if ((prop as any).type === 'object' && (prop as any).properties) {
-        renderSchemaTree(div, prop, depth + 1)
-      } else if ((prop as any).type === 'array' && (prop as any).items?.properties) {
-        renderSchemaTree(div, (prop as any).items, depth + 1)
+      const contract = createContractRow(key, prop, schema.required?.includes(key) === true)
+      div.appendChild(contract.row)
+      if (contract.nestedSchema && contract.toggle) {
+        const children = doc.createElement('div')
+        children.className = 'schema-tree-children collapsed'
+        renderSchemaTree(children, contract.nestedSchema, depth + 1, nextRefStack)
+        contract.toggle.onclick = () => {
+          const collapsed = children.classList.toggle('collapsed')
+          contract.toggle.classList.toggle('open', !collapsed)
+          contract.toggle.setAttribute('aria-expanded', String(!collapsed))
+          contract.toggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${key}`)
+        }
+        div.appendChild(children)
       }
     })
   } else if (schema.type === 'array' && schema.items) {
-    const row = doc.createElement('div')
-    row.className = 'schema-tree-row'
-    row.innerHTML = `<span class="schema-tree-label">array</span> <span class="schema-tree-meta">of ${esc((schema.items as any).type || 'object')}</span>`
-    div.appendChild(row)
-    if ((schema.items as any).properties) {
-      renderSchemaTree(div, schema.items, depth + 1)
+    const contract = createContractRow('items', schema.items, true)
+    div.appendChild(contract.row)
+    if (contract.nestedSchema && contract.toggle) {
+      const children = doc.createElement('div')
+      children.className = 'schema-tree-children collapsed'
+      renderSchemaTree(children, contract.nestedSchema, depth + 1, nextRefStack)
+      contract.toggle.onclick = () => {
+        const collapsed = children.classList.toggle('collapsed')
+        contract.toggle.classList.toggle('open', !collapsed)
+        contract.toggle.setAttribute('aria-expanded', String(!collapsed))
+      }
+      div.appendChild(children)
     }
   } else {
     const row = doc.createElement('div')
@@ -1921,28 +2062,17 @@ function renderParamGroup(title: string, params: any[]): any {
   heading.textContent = title
   group.appendChild(heading)
   const list = doc.createElement('div')
-  list.className = 'http-params'
+  list.className = 'http-params schema-tree schema-tree-root'
   params.forEach(param => {
-    const item = doc.createElement('div')
-    item.className = 'http-param'
     const schema = param.schema || {}
-    const typeName = schema.type === 'array' ? `${schema.items?.type || 'any'}[]` : (schema.type || 'string')
-    const head = doc.createElement('div')
-    head.className = 'http-param-head'
-    head.innerHTML = `<span class="http-param-name">${esc(param.name)}</span>` +
-      `<span class="schema-type type-${esc(schema.type || 'string')}">${esc(typeName)}</span>` +
-      (param.required ? '<span class="http-param-required">required</span>' : '') +
-      (param.deprecated ? '<span class="http-param-deprecated">deprecated</span>' : '')
-    item.appendChild(head)
-    const description = param.description || schema.description
-    if (description) {
-      const desc = doc.createElement('div')
-      desc.className = 'http-param-desc'
-      desc.textContent = description
-      item.appendChild(desc)
-    }
-    appendConstraintChips(item, schema)
-    list.appendChild(item)
+    const contract = createContractRow(param.name, schema, param.required === true, {
+      owner: param,
+      description: param.description || schema.description,
+      deprecated: param.deprecated,
+      examplePrefix: `${param.name}=`,
+    })
+    contract.row.classList.add('http-param')
+    list.appendChild(contract.row)
   })
   group.appendChild(list)
   return group
@@ -1959,7 +2089,7 @@ function renderResponseAccordion(status: string, resp: any, openByDefault: boole
 
   const header = doc.createElement('button')
   header.type = 'button'
-  header.className = 'response-accordion-header'
+  header.className = `response-accordion-header ${statusClass}`
   header.innerHTML = `<span class="response-accordion-caret">▶</span>` +
     `<span class="response-status-dot ${statusClass}"></span>` +
     `<span class="response-status-code">${esc(status)}</span>` +
@@ -1976,14 +2106,16 @@ function renderResponseAccordion(status: string, resp: any, openByDefault: boole
     sub.textContent = 'Response Headers'
     block.appendChild(sub)
     const list = doc.createElement('div')
-    list.className = 'http-params'
+    list.className = 'http-params schema-tree schema-tree-root'
     Object.entries(resp.headers).forEach(([name, def]: [string, any]) => {
-      const item = doc.createElement('div')
-      item.className = 'http-param'
       const hschema = (def as any).schema || {}
-      item.innerHTML = `<div class="http-param-head"><span class="http-param-name">${esc(name)}</span><span class="schema-type type-${esc(hschema.type || 'string')}">${esc(hschema.type || 'string')}</span></div>` +
-        ((def as any).description ? `<div class="http-param-desc">${esc((def as any).description)}</div>` : '')
-      list.appendChild(item)
+      const contract = createContractRow(name, hschema, (def as any).required === true, {
+        owner: def,
+        description: (def as any).description,
+        deprecated: (def as any).deprecated,
+      })
+      contract.row.classList.add('http-param')
+      list.appendChild(contract.row)
     })
     block.appendChild(list)
     body.appendChild(block)

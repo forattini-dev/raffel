@@ -35,6 +35,71 @@ function renderReferenceSurface(spec: Record<string, unknown>, url?: string): { 
 }
 
 describe('HTTP reference documentation', () => {
+  it('renders compact contract rows with requiredness, examples, rich descriptions, and collapsed nesting', () => {
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Clients API', version: '1.0.0' },
+      paths: {
+        '/clients': {
+          post: {
+            parameters: [{
+              name: 'after',
+              in: 'query',
+              description: 'Use the `endCursor` returned by the previous page.',
+              example: 'cursor_123',
+              schema: { type: 'string', minLength: 3 },
+            }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    required: ['name'],
+                    properties: {
+                      name: {
+                        type: 'string',
+                        description: 'Client **display name**.',
+                        examples: ['Closer', 'Stone'],
+                      },
+                      settings: {
+                        type: 'object',
+                        description: 'Optional client settings.',
+                        properties: { enabled: { type: 'boolean', example: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { '201': { description: 'Created' } },
+          },
+        },
+      },
+    })
+
+    const main = win.document.getElementById('mainContent')
+    expect(main.textContent).toContain('optional')
+    expect(main.textContent).toContain('after=cursor_123')
+    expect(main.textContent).toContain('Use the endCursor returned by the previous page.')
+    expect(main.querySelector('.schema-tree-description code')?.textContent).toBe('endCursor')
+    expect(main.textContent).toContain('required')
+    expect(main.textContent).toContain('Example 1:Closer')
+    expect(main.textContent).toContain('Example 2:Stone')
+    expect(main.querySelector('.schema-tree-description strong')?.textContent).toBe('display name')
+
+    const settingsName = [...main.querySelectorAll('.schema-tree-name')]
+      .find((element: any) => element.textContent === 'settings') as any
+    const settingsRow = settingsName.closest('.schema-tree-row')
+    const toggle = settingsRow.querySelector('.schema-tree-toggle')
+    const children = settingsRow.nextElementSibling
+    expect(children.classList.contains('collapsed')).toBe(true)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    toggle.click()
+    expect(children.classList.contains('collapsed')).toBe(false)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('renders a referenced error schema instead of its JSON pointer', () => {
     const html = renderReference({
       openapi: '3.1.0',
