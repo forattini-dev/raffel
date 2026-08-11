@@ -216,10 +216,13 @@ export function registerDiscoveredHandlers(
     ]
 
     // Register schema if defined
-    if (route.inputSchema || route.outputSchema) {
+    if (route.inputSchema || route.outputSchema || route.inferredOutputSchema) {
       const schema: HandlerSchema = {}
       if (route.inputSchema) schema.input = route.inputSchema
       if (route.outputSchema) schema.output = route.outputSchema
+      if (!route.outputSchema && route.inferredOutputSchema) {
+        schema.documentationOutput = route.inferredOutputSchema
+      }
       schemaRegistry.register(route.name, schema)
     }
 

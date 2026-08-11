@@ -351,8 +351,42 @@ registration time they are entered into the shared `SchemaRegistry` under the
 route name (e.g. `users/create`). The OpenAPI generator then looks the route up
 by name (`schemaRegistry.get('users/create')`), so the schemas surface as the
 request body / response schema and, for path/query params, as parameters. No
-schema means the endpoint is still generated but without typed body or
-responses.
+input schema means the endpoint is still generated without typed request data.
+
+### Automatic TypeScript response inference
+
+For an on-disk TypeScript procedure route, `output` is optional for structural
+documentation. When it is absent, Raffel uses the project's TypeScript program
+to inspect the default handler's awaited return type and converts that type to
+JSON Schema for USD/OpenAPI:
+
+```ts
+// src/http/health/get.ts
+export default async function handler() {
+  return {
+    healthy: true,
+    service: 'accounts',
+    checks: [{ name: 'database', ok: true }],
+  }
+}
+```
+
+The generated response schema includes `healthy`, `service`, and the nested
+`checks` item shape without requiring `export const output`. Inference supports
+primitives, objects, arrays, tuples, imported TypeScript types, optional fields,
+literal unions/enums, and `Date`.
+
+An explicit `output` always wins. It is still required when the response should
+be validated at runtime or the contract needs information TypeScript types do
+not carry, such as examples, validator-native formats, refinements, or numeric
+and string constraints. Inferred schemas are documentation-only and never
+enable an output validation interceptor. Property JSDoc is preserved as the
+field description when available.
+
+Inference falls back to the generic `object` response for `any`, `unknown`, HTTP
+`Response` wrappers, unrepresentable dynamic types, virtual discovery sources,
+and deployments where only compiled JavaScript is available. Keep an explicit
+`output` for those cases.
 
 For discovered GET routes, a property whose name matches a dynamic file-system
 segment becomes a required path parameter; the remaining properties become

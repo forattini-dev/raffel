@@ -189,6 +189,9 @@ export function createProgrammaticRegistration(
       const handler = input.handler as ProcedureHandler
       const inputSchema = input.inputSchema
       const outputSchema = input.outputSchema
+      const documentationOutputSchema = 'inferredOutputSchema' in input
+        ? input.inferredOutputSchema
+        : undefined
       const summary = 'meta' in input ? input.meta?.summary : (input as AddProcedureInput).summary
       const description = 'meta' in input ? input.meta?.description : (input as AddProcedureInput).description
       const tags = 'meta' in input ? input.meta?.tags : (input as AddProcedureInput).tags
@@ -211,6 +214,7 @@ export function createProgrammaticRegistration(
         handler,
         inputSchema,
         outputSchema,
+        documentationOutputSchema,
         summary,
         description,
         tags,

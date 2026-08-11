@@ -67,6 +67,8 @@ export interface HandlerSchema<TInput = unknown, TOutput = unknown> {
 
   /** Output schema (validates handler result) */
   output?: unknown
+  /** Output shape used by documentation only; never enables runtime validation. */
+  documentationOutput?: unknown
 }
 
 /**

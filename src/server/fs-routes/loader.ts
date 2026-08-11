@@ -34,6 +34,7 @@ import { createLoadedResourceFromExports, generateResourceRoutes, loadResources 
 import { loadGraphQLResources } from './graphql/loader.js'
 import { loadTcpHandlers } from './tcp/loader.js'
 import { loadUdpHandlers } from './udp/loader.js'
+import type { TypeScriptOutputSchemaInferrer } from './typescript-output-inference.js'
 import type { LoadedRestResource, RestActionConfig, RestExports } from './rest/types.js'
 import type { LoadedResource, ResourceAction, ResourceExports, ResourceMiddleware } from './resources/types.js'
 import type { LoadedGraphQLResource } from '../../graphql/resource.js'
@@ -230,6 +231,12 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   const baseDir = options.baseDir ?? process.cwd()
   const extensions = options.extensions ?? ['.ts', '.js']
   const source = options.source ?? createFileSystemDiscoverySource()
+  let outputInferrer: Promise<TypeScriptOutputSchemaInferrer> | undefined
+  const getOutputInferrer = (): Promise<TypeScriptOutputSchemaInferrer> => {
+    outputInferrer ??= import('./typescript-output-inference.js')
+      .then(module => module.createTypeScriptOutputSchemaInferrer())
+    return outputInferrer
+  }
   source.reset()
 
   const routes: LoadedRoute[] = []
@@ -268,7 +275,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load HTTP routes (multi-source aware)
   for (const src of resolveSources(baseDir, config.http, DEFAULTS.http)) {
     if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'http'); continue }
-    const loaded = await loadDirectory(source, src.dir, 'procedure', extensions)
+    const loaded = await loadDirectory(source, src.dir, 'procedure', extensions, { getOutputInferrer })
     prefixRouteNames(loaded.routes, src.prefix)
     applyHttpVerbConvention(loaded.routes)
     if (coLocatedEnabled) {
@@ -287,6 +294,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
       if (!await source.exists(root.dir)) continue
       const loaded = await loadDirectory(source, root.dir, 'procedure', extensions, {
         skipRestResourceFiles: true,
+        getOutputInferrer,
       })
       const loadedAnchors = await loadRoutesRootResourceAnchors(source, root, extensions)
       const composedRoutes = composeRoutesRootResourceActions(loaded.routes, loadedAnchors.anchors, root, diagnostics)
@@ -324,7 +332,7 @@ export async function loadDiscovery(options: DiscoveryLoaderOptions): Promise<Di
   // Load RPC routes
   for (const src of resolveSources(baseDir, config.rpc, DEFAULTS.rpc)) {
     if (!(await source.exists(src.dir))) { warnMissingDiscoverySource(src, 'rpc'); continue }
-    const loaded = await loadDirectory(source, src.dir, 'procedure', extensions)
+    const loaded = await loadDirectory(source, src.dir, 'procedure', extensions, { getOutputInferrer })
     prefixRouteNames(loaded.routes, src.prefix)
     if (coLocatedEnabled) {
       await attachCoLocatedPolicies(source, loaded.routes, coLocatedCustomConditions, src.dir)
@@ -1164,7 +1172,10 @@ async function loadDirectory(
   dir: string,
   kind: 'procedure' | 'stream' | 'event',
   extensions: string[],
-  options: { skipRestResourceFiles?: boolean } = {},
+  options: {
+    skipRestResourceFiles?: boolean
+    getOutputInferrer?: () => Promise<TypeScriptOutputSchemaInferrer>
+  } = {},
 ): Promise<{
   routes: LoadedRoute[]
   middlewareCount: number
@@ -1220,6 +1231,23 @@ async function loadDirectory(
       // Load sibling markdown for rich description
       const siblingMarkdown = await loadSiblingMarkdown(source, filePath)
       const mergedMeta = mergeMetaWithMarkdown(exports.meta, siblingMarkdown, directoryMeta)
+      const canInferOutput = kind === 'procedure' && !exports.output &&
+        ['.ts', '.tsx', '.mts', '.cts'].includes(extname(filePath)) &&
+        !filePath.endsWith('.d.ts')
+      const inferredOutput = canInferOutput && options.getOutputInferrer
+        ? (await options.getOutputInferrer()).infer(filePath)
+        : undefined
+      if (inferredOutput?.status === 'inferred') {
+        logger.debug(
+          { filePath, type: inferredOutput.type },
+          'Inferred route output schema from TypeScript',
+        )
+      } else if (inferredOutput?.status === 'skipped') {
+        logger.debug(
+          { filePath, reason: inferredOutput.reason },
+          'Skipped TypeScript route output inference',
+        )
+      }
 
       const route: LoadedRoute = {
         kind,
@@ -1229,6 +1257,7 @@ async function loadDirectory(
         handler: exports.default,
         inputSchema: exports.input,
         outputSchema: exports.output,
+        inferredOutputSchema: inferredOutput?.status === 'inferred' ? inferredOutput.schema : undefined,
         meta: mergedMeta,
         middlewares,
         authConfig,

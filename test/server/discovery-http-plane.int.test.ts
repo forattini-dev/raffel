@@ -50,6 +50,116 @@ afterEach(async () => {
 })
 
 describe('discovery.http plane (issue #110)', () => {
+  it('infers the documented response schema from a TypeScript handler return type', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-typescript-output-'))
+    const httpDir = path.join(dir, 'http')
+    await mkdir(path.join(httpDir, 'health'), { recursive: true })
+
+    await writeFile(
+      path.join(httpDir, 'health', 'get.ts'),
+      `export default async function () {
+  return {
+    healthy: true,
+    service: 'tasks',
+    details: { version: '1.0.0' },
+    checks: [{ name: 'database', ok: true }],
+  }
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: { http: httpDir },
+      extensions: ['.ts'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Inferred Output API', version: '1.0.0' },
+    })
+    await server.start()
+
+    const response = await fetch(`http://127.0.0.1:${port}/health`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      healthy: true,
+      service: 'tasks',
+      details: { version: '1.0.0' },
+      checks: [{ name: 'database', ok: true }],
+    })
+
+    expect(
+      server.getOpenAPIDocument()?.paths['/health']?.get?.responses['200']
+        .content?.['application/json'].schema,
+    ).toEqual({
+      type: 'object',
+      properties: {
+        healthy: { type: 'boolean' },
+        service: { type: 'string' },
+        details: {
+          type: 'object',
+          properties: { version: { type: 'string' } },
+          required: ['version'],
+        },
+        checks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              ok: { type: 'boolean' },
+            },
+            required: ['name', 'ok'],
+          },
+        },
+      },
+      required: ['healthy', 'service', 'details', 'checks'],
+      'x-raffel-inferred-from': 'typescript',
+    })
+  })
+
+  it('keeps an explicit output schema authoritative over TypeScript inference', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-explicit-output-'))
+    const httpDir = path.join(dir, 'http')
+    await mkdir(path.join(httpDir, 'status'), { recursive: true })
+
+    await writeFile(
+      path.join(httpDir, 'status', 'get.ts'),
+      `export const output = {
+  type: 'object',
+  properties: { declared: { type: 'string' } },
+  required: ['declared'],
+}
+
+export default async function () {
+  return { inferred: true }
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: { http: httpDir },
+      extensions: ['.ts'],
+    } as never).enableUSD({
+      basePath: '/docs',
+      info: { title: 'Explicit Output API', version: '1.0.0' },
+    })
+    await server.start()
+
+    expect(
+      server.getOpenAPIDocument()?.paths['/status']?.get?.responses['200']
+        .content?.['application/json'].schema,
+    ).toEqual({
+      type: 'object',
+      properties: { declared: { type: 'string' } },
+      required: ['declared'],
+    })
+  })
+
   it('serves ordinary Routes Root HTTP handlers with public prefix and internal namespace', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-http-'))
     const routesDir = path.join(dir, 'domains', 'leads', 'routes')
