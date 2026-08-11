@@ -68,6 +68,44 @@ describe('HTTP reference documentation', () => {
     expect(app.style.getPropertyValue('--sidebar-width')).toBe('300px')
   })
 
+  it('renders endpoint sections in the same tag-group order as the sidebar', () => {
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Ordered API', version: '1.0.0' },
+      paths: {
+        '/admin': {
+          get: { tags: ['admin'], responses: { '200': { description: 'OK' } } },
+        },
+        '/health': {
+          get: { tags: ['health'], responses: { '200': { description: 'OK' } } },
+        },
+        '/metrics': {
+          get: { tags: ['observability'], responses: { '200': { description: 'OK' } } },
+        },
+        '/tasks/{taskId}': {
+          get: { tags: ['jobs'], responses: { '200': { description: 'OK' } } },
+        },
+        '/tasks': {
+          get: { tags: ['jobs'], responses: { '200': { description: 'OK' } } },
+        },
+      },
+    })
+
+    const sidebarPaths = [...win.document.querySelectorAll('#sidebarNav .nav-item-path')]
+      .map((element: any) => element.textContent)
+    const bodyPaths = [...win.document.querySelectorAll('#mainContent .endpoint-path')]
+      .map((element: any) => element.textContent)
+
+    expect(sidebarPaths).toEqual([
+      '/admin',
+      '/health',
+      '/tasks/{taskId}',
+      '/tasks',
+      '/metrics',
+    ])
+    expect(bodyPaths).toEqual(sidebarPaths)
+  })
+
   it('renders compact contract rows with requiredness, examples, rich descriptions, and collapsed nesting', () => {
     const win = createReference({
       openapi: '3.1.0',

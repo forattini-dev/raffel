@@ -31,6 +31,7 @@ type Endpoint = {
   tags?: string[]
   data?: unknown
 }
+type EndpointGroup = { name: string; endpoints: Endpoint[] }
 type PageView = Required<Pick<DocsPage, 'title' | 'path' | 'markdown' | 'description' | 'section'>> & {
   order: number
   updatedAt?: string
@@ -1025,6 +1026,44 @@ function getEndpointsForProtocol(protocol: string): Endpoint[] {
   return endpoints
 }
 
+function endpointMatchesSearch(endpoint: Endpoint): boolean {
+  return !searchQuery ||
+    endpoint.path.toLowerCase().includes(searchQuery) ||
+    (endpoint.summary ?? '').toLowerCase().includes(searchQuery) ||
+    (endpoint.description ?? '').toLowerCase().includes(searchQuery)
+}
+
+function getEndpointGroupsForProtocol(protocol: string): EndpointGroup[] {
+  const endpoints = getEndpointsForProtocol(protocol).filter(endpointMatchesSearch)
+  const endpointsByTag = new Map<string, Endpoint[]>()
+  for (const endpoint of endpoints) {
+    const tag = endpoint.tags?.[0] ?? 'Endpoints'
+    const taggedEndpoints = endpointsByTag.get(tag) ?? []
+    taggedEndpoints.push(endpoint)
+    endpointsByTag.set(tag, taggedEndpoints)
+  }
+
+  if (tagGroups.length === 0) {
+    return Array.from(endpointsByTag.keys())
+      .sort()
+      .map(name => ({ name, endpoints: endpointsByTag.get(name) ?? [] }))
+  }
+
+  const groups: EndpointGroup[] = []
+  const consumedTags = new Set<string>()
+  for (const group of tagGroups) {
+    const groupEndpoints = (group.tags ?? []).flatMap((tag: string) => {
+      consumedTags.add(tag)
+      return endpointsByTag.get(tag) ?? []
+    })
+    if (groupEndpoints.length > 0) groups.push({ name: group.name, endpoints: groupEndpoints })
+  }
+  for (const tag of Array.from(endpointsByTag.keys()).filter(tag => !consumedTags.has(tag)).sort()) {
+    groups.push({ name: tag, endpoints: endpointsByTag.get(tag) ?? [] })
+  }
+  return groups
+}
+
 function forEntries(value: any, callback: (name: string, item: any) => void): void {
   for (const [name, item] of Object.entries(value ?? {}) as Array<[string, any]>) callback(name, item)
 }
@@ -1256,25 +1295,8 @@ function renderSidebar(): void {
   const isRoot = !activePagePath || activePagePath === '/'
   if (matchedPage || !isRoot) return
 
-  const endpoints = getEndpointsForProtocol(activeProtocol).filter(endpoint =>
-    !searchQuery ||
-    endpoint.path.toLowerCase().includes(searchQuery) ||
-    (endpoint.summary ?? '').toLowerCase().includes(searchQuery) ||
-    (endpoint.description ?? '').toLowerCase().includes(searchQuery)
-  )
-  const tags = new Map<string, Endpoint[]>()
-  for (const endpoint of endpoints) {
-    const tag = endpoint.tags?.[0] ?? 'Endpoints'
-    if (!tags.has(tag)) tags.set(tag, [])
-    tags.get(tag)?.push(endpoint)
-  }
-  const groups = tagGroups.length > 0
-    ? tagGroups
-    : Array.from(tags.keys()).sort().map(name => ({ name, tags: [name], expanded: true }))
-  for (const group of groups) {
-    const groupEndpoints = (group.tags ?? []).flatMap((tag: string) => tags.get(tag) ?? [])
-    if (groupEndpoints.length === 0) continue
-    appendSidebarGroup(nav, group.name, groupEndpoints.map((endpoint: Endpoint) => ({
+  for (const group of getEndpointGroupsForProtocol(activeProtocol)) {
+    appendSidebarGroup(nav, group.name, group.endpoints.map((endpoint: Endpoint) => ({
       active: false,
       label: endpoint.path,
       prefix: endpoint.method,
@@ -3186,11 +3208,7 @@ function renderContent(): void {
   }
 
   if (searchQuery) renderDocsSearch(main)
-  const endpoints = getEndpointsForProtocol(activeProtocol).filter(endpoint =>
-    !searchQuery ||
-    endpoint.path.toLowerCase().includes(searchQuery) ||
-    (endpoint.summary ?? '').toLowerCase().includes(searchQuery)
-  )
+  const endpoints = getEndpointGroupsForProtocol(activeProtocol).flatMap(group => group.endpoints)
   for (const endpoint of endpoints) {
     const section = doc.createElement('section')
     section.className = 'endpoint-section'
