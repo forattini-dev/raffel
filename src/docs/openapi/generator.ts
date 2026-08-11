@@ -682,7 +682,12 @@ export function generateOpenAPI(
       ...(meta.description && { description: meta.description }),
       tags: operationTags,
       responses: {
-        '200': createSuccessResponse(handlerSchema?.output, schemas, meta.name, handlerSchema?.validator),
+        '200': createSuccessResponse(
+          handlerSchema?.output ?? handlerSchema?.documentationOutput,
+          schemas,
+          meta.name,
+          handlerSchema?.validator,
+        ),
         '400': createErrorResponse('Validation Error'),
         '401': createErrorResponse('Unauthorized'),
         '403': createErrorResponse('Forbidden'),

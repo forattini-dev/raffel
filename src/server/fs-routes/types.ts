@@ -649,6 +649,9 @@ export interface LoadedRoute {
   /** Output schema */
   outputSchema?: z.ZodType
 
+  /** TypeScript-inferred output shape used only by documentation generators. */
+  inferredOutputSchema?: Record<string, unknown>
+
   /** Handler metadata */
   meta?: HandlerMeta
 

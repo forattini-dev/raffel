@@ -407,9 +407,10 @@ function createProcedureResponses(
   }
 
   // Success response
-  if (handlerSchema?.output) {
+  const documentedOutput = handlerSchema?.output ?? handlerSchema?.documentationOutput
+  if (documentedOutput) {
     const schemaName = generateSchemaName(name, 'Output')
-    const outputSchema = convertSchema(handlerSchema.output)
+    const outputSchema = convertSchema(documentedOutput)
     schemaRegistry.add(schemaName, outputSchema)
 
     responses['200'] = {

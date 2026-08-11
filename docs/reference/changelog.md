@@ -7,6 +7,15 @@ page highlights notable updates in the docs.
 
 ## Unreleased
 
+### TypeScript response inference for filesystem routes
+
+TypeScript HTTP/RPC procedure files discovered from the filesystem now get a
+structural USD/OpenAPI response schema from the default handler's inferred
+return type when they omit `export const output`. Explicit output schemas remain
+authoritative and continue to own runtime validation and richer constraints;
+inferred schemas are documentation-only. See
+[File-system routing](/routing/file-system.md#automatic-typescript-response-inference).
+
 ### Docs root overview + logical protocol default (1.1.60)
 
 The docs root (`/docs`) now renders an OpenAPI-driven landing instead of

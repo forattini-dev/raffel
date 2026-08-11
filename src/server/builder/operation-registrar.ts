@@ -15,6 +15,7 @@ export interface ProcedureOperationInput {
   handler: ProcedureHandler
   inputSchema?: z.ZodType
   outputSchema?: z.ZodType
+  documentationOutputSchema?: unknown
   summary?: string
   description?: string
   tags?: string[]
@@ -61,6 +62,7 @@ export function createProcedureOperationRegistrar(input: {
       handler,
       inputSchema,
       outputSchema,
+      documentationOutputSchema,
       summary,
       description,
       tags,
@@ -78,12 +80,21 @@ export function createProcedureOperationRegistrar(input: {
 
     let normalizedInterceptors = normalizeInterceptors([...globalInterceptors, ...interceptors])
 
-    if (inputSchema || outputSchema) {
-      const schema: HandlerSchema = {}
-      if (inputSchema) schema.input = inputSchema
-      if (outputSchema) schema.output = outputSchema
-      schemaRegistry.register(name, schema)
-      normalizedInterceptors = normalizeInterceptors(normalizedInterceptors, schema)
+    if (inputSchema || outputSchema || documentationOutputSchema) {
+      const registeredSchema: HandlerSchema = {}
+      if (inputSchema) registeredSchema.input = inputSchema
+      if (outputSchema) registeredSchema.output = outputSchema
+      if (!outputSchema && documentationOutputSchema) {
+        registeredSchema.documentationOutput = documentationOutputSchema
+      }
+      schemaRegistry.register(name, registeredSchema)
+
+      if (inputSchema || outputSchema) {
+        const validationSchema: HandlerSchema = {}
+        if (inputSchema) validationSchema.input = inputSchema
+        if (outputSchema) validationSchema.output = outputSchema
+        normalizedInterceptors = normalizeInterceptors(normalizedInterceptors, validationSchema)
+      }
     }
 
     const cacheInterceptor = cacheInterceptorFor?.(name, cache)
