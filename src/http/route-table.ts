@@ -343,8 +343,18 @@ function matchPath(
   for (let i = 0; i < compiled.paramNames.length; i++) {
     const value = match[i + 1]
     if (value !== undefined) {
-      params[compiled.paramNames[i]] = decodeURIComponent(value)
+      params[compiled.paramNames[i]] = decodePathParam(value)
     }
   }
   return params
+}
+
+/** Decode a captured path parameter without rejecting malformed request URLs. */
+export function decodePathParam(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch (error) {
+    if (error instanceof URIError) return value
+    throw error
+  }
 }

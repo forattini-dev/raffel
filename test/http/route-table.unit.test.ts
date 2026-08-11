@@ -16,6 +16,13 @@ describe('HttpRouteTable', () => {
     expect(match.params).toEqual({ id: 'alice a', bookId: 'book-1' })
   })
 
+  it('preserves malformed percent-encoding instead of throwing', () => {
+    const table = new HttpRouteTable<string, string>()
+    table.register({ method: 'GET', path: '/users/:id', handler: 'show-user' })
+
+    expect(table.match('GET', '/users/%ZZ').params).toEqual({ id: '%ZZ' })
+  })
+
   it('matches parameters embedded in a static path segment', () => {
     const table = new HttpRouteTable<string, string>()
     table.register({
