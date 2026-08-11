@@ -7,6 +7,13 @@ page highlights notable updates in the docs.
 
 ## Unreleased
 
+### Decoded HTTP path parameters
+
+REST resources and `server.http.*` routes now receive decoded path parameters,
+consistent with the core HTTP route table. Percent-encoded e-mail addresses,
+spaces, slashes, and Unicode are decoded after route matching; malformed escape
+sequences are preserved verbatim instead of throwing `URIError`.
+
 ### TypeScript response inference for filesystem routes
 
 TypeScript HTTP/RPC procedure files discovered from the filesystem now get a

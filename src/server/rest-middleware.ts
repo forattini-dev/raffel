@@ -27,6 +27,7 @@ import {
 } from './http-lifecycle/index.js'
 import { bindContextToSpan, setHttpTelemetryRoute } from '../tracing/index.js'
 import {
+  decodePathParam,
   HttpRouteTable,
   type HttpMethod,
   type HttpRouteMethod,
@@ -171,7 +172,7 @@ export function createRestMiddleware(
           const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
           const params: Record<string, string> = {}
           paramNames.forEach((name: string, i: number) => {
-            params[name] = match[i + 1]
+            params[name] = decodePathParam(match[i + 1])
           })
 
           const query = parseRestQueryParams(url.searchParams)
@@ -291,7 +292,7 @@ export function createHttpOverrideMiddleware(
       const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
       const params: Record<string, string> = {}
       paramNames.forEach((name: string, i: number) => {
-        params[name] = pathMatch[i + 1]
+        params[name] = decodePathParam(pathMatch[i + 1])
       })
 
       const responseCodec = resolveHttpResponseCodec(req, res, codecs)

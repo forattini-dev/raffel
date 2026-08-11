@@ -301,6 +301,38 @@ export const adapter = {
     expect(openApi?.paths['/api/v1/leads/notifications/{id}']?.get?.operationId).toBe('api.v1.leads.notifications_get')
   })
 
+  it('decodes schema-first REST path params and preserves malformed encoding (issue #182)', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-rest-encoded-param-'))
+    const restDir = path.join(dir, 'rest')
+    await mkdir(restDir, { recursive: true })
+    await writeFile(
+      path.join(restDir, 'things.js'),
+      `import { z } from 'zod'
+
+export const schema = z.object({ id: z.string() })
+export const config = { operations: ['get'] }
+export const get = async (_input, ctx) => ({ id: ctx.params.id })
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: { rest: restDir },
+      extensions: ['.js'],
+    } as never)
+    await server.start()
+
+    const encoded = await fetch(`http://127.0.0.1:${port}/things/a%40b`)
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ id: 'a@b' })
+
+    const malformed = await fetch(`http://127.0.0.1:${port}/things/%ZZ`)
+    expect(malformed.status).toBe(200)
+    expect(await malformed.json()).toEqual({ id: '%ZZ' })
+  })
+
   it('serves schema-first .rest list pagination only when explicitly enabled', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-routes-root-rest-pagination-'))
     const routesDir = path.join(dir, 'domains', 'leads', 'routes')

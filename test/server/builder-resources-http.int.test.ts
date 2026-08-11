@@ -126,6 +126,40 @@ describe('Resource files via HTTP override middleware (issue #100)', () => {
     expect(del?.httpPath).toBe('/users/:id')
   })
 
+  it('decodes resource path params and preserves malformed percent-encoding (issue #182)', async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'raffel-resource-encoded-param-'))
+    await mkdir(path.join(tempDir, 'src', 'resources'), { recursive: true })
+    await writeFile(
+      path.join(tempDir, 'src', 'resources', 'things.js'),
+      `export const config = { basePath: '/things' }
+export const get = async (id) => ({ id })
+`,
+    )
+
+    const discovery = await loadDiscovery({
+      baseDir: tempDir,
+      discovery: { resources: true },
+      extensions: ['.js'],
+    })
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' })
+    server.addDiscovery(discovery)
+    await server.start()
+
+    const base = `http://127.0.0.1:${port}/things`
+    for (const [encoded, decoded] of [
+      ['a%40b', 'a@b'],
+      ['a%2Fb', 'a/b'],
+      ['Gustavo%20Vieira', 'Gustavo Vieira'],
+      ['%E2%9C%93', '✓'],
+      ['%ZZ', '%ZZ'],
+    ]) {
+      const response = await fetch(`${base}/${encoded}`)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ id: decoded })
+    }
+  })
+
   it('per-action middleware composes after config.middleware (issue #115)', async () => {
     // One global middleware (A) gates every action; one per-action
     // middleware (B) gates only `create`. `list` and `get` should run A but
