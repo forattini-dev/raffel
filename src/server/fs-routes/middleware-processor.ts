@@ -14,6 +14,7 @@ import type {
   AuthConfig,
   HandlerMeta,
 } from './types.js'
+import { attachAuthMiddlewareDocumentation } from '../../middleware/auth.js'
 
 const logger = createLogger('fs-middleware')
 
@@ -83,7 +84,7 @@ function middlewareToInterceptor(middleware: MiddlewareFunction): Interceptor {
  * Create auth interceptor
  */
 function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Interceptor {
-  return async (envelope, ctx, next) => {
+  const interceptor: Interceptor = async (envelope, ctx, next) => {
     const isRequired = meta.auth === 'required'
 
     // Check if already authenticated
@@ -127,6 +128,21 @@ function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Inte
 
     return next()
   }
+  const documentation = authConfig?.documentation ?? (authConfig?.strategy === 'api-key'
+    ? { schemeName: 'apiKeyAuth', securityScheme: { type: 'apiKey' as const, in: 'header' as const, name: 'X-API-Key' } }
+    : typeof authConfig?.strategy === 'function'
+      ? undefined
+      : { schemeName: 'bearerAuth', securityScheme: { type: 'http' as const, scheme: 'bearer', bearerFormat: 'JWT' } })
+  if (documentation) {
+    const schemeName = documentation.schemeName ?? 'auth'
+    attachAuthMiddlewareDocumentation(interceptor, {
+      securitySchemes: { [schemeName]: documentation.securityScheme },
+      security: [{ [schemeName]: [] }],
+      publicProcedures: [],
+      global: false,
+    })
+  }
+  return interceptor
 }
 
 /**

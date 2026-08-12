@@ -382,6 +382,7 @@ export type {
   // Auth types
   AuthResult,
   AuthStrategy,
+  AuthStrategyDocumentation,
   AuthMiddlewareOptions,
   BearerTokenOptions,
   ApiKeyOptions,

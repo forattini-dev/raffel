@@ -9,7 +9,7 @@ import type {
 } from '../../usd/index.js'
 import type { OpenAPIDocument } from '../../usd/export/openapi.js'
 import type { MarkdownDocsSource } from '../../docs/markdown-loader.js'
-import type { OpenGraphConfig, TryItOutConfig } from '../../docs/ui/types.js'
+import type { OpenGraphConfig, TryItOutConfig, UIThemeConfig } from '../../docs/ui/types.js'
 
 // === USD Documentation Types ===
 
@@ -68,7 +68,7 @@ export interface USDDocsConfig {
   /** UI configuration */
   ui?: {
     /** Theme preference */
-    theme?: 'light' | 'dark' | 'custom' | 'auto'
+    theme?: 'light' | 'dark' | 'custom' | 'auto' | UIThemeConfig
     /** Primary color for UI */
     primaryColor?: string
     /** Logo URL */

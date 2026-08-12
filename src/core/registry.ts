@@ -47,6 +47,8 @@ export interface ProcedureOptions {
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies
+  /** Explicit authentication requirement retained for documentation. */
+  auth?: 'required' | 'optional' | 'none'
   /**
    * Authorization config — populated by the `.authz()` builder method.
    * Discovery / runtime-preview / MCP read this to surface the gate's
@@ -197,6 +199,7 @@ export function createRegistry(): Registry {
           jsonrpc: options.jsonrpc,
           grpc: options.grpc,
           policies,
+          auth: options.auth,
           authz: options.authz,
         },
         interceptors: interceptors.length > 0 ? interceptors : undefined,

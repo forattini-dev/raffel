@@ -16,7 +16,7 @@ import type { BreadcrumbsConfig, NavItem, OpenGraphConfig, PageNavConfig, TryItO
 
 const _startupTs = Date.now()
 import { generateStyles } from './styles.js'
-import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS } from './utils.js'
+import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS, sanitizeCssTokenValue } from './utils.js'
 import {
   generateAppContainer,
   generateHeroSection,
@@ -42,8 +42,11 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   // Get USD documentation config from spec
   const usdDocumentation = doc['x-usd']?.documentation
 
-  const theme = ui?.theme ?? 'auto'
-  const primaryColor = ui?.primaryColor ?? '#6366f1'
+  const themeConfig = ui?.theme && typeof ui.theme === 'object' ? ui.theme : undefined
+  const theme = themeConfig?.defaultMode ?? (typeof ui?.theme === 'string' ? ui.theme : 'auto')
+  const primaryColor = sanitizeCssTokenValue(themeConfig?.light?.colors?.primary)
+    ?? sanitizeCssTokenValue(ui?.primaryColor)
+    ?? '#6366f1'
   const logo = ui?.logo ?? usdDocumentation?.logo
   const favicon = ui?.favicon ?? usdDocumentation?.favicon
   const title = doc.info.title
@@ -107,7 +110,7 @@ export function generateUIHTML(options: UIGeneratorOptions): string {
   )
 
   // Generate CSS
-  const styles = generateStyles({ primaryColor, heroBackgroundCSS })
+  const styles = generateStyles({ primaryColor, heroBackgroundCSS, theme: themeConfig })
   const stylesHtml = assetMode === 'external'
     ? `<link rel="stylesheet" href="${escapeHtml(assetBasePath)}/-/raffel-docs.css">`
     : `<style>
@@ -177,7 +180,7 @@ ${generateClientRuntimeScript()}
 
   // Generate HTML
   return `<!DOCTYPE html>
-<html lang="en" data-theme="${theme}">
+<html lang="en" data-theme="${theme}"${themeConfig ? ' data-theme-configured="true"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -304,7 +307,10 @@ export function generateUIRuntimeJS(): string {
 export function generateUICSS(options: UIGeneratorOptions): string {
   const { doc, ui } = options
   const usdDocumentation = doc['x-usd']?.documentation
-  const primaryColor = ui?.primaryColor ?? '#6366f1'
+  const themeConfig = ui?.theme && typeof ui.theme === 'object' ? ui.theme : undefined
+  const primaryColor = sanitizeCssTokenValue(themeConfig?.light?.colors?.primary)
+    ?? sanitizeCssTokenValue(ui?.primaryColor)
+    ?? '#6366f1'
   const hero = mergeHeroConfig(usdDocumentation, ui?.hero)
   const heroBackgroundCSS = generateHeroBackgroundCSS(
     primaryColor,
@@ -312,7 +318,7 @@ export function generateUICSS(options: UIGeneratorOptions): string {
     hero?.backgroundImage
   )
 
-  return generateStyles({ primaryColor, heroBackgroundCSS })
+  return generateStyles({ primaryColor, heroBackgroundCSS, theme: themeConfig })
 }
 
 const DEFAULT_MERMAID_CDN_SRC = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js'

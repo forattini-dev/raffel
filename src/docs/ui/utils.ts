@@ -26,12 +26,19 @@ export function escapeJsonForScript(obj: unknown): string {
     .replace(/&/g, '\\u0026')
 }
 
+/** Keep a typed CSS token from escaping its declaration or the style element. */
+export function sanitizeCssTokenValue(value: string | undefined): string | undefined {
+  const normalized = value?.trim()
+  return normalized && !/[;{}<>\r\n]/.test(normalized) ? normalized : undefined
+}
+
 /**
  * Adjust color brightness
  * @param color - Hex color string (e.g., '#6366f1')
  * @param amount - Positive to lighten, negative to darken
  */
 export function adjustColor(color: string, amount: number): string {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return color
   const hex = color.replace('#', '')
   const r = Math.max(0, Math.min(255, parseInt(hex.slice(0, 2), 16) + amount))
   const g = Math.max(0, Math.min(255, parseInt(hex.slice(2, 4), 16) + amount))

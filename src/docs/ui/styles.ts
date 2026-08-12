@@ -11,20 +11,22 @@ import { schemaCodeStyles } from './style-sections/schema-code.js'
 import { generateShellStyles } from './style-sections/shell.js'
 import { tryItStyles } from './style-sections/try-it.js'
 import { adjustColor } from './utils.js'
+import type { UIThemeConfig } from './types.js'
 
 export interface StylesConfig {
   primaryColor: string
   heroBackgroundCSS: string
+  theme?: UIThemeConfig
 }
 
 /**
  * Generate CSS styles for the USD documentation UI
  */
 export function generateStyles(config: StylesConfig): string {
-  const { primaryColor, heroBackgroundCSS } = config
+  const { primaryColor, heroBackgroundCSS, theme } = config
 
   return [
-    generateShellStyles(primaryColor, adjustColor(primaryColor, -15), heroBackgroundCSS),
+    generateShellStyles(primaryColor, adjustColor(primaryColor, -15), heroBackgroundCSS, theme),
     layoutNavigationStyles,
     contentStyles,
     editLinkStyles,

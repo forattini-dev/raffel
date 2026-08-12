@@ -154,8 +154,9 @@ const protocolRank = (name: string): number => {
 }
 const protocols = Object.keys(protocolData).sort((a, b) => protocolRank(a) - protocolRank(b))
 let activeProtocol = protocols[0] ?? 'http'
-type RuntimeEnvironment = { id: string; label: string; url: string; variables: Record<string, string> }
+type RuntimeEnvironment = { id: string; label: string; url: string; description: string; variables: Record<string, string>; variableDefinitions: Record<string, any> }
 const environments = resolveEnvironments(spec.servers)
+const environmentStorageKey = `raffel-docs-environment:${String(win.location?.pathname ?? '/docs')}`
 let selectedEnvironmentUrl = inferEnvironmentUrl(environments)
 let searchQuery = ''
 let routeState = parseRouteHash()
@@ -1498,7 +1499,7 @@ function resolveEnvironments(servers: any): RuntimeEnvironment[] {
         (current, [name, value]) => current.replaceAll(`{${name}}`, value),
         described
       ) || Object.values(values).join(' / ') || `Server ${serverIndex + 1}`
-      resolved.push({ id: `${serverIndex}:${variantIndex}`, label, url, variables: values })
+      resolved.push({ id: `${serverIndex}:${variantIndex}`, label, url, description: described, variables: values, variableDefinitions: variables })
     })
   })
   return resolved
@@ -1506,6 +1507,8 @@ function resolveEnvironments(servers: any): RuntimeEnvironment[] {
 
 function inferEnvironmentUrl(options: RuntimeEnvironment[]): string {
   if (options.length === 0) return String(win.location?.origin ?? 'http://localhost:3000')
+  const stored = win.localStorage?.getItem?.(environmentStorageKey)
+  if (stored && options.some(environment => environment.url === stored)) return stored
   const current = safeRuntimeUrl(String(win.location?.href ?? ''))
   if (!current) return options[0].url
   const scored = options.map((environment, index) => {
@@ -3051,26 +3054,6 @@ function renderAuthenticationSection(): any | null {
   heading.innerHTML = '<div><div class="subsection-label">AUTHENTICATION</div><h2>Authentication</h2><p>Credentials saved here are shared with every protected route in this environment.</p></div>'
   section.appendChild(heading)
 
-  const environmentField = doc.createElement('label')
-  environmentField.className = 'auth-environment'
-  environmentField.innerHTML = '<span class="auth-field-label">Current environment</span>'
-  const select = doc.createElement('select')
-  select.className = 'auth-environment-select'
-  environments.forEach(environment => {
-    const option = doc.createElement('option')
-    option.value = environment.url
-    option.textContent = `${environment.label} — ${environment.url}`
-    if (environment.url === selectedEnvironmentUrl) option.setAttribute('selected', '')
-    select.appendChild(option)
-  })
-  select.value = selectedEnvironmentUrl
-  select.onchange = () => {
-    selectedEnvironmentUrl = select.value
-    render()
-  }
-  environmentField.appendChild(select)
-  section.appendChild(environmentField)
-
   const cards = doc.createElement('div')
   cards.className = 'auth-schemes'
   Object.entries(schemes).forEach(([schemeName, scheme]: [string, any]) => {
@@ -3260,31 +3243,48 @@ function renderDocsOverview(): any {
     container.appendChild(meta)
   }
 
-  // Servers — straight from `spec.servers`.
+  // One compact environment control drives samples, authentication and Try It.
   const servers = Array.isArray(spec.servers) ? spec.servers : []
   if (servers.length) {
     const section = doc.createElement('section')
     section.className = 'docs-overview-servers'
-    const rows = servers
-      .map((s: any) => {
-        const url = esc(String(s?.url ?? ''))
-        const desc = s?.description
-          ? `<span class="docs-overview-server-desc">${esc(String(s.description))}</span>`
-          : ''
-        const variables = Object.entries(s?.variables ?? {}).map(([name, definition]: [string, any]) => {
-          const allowed = Array.isArray(definition?.enum) && definition.enum.length > 0
-            ? `<span>allowed: ${esc(definition.enum.join(', '))}</span>`
-            : ''
-          const description = definition?.description ? `<span>${esc(definition.description)}</span>` : ''
-          return `<li><code>${esc(name)}</code><span>default: ${esc(definition?.default ?? '')}</span>${allowed}${description}</li>`
-        }).join('')
-        const variableBlock = variables
-          ? `<div class="docs-overview-server-variables"><strong>Server variables</strong><ul>${variables}</ul></div>`
-          : ''
-        return `<li class="docs-overview-server"><code class="docs-overview-server-url">${url}</code>${desc}${variableBlock}</li>`
-      })
-      .join('')
-    section.innerHTML = `<h2 class="docs-overview-subtitle">${servers.length > 1 ? 'Servers' : 'Server'}</h2><ul class="docs-overview-server-list">${rows}</ul>`
+    const label = doc.createElement('label')
+    label.className = 'docs-overview-environment'
+    label.innerHTML = `<span class="docs-overview-subtitle">${environments.length > 1 ? 'Environment' : 'Server'}</span>`
+    const select = doc.createElement('select')
+    select.className = 'docs-overview-environment-select'
+    environments.forEach(environment => {
+      const option = doc.createElement('option')
+      option.value = environment.url
+      option.textContent = environment.label
+      if (environment.url === selectedEnvironmentUrl) option.setAttribute('selected', '')
+      select.appendChild(option)
+    })
+    select.value = selectedEnvironmentUrl
+    select.onchange = () => {
+      selectedEnvironmentUrl = select.value
+      win.localStorage?.setItem?.(environmentStorageKey, selectedEnvironmentUrl)
+      render()
+    }
+    label.appendChild(select)
+    section.appendChild(label)
+
+    const current = selectedEnvironment()
+    const url = doc.createElement('code')
+    url.className = 'docs-overview-server-url'
+    url.textContent = current?.url ?? ''
+    section.appendChild(url)
+    if (current && (current.description || Object.keys(current.variables).length > 0)) {
+      const details = doc.createElement('details')
+      details.className = 'docs-overview-server-details'
+      const variables = Object.entries(current.variableDefinitions).map(([name, definition]: [string, any]) => {
+        const allowed = Array.isArray(definition?.enum) && definition.enum.length > 0 ? `<span>allowed: ${esc(definition.enum.join(', '))}</span>` : ''
+        const description = definition?.description ? `<span>${esc(definition.description)}</span>` : ''
+        return `<li><code>${esc(name)}</code><span>current: ${esc(current.variables[name] ?? '')}</span><span>default: ${esc(definition?.default ?? '')}</span>${allowed}${description}</li>`
+      }).join('')
+      details.innerHTML = `<summary>${variables ? 'Server variables' : 'Details'}</summary>${current.description ? `<p>${esc(current.description)}</p>` : ''}${variables ? `<ul>${variables}</ul>` : ''}`
+      section.appendChild(details)
+    }
     container.appendChild(section)
   }
 
@@ -3871,7 +3871,8 @@ function bindEvents(): void {
   byId('themeToggle')?.addEventListener('click', () => {
     const root = doc.documentElement
     const current = root.getAttribute('data-theme') || 'auto'
-    const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : current === 'light' ? 'custom' : 'auto'
+    const hasConfiguredTheme = root.getAttribute('data-theme-configured') === 'true'
+    const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : hasConfiguredTheme ? 'auto' : current === 'light' ? 'custom' : 'auto'
     root.setAttribute('data-theme', next)
     win.localStorage?.setItem?.(themeStorageKey, next)
   })
@@ -3941,7 +3942,8 @@ function render(): void {
 function init(): void {
   if (!doc) return
   const storedTheme = win.localStorage?.getItem?.(themeStorageKey)
-  if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light' || storedTheme === 'custom') doc.documentElement.setAttribute('data-theme', storedTheme)
+  const configuredTheme = doc.documentElement.getAttribute('data-theme-configured') === 'true'
+  if (storedTheme === 'auto' || storedTheme === 'dark' || storedTheme === 'light' || (!configuredTheme && storedTheme === 'custom')) doc.documentElement.setAttribute('data-theme', storedTheme)
   installOAuthCallback()
   installDocsPluginApi()
   if (activePagePath && activePagePath !== routeState.pagePath) {

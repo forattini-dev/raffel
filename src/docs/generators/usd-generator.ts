@@ -111,6 +111,12 @@ export interface USDGeneratorOptions {
   /** Interactive authentication recipes keyed by OpenAPI security scheme. */
   authentication?: USDAuthentication
 
+  /** @internal Auth requirements inferred from middleware metadata. */
+  authSecurity?: Array<Record<string, string[]>>
+
+  /** @internal Global auth exemptions inferred from middleware metadata. */
+  authPublicProcedures?: string[]
+
   /** OpenAPI 3.1 inbound webhook contracts. */
   webhooks?: USDDocument['webhooks']
 
@@ -278,6 +284,8 @@ export function generateUSD(
     securitySchemes,
     defaultSecurity,
     authentication,
+    authSecurity,
+    authPublicProcedures,
     webhooks,
     tags: customTags = [],
     tagGroups: customTagGroups = [],
@@ -337,6 +345,8 @@ export function generateUSD(
       {
         ...httpOptions,
         defaultSecurity,
+        authSecurity,
+        authPublicProcedures,
         includeErrorResponses: includeErrorSchemas,
       }
     )
