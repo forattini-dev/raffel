@@ -1,7 +1,53 @@
+import type { UIThemeConfig, UIThemePalette } from '../types.js'
+import { sanitizeCssTokenValue } from '../utils.js'
+
+function paletteDeclarations(palette: UIThemePalette | undefined): string {
+  if (!palette) return ''
+  const colors = palette.colors ?? {}
+  const typography = palette.typography ?? {}
+  const values: Array<[string, string | undefined]> = [
+    ['--primary-color', colors.primary], ['--primary-hover', colors.primaryHover],
+    ['--bg-color', colors.background], ['--bg-primary', colors.backgroundPrimary ?? colors.background],
+    ['--bg-secondary', colors.backgroundSecondary], ['--bg-tertiary', colors.backgroundTertiary],
+    ['--surface-color', colors.surface], ['--text-color', colors.text],
+    ['--text-primary', colors.textPrimary ?? colors.text], ['--text-secondary', colors.textSecondary],
+    ['--text-muted', colors.textMuted], ['--border-color', colors.border], ['--border', colors.border],
+    ['--accent', colors.accent], ['--code-bg', colors.codeBackground],
+    ['--sidebar-bg', colors.sidebarBackground], ['--hover-bg', colors.hoverBackground],
+    ['--code-panel-bg', colors.codePanelBackground], ['--code-panel-text', colors.codePanelText],
+    ['--code-panel-header', colors.codePanelHeader], ['--method-get-color', colors.methodGet],
+    ['--method-post-color', colors.methodPost], ['--method-put-color', colors.methodPut],
+    ['--method-patch-color', colors.methodPatch], ['--method-delete-color', colors.methodDelete],
+    ['--font-family', typography.fontFamily], ['--font-size-body', typography.bodySize],
+    ['--font-size-small', typography.smallSize], ['--font-size-xs', typography.extraSmallSize],
+    ['--font-size-h1', typography.h1Size], ['--font-size-h2', typography.h2Size],
+    ['--font-size-h3', typography.h3Size], ['--font-size-h4', typography.h4Size],
+    ['--font-size-h5', typography.h5Size], ['--font-size-h6', typography.h6Size],
+    ['--font-size-code', typography.codeSize], ['--line-height-body', typography.lineHeight],
+    ['--line-height-tight', typography.tightLineHeight],
+  ]
+  return values
+    .map(([name, value]) => [name, sanitizeCssTokenValue(value)] as const)
+    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+    .map(([name, value]) => `      ${name}: ${value};`)
+    .join('\n')
+}
+
+function customThemeOverrides(theme: UIThemeConfig | undefined): string {
+  if (!theme) return ''
+  const light = paletteDeclarations(theme.light)
+  const dark = paletteDeclarations(theme.dark)
+  return `
+    ${light ? `:root, [data-theme="light"] {\n${light}\n    }` : ''}
+    ${dark ? `[data-theme="dark"] {\n${dark}\n    }\n    @media (prefers-color-scheme: dark) {\n      [data-theme="auto"] {\n${dark}\n      }\n    }` : ''}
+  `
+}
+
 export function generateShellStyles(
   primaryColor: string,
   primaryHover: string,
-  heroBackgroundCSS: string
+  heroBackgroundCSS: string,
+  theme?: UIThemeConfig,
 ): string {
   return `
     :root {
@@ -30,6 +76,7 @@ export function generateShellStyles(
       --method-put-color: #f59e0b;
       --method-patch-color: #8b5cf6;
       --method-delete-color: #ef4444;
+      --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
 
       /* Dense documentation type scale. Component styles inherit these
          tokens so large references keep more context inside the viewport. */
@@ -138,10 +185,12 @@ export function generateShellStyles(
       }
     }
 
+    ${customThemeOverrides(theme)}
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      font-family: var(--font-family);
       background: var(--bg-color);
       color: var(--text-color);
       font-size: var(--font-size-body);

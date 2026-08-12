@@ -17,7 +17,8 @@ export const navigationClientScript = String.raw`    // Search functionality
       themeToggle.addEventListener('click', () => {
         const root = document.documentElement;
         const current = root.getAttribute('data-theme') || 'auto';
-        const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : current === 'light' ? 'custom' : 'auto';
+        const configured = root.getAttribute('data-theme-configured') === 'true';
+        const next = current === 'auto' ? 'dark' : current === 'dark' ? 'light' : configured ? 'auto' : current === 'light' ? 'custom' : 'auto';
         root.setAttribute('data-theme', next);
         localStorage?.setItem?.('raffel-docs-theme', next);
       });

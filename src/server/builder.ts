@@ -1003,9 +1003,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       configureTracing(telemetryState, config)
       return server
     },
-
     // === USD Documentation ===
-
     enableUSD(config: USDDocsConfig = {}) {
       usdDocsConfig = {
         basePath: config.basePath ?? '/docs',
@@ -1014,6 +1012,8 @@ export function createServer(options: ServerOptions): RaffelServer {
         protocols: config.protocols,
         securitySchemes: config.securitySchemes,
         defaultSecurity: config.defaultSecurity,
+        authentication: config.authentication,
+        webhooks: config.webhooks,
         tags: config.tags,
         contentTypes: config.contentTypes,
         tagGroups: config.tagGroups,

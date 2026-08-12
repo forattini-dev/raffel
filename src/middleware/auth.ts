@@ -12,6 +12,27 @@ import { RaffelError } from '../core/index.js'
 import type { Interceptor, Envelope, Context, AuthContext } from '../types/index.js'
 import { createAuthContext, getAuthRoles, getAuthScopes } from '../types/index.js'
 import type { OAuth2StrategyWithFlow, OAuth2Tokens } from './auth/oauth2.js'
+import type { USDSecurityRequirement, USDSecurityScheme } from '../usd/index.js'
+
+const AUTH_DOCUMENTATION = Symbol('raffel.auth.documentation')
+
+export interface AuthStrategyDocumentation {
+  /** Stable OpenAPI component name. Duplicate names receive a numeric suffix. */
+  schemeName?: string
+  /** Public credential contract. Secrets and verifier callbacks must never be included. */
+  securityScheme: USDSecurityScheme
+}
+
+export interface AuthMiddlewareDocumentation {
+  securitySchemes: Record<string, USDSecurityScheme>
+  security: USDSecurityRequirement[]
+  publicProcedures: string[]
+  global: boolean
+}
+
+type DocumentedAuthInterceptor = Interceptor & {
+  [AUTH_DOCUMENTATION]?: AuthMiddlewareDocumentation
+}
 
 /**
  * Authentication result
@@ -33,6 +54,9 @@ export interface AuthResult {
 export interface AuthStrategy {
   /** Strategy name for identification */
   name: string
+
+  /** Optional documentation metadata used by USD/OpenAPI generation. */
+  documentation?: AuthStrategyDocumentation
 
   /** Detect credentials without authenticating, used to keep public cache buckets safe. */
   credentialsPresented?(envelope: Envelope, ctx: Context): boolean
@@ -78,6 +102,12 @@ export function createBearerStrategy(options: BearerTokenOptions): AuthStrategy 
 
   return {
     name: 'bearer',
+    documentation: {
+      schemeName: 'bearerAuth',
+      securityScheme: headerName.toLowerCase() === 'authorization' && tokenPrefix === 'Bearer '
+        ? { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }
+        : { type: 'apiKey', in: 'header', name: headerName },
+    },
     credentialsPresented(envelope): boolean {
       const value = getMetadataValue(envelope.metadata, headerName)
       return value !== undefined
@@ -117,6 +147,10 @@ export function createApiKeyStrategy(options: ApiKeyOptions): AuthStrategy {
 
   return {
     name: 'api-key',
+    documentation: {
+      schemeName: 'apiKeyAuth',
+      securityScheme: { type: 'apiKey', in: 'header', name: headerName },
+    },
     credentialsPresented(envelope): boolean {
       return getMetadataValue(envelope.metadata, headerName) !== undefined
     },
@@ -188,6 +222,10 @@ export function createCookieSessionStrategy(options: CookieSessionOptions): Auth
 
   return {
     name: 'cookie-session',
+    documentation: {
+      schemeName: 'cookieAuth',
+      securityScheme: { type: 'apiKey', in: 'cookie', name: cookieName },
+    },
     credentialsPresented(envelope): boolean {
       const cookieHeader = getMetadataValue(envelope.metadata, 'cookie')
       if (!cookieHeader) return false
@@ -358,6 +396,14 @@ export function createEnhancedBearerStrategy(options: EnhancedBearerTokenOptions
 
   return {
     name: 'bearer-enhanced',
+    documentation: {
+      schemeName: 'bearerAuth',
+      securityScheme: extractFrom.includes('header')
+        ? (headerName.toLowerCase() === 'authorization' && tokenPrefix === 'Bearer '
+            ? { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }
+            : { type: 'apiKey', in: 'header', name: headerName })
+        : { type: 'apiKey', in: 'query', name: queryParam },
+    },
     credentialsPresented(envelope, ctx): boolean {
       if (extractFrom.includes('header')) {
         const value = getMetadataValue(envelope.metadata, headerName)
@@ -447,6 +493,12 @@ export function createEnhancedApiKeyStrategy(options: EnhancedApiKeyOptions): Au
 
   return {
     name: 'api-key-enhanced',
+    documentation: {
+      schemeName: 'apiKeyAuth',
+      securityScheme: extractFrom.includes('header')
+        ? { type: 'apiKey', in: 'header', name: headerName }
+        : { type: 'apiKey', in: 'query', name: queryParam },
+    },
     credentialsPresented(envelope, ctx): boolean {
       if (
         extractFrom.includes('header') &&
@@ -751,7 +803,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Intercepto
   const { strategies, publicProcedures = [], onError } = options
   const isPublicProcedure = buildPublicProcedureMatcher(publicProcedures)
 
-  return async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
+  const interceptor: DocumentedAuthInterceptor = async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     if ((ctx as { auth?: AuthContext }).auth?.authenticated) {
       return next()
     }
@@ -815,6 +867,41 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Intercepto
 
     return next()
   }
+
+  const securitySchemes: Record<string, USDSecurityScheme> = {}
+  for (const strategy of strategies) {
+    if (!strategy.documentation) continue
+    const baseName = strategy.documentation.schemeName?.trim() || strategy.name.replace(/[^a-zA-Z0-9._-]/g, '') || 'auth'
+    let schemeName = baseName
+    let suffix = 2
+    while (securitySchemes[schemeName]) schemeName = `${baseName}${suffix++}`
+    securitySchemes[schemeName] = strategy.documentation.securityScheme
+  }
+  if (Object.keys(securitySchemes).length > 0) {
+    attachAuthMiddlewareDocumentation(interceptor, {
+      securitySchemes,
+      security: Object.keys(securitySchemes).map(name => ({ [name]: [] })),
+      publicProcedures: [...publicProcedures],
+      global: true,
+    } satisfies AuthMiddlewareDocumentation)
+  }
+
+  return interceptor
+}
+
+/** Attach serializable, secret-free auth documentation to an interceptor. */
+export function attachAuthMiddlewareDocumentation(
+  interceptor: Interceptor,
+  documentation: AuthMiddlewareDocumentation,
+): void {
+  Object.defineProperty(interceptor, AUTH_DOCUMENTATION, { value: documentation })
+}
+
+/** Read auth documentation attached by createAuthMiddleware without executing middleware. */
+export function getAuthMiddlewareDocumentation(
+  interceptor: Interceptor,
+): AuthMiddlewareDocumentation | undefined {
+  return (interceptor as DocumentedAuthInterceptor)[AUTH_DOCUMENTATION]
 }
 
 /**

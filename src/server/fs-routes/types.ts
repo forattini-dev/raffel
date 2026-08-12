@@ -498,6 +498,9 @@ export interface AuthConfig {
   /** Auth strategy name or custom verify function */
   strategy?: 'bearer' | 'api-key' | AuthVerifyFunction
 
+  /** Documentation for a custom strategy, or an override for a built-in strategy. */
+  documentation?: import('../../middleware/auth.js').AuthStrategyDocumentation
+
   /** Token verification (for built-in strategies) */
   verify?: AuthVerifyFunction
 

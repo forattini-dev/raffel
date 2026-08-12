@@ -633,6 +633,19 @@ export function createOAuth2Strategy(config: OAuth2Config): OAuth2StrategyWithFl
 
   return {
     name: `oauth2:${config.provider ?? 'custom'}`,
+    documentation: {
+      schemeName: 'oauth2',
+      securityScheme: {
+        type: 'oauth2',
+        flows: {
+          authorizationCode: {
+            authorizationUrl: resolvedConfig.authorizationUrl,
+            tokenUrl: resolvedConfig.tokenUrl,
+            scopes: Object.fromEntries(resolvedConfig.scopes.map(scope => [scope, scope])),
+          },
+        },
+      },
+    },
     credentialsPresented(envelope): boolean {
       return envelope.metadata.authorization !== undefined ||
         envelope.metadata.Authorization !== undefined
@@ -795,6 +808,13 @@ export function createOIDCStrategy(config: OIDCConfig): OIDCStrategyWithFlow {
 
   return {
     name: 'oidc',
+    documentation: {
+      schemeName: 'oidc',
+      securityScheme: {
+        type: 'openIdConnect',
+        openIdConnectUrl: `${config.issuer.replace(/\/$/, '')}/.well-known/openid-configuration`,
+      },
+    },
 
     credentialsPresented(envelope): boolean {
       return envelope.metadata.authorization !== undefined ||

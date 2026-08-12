@@ -8,7 +8,7 @@
  * UI configuration options
  */
 export interface UIConfig {
-  theme?: 'light' | 'dark' | 'custom' | 'auto'
+  theme?: UIThemeMode | UIThemeConfig
   primaryColor?: string
   logo?: string
   favicon?: string
@@ -62,6 +62,59 @@ export interface UIConfig {
    * to avoid the customCss-can-only-load-CSS gap when a consumer needs diagrams.
    */
   mermaid?: boolean | MermaidConfig
+}
+
+export type UIThemeMode = 'light' | 'dark' | 'custom' | 'auto'
+
+export interface UIThemeConfig {
+  /** Initial mode. The reader can still switch between auto, light and dark. */
+  defaultMode?: Exclude<UIThemeMode, 'custom'>
+  light?: UIThemePalette
+  dark?: UIThemePalette
+}
+
+export interface UIThemePalette {
+  colors?: {
+    primary?: string
+    primaryHover?: string
+    background?: string
+    backgroundPrimary?: string
+    backgroundSecondary?: string
+    backgroundTertiary?: string
+    surface?: string
+    text?: string
+    textPrimary?: string
+    textSecondary?: string
+    textMuted?: string
+    border?: string
+    accent?: string
+    codeBackground?: string
+    sidebarBackground?: string
+    hoverBackground?: string
+    codePanelBackground?: string
+    codePanelText?: string
+    codePanelHeader?: string
+    methodGet?: string
+    methodPost?: string
+    methodPut?: string
+    methodPatch?: string
+    methodDelete?: string
+  }
+  typography?: {
+    fontFamily?: string
+    bodySize?: string
+    smallSize?: string
+    extraSmallSize?: string
+    h1Size?: string
+    h2Size?: string
+    h3Size?: string
+    h4Size?: string
+    h5Size?: string
+    h6Size?: string
+    codeSize?: string
+    lineHeight?: string
+    tightLineHeight?: string
+  }
 }
 
 export interface OpenGraphConfig {

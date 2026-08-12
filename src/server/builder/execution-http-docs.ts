@@ -7,6 +7,7 @@ import type {
 } from '../runtime-plan.js'
 import type { ServerLifecycleExecutionContext } from './execution-types.js'
 import type { IncomingMessage } from 'node:http'
+import { getAuthMiddlewareDocumentation } from '../../middleware/auth.js'
 
 type DocsHttpMiddlewareStep = Extract<
   ServerRuntimeHttpMiddlewareStep,
@@ -35,6 +36,7 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
     markApiDocumentationMounted,
     getDocsState,
     graphqlResources,
+    globalInterceptors,
   } = context.core
   const {
     channelRegistry,
@@ -50,6 +52,17 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
   ) {
     const { basePath: docsBasePath, config: docsConfig } = step.feature
     const authzSnapshot = getAuthzSnapshot?.() ?? undefined
+    const registeredInterceptors = registry.listProcedures().flatMap(meta => registry.getProcedure(meta.name)?.interceptors ?? [])
+    const documentedAuth = (interceptors: typeof globalInterceptors) => [...new Set(
+      interceptors.map(getAuthMiddlewareDocumentation)
+        .filter((value): value is NonNullable<typeof value> => Boolean(value)),
+    )]
+    const globalAuth = documentedAuth(globalInterceptors)
+    const inferredAuth = [...new Set([...globalAuth, ...documentedAuth(registeredInterceptors)])]
+    const inferredSecuritySchemes = Object.assign({}, ...inferredAuth.map(value => value.securitySchemes))
+    const inferredSecurity = globalAuth.flatMap(value => value.security)
+    const authSecurity = Object.keys(inferredSecuritySchemes).map(name => ({ [name]: [] }))
+    const authPublicProcedures = globalAuth.flatMap(value => value.publicProcedures)
     state.usdDocsHandlers.value = createUSDHandlers(
       {
         registry,
@@ -70,8 +83,12 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         servers: docsConfig.servers,
         protocols: docsConfig.protocols,
         contentTypes: docsConfig.contentTypes,
-        securitySchemes: docsConfig.securitySchemes,
-        defaultSecurity: docsConfig.defaultSecurity,
+        securitySchemes: Object.keys(inferredSecuritySchemes).length > 0 || docsConfig.securitySchemes
+          ? { ...inferredSecuritySchemes, ...docsConfig.securitySchemes }
+          : undefined,
+        defaultSecurity: docsConfig.defaultSecurity ?? (inferredSecurity.length > 0 ? inferredSecurity : undefined),
+        authSecurity: authSecurity.length > 0 ? authSecurity : undefined,
+        authPublicProcedures,
         authentication: docsConfig.authentication,
         webhooks: docsConfig.webhooks,
         tags: docsConfig.tags,

@@ -192,6 +192,9 @@ export interface HandlerMeta {
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
 
+  /** Explicit authentication requirement, including public opt-out. */
+  auth?: 'required' | 'optional' | 'none'
+
   /** Authorization policy config (for discovery; runtime gate via interceptor). */
   authz?: import('../middleware/policy/types.js').ProcedurePolicyConfig
 }

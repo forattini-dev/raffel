@@ -20,6 +20,7 @@ import {
   type ConvertedSchemaRegistry,
 } from './schema-converter.js'
 import { generateCodeSamples, type CodeSampleContext } from './code-samples.js'
+import { buildPublicProcedureMatcher, getAuthMiddlewareDocumentation } from '../../middleware/auth.js'
 
 /**
  * HTTP generation options
@@ -33,6 +34,10 @@ export interface HttpGeneratorOptions {
   includeErrorResponses?: boolean
   /** Include security requirement */
   defaultSecurity?: Array<Record<string, string[]>>
+  /** Schemes available to route-scoped auth when there is no global requirement. */
+  authSecurity?: Array<Record<string, string[]>>
+  /** Procedure names exempted by global authentication middleware. */
+  authPublicProcedures?: string[]
   /**
    * Code sample generation.
    * - `false` disables code samples entirely
@@ -79,6 +84,8 @@ export function generateHttpPaths(
     groupByNamespace = true,
     includeErrorResponses = true,
     defaultSecurity,
+    authSecurity,
+    authPublicProcedures = [],
     codeSamples,
     baseUrl = 'https://api.example.com',
   } = options
@@ -86,6 +93,7 @@ export function generateHttpPaths(
   const paths: USDPaths = {}
   const tags = new Set<string>()
   const schemaRegistry = createDocSchemaRegistry()
+  const isAuthPublicProcedure = buildPublicProcedureMatcher(authPublicProcedures)
 
   // Add standard error schemas
   if (includeErrorResponses) {
@@ -125,6 +133,7 @@ export function generateHttpPaths(
           schemaRegistry,
           includeErrorResponses,
           defaultSecurity,
+          authSecurity,
           resourceTag
         )
 
@@ -182,6 +191,13 @@ export function generateHttpPaths(
       operationTags,
       includeErrorResponses,
       defaultSecurity,
+      authSecurity,
+      [...new Set(
+        (ctx.registry.getProcedure(meta.name)?.interceptors ?? [])
+          .map(getAuthMiddlewareDocumentation)
+          .filter((value): value is NonNullable<typeof value> => Boolean(value)),
+      )],
+      isAuthPublicProcedure,
       openApiPath,
       method
     )
@@ -224,6 +240,7 @@ function createProcedureOperation(
     summary?: string
     description?: string
     policies?: ContractPolicies
+    auth?: 'required' | 'optional' | 'none'
     authz?: import('../../middleware/policy/types.js').ProcedurePolicyConfig
   },
   handlerSchema: HandlerSchema | undefined,
@@ -231,6 +248,9 @@ function createProcedureOperation(
   tags: string[] | undefined,
   includeErrorResponses: boolean,
   defaultSecurity?: Array<Record<string, string[]>>,
+  authSecurity?: Array<Record<string, string[]>>,
+  procedureAuth?: import('../../middleware/auth.js').AuthMiddlewareDocumentation[],
+  isAuthPublicProcedure: (name: string) => boolean = () => false,
   httpPath?: string,
   httpMethod?: string
 ): USDOperation {
@@ -366,10 +386,15 @@ function createProcedureOperation(
     }
   }
 
-  // Add security if specified
-  if (defaultSecurity) {
-    operation.security = defaultSecurity
-  }
+  const authMode = meta.policies?.auth?.mode
+  const isPublic = isAuthPublicProcedure(meta.name) || (procedureAuth ?? []).some(value => buildPublicProcedureMatcher(value.publicProcedures)(meta.name))
+  const procedureSecurity = (procedureAuth ?? []).flatMap(value => value.security)
+  const requirements = defaultSecurity ?? (procedureSecurity.length > 0 ? procedureSecurity : undefined) ?? authSecurity ?? [{}]
+  if (isPublic || meta.auth === 'none') operation.security = []
+  else if (authMode === 'optional') operation.security = [...requirements, {}]
+  else if (authMode === 'required') operation.security = requirements
+  else if (procedureSecurity.length > 0) operation.security = requirements
+  else if (defaultSecurity) operation.security = defaultSecurity
 
   return operation
 }
@@ -496,6 +521,7 @@ function createRestOperation(
   schemaRegistry: ConvertedSchemaRegistry,
   includeErrorResponses: boolean,
   defaultSecurity?: Array<Record<string, string[]>>,
+  authSecurity?: Array<Record<string, string[]>>,
   tag?: string,
 ): USDOperation {
   const resourceName = resource.name
@@ -512,9 +538,10 @@ function createRestOperation(
   }
 
   // Add security if required
-  if (route.auth && route.auth !== 'none') {
-    operation.security = defaultSecurity || [{}]
-  }
+  const requirements = defaultSecurity ?? authSecurity ?? [{}]
+  if (route.auth === 'none') operation.security = []
+  else if (route.auth === 'optional') operation.security = [...requirements, {}]
+  else if (route.auth === 'required') operation.security = requirements
 
   // Add request body for POST, PUT, PATCH
   const method = route.method.toLowerCase()

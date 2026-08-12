@@ -15,6 +15,7 @@ import { createLogger } from '../utils/logger.js'
 import type { PolicyBootstrap } from '../middleware/policy/bootstrap.js'
 import type { Policy, ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type { RouteCacheConfig } from '../cache/server-runtime.js'
+import { policyMetadataFromRouteMeta } from './builder/metadata.js'
 
 const logger = createLogger('server')
 
@@ -241,6 +242,8 @@ export function registerDiscoveredHandlers(
         httpSuccessStatus: route.meta?.httpSuccessStatus,
         jsonrpc: route.meta?.jsonrpc,
         grpc: route.meta?.grpc,
+        policies: policyMetadataFromRouteMeta(route.meta),
+        auth: route.meta?.auth,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })
       onRegistered?.({ name: route.name, kind: 'procedure', filePath: route.filePath })

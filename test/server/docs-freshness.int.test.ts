@@ -4,6 +4,14 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { createServer } from '../../src/server/builder.js'
+import {
+  createApiKeyStrategy,
+  createAuthMiddleware,
+  createBearerStrategy,
+  createCookieSessionStrategy,
+} from '../../src/middleware/auth.js'
+import { createOAuth2Strategy, createOIDCStrategy } from '../../src/middleware/auth/oauth2.js'
+import { createClientCredentialsStrategy } from '../../src/middleware/auth/oauth2-client-credentials.js'
 import { loadDiscovery } from '../../src/server/fs-routes/loader.js'
 
 async function getFreePort(): Promise<number> {
@@ -60,6 +68,186 @@ describe('API Documentation freshness', () => {
 
     const unsupported = await fetch(`http://127.0.0.1:${port}/docs/usd.xml`)
     expect(unsupported.status).toBe(406)
+  })
+
+  it('preserves interactive authentication configured through enableUSD', async () => {
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' }).enableUSD({
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer' },
+      },
+      defaultSecurity: [{ bearerAuth: [] }],
+      authentication: {
+        schemes: {
+          bearerAuth: {
+            strategy: 'operation',
+            operationId: 'sessions.create',
+            tokenPointers: { accessToken: '/accessToken' },
+          },
+        },
+      },
+    })
+    await server.start()
+
+    expect(server.getUSDDocument()?.['x-usd-authentication']).toEqual({
+      schemes: {
+        bearerAuth: {
+          strategy: 'operation',
+          operationId: 'sessions.create',
+          tokenPointers: { accessToken: '/accessToken' },
+        },
+      },
+    })
+  })
+
+  it('documents built-in authentication middleware without duplicate USD configuration', async () => {
+    const port = await getFreePort()
+    const auth = createAuthMiddleware({
+      strategies: [
+        createBearerStrategy({
+          verify: async token => token === 'valid'
+            ? { authenticated: true, principal: 'user-1' }
+            : null,
+        }),
+      ],
+    })
+    server = createServer({ port, host: '127.0.0.1' })
+      .use(auth)
+      .enableUSD()
+    server.procedure('profile.get').handler(async () => ({ id: 'user-1' }))
+    await server.start()
+
+    expect(server.getOpenAPIDocument()?.components?.securitySchemes).toEqual({
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+    })
+    expect(server.getOpenAPIDocument()?.security).toEqual([{ bearerAuth: [] }])
+  })
+
+  it('marks procedures exempted by global authentication as public', async () => {
+    const port = await getFreePort()
+    const auth = createAuthMiddleware({
+      strategies: [createBearerStrategy({ verify: async () => null })],
+      publicProcedures: ['health.*'],
+    })
+    server = createServer({ port, host: '127.0.0.1' }).use(auth).enableUSD()
+    server.procedure('health.get').handler(async () => ({ ok: true }))
+    server.procedure('profile.get').handler(async () => ({ id: 'user-1' }))
+    await server.start()
+
+    expect(server.getOpenAPIDocument()?.paths['/health/get']?.post?.security).toEqual([])
+    expect(server.getOpenAPIDocument()?.paths['/profile/get']?.post?.security).toEqual([{ bearerAuth: [] }])
+  })
+
+  it('documents authentication middleware attached to one procedure', async () => {
+    const port = await getFreePort()
+    const auth = createAuthMiddleware({
+      strategies: [createApiKeyStrategy({ verify: async () => null })],
+    })
+    server = createServer({ port, host: '127.0.0.1' }).enableUSD()
+    server.procedure('profile.get').use(auth).handler(async () => ({ id: 'user-1' }))
+    server.procedure('health.get').handler(async () => ({ ok: true }))
+    await server.start()
+
+    const document = server.getOpenAPIDocument()
+    expect(document?.paths['/profile/get']?.post?.security).toEqual([{ apiKeyAuth: [] }])
+    expect(document?.paths['/health/get']?.post?.security).toBeUndefined()
+    expect(document?.security).toBeUndefined()
+  })
+
+  it('infers public security schemes for every built-in authentication strategy without secrets', async () => {
+    const port = await getFreePort()
+    const auth = createAuthMiddleware({
+      strategies: [
+        createApiKeyStrategy({ verify: async () => null, headerName: 'X-Partner-Key' }),
+        createCookieSessionStrategy({ validate: async () => null, cookieName: 'sid' }),
+        createOAuth2Strategy({
+          provider: 'custom',
+          clientId: 'docs-client',
+          clientSecret: 'must-not-leak',
+          redirectUri: 'https://app.example.com/callback',
+          authorizationUrl: 'https://identity.example.com/authorize',
+          tokenUrl: 'https://identity.example.com/token',
+          userInfoUrl: 'https://identity.example.com/userinfo',
+          scopes: ['profile:read'],
+        }),
+        createOIDCStrategy({
+          issuer: 'https://identity.example.com',
+          clientId: 'oidc-client',
+          clientSecret: 'must-not-leak-either',
+          redirectUri: 'https://app.example.com/callback',
+        }),
+        createClientCredentialsStrategy({
+          tokenUrl: 'https://identity.example.com/token',
+          clientId: 'service-client',
+          clientSecret: 'also-secret',
+          scope: ['tasks:read'],
+        }),
+      ],
+    })
+    server = createServer({ port, host: '127.0.0.1' }).use(auth).enableUSD()
+    await server.start()
+
+    const schemes = server.getOpenAPIDocument()?.components?.securitySchemes
+    expect(schemes).toMatchObject({
+      apiKeyAuth: { type: 'apiKey', in: 'header', name: 'X-Partner-Key' },
+      cookieAuth: { type: 'apiKey', in: 'cookie', name: 'sid' },
+      oauth2: { type: 'oauth2' },
+      oidc: {
+        type: 'openIdConnect',
+        openIdConnectUrl: 'https://identity.example.com/.well-known/openid-configuration',
+      },
+      clientCredentials: { type: 'oauth2' },
+    })
+    expect(JSON.stringify(schemes)).not.toContain('must-not-leak')
+    expect(JSON.stringify(schemes)).not.toContain('also-secret')
+  })
+
+  it('documents authentication declared by file-system discovery', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-docs-auth-discovery-'))
+    const httpDir = path.join(dir, 'http')
+    await mkdir(path.join(httpDir, 'profile'), { recursive: true })
+    await mkdir(path.join(httpDir, 'session'), { recursive: true })
+    await mkdir(path.join(httpDir, 'health'), { recursive: true })
+    await writeFile(path.join(httpDir, '_auth.ts'), `export default {
+  strategy: 'api-key',
+  verify: async (key) => key === 'valid' ? { principal: 'user-1' } : null,
+}`)
+    await writeFile(path.join(httpDir, 'profile', 'get.ts'), `
+export const meta = { auth: 'required' }
+export default async () => ({ id: 'user-1' })
+`)
+    await writeFile(path.join(httpDir, 'session', 'get.ts'), `
+export const meta = { auth: 'optional' }
+export default async () => ({ authenticated: false })
+`)
+    await writeFile(path.join(httpDir, 'health', 'get.ts'), `
+export const meta = { auth: 'none' }
+export default async () => ({ ok: true })
+`)
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: { http: httpDir },
+      extensions: ['.ts'],
+    } as never).enableUSD()
+    await server.start()
+
+    const document = server.getOpenAPIDocument()
+    expect(document?.components?.securitySchemes?.apiKeyAuth).toEqual({
+      type: 'apiKey',
+      in: 'header',
+      name: 'X-API-Key',
+    })
+    expect(document?.paths['/profile']?.get?.security).toEqual([{ apiKeyAuth: [] }])
+    expect(document?.paths['/session']?.get?.security).toEqual([{ apiKeyAuth: [] }, {}])
+    expect(document?.paths['/health']?.get?.security).toEqual([])
+    expect(document?.security).toBeUndefined()
   })
 
   it('mounts docs after startup discovery and invalidates generated docs after a newer discovery revision', async () => {

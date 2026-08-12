@@ -360,6 +360,54 @@ describe('Documentation UI HTML builder', () => {
     expect(css).toContain('.nav-item-text,\n    .docs-sidebar-home {')
   })
 
+  it('builds typed light and dark palettes while preserving the theme toggle modes', () => {
+    const html = generateUIHTML({
+      basePath: '/docs',
+      doc: { info: { title: 'Branded API', version: '1.0.0' }, paths: {} },
+      ui: {
+        theme: {
+          defaultMode: 'dark',
+          light: {
+            colors: { primary: '#0057b8', background: '#fdfdfd', text: '#172033' },
+            typography: { fontFamily: 'Inter, sans-serif', bodySize: '11px' },
+          },
+          dark: {
+            colors: { primary: '#6ea8ff', background: '#08111f', text: '#f4f7fb' },
+          },
+        },
+      },
+    })
+
+    expect(html).toContain('data-theme="dark"')
+    expect(html).toContain('--primary-color: #0057b8;')
+    expect(html).toContain('--bg-color: #fdfdfd;')
+    expect(html).toContain('--text-color: #172033;')
+    expect(html).toContain('--font-family: Inter, sans-serif;')
+    expect(html).toContain('--font-size-body: 11px;')
+    expect(html).toContain('--primary-color: #6ea8ff;')
+    expect(html).toContain('--bg-color: #08111f;')
+    expect(html).toContain('--text-color: #f4f7fb;')
+  })
+
+  it('rejects unsafe custom theme token values', () => {
+    const css = generateUICSS({
+      basePath: '/docs',
+      doc: { info: { title: 'Safe API', version: '1.0.0' }, paths: {} },
+      ui: {
+        theme: {
+          light: {
+            colors: { primary: 'red; } body { display: none' },
+            typography: { bodySize: '10px; color: red' },
+          },
+        },
+      },
+    })
+
+    expect(css).not.toContain('body { display: none')
+    expect(css).not.toContain('10px; color: red')
+    expect(css).toContain('--primary-color: #6366f1;')
+  })
+
   it('uses the same semantic HTTP method palette in the sidebar and endpoint content', () => {
     const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
 

@@ -425,13 +425,40 @@ describe('HTTP reference documentation', () => {
 
     expect(html.indexOf('authentication-section')).toBeLessThan(html.indexOf('endpoint-section'))
     expect(html).toContain('Authentication')
-    expect(html).toContain('Current environment')
+    expect(html).toContain('Environment')
     expect(html).toContain('https://api.staging.example.com')
     expect(html).toContain('value="https://api.staging.example.com" selected')
     expect(html).toContain('bearerAuth')
     expect(html).toContain('Bearer token')
     expect(html).toContain('partnerKey')
     expect(html).toContain('X-Partner-Key')
+  })
+
+  it('uses one compact server selector for overview, authentication, samples and Try It', () => {
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Environments API', version: '1.0.0' },
+      servers: [
+        { url: 'https://staging.example.com', description: 'Staging' },
+        { url: 'https://api.example.com', description: 'Production' },
+      ],
+      security: [{ bearerAuth: [] }],
+      components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } } },
+      paths: {
+        '/profile': { get: { responses: { '200': { description: 'Profile' } } } },
+      },
+    }, 'https://staging.example.com/docs')
+
+    const selector = win.document.querySelector('.docs-overview-environment-select')
+    expect(selector).toBeTruthy()
+    expect(selector.querySelectorAll('option')).toHaveLength(2)
+    expect(win.document.querySelector('.docs-overview-server-list')).toBeNull()
+    expect(win.document.querySelector('.auth-environment-select')).toBeNull()
+    expect(win.document.getElementById('mainContent').textContent).toContain('https://staging.example.com/profile')
+
+    selector.value = 'https://api.example.com'
+    selector.dispatchEvent(new win.Event('change'))
+    expect(win.document.getElementById('mainContent').textContent).toContain('https://api.example.com/profile')
   })
 
   it('resolves relative OpenAPI servers against the documentation origin', () => {
@@ -479,13 +506,13 @@ describe('HTTP reference documentation', () => {
 
     expect(win.document.getElementById('mainContent').textContent).toContain('Authorization: Bearer stage-token')
 
-    const environment = win.document.querySelector('.auth-environment-select')
+    const environment = win.document.querySelector('.docs-overview-environment-select')
     environment.value = 'https://api.example.com'
     environment.dispatchEvent(new win.Event('change'))
     expect(win.document.querySelector('[data-scheme="bearerAuth"] input[name="accessToken"]').value).toBe('')
     expect(win.document.getElementById('mainContent').textContent).not.toContain('stage-token')
 
-    const productionEnvironment = win.document.querySelector('.auth-environment-select')
+    const productionEnvironment = win.document.querySelector('.docs-overview-environment-select')
     productionEnvironment.value = 'https://staging.example.com'
     productionEnvironment.dispatchEvent(new win.Event('change'))
     expect(win.document.querySelector('[data-scheme="bearerAuth"] input[name="accessToken"]').value).toBe('stage-token')

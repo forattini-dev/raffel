@@ -282,6 +282,18 @@ export function createClientCredentialsStrategy(
 
   return {
     name: 'client-credentials',
+    documentation: {
+      schemeName: 'clientCredentials',
+      securityScheme: {
+        type: 'oauth2',
+        flows: {
+          clientCredentials: {
+            tokenUrl: config.tokenUrl,
+            scopes: Object.fromEntries(defaultScope.map(scope => [scope, scope])),
+          },
+        },
+      },
+    },
     credentialsPresented(envelope): boolean {
       return getMetadataValue(envelope.metadata, basicAuthHeaderName) !== undefined
     },

@@ -333,6 +333,36 @@ The generator provides automatic summaries and descriptions for standard operati
 
 ## Security Schemes
 
+When Raffel's built-in authentication middleware is attached to the server, `enableUSD()` infers the corresponding OpenAPI schemes automatically. This covers Bearer, API key, cookie session, OAuth 2.0, OIDC, and client credentials without serializing tokens, verifier callbacks, client secrets, or other credentials. Explicit `securitySchemes` and `defaultSecurity` entries always take precedence over inferred values.
+
+```ts
+const auth = createAuthMiddleware({
+  strategies: [createBearerStrategy({ verify: verifyJwt })],
+  publicProcedures: ['health/get'],
+})
+
+createServer({ port: 3000 })
+  .use(auth)
+  .enableUSD()
+```
+
+Custom strategies can expose the same secret-free contract through `strategy.documentation`:
+
+```ts
+const customStrategy: AuthStrategy = {
+  name: 'partner-token',
+  documentation: {
+    schemeName: 'partnerToken',
+    securityScheme: { type: 'apiKey', in: 'header', name: 'X-Partner-Token' },
+  },
+  authenticate: authenticatePartner,
+}
+```
+
+For file-system discovery, `_auth.ts` strategies named `bearer` or `api-key` are inferred as well. Route metadata maps directly to OpenAPI: `required` requires a scheme, `optional` adds the anonymous alternative, and `none` emits `security: []`.
+
+Manual declaration remains available when the runtime mechanism cannot be inferred:
+
 ```ts
 const document = generateOpenAPI(registry, schemaRegistry, {
   info: { title: 'My API', version: '1.0.0' },

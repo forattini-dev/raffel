@@ -42,7 +42,7 @@ Markdown pages do not replace this generated reference. They complement it. For 
 
 ### Landing page (docs root)
 
-Opening the docs root (`/docs`) renders an overview built straight from the OpenAPI/USD `info` and `servers`: the API title and version, contact/license, the list of servers, and `info.description` rendered as Markdown — followed by the endpoint list. There is nothing to configure; populate `info.description`, `info.contact`, `info.license`, and `servers` in the spec and they show up.
+Opening the docs root (`/docs`) renders an overview built straight from the OpenAPI/USD `info` and `servers`: the API title and version, contact/license, a compact environment selector, and `info.description` rendered as Markdown — followed by the endpoint list. The selected server is shared by Authentication, request samples, and Try It, and is persisted for that docs path. Server variables and descriptions stay available under the selector's expandable details.
 
 The reference also opens on the **most relevant protocol** by a fixed priority — `http` → `graphql` → `websocket` → `jsonrpc` → `grpc` → `streams` → `tcp` → `udp` — so an HTTP-first API lands on HTTP. The active protocol's endpoints are listed expanded in the sidebar with its tab active. Switching tabs is one click; a genuine non-root path that does not exist still shows a "Page not found" surface.
 
@@ -403,7 +403,39 @@ When disabled, `.mermaid` blocks render as fallback `<pre>` text — no broken d
 
 ## Theme Preference
 
-The UI supports `ui.theme: 'light' | 'dark' | 'custom' | 'auto'`. The theme toggle cycles through `auto`, `dark`, `light`, and `custom`, and stores the user's choice in `localStorage` under `raffel-docs-theme`. A stored preference overrides the configured default on the next page load.
+The UI supports the legacy `ui.theme: 'light' | 'dark' | 'custom' | 'auto'` modes and a typed theme object. A typed theme supplies partial light/dark palettes; omitted tokens keep Raffel's defaults. The reader can still switch between `auto`, `dark`, and `light`, and the choice is stored under `raffel-docs-theme`.
+
+```ts
+server.enableUSD({
+  ui: {
+    theme: {
+      defaultMode: 'auto',
+      light: {
+        colors: {
+          primary: '#0057b8',
+          background: '#ffffff',
+          text: '#172033',
+          sidebarBackground: '#f7f9fc',
+        },
+        typography: {
+          fontFamily: 'Inter, sans-serif',
+          bodySize: '11px',
+          codeSize: '10px',
+        },
+      },
+      dark: {
+        colors: {
+          primary: '#6ea8ff',
+          background: '#08111f',
+          text: '#f4f7fb',
+        },
+      },
+    },
+  },
+})
+```
+
+Color tokens cover backgrounds, surfaces, text, borders, code panels, the sidebar, and HTTP method colors. Typography tokens cover the font family, body/small/code sizes, heading sizes, and line heights. Unsafe declaration-breaking values are ignored.
 
 Use `ui.customCss` to load one or more project CSS files after the built-in stylesheet:
 

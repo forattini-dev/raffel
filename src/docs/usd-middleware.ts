@@ -240,6 +240,12 @@ export interface USDMiddlewareConfig {
   /** Default security requirement */
   defaultSecurity?: USDGeneratorOptions['defaultSecurity']
 
+  /** @internal Authentication schemes inferred from runtime middleware. */
+  authSecurity?: USDGeneratorOptions['authSecurity']
+
+  /** @internal Procedure names exempted by runtime authentication. */
+  authPublicProcedures?: USDGeneratorOptions['authPublicProcedures']
+
   /** Interactive authentication recipes keyed by security scheme. */
   authentication?: USDGeneratorOptions['authentication']
 
@@ -257,7 +263,7 @@ export interface USDMiddlewareConfig {
 
   /** UI configuration */
   ui?: {
-    theme?: 'light' | 'dark' | 'custom' | 'auto'
+    theme?: import('./ui/types.js').UIThemeMode | import('./ui/types.js').UIThemeConfig
     primaryColor?: string
     logo?: string
     favicon?: string
@@ -503,6 +509,8 @@ export function createUSDHandlers(
     contentTypes,
     securitySchemes,
     defaultSecurity,
+    authSecurity,
+    authPublicProcedures,
     authentication,
     webhooks,
     tags,
@@ -621,6 +629,8 @@ export function createUSDHandlers(
         contentTypes,
         securitySchemes,
         defaultSecurity,
+        authSecurity,
+        authPublicProcedures,
         authentication,
         webhooks,
         tags,
