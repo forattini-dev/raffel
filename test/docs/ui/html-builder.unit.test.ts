@@ -360,6 +360,20 @@ describe('Documentation UI HTML builder', () => {
     expect(css).toContain('.nav-item-text,\n    .docs-sidebar-home {')
   })
 
+  it('uses the same semantic HTTP method palette in the sidebar and endpoint content', () => {
+    const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
+
+    expect(css).toContain('--method-get-color: #10b981;')
+    expect(css).toContain('--method-post-color: #3b82f6;')
+    expect(css).toContain('--method-put-color: #f59e0b;')
+    expect(css).toContain('--method-patch-color: #8b5cf6;')
+    expect(css).toContain('--method-delete-color: #ef4444;')
+    expect(css).toContain('.method-get { background: var(--method-get-color);')
+    expect(css).toContain('.method-post { background: var(--method-post-color);')
+    expect(css).toContain('.badge-get { background: var(--method-get-color);')
+    expect(css).toContain('.badge-delete { background: var(--method-delete-color);')
+  })
+
   it('keeps nested HTTP reference surfaces compact', () => {
     const css = generateStyles({ primaryColor: '#336699', heroBackgroundCSS: '' })
 

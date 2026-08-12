@@ -7,6 +7,12 @@ page highlights notable updates in the docs.
 
 ## Unreleased
 
+### Semantic HTTP method colors in the sidebar
+
+HTTP method badges in the endpoint sidebar now use the same GET, POST, PUT,
+PATCH, and DELETE palette as the endpoint content, making long route lists
+faster to scan without increasing their compact footprint.
+
 ### Decoded HTTP path parameters
 
 REST resources and `server.http.*` routes now receive decoded path parameters,

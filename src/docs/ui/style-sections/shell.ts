@@ -25,6 +25,11 @@ export function generateShellStyles(
       --code-panel-bg: #263238;
       --code-panel-text: #cfd8dc;
       --code-panel-header: #37474f;
+      --method-get-color: #10b981;
+      --method-post-color: #3b82f6;
+      --method-put-color: #f59e0b;
+      --method-patch-color: #8b5cf6;
+      --method-delete-color: #ef4444;
 
       /* Dense documentation type scale. Component styles inherit these
          tokens so large references keep more context inside the viewport. */

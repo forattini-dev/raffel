@@ -310,11 +310,11 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       letter-spacing: 0.5px;
     }
 
-    .badge-get { background: #10b981; color: white; }
-    .badge-post { background: #3b82f6; color: white; }
-    .badge-put { background: #f59e0b; color: white; }
-    .badge-patch { background: #8b5cf6; color: white; }
-    .badge-delete { background: #ef4444; color: white; }
+    .badge-get { background: var(--method-get-color); color: white; }
+    .badge-post { background: var(--method-post-color); color: white; }
+    .badge-put { background: var(--method-put-color); color: white; }
+    .badge-patch { background: var(--method-patch-color); color: white; }
+    .badge-delete { background: var(--method-delete-color); color: white; }
 
     .endpoint-path {
       font-family: 'SF Mono', 'Monaco', monospace;
