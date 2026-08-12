@@ -372,13 +372,14 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       letter-spacing: 0.02em;
     }
 
-    /* Method classes kept for HTML compatibility but visually unified.
-       The DELETE verb gets the only chromatic accent — destructive
-       intent earns visual weight. */
-    .method-get,
-    .method-post,
-    .method-put,
-    .method-patch,
+    /* HTTP methods share the endpoint-content palette so long route lists
+       remain scannable without adding size or spacing. */
+    .method-get { background: var(--method-get-color); color: white; border-color: var(--method-get-color); }
+    .method-post { background: var(--method-post-color); color: white; border-color: var(--method-post-color); }
+    .method-put { background: var(--method-put-color); color: white; border-color: var(--method-put-color); }
+    .method-patch { background: var(--method-patch-color); color: white; border-color: var(--method-patch-color); }
+    .method-delete { background: var(--method-delete-color); color: white; border-color: var(--method-delete-color); }
+
     .method-ws,
     .method-stream,
     .method-rpc,
@@ -386,12 +387,6 @@ export const layoutNavigationStyles = `    /* ========== LAYOUT ========== */
       color: var(--text-secondary);
       background: transparent;
       border-color: var(--border-color);
-    }
-
-    .method-delete {
-      color: var(--primary-color);
-      border-color: var(--primary-color);
-      background: transparent;
     }
 
     .nav-item-path {

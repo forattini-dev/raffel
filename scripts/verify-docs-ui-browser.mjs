@@ -47,6 +47,10 @@ const docs = {
           },
         },
       },
+      post: { summary: 'Create health check', responses: { '200': { description: 'OK' } } },
+      put: { summary: 'Replace health check', responses: { '200': { description: 'OK' } } },
+      patch: { summary: 'Update health check', responses: { '200': { description: 'OK' } } },
+      delete: { summary: 'Delete health check', responses: { '204': { description: 'Deleted' } } },
     },
   },
   'x-usd': {
@@ -451,6 +455,19 @@ window.__runRaffelDocsSmoke = function () {
     ))
   }
   document.documentElement.setAttribute('data-custom-css-ok', String(getComputedStyle(document.documentElement).getPropertyValue('--custom-smoke-token').trim() === 'loaded'))
+  if (!document.documentElement.hasAttribute('data-sidebar-method-colors-ok')) {
+    const methodBadges = ['get', 'post', 'put', 'patch', 'delete'].map((method) => ({
+      sidebar: document.querySelector('.nav-item-method.method-' + method),
+      content: document.querySelector('.badge-' + method),
+    }))
+    if (methodBadges.every(({ sidebar, content }) => Boolean(sidebar) && Boolean(content))) {
+      const sidebarMethodColorsMatchContent = methodBadges.every(({ sidebar, content }) =>
+        getComputedStyle(sidebar).backgroundColor === getComputedStyle(content).backgroundColor &&
+        getComputedStyle(sidebar).backgroundColor !== 'rgba(0, 0, 0, 0)'
+      )
+      document.documentElement.setAttribute('data-sidebar-method-colors-ok', String(sidebarMethodColorsMatchContent))
+    }
+  }
   const openSidebarGroups = Array.from(document.querySelectorAll('.docs-sidebar-group:not(.collapsed) > .tag-group-header')).map((item) => item.textContent || '').join('|')
   const collapsedSidebarGroups = Array.from(document.querySelectorAll('.docs-sidebar-group.collapsed > .tag-group-header')).map((item) => item.textContent || '').join('|')
   document.documentElement.setAttribute('data-sidebar-ancestor-open-ok', String(openSidebarGroups.includes('Guides') && openSidebarGroups.includes('Getting Started')))
@@ -804,6 +821,7 @@ async function run() {
       { label: 'UDP try panel', needle: 'data-protocol-try-udp-ok="true"' },
       { label: 'search Ctrl+K hotkey focus', needle: 'data-search-hotkey-ok="true"' },
       { label: 'search index UI result', needle: 'data-search-results-ok="true"' },
+      { label: 'sidebar HTTP method colors match endpoint badges', needle: 'data-sidebar-method-colors-ok="true"' },
     ])
 
     const autoHeaderDom = await dumpDom(chrome, `${origin}/docs#/no-header`)
