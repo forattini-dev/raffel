@@ -212,6 +212,20 @@ Delivery is explicitly at least once, so applications and consumers must
 tolerate a record repeated at the replay/live boundary. Raffel does not parse
 cursors, deduplicate records, create storage, or run a background producer.
 
+When the Replay Provider reports an expired cursor, its Stream Snapshot becomes
+a named SSE `snapshot` event. The snapshot state is application-provided. The
+snapshot cursor is supplied by the application and emitted as the SSE `id`:
+
+```ts
+source.addEventListener('snapshot', (event) => {
+  replaceLocalState(JSON.parse(event.data))
+  // EventSource keeps event.lastEventId for the next reconnection.
+})
+```
+
+This outcome is separate from authorization failures and transient `error`
+events. Raffel does not create an in-memory replay or snapshot fallback.
+
 ## Long polling is ordinary HTTP
 
 A Long Poll Interaction is not a stream capability. Each request waits for at
