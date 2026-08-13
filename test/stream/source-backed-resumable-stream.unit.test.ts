@@ -294,7 +294,7 @@ describe('Source-Backed Resumable Stream', () => {
 
     const streams = generateStreams({ registry }).streams.endpoints
     expect(streams?.['orders/live']).not.toHaveProperty('x-usd-resumable')
-    expect(streams?.['orders/resumable']?.['x-usd-resumable']).toEqual(config)
+    expect(streams?.['orders/resumable']?.['x-usd-resumable']).toMatchObject(config)
 
     const openapi = generateOpenAPI(registry, undefined, {
       info: { title: 'Orders API', version: '1.0.0' },
@@ -302,6 +302,6 @@ describe('Source-Backed Resumable Stream', () => {
     expect(openapi.paths['/streams/orders/live']?.get)
       .not.toHaveProperty('x-raffel-resumable-stream')
     expect(openapi.paths['/streams/orders/resumable']?.get?.['x-raffel-resumable-stream'])
-      .toEqual(config)
+      .toMatchObject(config)
   })
 })

@@ -18,6 +18,7 @@ import type { SchemaRegistry, HandlerSchema } from '../../validation/index.js'
 import type { StreamDirection, HandlerMeta } from '../../types/index.js'
 import { createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
 import { resolveContentTypes } from './content-types.js'
+import { projectResumableStreamContract } from '../../stream/projections.js'
 
 /**
  * Streams generation options
@@ -123,7 +124,16 @@ function convertStreamEndpoint(
   }
 
   if (meta.resumable) {
-    endpoint['x-usd-resumable'] = { ...meta.resumable }
+    let snapshotSchemaRef: string | undefined
+    if (handlerSchema?.snapshot) {
+      const snapshotName = `${sanitizeSchemaName(meta.name)}_Snapshot`
+      schemaRegistry.add(snapshotName, handlerSchema.snapshot)
+      snapshotSchemaRef = `#/components/schemas/${snapshotName}`
+    }
+    endpoint['x-usd-resumable'] = projectResumableStreamContract(
+      meta.resumable,
+      snapshotSchemaRef,
+    )
   }
 
   // Add tags based on stream name

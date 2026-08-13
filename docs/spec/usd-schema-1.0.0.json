@@ -1034,7 +1034,7 @@
         "x-usd-resumable": {
           "type": "object",
           "description": "Application-owned replay and Durable Stream Source contract.",
-          "required": ["provider", "delivery", "cursor", "expiredCursor"],
+          "required": ["provider", "delivery", "cursor", "expiredCursor", "replay", "snapshot", "projections"],
           "properties": {
             "provider": { "type": "string", "minLength": 1 },
             "delivery": { "const": "at-least-once" },
@@ -1050,6 +1050,61 @@
               "type": "object",
               "required": ["event"],
               "properties": { "event": { "const": "snapshot" } }
+            },
+            "replay": {
+              "type": "object",
+              "required": ["owner", "provider"],
+              "properties": {
+                "owner": { "const": "application" },
+                "provider": { "type": "string", "minLength": 1 }
+              }
+            },
+            "snapshot": {
+              "type": "object",
+              "required": ["owner", "event", "cursor"],
+              "properties": {
+                "owner": { "const": "application" },
+                "event": { "const": "snapshot" },
+                "cursor": { "const": "application" },
+                "schema": { "type": "object" }
+              }
+            },
+            "projections": {
+              "type": "object",
+              "required": ["httpSse", "websocket", "grpc"],
+              "properties": {
+                "httpSse": {
+                  "type": "object",
+                  "required": ["status", "transport"],
+                  "properties": {
+                    "status": { "const": "preserved" },
+                    "transport": { "type": "string" },
+                    "resumeCursor": { "type": "string" },
+                    "recordCursor": { "type": "string" },
+                    "snapshot": { "type": "string" }
+                  }
+                },
+                "websocket": {
+                  "type": "object",
+                  "required": ["status", "transport"],
+                  "properties": {
+                    "status": { "const": "adapted" },
+                    "transport": { "type": "string" },
+                    "resumeCursor": { "type": "string" },
+                    "recordCursor": { "type": "string" },
+                    "snapshot": { "type": "string" }
+                  }
+                },
+                "grpc": {
+                  "type": "object",
+                  "required": ["status", "transport"],
+                  "properties": {
+                    "status": { "const": "unsupported" },
+                    "transport": { "type": "string" },
+                    "reason": { "type": "string" }
+                  }
+                }
+              }
             }
           }
         }

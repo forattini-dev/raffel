@@ -13,6 +13,7 @@ import type {
   USDSecurityRequirement,
   USDContentTypes,
 } from '../spec/types.js'
+import { projectResumableStreamContract } from '../../stream/projections.js'
 
 /**
  * Stream endpoint builder
@@ -71,7 +72,7 @@ export class StreamEndpointBuilder {
   }
 
   resumable(config: import('../../types/handlers.js').ResumableStreamConfig): this {
-    this.endpoint['x-usd-resumable'] = { ...config }
+    this.endpoint['x-usd-resumable'] = projectResumableStreamContract(config)
     return this
   }
 

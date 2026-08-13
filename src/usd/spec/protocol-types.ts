@@ -249,7 +249,7 @@ export interface USDStreamEndpoint {
   'x-usd-live-stream'?: import('../../types/handlers.js').StreamOperationalControls
 
   /** Application-owned replay and durable-source contract. */
-  'x-usd-resumable'?: import('../../types/handlers.js').ResumableStreamConfig
+  'x-usd-resumable'?: import('../../types/handlers.js').ResumableStreamProjectedContract
 }
 
 // =============================================================================

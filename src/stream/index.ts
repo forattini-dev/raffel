@@ -3,6 +3,7 @@ export {
   createSourceBackedStreamHandler,
   ResumeCursorExpiredError,
 } from './resumable.js'
+export { projectResumableStreamContract } from './projections.js'
 export type {
   RaffelStream,
   StreamChunk,

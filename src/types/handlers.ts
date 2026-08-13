@@ -161,6 +161,36 @@ export interface ResumableStreamConfig {
   }
 }
 
+export type StreamProjectionStatus = 'preserved' | 'adapted' | 'unsupported'
+
+export interface StreamProjectionDiagnostic {
+  status: StreamProjectionStatus
+  transport: string
+  resumeCursor?: string
+  recordCursor?: string
+  snapshot?: string
+  reason?: string
+}
+
+/** Contract projection emitted by USD and protocol-specific documentation. */
+export interface ResumableStreamProjectedContract extends ResumableStreamConfig {
+  replay: {
+    owner: 'application'
+    provider: string
+  }
+  snapshot: {
+    owner: 'application'
+    event: 'snapshot'
+    cursor: 'application'
+    schema?: { $ref: string }
+  }
+  projections: {
+    httpSse: StreamProjectionDiagnostic & { status: 'preserved' }
+    websocket: StreamProjectionDiagnostic & { status: 'adapted' }
+    grpc: StreamProjectionDiagnostic & { status: 'unsupported' }
+  }
+}
+
 /**
  * Delivery guarantee for events
  */

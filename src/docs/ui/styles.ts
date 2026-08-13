@@ -10,6 +10,7 @@ import { layoutNavigationStyles } from './style-sections/layout-navigation.js'
 import { schemaCodeStyles } from './style-sections/schema-code.js'
 import { generateShellStyles } from './style-sections/shell.js'
 import { tryItStyles } from './style-sections/try-it.js'
+import { projectionDiagnosticStyles } from './style-sections/projection-diagnostics.js'
 import { adjustColor } from './utils.js'
 import type { UIThemeConfig } from './types.js'
 
@@ -32,5 +33,6 @@ export function generateStyles(config: StylesConfig): string {
     editLinkStyles,
     schemaCodeStyles,
     tryItStyles,
+    projectionDiagnosticStyles,
   ].join('')
 }
