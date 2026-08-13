@@ -226,6 +226,14 @@ source.addEventListener('snapshot', (event) => {
 This outcome is separate from authorization failures and transient `error`
 events. Raffel does not create an in-memory replay or snapshot fallback.
 
+Contract projections report capability loss instead of silently weakening the
+stream. HTTP/SSE is `preserved`: `Last-Event-ID`, SSE `id`, and the named
+`snapshot` event carry the complete contract. WebSocket is `adapted`: the same
+values travel in Raffel envelope metadata. gRPC is currently `unsupported`
+because its adapter does not carry Resume Cursor or Stream Snapshot metadata.
+USD and OpenAPI expose these statuses as machine-readable projection
+diagnostics, and the generated reference renders them beside the stream.
+
 ## Long polling is ordinary HTTP
 
 A Long Poll Interaction is not a stream capability. Each request waits for at

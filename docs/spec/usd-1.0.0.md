@@ -768,7 +768,7 @@ Defines Server-Sent Events (SSE) and streaming endpoints.
 | security | [[Security Requirement Object](#security-requirement-object)] | No | Security requirements. |
 | x-usd-backpressure | `boolean` | No | Whether backpressure is supported. |
 | x-usd-live-stream | `object` | No | Connection-scoped heartbeat, retry hint, maximum duration, and idle timeout. Does not imply replay. |
-| x-usd-resumable | `object` | No | Application-owned Replay Provider, Durable Stream Source, opaque cursor, and at-least-once recovery contract. |
+| x-usd-resumable | `object` | No | Application-owned Replay Provider, Durable Stream Source, opaque cursor, at-least-once recovery, Stream Snapshot schema, and machine-readable HTTP/SSE, WebSocket, and gRPC projection diagnostics. |
 
 ### Stream Directions
 

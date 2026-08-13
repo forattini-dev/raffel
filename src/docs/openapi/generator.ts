@@ -8,6 +8,7 @@ import type { Registry } from '../../core/registry.js'
 import type { SchemaRegistry } from '../../validation/index.js'
 import type { ContractPolicies } from '../../types/index.js'
 import { normalizeSchemaDescriptor } from '../../validation/index.js'
+import { projectResumableStreamContract } from '../../stream/projections.js'
 
 /**
  * OpenAPI 3.0 Document structure
@@ -77,7 +78,7 @@ export interface OpenAPIOperation {
   'x-raffel-policies'?: ContractPolicies
   'x-raffel-live-stream'?: import('../../types/index.js').StreamOperationalControls
   'x-raffel-long-poll'?: import('../../types/index.js').LongPollContract
-  'x-raffel-resumable-stream'?: import('../../types/index.js').ResumableStreamConfig
+  'x-raffel-resumable-stream'?: import('../../types/index.js').ResumableStreamProjectedContract
 }
 
 export interface OpenAPIResponse {
@@ -751,6 +752,23 @@ export function generateOpenAPI(
       for (const tag of streamTags) tags.add(tag)
     }
 
+    let resumableContract: import('../../types/index.js').ResumableStreamProjectedContract | undefined
+    if (meta.resumable) {
+      let snapshotSchemaRef: string | undefined
+      if (handlerSchema?.snapshot) {
+        const snapshotName = `${meta.name}StreamSnapshot`
+        schemas[snapshotName] = schemaToJsonSchema(
+          handlerSchema.snapshot,
+          handlerSchema.validator,
+        )
+        snapshotSchemaRef = `#/components/schemas/${snapshotName}`
+      }
+      resumableContract = projectResumableStreamContract(
+        meta.resumable,
+        snapshotSchemaRef,
+      )
+    }
+
     const operation: OpenAPIOperation = {
       operationId,
       summary: meta.description ?? `Stream ${meta.name}`,
@@ -784,8 +802,8 @@ export function generateOpenAPI(
       ...(meta.streamControls && {
         'x-raffel-live-stream': { ...meta.streamControls },
       }),
-      ...(meta.resumable && {
-        'x-raffel-resumable-stream': { ...meta.resumable },
+      ...(resumableContract && {
+        'x-raffel-resumable-stream': resumableContract,
       }),
     }
 

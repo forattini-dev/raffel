@@ -2493,7 +2493,15 @@ function renderEndpointDetails(endpoint: Endpoint): any {
     appendMany([['Arguments', data.args], ['Input', data.input], ['Output', data.output], ['Schema', data.schema], ['Relations', data.relations], ['Authorize', data.authorize], ['Authorization', data.authz], ['Policies', data.policies]])
   }
   if (activeProtocol === 'streams') {
-    appendInfoGrid(container, [['Direction', data.direction], ['Path', endpoint.path]])
+    const resumable = data['x-usd-resumable']
+    appendInfoGrid(container, [
+      ['Direction', data.direction],
+      ['Path', endpoint.path],
+      ['Delivery', resumable?.delivery],
+      ['Resume Cursor', resumable?.cursor?.header],
+      ['Snapshot event', resumable?.snapshot?.event],
+    ])
+    appendStreamProjectionDiagnostics(container, resumable?.projections)
     appendMany([['Parameters', parameterMapToSchema(data.parameters)], ['Message Schema', resolveMessagePayload(data.message)]])
   }
   if (activeProtocol === 'jsonrpc') {
@@ -2514,6 +2522,41 @@ function renderEndpointDetails(endpoint: Endpoint): any {
     appendMany([['Inbound Message', resolveMessagePayload(data.messages?.inbound)], ['Outbound Message', resolveMessagePayload(data.messages?.outbound)], ['Message Schema', resolveMessagePayload(data.message)]])
   }
   return container
+}
+
+function appendStreamProjectionDiagnostics(container: any, projections: any): void {
+  if (!projections || typeof projections !== 'object') return
+  const labels: Record<string, string> = {
+    httpSse: 'HTTP / SSE',
+    websocket: 'WebSocket',
+    grpc: 'gRPC',
+  }
+  const entries = Object.entries(projections) as Array<[string, any]>
+  if (entries.length === 0) return
+
+  const section = doc.createElement('div')
+  section.className = 'endpoint-subsection stream-projection-diagnostics'
+  section.innerHTML = '<div class="subsection-label">Projection diagnostics</div>'
+  const grid = doc.createElement('div')
+  grid.className = 'projection-diagnostic-grid'
+  for (const [name, diagnostic] of entries) {
+    const declaredStatus = String(diagnostic?.status ?? '')
+    const status = ['preserved', 'adapted', 'unsupported'].includes(declaredStatus)
+      ? declaredStatus
+      : 'unsupported'
+    const card = doc.createElement('div')
+    card.className = `projection-diagnostic projection-${status}`
+    const details = [
+      diagnostic?.transport,
+      diagnostic?.resumeCursor ? `resume: ${diagnostic.resumeCursor}` : undefined,
+      diagnostic?.recordCursor ? `records: ${diagnostic.recordCursor}` : undefined,
+      diagnostic?.snapshot ? `snapshot: ${diagnostic.snapshot}` : undefined,
+    ].filter(Boolean)
+    card.innerHTML = `<div class="projection-diagnostic-heading"><strong>${esc(labels[name] ?? name)}</strong><span>${esc(status)}</span></div>${details.length ? `<div class="projection-diagnostic-details">${details.map(esc).join(' · ')}</div>` : ''}${diagnostic?.reason ? `<div class="projection-diagnostic-reason">${esc(diagnostic.reason)}</div>` : ''}`
+    grid.appendChild(card)
+  }
+  section.appendChild(grid)
+  container.appendChild(section)
 }
 
 function parameterMapToSchema(parameters: unknown): unknown {

@@ -48,6 +48,23 @@ const OPEN_GRAPH_SCHEMA = {
   },
 } as const
 
+function projectionDiagnosticSchema(
+  status: 'preserved' | 'adapted' | 'unsupported',
+) {
+  return {
+    type: 'object',
+    required: ['status', 'transport'],
+    properties: {
+      status: { const: status },
+      transport: { type: 'string', minLength: 1 },
+      resumeCursor: { type: 'string' },
+      recordCursor: { type: 'string' },
+      snapshot: { type: 'string' },
+      reason: { type: 'string' },
+    },
+  } as const
+}
+
 /**
  * USD JSON Schema for validation
  *
@@ -294,7 +311,7 @@ const USD_SCHEMA = {
               },
               'x-usd-resumable': {
                 type: 'object',
-                required: ['provider', 'delivery', 'cursor', 'expiredCursor'],
+                required: ['provider', 'delivery', 'cursor', 'expiredCursor', 'replay', 'snapshot', 'projections'],
                 properties: {
                   provider: { type: 'string', minLength: 1 },
                   delivery: { const: 'at-least-once' },
@@ -310,6 +327,33 @@ const USD_SCHEMA = {
                     type: 'object',
                     required: ['event'],
                     properties: { event: { const: 'snapshot' } },
+                  },
+                  replay: {
+                    type: 'object',
+                    required: ['owner', 'provider'],
+                    properties: {
+                      owner: { const: 'application' },
+                      provider: { type: 'string', minLength: 1 },
+                    },
+                  },
+                  snapshot: {
+                    type: 'object',
+                    required: ['owner', 'event', 'cursor'],
+                    properties: {
+                      owner: { const: 'application' },
+                      event: { const: 'snapshot' },
+                      cursor: { const: 'application' },
+                      schema: { type: 'object' },
+                    },
+                  },
+                  projections: {
+                    type: 'object',
+                    required: ['httpSse', 'websocket', 'grpc'],
+                    properties: {
+                      httpSse: projectionDiagnosticSchema('preserved'),
+                      websocket: projectionDiagnosticSchema('adapted'),
+                      grpc: projectionDiagnosticSchema('unsupported'),
+                    },
                   },
                 },
               },
