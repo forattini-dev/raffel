@@ -217,10 +217,11 @@ export function registerDiscoveredHandlers(
     ]
 
     // Register schema if defined
-    if (route.inputSchema || route.outputSchema || route.inferredOutputSchema) {
+    if (route.inputSchema || route.outputSchema || route.snapshotSchema || route.inferredOutputSchema) {
       const schema: HandlerSchema = {}
       if (route.inputSchema) schema.input = route.inputSchema
       if (route.outputSchema) schema.output = route.outputSchema
+      if (route.snapshotSchema) schema.snapshot = route.snapshotSchema
       if (!route.outputSchema && route.inferredOutputSchema) {
         schema.documentationOutput = route.inferredOutputSchema
       }
@@ -253,6 +254,7 @@ export function registerDiscoveredHandlers(
         description: route.meta?.description,
         direction: route.meta?.direction,
         controls: route.meta?.controls,
+        resumable: route.resumable,
         tags: route.meta?.tags,
         contentType: route.meta?.contentType,
         contentTypes: route.meta?.contentTypes,

@@ -17,6 +17,7 @@ import type {
   ContractPolicies,
   RegisteredHandler,
   DeliveryGuarantee,
+  StreamRecord,
 } from '../types/index.js'
 import {
   createAuthContext,
@@ -493,7 +494,11 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
                   () => plan.handler(payload, ctxWithCall)
                 )
               )) as AsyncIterable<unknown> | RaffelStream<unknown>
-              return wrapStreamInEnvelopes(envelope, result)
+              return wrapStreamInEnvelopes(
+                envelope,
+                result,
+                registered.meta.resumable !== undefined,
+              )
             }
 
             if (!isAsyncIterable(payload)) {
@@ -528,7 +533,7 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
                 () => plan.handler(payload, ctxWithCall)
               )
             )) as AsyncIterable<unknown> | RaffelStream<unknown>
-            return wrapStreamInEnvelopes(envelope, result)
+            return wrapStreamInEnvelopes(envelope, result, false)
           }
 
           case 'event': {
@@ -606,7 +611,8 @@ export function createRouter(registry: Registry, options: RouterOptions = {}): R
  */
 async function* wrapStreamInEnvelopes(
   request: Envelope,
-  stream: AsyncIterable<unknown> | RaffelStream<unknown>
+  stream: AsyncIterable<unknown> | RaffelStream<unknown>,
+  resumable: boolean,
 ): AsyncIterable<Envelope> {
   let chunkIndex = 0
 
@@ -623,12 +629,13 @@ async function* wrapStreamInEnvelopes(
   try {
     // Send data chunks
     for await (const chunk of stream) {
+      const record = resumable && isStreamRecord(chunk) ? chunk : undefined
       yield {
         id: `${request.id}:stream:data:${chunkIndex++}`,
         procedure: request.procedure,
         type: 'stream:data',
-        payload: chunk,
-        metadata: {},
+        payload: record?.data ?? chunk,
+        metadata: record ? { 'x-raffel-stream-cursor': record.cursor } : {},
         context: request.context,
       }
     }
@@ -660,4 +667,13 @@ async function* wrapStreamInEnvelopes(
       context: request.context,
     }
   }
+}
+
+function isStreamRecord(value: unknown): value is StreamRecord {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as StreamRecord).cursor === 'string' &&
+    'data' in value,
+  )
 }

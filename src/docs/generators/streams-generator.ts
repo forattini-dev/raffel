@@ -122,6 +122,10 @@ function convertStreamEndpoint(
     endpoint['x-usd-live-stream'] = { ...meta.streamControls }
   }
 
+  if (meta.resumable) {
+    endpoint['x-usd-resumable'] = { ...meta.resumable }
+  }
+
   // Add tags based on stream name
   const tags = meta.tags?.length ? meta.tags : extractStreamTags(meta.name)
   if (tags.length > 0) {

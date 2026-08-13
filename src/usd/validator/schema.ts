@@ -292,6 +292,27 @@ const USD_SCHEMA = {
                   idleTimeoutMs: { type: 'number', exclusiveMinimum: 0 },
                 },
               },
+              'x-usd-resumable': {
+                type: 'object',
+                required: ['provider', 'delivery', 'cursor', 'expiredCursor'],
+                properties: {
+                  provider: { type: 'string', minLength: 1 },
+                  delivery: { const: 'at-least-once' },
+                  cursor: {
+                    type: 'object',
+                    required: ['header'],
+                    properties: {
+                      header: { const: 'Last-Event-ID' },
+                      query: { type: 'string', minLength: 1 },
+                    },
+                  },
+                  expiredCursor: {
+                    type: 'object',
+                    required: ['event'],
+                    properties: { event: { const: 'snapshot' } },
+                  },
+                },
+              },
             },
           },
         },

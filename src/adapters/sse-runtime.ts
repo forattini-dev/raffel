@@ -18,6 +18,8 @@ function writeEnvelope(write: (chunk: string) => void, envelope: Envelope): void
   else if (envelope.type === 'stream:error') eventType = 'error'
 
   write(`event: ${eventType}\n`)
+  const cursor = envelope.metadata['x-raffel-stream-cursor']
+  if (cursor !== undefined) write(`id: ${cursor}\n`)
   write(`data: ${JSON.stringify(envelope.payload)}\n\n`)
 }
 

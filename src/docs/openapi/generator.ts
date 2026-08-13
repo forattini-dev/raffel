@@ -77,6 +77,7 @@ export interface OpenAPIOperation {
   'x-raffel-policies'?: ContractPolicies
   'x-raffel-live-stream'?: import('../../types/index.js').StreamOperationalControls
   'x-raffel-long-poll'?: import('../../types/index.js').LongPollContract
+  'x-raffel-resumable-stream'?: import('../../types/index.js').ResumableStreamConfig
 }
 
 export interface OpenAPIResponse {
@@ -782,6 +783,9 @@ export function generateOpenAPI(
       ...(meta.policies && { 'x-raffel-policies': meta.policies }),
       ...(meta.streamControls && {
         'x-raffel-live-stream': { ...meta.streamControls },
+      }),
+      ...(meta.resumable && {
+        'x-raffel-resumable-stream': { ...meta.resumable },
       }),
     }
 

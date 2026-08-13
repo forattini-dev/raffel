@@ -102,6 +102,65 @@ export interface LongPollContract {
   timeoutOutcome: 'timeout'
 }
 
+/** Opaque ordered position supplied by an application-owned stream source. */
+export type ResumeCursor = string
+
+/** Delivery record kept separate from the business payload schema. */
+export interface StreamRecord<TData = unknown> {
+  cursor: ResumeCursor
+  data: TData
+}
+
+/** Application-defined current state paired with a valid continuation cursor. */
+export interface StreamSnapshot<TState = unknown> {
+  cursor: ResumeCursor
+  data: TState
+}
+
+export type ReplayOutcome<TData = unknown, TState = unknown> =
+  | {
+      outcome: 'records'
+      records: AsyncIterable<StreamRecord<TData>>
+      through: ResumeCursor
+    }
+  | {
+      outcome: 'cursor-expired'
+      snapshot: StreamSnapshot<TState>
+    }
+
+export interface DurableStreamSource<TInput = unknown, TData = unknown> {
+  subscribe(
+    input: TInput,
+    options: { after?: ResumeCursor; signal: AbortSignal },
+  ): AsyncIterable<StreamRecord<TData>>
+}
+
+export interface ReplayProvider<TInput = unknown, TData = unknown, TState = unknown> {
+  replay(
+    input: TInput,
+    options: { after: ResumeCursor; signal: AbortSignal },
+  ): Promise<ReplayOutcome<TData, TState>>
+}
+
+export interface ResumableStreamProvider<TInput = unknown, TData = unknown, TState = unknown> {
+  source: DurableStreamSource<TInput, TData>
+  replay: ReplayProvider<TInput, TData, TState>
+}
+
+/** Opt-in Source-Backed Resumable Stream contract. */
+export interface ResumableStreamConfig {
+  /** Name of the application provider registered through server.provide(). */
+  provider: string
+  delivery: 'at-least-once'
+  cursor: {
+    header: 'Last-Event-ID'
+    query?: string
+  }
+  expiredCursor: {
+    event: 'snapshot'
+  }
+}
+
 /**
  * Delivery guarantee for events
  */
@@ -199,6 +258,9 @@ export interface HandlerMeta {
 
   /** Ordinary HTTP Long Poll Interaction metadata (procedures only). */
   longPoll?: LongPollContract
+
+  /** Source-Backed Resumable Stream metadata (stream handlers only). */
+  resumable?: ResumableStreamConfig
 
   /** Delivery guarantee (for event handlers) */
   delivery?: DeliveryGuarantee

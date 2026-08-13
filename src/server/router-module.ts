@@ -15,6 +15,7 @@ import type {
   StreamDirection,
   StreamOperationalControls,
   LongPollContract,
+  ResumableStreamConfig,
   JsonRpcMeta,
   GrpcMeta,
   ContractPolicies,
@@ -23,6 +24,7 @@ import type { HandlerSchema } from '../validation/index.js'
 import type { RouteCacheConfig } from '../cache/server-runtime.js'
 import { createProcedureBuilder } from './handler-builders.js'
 import { mergeContractPolicies } from '../types/policies.js'
+import { createSourceBackedStreamHandler } from '../stream/resumable.js'
 import type {
   StreamBuilder,
   EventBuilder,
@@ -64,6 +66,7 @@ export interface ModuleRoute {
   schema?: HandlerSchema
   streamDirection?: StreamDirection
   streamControls?: StreamOperationalControls
+  resumable?: ResumableStreamConfig
   delivery?: DeliveryGuarantee
   retryPolicy?: RetryPolicy
   deduplicationWindow?: number
@@ -100,6 +103,7 @@ function createStreamBuilder(
 ): StreamBuilder {
   let inputSchema: z.ZodType | undefined
   let outputSchema: z.ZodType | undefined
+  let snapshotSchema: z.ZodType | undefined
   let description: string | undefined
   let streamDirection: StreamDirection | undefined
   let streamControls: StreamOperationalControls | undefined
@@ -116,6 +120,10 @@ function createStreamBuilder(
       outputSchema = schema
       return builder as StreamBuilder<unknown, z.infer<typeof schema>>
     },
+    snapshot(schema) {
+      snapshotSchema = schema
+      return builder
+    },
     direction(direction) {
       streamDirection = direction
       return builder
@@ -123,6 +131,26 @@ function createStreamBuilder(
     controls(controls) {
       streamControls = controls
       return builder
+    },
+    resumable(config) {
+      const schema: HandlerSchema = {}
+      if (inputSchema) schema.input = inputSchema
+      if (outputSchema) schema.output = outputSchema
+      if (snapshotSchema) schema.snapshot = snapshotSchema
+      definition.routes.push({
+        kind: 'stream',
+        name,
+        handler: createSourceBackedStreamHandler(config),
+        description,
+        moduleInterceptors: [...moduleInterceptors],
+        interceptors: [...interceptors],
+        policies,
+        schema: schema.input || schema.output || schema.snapshot ? schema : undefined,
+        streamDirection: 'server',
+        streamControls,
+        resumable: config,
+        graphql,
+      })
     },
     description(desc) {
       description = desc

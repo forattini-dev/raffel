@@ -8,6 +8,7 @@ const STANDARD_METADATA_HEADERS = new Set([
   'baggage',
   'content-type',
   'accept',
+  'last-event-id',
   'cookie',
   // Well-known webhook signature headers. These do not start with `x-`
   // but carry the HMAC that handlers verify against `ctx.http.rawBody`
