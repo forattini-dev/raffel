@@ -122,6 +122,7 @@ describe('SshAdapter', () => {
   it('echoes input back via raw stdin/stdout', async () => {
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         for await (const key of session.keys) {
           if (key.ctrl && key.name === 'c') break
@@ -152,6 +153,16 @@ describe('SshAdapter', () => {
     adapter = createSshAdapter({
       port: 0,
       auth: { password: async (req) => req.password === 'secret' },
+      onSession: async () => { /* unreachable */ },
+    })
+    await adapter.start()
+
+    await expect(connect(adapter.port)).rejects.toThrow()
+  })
+
+  it('rejects anonymous authentication by default', async () => {
+    adapter = createSshAdapter({
+      port: 0,
       onSession: async () => { /* unreachable */ },
     })
     await adapter.start()
@@ -202,6 +213,7 @@ describe('SshAdapter', () => {
     const resizes: Array<[number, number]> = []
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         session.onResize((cols, rows) => resizes.push([cols, rows]))
         await new Promise<void>((r) => session.onClose(r))
@@ -228,6 +240,7 @@ describe('SshAdapter', () => {
     const captured: string[] = []
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         for await (const key of session.keys) {
           captured.push(`${key.name ?? key.str}${key.ctrl ? '+ctrl' : ''}`)
@@ -259,6 +272,7 @@ describe('SshAdapter', () => {
     let closed = false
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         session.onClose(() => { closed = true })
         await new Promise<void>((r) => session.onClose(r))
@@ -284,6 +298,7 @@ describe('SshAdapter', () => {
     let tuiIsTTY = false
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         const { stdout } = session.tui
         tuiCols = stdout.columns
@@ -362,7 +377,7 @@ describe('SshAdapter — exec & subsystems', () => {
   })
 
   it('rejects exec when onExec is not provided', async () => {
-    adapter = createSshAdapter({ port: 0, onSession: async () => { /* noop */ } })
+    adapter = createSshAdapter({ port: 0, auth: { none: true }, onSession: async () => { /* noop */ } })
     await adapter.start()
 
     await new Promise<void>((resolve) => {
@@ -388,6 +403,7 @@ describe('SshAdapter — exec & subsystems', () => {
     let kindObserved: string | undefined
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async () => { /* shell unused */ },
       onExec: async (session) => {
         receivedCommand = session.command ?? ''
@@ -427,6 +443,7 @@ describe('SshAdapter — exec & subsystems', () => {
     let subsystemSeen: string | undefined
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async () => { /* unused */ },
       subsystems: {
         weather: async (session) => {
@@ -464,6 +481,7 @@ describe('SshAdapter — exec & subsystems', () => {
   it('rejects unknown subsystem requests', async () => {
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async () => { /* unused */ },
       subsystems: { foo: async () => { /* noop */ } },
     })
@@ -662,6 +680,7 @@ describe('SshAdapter — connection filter', () => {
     const denied: Array<{ host: string; reason: string }> = []
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       filter: {
         denyHosts: ['127.0.0.1', '::1', '::ffff:127.0.0.1'],
         onDenied: (info) => denied.push({ host: info.host, reason: info.reason }),
@@ -681,6 +700,7 @@ describe('SshAdapter — connection filter', () => {
   it('allows connections through allowHosts and rejects others', async () => {
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       filter: { allowHosts: ['10.0.0.99'] },
       onSession: async () => { /* unreachable */ },
     })
@@ -714,6 +734,7 @@ describe('SshAdapter — tuiuiu integration', () => {
 
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         const instance = render(
           () => Box({}, Text({ color: 'green' }, `Hello, ${session.user}!`)),
@@ -756,6 +777,7 @@ describe('SshAdapter — tuiuiu integration', () => {
 
     adapter = createSshAdapter({
       port: 0,
+      auth: { none: true },
       onSession: async (session) => {
         const { stdout } = session.tui
         initialCols = stdout.columns

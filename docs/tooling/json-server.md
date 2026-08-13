@@ -78,7 +78,7 @@ await server.start()
 |--------|------|---------|-------------|
 | `db` | `JsonDb \| string` | required | Initial data object or path to `.json` file |
 | `port` | `number` | `3000` | HTTP port |
-| `hostname` | `string` | `'0.0.0.0'` | Bind address |
+| `hostname` | `string` | `'127.0.0.1'` | Bind address |
 | `readonly` | `boolean` | `false` | Disable all write operations |
 | `delay` | `number` | — | Simulate network latency (ms) |
 | `idKey` | `string` | `'id'` | Field name used as record ID |

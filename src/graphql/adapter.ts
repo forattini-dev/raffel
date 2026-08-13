@@ -13,9 +13,12 @@ import {
   validate,
   subscribe,
   GraphQLError,
+  Kind,
   type GraphQLSchema,
   type ExecutionResult,
   type DocumentNode,
+  type FragmentDefinitionNode,
+  type SelectionSetNode,
 } from 'graphql'
 import type { Router } from '../core/router.js'
 import type { Registry } from '../core/registry.js'
@@ -27,6 +30,7 @@ import type {
   GraphQLAdapterOptions,
   GraphQLOptions,
   GeneratedSchemaInfo,
+  SubscriptionOptions,
 } from './types.js'
 import { generateGraphQLSchema } from './schema-generator.js'
 import { GRAPHQL_POLICY_BRIDGE_KEY } from './resource.js'
@@ -421,7 +425,7 @@ function createGraphQLHandlers(
 
     // CORS preflight
     if (req.method === 'OPTIONS') {
-      setCorsHeaders(res, config.cors)
+      setCorsHeaders(req, res, config.cors)
       res.writeHead(204)
       res.end()
       return
@@ -434,7 +438,7 @@ function createGraphQLHandlers(
       return
     }
 
-    setCorsHeaders(res, config.cors)
+    setCorsHeaders(req, res, config.cors)
 
     // Serve GraphiQL for GET requests
     if (req.method === 'GET' && config.playground) {
@@ -527,7 +531,8 @@ function createGraphQLHandlers(
           schemaInfo,
           ctx,
           metadata,
-          config.introspection !== false
+          config.introspection !== false,
+          config,
         )
       })(), timeoutMs)
 
@@ -543,7 +548,7 @@ function createGraphQLHandlers(
       logger.error({ err }, 'GraphQL execution error')
       res.writeHead(500, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
       res.end(responseCodec.encode({
-        errors: [{ message: (err as Error).message }],
+        errors: [{ message: 'Internal server error' }],
       }))
     }
   }
@@ -556,12 +561,19 @@ function createGraphQLHandlers(
     const subscriptionPath = typeof config.subscriptions === 'object'
       ? config.subscriptions.path ?? config.path
       : config.path
-    const keepAliveInterval = typeof config.subscriptions === 'object'
-      ? config.subscriptions.keepAliveInterval
-      : undefined
-
-    const wss = new WebSocketServer({ server, path: subscriptionPath })
+    const subscriptionOptions = typeof config.subscriptions === 'object'
+      ? config.subscriptions
+      : {}
+    const wss = new WebSocketServer({
+      server,
+      path: subscriptionPath,
+      maxPayload: subscriptionOptions.maxPayload ?? 1024 * 1024,
+    })
     wss.on('connection', (ws, req) => {
+      if (wss.clients.size > (subscriptionOptions.maxConnections ?? 1000)) {
+        ws.close(1013, 'Too many connections')
+        return
+      }
       handleSubscriptionConnection(
         ws,
         req,
@@ -569,7 +581,8 @@ function createGraphQLHandlers(
         router,
         registry,
         schemaInfo!,
-        keepAliveInterval,
+        subscriptionOptions,
+        config,
         policyBridge
       )
     })
@@ -614,7 +627,7 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
           logger.error({ err }, 'GraphQL request error')
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ errors: [{ message: (err as Error).message }] }))
+            res.end(JSON.stringify({ errors: [{ message: 'Internal server error' }] }))
           }
         })
       })
@@ -691,7 +704,7 @@ export function createGraphQLMiddleware(options: GraphQLMiddlewareOptions): Grap
       logger.error({ err }, 'GraphQL middleware error')
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ errors: [{ message: (err as Error).message }] }))
+        res.end(JSON.stringify({ errors: [{ message: 'Internal server error' }] }))
       }
     }
 
@@ -716,7 +729,8 @@ async function executeGraphQL(
   schemaInfo: GeneratedSchemaInfo | null,
   ctx: Context,
   metadata: Record<string, string>,
-  introspection: boolean
+  introspection: boolean,
+  limits: Pick<GraphQLOptions, 'maxQueryDepth' | 'maxQueryComplexity' | 'maxAliases'>,
 ): Promise<ExecutionResult> {
   const { query, operationName, variables } = request
 
@@ -729,6 +743,9 @@ async function executeGraphQL(
       errors: [{ message: `Syntax error: ${(err as Error).message}` } as any],
     }
   }
+
+  const limitError = validateDocumentLimits(document, limits)
+  if (limitError) return { errors: [limitError] }
 
   // Validate
   const validationErrors = validate(schema, document)
@@ -771,12 +788,14 @@ function handleSubscriptionConnection(
   router: Router,
   registry: Registry,
   schemaInfo: GeneratedSchemaInfo,
-  keepAliveInterval?: number,
+  options: SubscriptionOptions,
+  limits: Pick<GraphQLOptions, 'maxQueryDepth' | 'maxQueryComplexity' | 'maxAliases'>,
   policyBridge?: GraphQLAdapterOptions['policyBridge']
 ): void {
   const subscriptions = new Map<string, AsyncIterator<unknown>>()
   const connectionMetadata = extractMetadataFromHeaders(req.headers)
   let connectionInitPayload: unknown = undefined
+  const keepAliveInterval = options.keepAliveInterval
   const pingTimer = keepAliveInterval && keepAliveInterval > 0
     ? setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -784,6 +803,10 @@ function handleSubscriptionConnection(
       }
     }, keepAliveInterval)
     : null
+  let initialized = false
+  const initTimer = setTimeout(() => {
+    if (!initialized) ws.close(4408, 'Connection initialisation timeout')
+  }, options.connectionInitTimeout ?? 5000)
 
   ws.on('message', async (data) => {
     try {
@@ -791,12 +814,34 @@ function handleSubscriptionConnection(
 
       switch (message.type) {
         case 'connection_init': {
+          if (initialized) {
+            ws.close(4429, 'Too many initialisation requests')
+            return
+          }
+          initialized = true
+          clearTimeout(initTimer)
           connectionInitPayload = message.payload
           ws.send(JSON.stringify({ type: 'connection_ack' }))
           break
         }
 
         case 'subscribe': {
+          if (!initialized) {
+            ws.close(4401, 'Unauthorized')
+            return
+          }
+          if (subscriptions.size >= (options.maxSubscriptionsPerConnection ?? 100)) {
+            ws.send(JSON.stringify({
+              id: message.id,
+              type: 'error',
+              payload: [{ message: 'Too many subscriptions' }],
+            }))
+            return
+          }
+          if (subscriptions.has(message.id)) {
+            ws.close(4409, 'Subscriber ID already exists')
+            return
+          }
           const { id, payload } = message
           const { query, operationName, variables } = payload
 
@@ -825,6 +870,16 @@ function handleSubscriptionConnection(
           }
 
           const document = parse(query)
+          const limitError = validateDocumentLimits(document, limits)
+          if (limitError) {
+            ws.send(JSON.stringify({ id, type: 'error', payload: [limitError] }))
+            return
+          }
+          const validationErrors = validate(schema, document)
+          if (validationErrors.length > 0) {
+            ws.send(JSON.stringify({ id, type: 'error', payload: validationErrors }))
+            return
+          }
           const rootValue = createRootValue(router, registry, schemaInfo, ctx, metadata)
 
           const result = await subscribe({
@@ -872,7 +927,7 @@ function handleSubscriptionConnection(
                 ws.send(JSON.stringify({
                   id,
                   type: 'error',
-                  payload: [{ message: (err as Error).message }],
+                  payload: [{ message: 'Internal server error' }],
                 }))
               } catch {
                 // Socket already closed, ignore
@@ -905,6 +960,7 @@ function handleSubscriptionConnection(
   })
 
   ws.on('close', () => {
+    clearTimeout(initTimer)
     if (pingTimer) {
       clearInterval(pingTimer)
     }
@@ -918,12 +974,74 @@ function handleSubscriptionConnection(
   })
 }
 
+function validateDocumentLimits(
+  document: DocumentNode,
+  options: Pick<GraphQLOptions, 'maxQueryDepth' | 'maxQueryComplexity' | 'maxAliases'>,
+): GraphQLError | null {
+  const fragments = new Map<string, FragmentDefinitionNode>()
+  for (const definition of document.definitions) {
+    if (definition.kind === Kind.FRAGMENT_DEFINITION) {
+      fragments.set(definition.name.value, definition)
+    }
+  }
+
+  let aliases = 0
+  let complexity = 0
+  let maxDepth = 0
+  const walk = (selectionSet: SelectionSetNode, depth: number, fragmentStack: Set<string>): void => {
+    for (const selection of selectionSet.selections) {
+      if (selection.kind === Kind.FIELD) {
+        complexity++
+        if (selection.alias) aliases++
+        maxDepth = Math.max(maxDepth, depth)
+        if (selection.selectionSet) walk(selection.selectionSet, depth + 1, fragmentStack)
+      } else if (selection.kind === Kind.INLINE_FRAGMENT) {
+        walk(selection.selectionSet, depth, fragmentStack)
+      } else {
+        const name = selection.name.value
+        if (fragmentStack.has(name)) continue
+        const fragment = fragments.get(name)
+        if (fragment) {
+          const nextStack = new Set(fragmentStack)
+          nextStack.add(name)
+          walk(fragment.selectionSet, depth, nextStack)
+        }
+      }
+    }
+  }
+  for (const definition of document.definitions) {
+    if (definition.kind === Kind.OPERATION_DEFINITION) {
+      walk(definition.selectionSet, 1, new Set())
+    }
+  }
+
+  const maxQueryDepth = options.maxQueryDepth ?? 15
+  const maxQueryComplexity = options.maxQueryComplexity ?? 1000
+  const maxAliases = options.maxAliases ?? 50
+  if (maxDepth > maxQueryDepth) {
+    return new GraphQLError(`Query depth ${maxDepth} exceeds limit ${maxQueryDepth}`, {
+      extensions: { code: 'QUERY_TOO_COMPLEX' },
+    })
+  }
+  if (complexity > maxQueryComplexity) {
+    return new GraphQLError(`Query complexity ${complexity} exceeds limit ${maxQueryComplexity}`, {
+      extensions: { code: 'QUERY_TOO_COMPLEX' },
+    })
+  }
+  if (aliases > maxAliases) {
+    return new GraphQLError(`Query aliases ${aliases} exceeds limit ${maxAliases}`, {
+      extensions: { code: 'QUERY_TOO_COMPLEX' },
+    })
+  }
+  return null
+}
+
 // === CORS ===
 
-function setCorsHeaders(res: ServerResponse, cors: GraphQLOptions['cors']) {
-  if (cors === false) return
+function setCorsHeaders(req: IncomingMessage, res: ServerResponse, cors: GraphQLOptions['cors']) {
+  if (cors === false || cors === undefined) return
 
-  const config = cors === true || cors === undefined
+  const config = cors === true
     ? {
         origin: '*',
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -931,13 +1049,24 @@ function setCorsHeaders(res: ServerResponse, cors: GraphQLOptions['cors']) {
       }
     : cors
 
+  if (config.origin === true) {
+    throw new TypeError('GraphQL CORS origin=true is not allowed; use an explicit origin string or allowlist')
+  }
+
+  if (config.credentials && config.origin === '*') {
+    throw new TypeError('GraphQL CORS credentials require an explicit origin allowlist')
+  }
+
   if (config.origin) {
-    const origin = Array.isArray(config.origin)
-      ? config.origin.join(', ')
-      : config.origin === true
-        ? '*'
-        : config.origin
-    res.setHeader('Access-Control-Allow-Origin', origin)
+    const requestOrigin = req.headers.origin
+    if (Array.isArray(config.origin)) {
+      if (requestOrigin && requestOrigin !== 'null' && config.origin.includes(requestOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', requestOrigin)
+        res.setHeader('Vary', 'Origin')
+      }
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', config.origin)
+    }
   }
 
   if (config.methods) {

@@ -31,10 +31,14 @@ import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
 import {
   buildCallbackUrl,
-  decodeStateData,
-  encodeStateData,
   normalizePath,
 } from './_oauth-shared.js'
+import {
+  consumeOAuthTransaction,
+  storeOAuthTransaction,
+  withSetCookie,
+  type OAuthTransactionCookieOptions,
+} from './_oauth-transaction.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -211,6 +215,12 @@ export interface OAuth2Options<E extends Record<string, unknown> = Record<string
    * State validator function
    */
   validateState?: (state: string, c: HttpContextInterface<E>) => boolean | Promise<boolean>
+
+  /** Dedicated secret for signing short-lived OAuth transaction cookies. */
+  transactionSecret?: string
+
+  /** Short-lived browser-bound transaction cookie settings. */
+  transactionCookie?: OAuthTransactionCookieOptions
 }
 
 /**
@@ -289,6 +299,9 @@ export function oauth2<E extends Record<string, unknown> = Record<string, unknow
     onError = defaultErrorHandler,
     getCallbackUrl,
     generateState = defaultGenerateState,
+    validateState,
+    transactionSecret,
+    transactionCookie,
   } = options
 
   // Build provider map for quick lookup
@@ -320,7 +333,17 @@ export function oauth2<E extends Record<string, unknown> = Record<string, unknow
         )
       }
 
-      return handleLogin(provider, c, generateState, getCallbackUrl, fullCallbackPath, sessionKey)
+      return handleLogin(
+        provider,
+        c,
+        generateState,
+        getCallbackUrl,
+        fullCallbackPath,
+        pathPrefix,
+        sessionKey,
+        transactionSecret,
+        transactionCookie,
+      )
     }
 
     // Check if this is a callback request
@@ -337,7 +360,19 @@ export function oauth2<E extends Record<string, unknown> = Record<string, unknow
         )
       }
 
-      return handleCallback(provider, c, sessionKey, getCallbackUrl, fullCallbackPath, onSuccess, onError)
+      return handleCallback(
+        provider,
+        c,
+        sessionKey,
+        getCallbackUrl,
+        fullCallbackPath,
+        pathPrefix,
+        onSuccess,
+        onError,
+        validateState,
+        transactionSecret,
+        transactionCookie,
+      )
     }
 
     // Check if this is a logout request
@@ -363,7 +398,10 @@ async function handleLogin<E extends Record<string, unknown>>(
   generateState: () => string | Promise<string>,
   getCallbackUrl: ((provider: OAuth2Provider, c: HttpContextInterface<E>) => string) | undefined,
   callbackPath: string,
-  sessionKey: string
+  transactionPath: string,
+  sessionKey: string,
+  transactionSecret: string | undefined,
+  transactionCookie: OAuthTransactionCookieOptions | undefined,
 ): Promise<Response> {
   // Generate state
   const state = await generateState()
@@ -374,13 +412,20 @@ async function handleLogin<E extends Record<string, unknown>>(
     pkce = await generatePkceChallenge()
   }
 
-  // Store state (and PKCE verifier) in session or response
-  // For simplicity, encode in state parameter (signed)
   const stateData = {
     state,
     provider: provider.name,
+    issuedAt: Date.now(),
     ...(pkce ? { codeVerifier: pkce.codeVerifier } : {}),
   }
+
+  await storeOAuthTransaction(
+    c,
+    stateData,
+    transactionSecret ?? provider.clientSecret,
+    transactionPath,
+    transactionCookie,
+  )
 
   const session = resolveSession(c, sessionKey)
   if (session) {
@@ -397,7 +442,7 @@ async function handleLogin<E extends Record<string, unknown>>(
   authUrl.searchParams.set('client_id', provider.clientId)
   authUrl.searchParams.set('redirect_uri', callbackUrl)
   authUrl.searchParams.set('response_type', 'code')
-  authUrl.searchParams.set('state', encodeStateData(stateData))
+  authUrl.searchParams.set('state', state)
 
   if (provider.scopes && provider.scopes.length > 0) {
     const separator = provider.scopeSeparator ?? ' '
@@ -417,7 +462,10 @@ async function handleLogin<E extends Record<string, unknown>>(
   }
 
   // Redirect to provider
-  return c.redirect(authUrl.toString())
+  return c.newResponse(null, {
+    status: 302,
+    headers: { Location: authUrl.toString() },
+  })
 }
 
 /**
@@ -429,31 +477,14 @@ async function handleCallback<E extends Record<string, unknown>>(
   sessionKey: string,
   getCallbackUrl: ((provider: OAuth2Provider, c: HttpContextInterface<E>) => string) | undefined,
   callbackPath: string,
+  transactionPath: string,
   onSuccess: OAuth2Options<E>['onSuccess'],
-  onError: NonNullable<OAuth2Options<E>['onError']>
+  onError: NonNullable<OAuth2Options<E>['onError']>,
+  validateState: OAuth2Options<E>['validateState'],
+  transactionSecret: string | undefined,
+  transactionCookie: OAuthTransactionCookieOptions | undefined,
 ): Promise<Response> {
   const url = new URL(c.req.url)
-
-  // Check for error response
-  const error = url.searchParams.get('error')
-  if (error) {
-    const errorDescription = url.searchParams.get('error_description') || 'Authorization failed'
-    return onError(
-      { code: error.toUpperCase(), message: errorDescription },
-      provider,
-      c
-    )
-  }
-
-  // Get authorization code
-  const code = url.searchParams.get('code')
-  if (!code) {
-    return onError(
-      { code: 'MISSING_CODE', message: 'Authorization code not found' },
-      provider,
-      c
-    )
-  }
 
   // Get and validate state
   const stateParam = url.searchParams.get('state')
@@ -465,13 +496,52 @@ async function handleCallback<E extends Record<string, unknown>>(
     )
   }
 
-  const stateData = decodeStateData(stateParam)
-  if (!stateData || stateData.provider !== provider.name) {
+  const consumed = await consumeOAuthTransaction(
+    c,
+    provider.name,
+    stateParam,
+    transactionSecret ?? provider.clientSecret,
+    transactionPath,
+    transactionCookie,
+  )
+  if (!consumed) {
     return onError(
       { code: 'INVALID_STATE', message: 'Invalid state parameter' },
       provider,
       c
     )
+  }
+
+  const stateData = consumed.transaction
+  const finish = async (response: Response | Promise<Response>): Promise<Response> =>
+    withSetCookie(await response, consumed.clearCookie)
+
+  if (validateState && !(await validateState(stateParam, c))) {
+    return finish(onError(
+      { code: 'INVALID_STATE', message: 'Invalid state parameter' },
+      provider,
+      c
+    ))
+  }
+
+  // Validate state before accepting either success or provider error callbacks.
+  const error = url.searchParams.get('error')
+  if (error) {
+    const errorDescription = url.searchParams.get('error_description') || 'Authorization failed'
+    return finish(onError(
+      { code: error.toUpperCase(), message: errorDescription },
+      provider,
+      c
+    ))
+  }
+
+  const code = url.searchParams.get('code')
+  if (!code) {
+    return finish(onError(
+      { code: 'MISSING_CODE', message: 'Authorization code not found' },
+      provider,
+      c
+    ))
   }
 
   const session = resolveSession(c, sessionKey)
@@ -481,23 +551,19 @@ async function handleCallback<E extends Record<string, unknown>>(
     const storedNonce = storedState?.state as string | undefined
 
     if (storedProvider && storedProvider !== provider.name) {
-      return onError(
+      return finish(onError(
         { code: 'INVALID_STATE', message: 'Invalid state parameter' },
         provider,
         c
-      )
+      ))
     }
 
     if (storedNonce && storedNonce !== stateData.state) {
-      return onError(
+      return finish(onError(
         { code: 'INVALID_STATE', message: 'Invalid state parameter' },
         provider,
         c
-      )
-    }
-
-    if (storedState?.codeVerifier) {
-      stateData.codeVerifier = storedState.codeVerifier
+      ))
     }
 
     if (session.delete) {
@@ -536,7 +602,7 @@ async function handleCallback<E extends Record<string, unknown>>(
 
     if (!tokenResponse.ok) {
       const errorBody = await tokenResponse.text()
-      return onError(
+      return finish(onError(
         {
           code: 'TOKEN_EXCHANGE_FAILED',
           message: `Token exchange failed: ${tokenResponse.status}`,
@@ -544,7 +610,7 @@ async function handleCallback<E extends Record<string, unknown>>(
         },
         provider,
         c
-      )
+      ))
     }
 
     const tokenData = (await tokenResponse.json()) as Record<string, unknown>
@@ -561,17 +627,17 @@ async function handleCallback<E extends Record<string, unknown>>(
     }
 
     if (!tokens.accessToken) {
-      return onError(
+      return finish(onError(
         { code: 'NO_ACCESS_TOKEN', message: 'No access token in response' },
         provider,
         c
-      )
+      ))
     }
 
     // Call success handler
-    return onSuccess(tokens, provider, c)
+    return finish(onSuccess(tokens, provider, c))
   } catch (err) {
-    return onError(
+    return finish(onError(
       {
         code: 'TOKEN_EXCHANGE_ERROR',
         message: 'Token exchange error',
@@ -579,7 +645,7 @@ async function handleCallback<E extends Record<string, unknown>>(
       },
       provider,
       c
-    )
+    ))
   }
 }
 

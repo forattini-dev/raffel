@@ -614,6 +614,30 @@ describe('GraphQL Adapter', () => {
       expect(result.data!.usersGet).toEqual({ id: '1', name: 'Test' })
     })
 
+    it('should reject queries above alias and complexity limits', async () => {
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, maxAliases: 1, maxQueryComplexity: 20 },
+      })
+      await adapter.start()
+
+      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: '{ first: usersGet { id } second: usersGet { id } }',
+        }),
+      })
+      const result = await response.json() as GraphQLResponse
+
+      expect(result.data).toBeUndefined()
+      expect(result.errors?.[0].message).toContain('aliases')
+    })
+
     it('should expose canonical runtime context to resolvers', async () => {
       adapter = createGraphQLAdapter({
         router,

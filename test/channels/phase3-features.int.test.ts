@@ -151,10 +151,16 @@ describe('Channel REST API', () => {
     }
   })
 
+  it('requires authentication unless public access is explicit', () => {
+    const { send } = createMockSend()
+    const manager = createChannelManager({}, send)
+    expect(() => createChannelRestApi(manager)).toThrow('requires auth or apiKey')
+  })
+
   it('should list channels via GET /channels', async () => {
     const { send, messages } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -185,7 +191,7 @@ describe('Channel REST API', () => {
   it('should get channel info via GET /channels/:channel', async () => {
     const { send } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -213,7 +219,7 @@ describe('Channel REST API', () => {
   it('should return 404 for non-existent channel', async () => {
     const { send } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -232,7 +238,7 @@ describe('Channel REST API', () => {
   it('should broadcast via POST /channels/:channel/events', async () => {
     const { send, messages } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -264,7 +270,7 @@ describe('Channel REST API', () => {
   it('should broadcast to all via POST /channels/broadcast', async () => {
     const { send, messages } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -297,7 +303,7 @@ describe('Channel REST API', () => {
   it('should send to specific client via POST /channels/clients/:id/events', async () => {
     const { send, messages } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -328,7 +334,7 @@ describe('Channel REST API', () => {
   it('should return 404 for non-existent client', async () => {
     const { send } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -408,7 +414,10 @@ describe('Channel REST API', () => {
   it('should use custom base path', async () => {
     const { send } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager, { path: '/api/v1/channels' })
+    const restApi = createChannelRestApi(manager, {
+      path: '/api/v1/channels',
+      allowUnauthenticated: true,
+    })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -432,7 +441,7 @@ describe('Channel REST API', () => {
   it('should return 400 for missing event field', async () => {
     const { send } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     httpServer = http.createServer(async (req, res) => {
@@ -453,7 +462,7 @@ describe('Channel REST API', () => {
   it('should not handle unrelated paths', async () => {
     const { send } = createMockSend()
     const manager = createChannelManager({}, send)
-    const restApi = createChannelRestApi(manager)
+    const restApi = createChannelRestApi(manager, { allowUnauthenticated: true })
 
     port = getPort()
     let fallthrough = false

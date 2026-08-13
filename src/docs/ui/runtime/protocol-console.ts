@@ -45,7 +45,7 @@ function samplePayload({ activeProtocol, endpoint, data }: ConsoleDeps): string 
   if (activeProtocol === 'jsonrpc') return JSON.stringify({ jsonrpc: '2.0', method: endpoint.path, params: data.params ?? {}, id: 1 }, null, 2)
   if (activeProtocol === 'grpc') return `grpcurl ${data.serviceName}/${data.methodName}`
   if (activeProtocol === 'tcp') return `nc ${data.host ?? 'localhost'} ${data.port ?? ''}`
-  return `printf '{}' | nc -u ${data.host ?? '0.0.0.0'} ${data.port ?? ''}`
+  return `printf '{}' | nc -u ${data.host ?? '127.0.0.1'} ${data.port ?? ''}`
 }
 
 function bindLiveConsole(panel: any, deps: ConsoleDeps): void {

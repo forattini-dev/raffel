@@ -68,7 +68,7 @@ const server = createServer({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | number | required | Port to listen on |
-| `host` | string | `'0.0.0.0'` | Host to bind to |
+| `host` | string | `'127.0.0.1'` | Host to bind to |
 | `basePath` | string | `'/'` | Base path prefix for all endpoints |
 | `cors` | object | - | CORS configuration |
 | `http.maxBodySize` | number | `1MB` | Maximum request body size in bytes |

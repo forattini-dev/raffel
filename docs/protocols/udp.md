@@ -110,7 +110,7 @@ for (const handler of udp.handlers) {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | number | required | Port to listen on |
-| `host` | string | `'0.0.0.0'` | Host to bind to |
+| `host` | string | `'127.0.0.1'` | Host to bind to |
 | `type` | `'udp4' \| 'udp6'` | `'udp4'` | Socket type |
 | `reuseAddr` | boolean | `true` | Allow address reuse |
 | `reusePort` | boolean | `false` | Allow port reuse |

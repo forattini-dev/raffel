@@ -13,7 +13,7 @@ export interface UdpConfig {
   /** Port to listen on */
   port: number
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Socket type (default: 'udp4') */

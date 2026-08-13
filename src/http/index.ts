@@ -344,6 +344,7 @@ export {
   basicAuth,
   bearerAuth,
   cookieSession,
+  sessionAuth,
   compositeAuth,
   // Path-based auth strategies
   pathAuth,
@@ -356,6 +357,8 @@ export type {
   BasicAuthOptions,
   BearerAuthOptions,
   CookieSessionOptions,
+  HttpAuthDriver,
+  SessionAuthOptions,
   SessionData,
   SessionManager,
   CompositeAuthStrategy,

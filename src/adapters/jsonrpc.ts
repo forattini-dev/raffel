@@ -85,11 +85,11 @@ export const JsonRpcErrorCode = {
 export interface JsonRpcAdapterOptions {
   /** Port to listen on */
   port: number
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
   /** Endpoint path (default: '/') */
   path?: string
-  /** Enable CORS (default: true) */
+  /** Enable CORS (default: false) */
   cors?: boolean
   /** Maximum request body size in bytes (default: 1MB) */
   maxBodySize?: number
@@ -120,7 +120,7 @@ function createJsonRpcHandler(
 } {
   const {
     path = '/',
-    cors = true,
+    cors = false,
     maxBodySize = 1024 * 1024, // 1MB
     timeout = 30000,
   } = options
@@ -486,7 +486,7 @@ function createJsonRpcHandler(
  * Create a JSON-RPC 2.0 HTTP adapter
  */
 export function createJsonRpcAdapter(router: Router, options: JsonRpcAdapterOptions): JsonRpcAdapter {
-  const { port, host = '0.0.0.0', path = '/' } = options
+  const { port, host = '127.0.0.1', path = '/' } = options
   const { handleRequest, createError } = createJsonRpcHandler(router, options)
   let server: Server | null = null
 

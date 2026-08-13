@@ -462,7 +462,7 @@ describe('CORS Middleware', () => {
     })
 
     it('should set credentials header', async () => {
-      const middleware = cors({ credentials: true })
+      const middleware = cors({ credentials: true, origin: 'https://example.com' })
       const ctx = createMockContext({
         method: 'OPTIONS',
         origin: 'https://example.com',
@@ -471,8 +471,11 @@ describe('CORS Middleware', () => {
       const response = await middleware(ctx as any, async () => {})
 
       expect(response?.headers.get('access-control-allow-credentials')).toBe('true')
-      // When credentials is true with *, should echo origin
       expect(response?.headers.get('access-control-allow-origin')).toBe('https://example.com')
+    })
+
+    it('should reject credentials with a wildcard origin', () => {
+      expect(() => cors({ credentials: true })).toThrow('explicit origin allowlist')
     })
   })
 

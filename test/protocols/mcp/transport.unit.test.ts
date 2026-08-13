@@ -69,7 +69,7 @@ describe('Streamable HTTP Transport', () => {
     expect(handled).toBe(false)
   })
 
-  it('should handle OPTIONS with CORS headers', async () => {
+  it('should handle OPTIONS with CORS disabled by default', async () => {
     const { transport, middleware } = createStreamableHttpTransport()
     await transport.start(async () => null)
 
@@ -79,6 +79,21 @@ describe('Streamable HTTP Transport', () => {
 
     expect(handled).toBe(true)
     expect(res._status).toBe(204)
+    expect(res._headers['access-control-allow-origin']).toBeUndefined()
+  })
+
+  it('should apply an explicit CORS allowlist', async () => {
+    const { transport, middleware } = createStreamableHttpTransport({
+      cors: ['https://app.example'],
+    })
+    await transport.start(async () => null)
+    const req = createMockReq('OPTIONS', '/mcp', { origin: 'https://app.example' })
+    const res = createMockRes()
+
+    await middleware(req, res)
+
+    expect(res._headers['access-control-allow-origin']).toBe('https://app.example')
+    expect(res._headers.vary).toBe('Origin')
   })
 
   it('should handle POST with JSON-RPC request', async () => {
@@ -111,6 +126,34 @@ describe('Streamable HTTP Transport', () => {
     expect(res._status).toBe(200)
     const parsed = JSON.parse(res._body)
     expect(parsed.error.code).toBe(-32700) // ParseError
+  })
+
+  it('should reject request bodies above the configured limit with 413', async () => {
+    const { transport, middleware } = createStreamableHttpTransport({
+      maxBodySize: 16,
+      stateful: false,
+    })
+    await transport.start(async () => null)
+
+    const req = createMockReq('POST', '/mcp', {}, JSON.stringify({ payload: 'x'.repeat(32) }))
+    const res = createMockRes()
+    await middleware(req, res)
+
+    expect(res._status).toBe(413)
+  })
+
+  it('should cap the number of live sessions', async () => {
+    const { transport, middleware } = createStreamableHttpTransport({ maxSessions: 1 })
+    await transport.start(async (request) => ({ jsonrpc: '2.0', id: request.id ?? null, result: {} }))
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })
+
+    const first = createMockRes()
+    await middleware(createMockReq('POST', '/mcp', {}, body), first)
+    const second = createMockRes()
+    await middleware(createMockReq('POST', '/mcp', {}, body), second)
+
+    expect(first._status).toBe(200)
+    expect(second._status).toBe(429)
   })
 
   it('should return 405 for unsupported methods', async () => {

@@ -410,6 +410,30 @@ describe('Explicit Proxy', () => {
     )
   })
 
+  it('protects telemetry endpoints with the shared proxy credentials', async () => {
+    proxy = createExplicitProxy({
+      port: 0,
+      host: '127.0.0.1',
+      auth: { credentials: { username: 'observer', password: 'secret' } },
+      telemetry: {
+        metricsEndpoint: '/metrics',
+        graphEndpoint: '/proxy/graph',
+      },
+    })
+    const proxyPort = await proxy.start()
+
+    const anonymous = await fetchLocal('/metrics', proxyPort)
+    expect(anonymous.status).toBe(407)
+    expect(anonymous.headers['proxy-authenticate']).toContain('Basic')
+
+    const authorization = `Basic ${Buffer.from('observer:secret').toString('base64')}`
+    const authenticated = await fetchLocal('/proxy/graph', proxyPort, {
+      'proxy-authorization': authorization,
+    })
+    expect(authenticated.status).toBe(200)
+    expect(JSON.parse(authenticated.body)).toMatchObject({ nodes: [], edges: [] })
+  })
+
   it('tracks CONNECT edges in the graph snapshot', async () => {
     upstream.get('/mesh', () => ({ status: 200, body: 'ok' }))
 

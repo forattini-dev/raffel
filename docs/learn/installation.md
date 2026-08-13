@@ -150,7 +150,7 @@ Raffel respects these environment variables:
 | Variable | Description | Default |
 |:---------|:------------|:--------|
 | `PORT` | HTTP server port | `3000` |
-| `HOST` | Server bind address | `0.0.0.0` |
+| `HOST` | Server bind address | `127.0.0.1` |
 | `NODE_ENV` | Environment (development/production) | `development` |
 | `LOG_LEVEL` | Logging verbosity | `info` |
 

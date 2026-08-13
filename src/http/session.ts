@@ -48,7 +48,7 @@ function toCookieContext<E extends Record<string, unknown>>(
         },
       },
     },
-    header: (name: string, value: string) => c.header(name, value),
+    header: (name: string, value: string, options) => c.header(name, value, options),
   }
 }
 

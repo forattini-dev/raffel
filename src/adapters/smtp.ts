@@ -1059,7 +1059,7 @@ export function createSmtpAdapter(
   router: Router,
   options: SmtpAdapterOptions
 ): SmtpAdapter {
-  const { port, host = '0.0.0.0' } = options
+  const { port, host = '127.0.0.1' } = options
 
   let server: Server | null = null
   let smtpResolvedTls: { key: Buffer; cert: Buffer; ca?: Buffer; minVersion?: import('node:tls').SecureVersion } | undefined
@@ -1237,7 +1237,7 @@ export function createSmtpClient(options: {
 
         if (options.tls) {
           const tlsSocket = tls.connect(
-            { host, port, rejectUnauthorized: false, ...options.tlsOptions },
+            { host, port, rejectUnauthorized: true, ...options.tlsOptions },
             onConnect
           )
           socket = tlsSocket as unknown as Socket

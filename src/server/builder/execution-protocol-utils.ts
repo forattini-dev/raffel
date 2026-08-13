@@ -18,6 +18,9 @@ export function createNormalizedGraphQLOptions(
     introspection: options.introspection ?? isDev,
     timeout: options.timeout ?? 30000,
     maxBodySize: options.maxBodySize ?? 1024 * 1024,
+    maxQueryDepth: options.maxQueryDepth ?? 15,
+    maxQueryComplexity: options.maxQueryComplexity ?? 1000,
+    maxAliases: options.maxAliases ?? 50,
   }
 }
 

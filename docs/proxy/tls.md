@@ -59,14 +59,8 @@ server:
   host: 127.0.0.1
   port: 3443
   tls:
-    cert: |
-      -----BEGIN CERTIFICATE-----
-      ...
-      -----END CERTIFICATE-----
-    key: |
-      -----BEGIN PRIVATE KEY-----
-      ...
-      -----END PRIVATE KEY-----
+    cert: "<PEM certificate for development only>"
+    key: "<PEM private key loaded from a secret>"
     minVersion: TLSv1.2
     maxVersion: TLSv1.3
 routes:

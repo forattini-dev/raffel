@@ -64,7 +64,7 @@ export interface HttpAdapterOptions {
   /** Port to listen on */
   port: number
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Base path for all endpoints (default: '/') */
@@ -153,9 +153,9 @@ function setCorsHeaders(
   req: IncomingMessage,
   cors: HttpAdapterOptions['cors']
 ): void {
-  if (cors === false) return
+  if (cors === false || cors === undefined) return
 
-  const config = cors === true || cors === undefined
+  const config = cors === true
     ? {
         origin: '*',
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -163,15 +163,21 @@ function setCorsHeaders(
       }
     : cors
 
+  if (config.credentials && (config.origin === '*' || config.origin === true)) {
+    throw new TypeError('CORS credentials require an explicit origin allowlist')
+  }
+
   // Origin
   if (config.origin === true) {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
+    res.setHeader('Vary', 'Origin')
   } else if (typeof config.origin === 'string') {
     res.setHeader('Access-Control-Allow-Origin', config.origin)
   } else if (Array.isArray(config.origin)) {
     const reqOrigin = req.headers.origin
     if (reqOrigin && config.origin.includes(reqOrigin)) {
       res.setHeader('Access-Control-Allow-Origin', reqOrigin)
+      res.setHeader('Vary', 'Origin')
     }
   }
 
@@ -201,7 +207,7 @@ export function createHttpAdapter(
 ): HttpAdapter {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     basePath = '/',
     maxBodySize = 1024 * 1024, // 1MB
     cors,

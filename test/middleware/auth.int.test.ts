@@ -614,7 +614,7 @@ describe('Authentication Middleware', () => {
       expect(strategy.refreshToken).toHaveBeenCalledWith('initial-refresh')
       expect(envelope.metadata.authorization).toBe('Bearer new-access')
       expect(envelope.metadata['httpResponseHeaders']).toEqual({
-        'set-cookie': 'refresh_token=rotated-refresh; Path=/; HttpOnly; SameSite=Lax',
+        'set-cookie': 'refresh_token=rotated-refresh; Path=/; HttpOnly; Secure; SameSite=Lax',
       })
       expect((envelope.context as any).auth).toEqual({
         authenticated: true,

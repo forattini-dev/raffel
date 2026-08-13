@@ -218,6 +218,7 @@ export function serveStatic<E extends Record<string, unknown> = Record<string, u
 
   // Resolve root to absolute path
   const rootPath = path.resolve(root)
+  const resolvedRootPromise = fs.promises.realpath(rootPath).catch(() => rootPath)
   const normalizedFallbackIgnore = normalizeFallbackIgnore(fallbackIgnore)
 
   return async (c, next) => {
@@ -298,6 +299,17 @@ export function serveStatic<E extends Record<string, unknown> = Record<string, u
           return
         }
       }
+
+      const [resolvedRoot, resolvedFile] = await Promise.all([
+        resolvedRootPromise,
+        fs.promises.realpath(filePath),
+      ])
+      const rootPrefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : `${resolvedRoot}${path.sep}`
+      if (resolvedFile !== resolvedRoot && !resolvedFile.startsWith(rootPrefix)) {
+        c.res = createErrorResponse(403, 'Forbidden')
+        return
+      }
+      filePath = resolvedFile
 
       // Build response headers
       const responseHeaders: Record<string, string> = {}

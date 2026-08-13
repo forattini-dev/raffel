@@ -66,6 +66,14 @@ const server = createServer({
 | `resourceTemplates` | `McpResourceTemplateRegistration[]` | — | Extra resource templates |
 | `prompts` | `McpPromptRegistration[]` | — | Extra prompts |
 | `auth` | `McpAuthProvider` | — | Auth provider for the HTTP MCP endpoint |
+| `cors` | `boolean \| string \| string[]` | `false` | Explicit CORS policy for browser clients |
+| `maxBodySize` | `number` | `1048576` | Maximum request body size |
+| `maxSessions` | `number` | `1000` | Maximum live stateful sessions |
+| `maxStreamsPerSession` | `number` | `5` | Maximum SSE streams per session |
+
+HTTP MCP binds to `127.0.0.1` by default. A non-loopback listener requires
+`auth`, unless `dangerouslyAllowUnauthenticatedNetwork` is explicitly enabled
+after a risk review. CORS is disabled unless configured.
 
 ### Auto-derived annotations
 
@@ -107,6 +115,19 @@ const server = createMcpServer({
   instructions: 'Use search before create.',
   requestTimeout: 30_000,    // per-request timeout (default: 60s)
   maxTotalTimeout: 300_000,  // absolute max (default: 600s)
+})
+```
+
+For Streamable HTTP, the same exposure defaults apply:
+
+```typescript
+await server.startHttp({
+  host: '127.0.0.1',
+  port: 3001,
+  maxBodySize: 1024 * 1024,
+  maxSessions: 500,
+  maxStreamsPerSession: 3,
+  cors: ['https://app.example.com'],
 })
 ```
 

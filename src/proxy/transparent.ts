@@ -104,7 +104,7 @@ function normalizeOriginalDestination(
 export function createTransparentProxy(options: TransparentProxyOptions): TransparentProxy {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     mode = 'tproxy',
     connectTimeout = 10_000,
     filter,

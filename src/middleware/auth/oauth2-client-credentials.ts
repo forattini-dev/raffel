@@ -128,7 +128,8 @@ export function createClientCredentialsStrategy(
     expectedBuffer.copy(expectedPadded)
     actualBuffer.copy(actualPadded)
 
-    return crypto.timingSafeEqual(expectedPadded, actualPadded)
+    const contentsMatch = crypto.timingSafeEqual(expectedPadded, actualPadded)
+    return expectedBuffer.length === actualBuffer.length && contentsMatch
   }
 
   function parseBasicCredentials(
@@ -261,10 +262,9 @@ export function createClientCredentialsStrategy(
       return { authenticated: false }
     }
 
-    if (
-      !secureEquals(config.clientId, credentials.clientId) ||
-      !secureEquals(config.clientSecret, credentials.clientSecret)
-    ) {
+    const clientIdMatches = secureEquals(config.clientId, credentials.clientId)
+    const clientSecretMatches = secureEquals(config.clientSecret, credentials.clientSecret)
+    if (!clientIdMatches || !clientSecretMatches) {
       return { authenticated: false }
     }
 

@@ -89,6 +89,10 @@ export interface ExplicitProxyOptions {
   auth?: ProxyAuth
   /** Shared access control for HTTP, CONNECT, and upgrade requests */
   filter?: ProxyFilter
+  /** Explicit escape hatch for an externally bound proxy without auth/filter. */
+  dangerouslyAllowUnauthenticatedNetwork?: boolean
+  /** Allow proxying to private/link-local targets. Default: false on external binds. */
+  dangerouslyAllowPrivateTargets?: boolean
   /** HTTP forward proxy options */
   forward?: Omit<HttpForwardProxyOptions, 'auth' | 'filter'>
   /** CONNECT tunnel options */
@@ -239,15 +243,27 @@ function getDurationSeconds(startedAt: number): number {
 export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProxy {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     auth,
     filter,
+    dangerouslyAllowUnauthenticatedNetwork = false,
+    dangerouslyAllowPrivateTargets = false,
     forward: forwardOptions = {},
     tunnel: tunnelOptions = {},
     upgrade: upgradeOptions = {},
     middleware: sharedMiddleware = [],
     telemetry: telemetryOptions,
   } = options
+
+  const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
+  if (!loopback && (!auth || !filter) && !dangerouslyAllowUnauthenticatedNetwork) {
+    throw new Error(
+      'Externally bound explicit proxies require both auth and filter; set dangerouslyAllowUnauthenticatedNetwork only after an explicit risk review'
+    )
+  }
+  const effectiveFilter = !loopback && !dangerouslyAllowPrivateTargets
+    ? { ...filter, blockPrivateRanges: true, resolveDns: true }
+    : filter
 
   const telemetry: ProxyTelemetryCollector | null = createOrReuseProxyTelemetry(telemetryOptions)
   const metricsEndpoint = telemetryOptions
@@ -259,13 +275,13 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
 
   const httpProxy = createHttpForwardProxy({
     auth,
-    filter,
+    filter: effectiveFilter,
     ...forwardOptions,
     middleware: [...sharedMiddleware, ...(forwardOptions.middleware ?? [])],
   })
   const tunnel = createConnectTunnel({
     auth,
-    filter,
+    filter: effectiveFilter,
     ...tunnelOptions,
     middleware: [...sharedMiddleware, ...(tunnelOptions.middleware ?? [])],
   })
@@ -275,12 +291,29 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
   let boundPort: number | null = null
   let running = false
 
-  function maybeHandleInternalEndpoint(req: IncomingMessage, res: ServerResponse): boolean {
+  async function maybeHandleInternalEndpoint(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     if (!telemetry || (!metricsEndpoint && !graphEndpoint)) return false
 
     const rawUrl = req.url ?? '/'
     if (isAbsoluteProxyUrl(rawUrl)) return false
     const pathname = getPathname(rawUrl)
+    const isInternalEndpoint = (metricsEndpoint && pathname === metricsEndpoint)
+      || (graphEndpoint && pathname === graphEndpoint)
+
+    if (!isInternalEndpoint) return false
+
+    const credentials = parseBasicProxyAuth(
+      req.headers['proxy-authorization'] as string | undefined,
+    )
+    if (!(await verifyProxyAuth(auth, credentials))) {
+      upgradeStats.mutable.authFailures++
+      res.writeHead(407, {
+        'Proxy-Authenticate': 'Basic realm="proxy"',
+        'Content-Type': 'text/plain',
+      })
+      res.end('Proxy authentication required')
+      return true
+    }
 
     if (metricsEndpoint && pathname === metricsEndpoint) {
       res.writeHead(200, {
@@ -299,8 +332,8 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
     return false
   }
 
-  function handleHttpProxyRequest(req: IncomingMessage, res: ServerResponse): void {
-    if (maybeHandleInternalEndpoint(req, res)) return
+  async function handleHttpProxyRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (await maybeHandleInternalEndpoint(req, res)) return
 
     const rawUrl = req.url ?? '/'
     if (!telemetry || !isAbsoluteProxyUrl(rawUrl)) {
@@ -482,10 +515,10 @@ export function createExplicitProxy(options: ExplicitProxyOptions): ExplicitProx
     const protocol = targetUrl.protocol as UpgradeConnectionInfo['protocol']
     const targetPort = targetUrl.port ? Number.parseInt(targetUrl.port, 10) : defaultPortFor(protocol)
 
-    if (filter) {
-      const { allowed, reason } = await checkProxyFilter(filter, targetUrl.hostname, targetPort)
+    if (effectiveFilter) {
+      const { allowed, reason } = await checkProxyFilter(effectiveFilter, targetUrl.hostname, targetPort)
       if (!allowed) {
-        filter.onDenied?.({ host: targetUrl.hostname, port: targetPort, reason: reason! })
+        effectiveFilter.onDenied?.({ host: targetUrl.hostname, port: targetPort, reason: reason! })
         writeHttpError(clientSocket, 403, 'Forbidden')
         return
       }

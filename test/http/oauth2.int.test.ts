@@ -33,12 +33,10 @@ function createSession(): SessionData {
   }
 }
 
-function createContext(url: string): HttpContext<Record<string, unknown>> {
-  return new HttpContext(new Request(url), {})
-}
-
-function decodeState(state: string): Record<string, unknown> {
-  return JSON.parse(atob(state)) as Record<string, unknown>
+function createContext(url: string, cookie?: string): HttpContext<Record<string, unknown>> {
+  return new HttpContext(new Request(url, {
+    headers: cookie ? { cookie } : undefined,
+  }), {})
 }
 
 type OAuthErrorPayload = {
@@ -116,12 +114,13 @@ describe('oauth2 middleware', () => {
     expect(location.searchParams.get('scope')).toBe('openid email profile')
     expect(location.searchParams.get('state')).toBeTruthy()
 
-    const state = decodeState(location.searchParams.get('state')!)
-    expect(state).toEqual({
+    expect(location.searchParams.get('state')).toBe('fixed-state')
+    expect(response!.headers.get('set-cookie')).toContain('raffel_oauth_google=')
+    expect(session.storage.sessionStore).toEqual(expect.objectContaining({
       state: 'fixed-state',
       provider: 'google',
-    })
-    expect(session.storage.sessionStore).toEqual(state)
+      issuedAt: expect.any(Number),
+    }))
     expect(onSuccess).not.toHaveBeenCalled()
   })
 
@@ -151,12 +150,7 @@ describe('oauth2 middleware', () => {
   })
 
   it('accepts callback route and exchanges code for tokens', async () => {
-    const state = {
-      state: 'callback-state',
-      provider: 'google',
-    }
     const session = createSession()
-    session.set('oauth2', state)
 
     const onSuccess = vi.fn((tokens: OAuth2Tokens, _provider: OAuth2Provider) =>
       new Response(JSON.stringify({ ok: true, tokens }), { status: 200 })
@@ -172,12 +166,19 @@ describe('oauth2 middleware', () => {
       })
     )
 
-    const ctx = createContext(`https://app.example.com/auth/callback/google?code=abc123&state=${btoa(JSON.stringify(state))}`)
     const middleware = oauth2({
       providers: [googleProvider],
       onSuccess,
-      generateState: () => 'ignored',
+      generateState: () => 'callback-state',
     })
+    const login = createContext('https://app.example.com/auth/login/google')
+    login.set('oauth2', session)
+    const loginResponse = await middleware(login, vi.fn())
+    const cookie = loginResponse!.headers.get('set-cookie')!.split(';', 1)[0]
+    const ctx = createContext(
+      'https://app.example.com/auth/callback/google?code=abc123&state=callback-state',
+      cookie,
+    )
     ctx.set('oauth2', session)
 
     const response = await middleware(ctx, vi.fn())
@@ -260,12 +261,6 @@ describe('oauth2 middleware', () => {
   })
 
   it('handles provider token exchange failure', async () => {
-    const session = createSession()
-    session.set('oauth2', {
-      state: 'callback-state',
-      provider: 'google',
-    })
-
     mockFetch.mockResolvedValueOnce(
       new Response('internal', {
         status: 502,
@@ -274,11 +269,17 @@ describe('oauth2 middleware', () => {
 
     const middleware = oauth2({
       providers: [googleProvider],
+      generateState: () => 'callback-state',
     })
-    const ctx = createContext(`https://app.example.com/auth/callback/google?code=abc123&state=${btoa(
-      JSON.stringify({ state: 'callback-state', provider: 'google' })
-    )}`)
-    ctx.set('oauth2', session)
+    const loginResponse = await middleware(
+      createContext('https://app.example.com/auth/login/google'),
+      vi.fn(),
+    )
+    const cookie = loginResponse!.headers.get('set-cookie')!.split(';', 1)[0]
+    const ctx = createContext(
+      'https://app.example.com/auth/callback/google?code=abc123&state=callback-state',
+      cookie,
+    )
 
     const response = await middleware(ctx, vi.fn())
     const body = await parseOAuthErrorBody(response!)
@@ -289,9 +290,17 @@ describe('oauth2 middleware', () => {
   it('returns JSON error when callback is missing code', async () => {
     const middleware = oauth2({
       providers: [googleProvider],
+      generateState: () => 'missing-code-state',
     })
-
-    const ctx = createContext(`https://app.example.com/auth/callback/google?state=${btoa(JSON.stringify({ state: 's', provider: 'google' }))}`)
+    const loginResponse = await middleware(
+      createContext('https://app.example.com/auth/login/google'),
+      vi.fn(),
+    )
+    const cookie = loginResponse!.headers.get('set-cookie')!.split(';', 1)[0]
+    const ctx = createContext(
+      'https://app.example.com/auth/callback/google?state=missing-code-state',
+      cookie,
+    )
     const response = await middleware(ctx, vi.fn())
     const body = await parseOAuthErrorBody(response!)
 

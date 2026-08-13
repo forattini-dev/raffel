@@ -124,6 +124,9 @@ export function cors<E extends Record<string, unknown> = Record<string, unknown>
     maxAge,
     credentials = false,
   } = options
+  if (credentials && origin === '*') {
+    throw new TypeError('CORS credentials require an explicit origin allowlist or validator')
+  }
 
   return async (c, next) => {
     const requestOrigin = c.req.header('origin') as string | undefined
@@ -141,7 +144,7 @@ export function cors<E extends Record<string, unknown> = Record<string, unknown>
       }
 
       // Set Vary header if origin is dynamic (not *)
-      if (origin !== '*') {
+      if (origin !== '*' || allowedOrigin !== '*') {
         const vary = headers.get('Vary')
         if (vary) {
           if (!vary.includes('Origin')) {
@@ -179,7 +182,7 @@ export function cors<E extends Record<string, unknown> = Record<string, unknown>
       }
 
       // Set Vary header if origin is dynamic
-      if (origin !== '*') {
+      if (origin !== '*' || allowedOrigin !== '*') {
         preflightHeaders.set('Vary', 'Origin')
       }
 

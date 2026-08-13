@@ -161,6 +161,19 @@ describe('HTTP Forward Proxy', () => {
     expect(timing.totalDuration).toBeGreaterThan(120)
   })
 
+  it('bounds buffered upstream responses', async () => {
+    upstream.get('/large', () => ({ status: 200, body: 'x'.repeat(1024) }))
+    await startProxy({
+      maxResponseBodySize: 64,
+      onResponse: (response: unknown) => response,
+    })
+
+    const response = await fetchViaProxy(`http://127.0.0.1:${upstream.port}/large`, proxyPort)
+
+    expect(response.status).toBe(502)
+    expect(response.body).toBe('Bad Gateway')
+  })
+
   it('returns 400 for non-absolute URLs', async () => {
     await startProxy()
     const response = await fetchViaProxy('/relative', proxyPort)

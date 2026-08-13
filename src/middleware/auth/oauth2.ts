@@ -42,6 +42,7 @@
  */
 
 import crypto from 'node:crypto'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { AuthStrategy, AuthResult } from '../auth.js'
 import type { Envelope, Context } from '../../types/index.js'
 import { fetchWithTimeout } from './oauth2-http.js'
@@ -122,7 +123,7 @@ export interface OIDCConfig extends Omit<OAuth2Config, 'provider'> {
   /** Audience for ID token validation (default: clientId) */
   audience?: string
 
-  /** Whether to validate ID token signature (default: true) */
+  /** ID token verification is mandatory. Passing false throws. */
   validateIdToken?: boolean
 
   /** Clock skew tolerance in seconds for token validation (default: 60) */
@@ -706,21 +707,6 @@ async function fetchOIDCDiscovery(
 }
 
 /**
- * Decode JWT without verification (for extracting claims)
- */
-function decodeJwt(token: string): { header: Record<string, unknown>; payload: Record<string, unknown> } {
-  const parts = token.split('.')
-  if (parts.length !== 3) {
-    throw new Error('Invalid JWT format')
-  }
-
-  const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString())
-  const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString())
-
-  return { header, payload }
-}
-
-/**
  * Create an OIDC authentication strategy with auto-discovery
  *
  * This strategy automatically discovers endpoints from the issuer's
@@ -741,11 +727,15 @@ function decodeJwt(token: string): { header: Record<string, unknown>; payload: R
 export function createOIDCStrategy(config: OIDCConfig): OIDCStrategyWithFlow {
   const timeout = config.timeout ?? 10000
   const clockSkew = config.clockSkew ?? 60
-  const validateIdToken = config.validateIdToken ?? true
   const audience = config.audience ?? config.clientId
+
+  if (config.validateIdToken === false) {
+    throw new TypeError('OIDC ID token signature verification cannot be disabled')
+  }
 
   let discovery: OIDCDiscoveryDocument | null = null
   let oauth2Strategy: OAuth2StrategyWithFlow | null = null
+  let keySet: ReturnType<typeof createRemoteJWKSet> | null = null
 
   /**
    * Initialize OIDC strategy (lazy initialization)
@@ -754,6 +744,9 @@ export function createOIDCStrategy(config: OIDCConfig): OIDCStrategyWithFlow {
     if (oauth2Strategy) return
 
     discovery = await fetchOIDCDiscovery(config.issuer, timeout)
+    keySet = createRemoteJWKSet(new URL(discovery.jwks_uri), {
+      timeoutDuration: timeout,
+    })
 
     oauth2Strategy = createOAuth2Strategy({
       ...config,
@@ -765,45 +758,26 @@ export function createOIDCStrategy(config: OIDCConfig): OIDCStrategyWithFlow {
     })
   }
 
-  /**
-   * Validate ID token claims (basic validation without signature verification)
-   */
-  function validateIdTokenClaims(payload: Record<string, unknown>): void {
-    const now = Math.floor(Date.now() / 1000)
-
-    // Check issuer
-    if (payload.iss !== config.issuer) {
-      throw new Error(`Invalid issuer: expected ${config.issuer}, got ${payload.iss}`)
-    }
-
-    // Check audience
-    const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud]
-    if (!aud.includes(audience)) {
-      throw new Error(`Invalid audience: expected ${audience}`)
-    }
-
-    // Check expiration
-    if (typeof payload.exp === 'number' && payload.exp < now - clockSkew) {
-      throw new Error('ID token expired')
-    }
-
-    // Check issued at
-    if (typeof payload.iat === 'number' && payload.iat > now + clockSkew) {
-      throw new Error('ID token issued in the future')
-    }
-  }
-
-  /**
-   * Validate ID token (claims only - signature verification requires JWKS)
-   */
+  /** Validate an ID token cryptographically against the discovered JWKS. */
   async function validateIdTokenFn(idToken: string): Promise<Record<string, unknown>> {
-    const { payload } = decodeJwt(idToken)
-
-    if (validateIdToken) {
-      validateIdTokenClaims(payload)
+    await initialize()
+    if (!keySet || !discovery) throw new Error('OIDC JWKS is not initialized')
+    const algorithms = (discovery.id_token_signing_alg_values_supported ?? ['RS256', 'ES256'])
+      .filter((algorithm) => algorithm !== 'none')
+    const result = await jwtVerify(idToken, keySet, {
+      algorithms,
+      audience,
+      clockTolerance: clockSkew,
+      issuer: discovery.issuer,
+    })
+    const payload = result.payload
+    if (!payload.sub || !Number.isFinite(payload.iat) || !Number.isFinite(payload.exp)) {
+      throw new Error('ID token is missing required claims')
     }
-
-    return payload
+    if (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== config.clientId) {
+      throw new Error('ID token authorized party mismatch')
+    }
+    return payload as Record<string, unknown>
   }
 
   return {
@@ -844,10 +818,8 @@ export function createOIDCStrategy(config: OIDCConfig): OIDCStrategyWithFlow {
       await initialize()
       const tokens = await oauth2Strategy!.exchangeCode(code)
 
-      // Validate ID token if present
-      if (tokens.idToken && validateIdToken) {
-        await validateIdTokenFn(tokens.idToken)
-      }
+      if (!tokens.idToken) throw new Error('OIDC token response did not include an ID token')
+      await validateIdTokenFn(tokens.idToken)
 
       return tokens
     },

@@ -33,13 +33,13 @@ describe('runtime inspection CLI', () => {
     expect(normalizeCliOutput(result.stdout)).toMatchInlineSnapshot(`
       "Raffel Runtime Preview
       Generated: <generatedAt>
-      Entrypoint: HTTP 0.0.0.0:4310 [fusion=disabled]
+      Entrypoint: HTTP 127.0.0.1:4310 [fusion=disabled]
 
       Transports
-      - http      0.0.0.0:4310 (path=/api, shared, source=native)
-      - websocket 0.0.0.0:4310 (path=/api/ws, shared, source=native)
-      - jsonrpc   0.0.0.0:4310 (path=/api/rpc, shared, source=native)
-      - grpc      0.0.0.0:5310 (dedicated, source=native)
+      - http      127.0.0.1:4310 (path=/api, shared, source=native)
+      - websocket 127.0.0.1:4310 (path=/api/ws, shared, source=native)
+      - jsonrpc   127.0.0.1:4310 (path=/api/rpc, shared, source=native)
+      - grpc      127.0.0.1:5310 (dedicated, source=native)
 
       Services
       - pkg.UserService (1 operation)
@@ -183,13 +183,11 @@ describe('runtime inspection CLI', () => {
     expect(result.status).toBe(0)
     expect(normalizeCliOutput(result.stdout)).toMatchInlineSnapshot(`
       "Raffel Doctor
-      Summary: 0 errors, 3 warnings, 3 infos (6 total)
+      Summary: 0 errors, 2 warnings, 3 infos (5 total)
 
       Diagnostics
       - [warning] CONFIG_WARNING server:config-warning:0
           Front-door routing is enabled without http.trustedProxies. Forwarded client IP headers will be ignored until trusted proxies are configured.
-      - [warning] CONFIG_WARNING server:config-warning:1
-          Front-door routing is enabled with wildcard CORS. Prefer explicit origins before public exposure.
       - [warning] HTTP_FAMILY_BLOCKED_BY_SHARED_PORT server:shared-port-http-family
           sharedPort.protocols excludes http, so HTTP, WebSocket, JSON-RPC, and GraphQL traffic will be rejected at the transport entrypoint
           remediation: Add \`http\` to \`sharedPort.protocols\`, or move HTTP-family transports to another listener before relying on inspect/playground workflows.

@@ -6,7 +6,7 @@
  *
  * Used by connect-tunnel.ts (MITM mode) and testing utilities.
  */
-import { createSign, generateKeyPairSync } from 'node:crypto'
+import { createSign, generateKeyPairSync, randomBytes } from 'node:crypto'
 
 export interface CertificateInfo {
   key: string
@@ -282,7 +282,7 @@ export async function generateCertificate(
   // 16-byte random serial, high bit cleared to ensure positive,
   // low bit set to avoid a leading zero byte (which would be a non-minimal
   // INTEGER encoding and rejected by strict DER parsers).
-  const serialBytes = Buffer.from(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)))
+  const serialBytes = randomBytes(16)
   serialBytes[0] = (serialBytes[0] & 0x7f) | 0x01
 
   const cert = buildCertificate({

@@ -19,6 +19,7 @@ import {
   type OIDCStrategyWithFlow,
 } from '../../../src/middleware/auth/oauth2.js'
 import type { Envelope, Context } from '../../../src/types/index.js'
+import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 
 // Mock fetch globally
 const mockFetch = vi.fn()
@@ -503,6 +504,16 @@ describe('OIDC Strategy', () => {
   })
 
   describe('createOIDCStrategy', () => {
+    it('does not allow ID token verification to be disabled', () => {
+      expect(() => createOIDCStrategy({
+        issuer: 'https://auth.example.com',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        redirectUri: 'https://example.com/callback',
+        validateIdToken: false,
+      })).toThrow('verification cannot be disabled')
+    })
+
     it('should create strategy with lazy initialization', () => {
       // No fetch needed during creation - discovery is lazy
       const strategy = createOIDCStrategy({
@@ -635,17 +646,23 @@ describe('OIDC Strategy', () => {
   })
 
   describe('validateIdToken', () => {
-    it('should decode and validate ID token claims', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    it('should verify and validate ID token claims', async () => {
+      const { privateKey, publicKey } = await generateKeyPair('RS256')
+      const jwk = await exportJWK(publicKey)
+      jwk.kid = 'test-key'
+      mockFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
           issuer: 'https://auth.example.com',
           authorization_endpoint: 'https://auth.example.com/authorize',
           token_endpoint: 'https://auth.example.com/token',
           userinfo_endpoint: 'https://auth.example.com/userinfo',
           jwks_uri: 'https://auth.example.com/.well-known/jwks.json',
-        }),
-      })
+          id_token_signing_alg_values_supported: ['RS256'],
+        }), { status: 200, headers: { 'content-type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ keys: [jwk] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
 
       const strategy = createOIDCStrategy({
         issuer: 'https://auth.example.com',
@@ -654,19 +671,17 @@ describe('OIDC Strategy', () => {
         redirectUri: 'https://example.com/callback',
       })
 
-      // Create a mock JWT (header.payload.signature)
-      const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
-      const payload = Buffer.from(JSON.stringify({
-        iss: 'https://auth.example.com',
-        sub: 'user-123',
-        aud: 'client-id',
-        exp: Math.floor(Date.now() / 1000) + 3600,
-        iat: Math.floor(Date.now() / 1000),
+      const idToken = await new SignJWT({
         email: 'user@example.com',
         name: 'Test User',
-      })).toString('base64url')
-      const signature = 'fake-signature'
-      const idToken = `${header}.${payload}.${signature}`
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key', typ: 'JWT' })
+        .setIssuer('https://auth.example.com')
+        .setSubject('user-123')
+        .setAudience('client-id')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(privateKey)
 
       // validateIdToken is the method, not getIdTokenClaims
       const claims = await strategy.validateIdToken(idToken)
@@ -934,6 +949,19 @@ describe('Client Credentials Strategy', () => {
     const result = await strategy.authenticate(envelope, ctx)
 
     expect(result).toEqual({ authenticated: false })
+  })
+
+  it('does not treat NUL padding as an empty client secret', async () => {
+    const strategy = createClientCredentialsStrategy({
+      tokenUrl: 'https://auth.example.com/token',
+      clientId: 'client-id',
+      clientSecret: '',
+    })
+    const basic = `Basic ${Buffer.from('client-id:\0').toString('base64')}`
+    const envelope = createTestEnvelope({ authorization: basic })
+
+    await expect(strategy.authenticate(envelope, createTestContext()))
+      .resolves.toEqual({ authenticated: false })
   })
 
   it('should exchange token with client credentials and reuse cached token', async () => {

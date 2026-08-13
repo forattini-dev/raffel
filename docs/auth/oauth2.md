@@ -11,6 +11,7 @@ Use the HTTP middleware for web flows or the core strategy for protocol-agnostic
 import { oauth2 } from 'raffel/http'
 
 app.use('/auth/*', oauth2({
+  transactionSecret: process.env.OAUTH_TRANSACTION_SECRET,
   providers: [
     {
       name: 'github',
@@ -27,6 +28,10 @@ app.use('/auth/*', oauth2({
   },
 }))
 ```
+
+The web flow stores state and PKCE data in a short-lived signed HttpOnly cookie.
+Use HTTPS outside loopback. If TLS terminates at a trusted reverse proxy, set
+`transactionCookie: { secure: true }` explicitly.
 
 ---
 

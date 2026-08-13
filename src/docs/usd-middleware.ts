@@ -16,7 +16,7 @@ import type {
   USDPathItem, USDSchema, USDSecurityScheme, USDParameter, USDResponse, USDRequestBody, USDExample,
 } from '../usd/index.js'
 import type { OpenAPIDocument } from '../usd/export/openapi.js'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import {
   generateUSD,
@@ -64,12 +64,21 @@ export function readDocsAsset(rootDir: string, relativePath: string): Response |
   const rootPath = path.resolve(rootDir)
   if (assetPath !== rootPath && !assetPath.startsWith(`${rootPath}${path.sep}`)) return null
   if (!existsSync(assetPath)) return null
-  const stats = statSync(assetPath)
-  if (!stats.isFile() || assetPath.toLowerCase().endsWith('.md')) return null
+  let realRoot: string
+  let realAsset: string
+  try {
+    realRoot = realpathSync(rootPath)
+    realAsset = realpathSync(assetPath)
+  } catch {
+    return null
+  }
+  if (realAsset !== realRoot && !realAsset.startsWith(`${realRoot}${path.sep}`)) return null
+  const stats = statSync(realAsset)
+  if (!stats.isFile() || realAsset.toLowerCase().endsWith('.md')) return null
 
-  return new Response(readFileSync(assetPath), {
+  return new Response(readFileSync(realAsset), {
     headers: {
-      'Content-Type': contentTypeForAsset(assetPath),
+      'Content-Type': contentTypeForAsset(realAsset),
       'Cache-Control': 'no-store',
     },
   })

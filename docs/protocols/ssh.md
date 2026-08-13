@@ -182,12 +182,12 @@ createSshAdapter({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | number | required | Port to listen on (2222 typical for dev) |
-| `host` | string | `'0.0.0.0'` | Bind address |
+| `host` | string | `'127.0.0.1'` | Bind address |
 | `hostKeys` | `SshHostKey[]` | ephemeral RSA 2048 | Host private keys (PEM, OpenSSH, or `{ key, passphrase }`) |
 | `banner` | string | – | Pre-auth banner sent to the client |
 | `ident` | string | `'SSH-2.0-Raffel'` | Server software identifier |
-| `auth` | `SshAuthOptions` | `{ none: true }` | Auth handlers per method |
-| `auth.none` | `boolean \| handler` | `true` | Allow anonymous (public) access |
+| `auth` | `SshAuthOptions` | `{ none: false }` | Auth handlers per method |
+| `auth.none` | `boolean \| handler` | `false` | Allow anonymous (public) access |
 | `auth.password` | `handler` | – | `(req) => boolean \| Promise<boolean>` |
 | `auth.publicKey` | `handler` | – | `(req) => boolean \| Promise<boolean>` |
 | `onSession` | `handler` | required | Interactive shell handler |

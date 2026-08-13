@@ -25,13 +25,18 @@
 
 import type { HttpContextInterface } from './context.js'
 import type { HttpMiddleware } from './app.js'
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose'
 import type { OAuth2Tokens, OAuth2Provider, OAuth2Error } from './oauth2.js'
 import {
   buildCallbackUrl,
-  decodeStateData,
-  encodeStateData,
   normalizePath,
 } from './_oauth-shared.js'
+import {
+  consumeOAuthTransaction,
+  storeOAuthTransaction,
+  withSetCookie,
+  type OAuthTransactionCookieOptions,
+} from './_oauth-transaction.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -288,6 +293,18 @@ export interface OidcOptions<E extends Record<string, unknown> = Record<string, 
    * @default true
    */
   fetchUserInfo?: boolean
+
+  /** Dedicated secret for signing short-lived OIDC transaction cookies. */
+  transactionSecret?: string
+
+  /** Short-lived browser-bound transaction cookie settings. */
+  transactionCookie?: OAuthTransactionCookieOptions
+
+  /** Clock tolerance in seconds for JWT validation. Default: 60. */
+  clockTolerance?: number
+
+  /** Maximum age of back-channel logout tokens in seconds. Default: 300. */
+  backchannelLogoutMaxAgeSeconds?: number
 }
 
 /**
@@ -333,6 +350,7 @@ interface LogoutTokenClaims {
   aud: string | string[]
   iat: number
   jti: string
+  exp?: number
   sid?: string
   events: {
     'http://schemas.openid.net/event/backchannel-logout': Record<string, never>
@@ -449,7 +467,37 @@ export function oidc<E extends Record<string, unknown> = Record<string, unknown>
     getCallbackUrl,
     validateIdToken = true,
     fetchUserInfo = true,
+    transactionSecret,
+    transactionCookie,
+    clockTolerance = 60,
+    backchannelLogoutMaxAgeSeconds = 300,
   } = options
+
+  if (!validateIdToken) {
+    throw new TypeError('OIDC ID token signature verification cannot be disabled')
+  }
+
+  const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+  const seenLogoutTokens = new Map<string, number>()
+  const verifyToken = async (provider: OidcProvider, token: string): Promise<JWTPayload> => {
+    if (!provider.jwksUri) {
+      throw new Error(`OIDC provider ${provider.name} must configure jwksUri`)
+    }
+    let keySet = keySets.get(provider.jwksUri)
+    if (!keySet) {
+      keySet = createRemoteJWKSet(new URL(provider.jwksUri))
+      keySets.set(provider.jwksUri, keySet)
+    }
+    const algorithms = (provider.idTokenSigningAlgValues ?? ['RS256', 'ES256'])
+      .filter((algorithm) => algorithm !== 'none')
+    const result = await jwtVerify(token, keySet, {
+      algorithms,
+      audience: provider.clientId,
+      clockTolerance,
+      issuer: provider.issuer,
+    })
+    return result.payload
+  }
 
   // Build provider map
   const providerMap = new Map<string, OidcProvider>()
@@ -481,7 +529,15 @@ export function oidc<E extends Record<string, unknown> = Record<string, unknown>
         )
       }
 
-      return handleOidcLogin(provider, c, getCallbackUrl, fullCallbackPath)
+      return handleOidcLogin(
+        provider,
+        c,
+        getCallbackUrl,
+        fullCallbackPath,
+        pathPrefix,
+        transactionSecret,
+        transactionCookie,
+      )
     }
 
     // Callback
@@ -503,10 +559,13 @@ export function oidc<E extends Record<string, unknown> = Record<string, unknown>
         c,
         getCallbackUrl,
         fullCallbackPath,
-        validateIdToken,
         fetchUserInfo,
         onSuccess,
-        onError
+        onError,
+        verifyToken,
+        pathPrefix,
+        transactionSecret,
+        transactionCookie,
       )
     }
 
@@ -519,7 +578,15 @@ export function oidc<E extends Record<string, unknown> = Record<string, unknown>
 
     // Backchannel logout
     if (pathname === fullBackchannelPath && c.req.method === 'POST') {
-      return handleBackchannelLogout(c, providers, onBackchannelLogout)
+      return handleBackchannelLogout(
+        c,
+        providers,
+        onBackchannelLogout,
+        verifyToken,
+        seenLogoutTokens,
+        clockTolerance,
+        backchannelLogoutMaxAgeSeconds,
+      )
     }
 
     await next()
@@ -537,18 +604,29 @@ async function handleOidcLogin<E extends Record<string, unknown>>(
   provider: OidcProvider,
   c: HttpContextInterface<E>,
   getCallbackUrl: ((provider: OidcProvider, c: HttpContextInterface<E>) => string) | undefined,
-  callbackPath: string
+  callbackPath: string,
+  transactionPath: string,
+  transactionSecret: string | undefined,
+  transactionCookie: OAuthTransactionCookieOptions | undefined,
 ): Promise<Response> {
   // Generate state and nonce
   const state = await generateRandom()
   const nonce = await generateRandom()
 
-  // Store in state parameter
   const stateData = {
     state,
     nonce,
     provider: provider.name,
+    issuedAt: Date.now(),
   }
+
+  await storeOAuthTransaction(
+    c,
+    stateData,
+    transactionSecret ?? provider.clientSecret,
+    transactionPath,
+    transactionCookie,
+  )
 
   // Build callback URL
   const callbackUrl = getCallbackUrl
@@ -560,14 +638,17 @@ async function handleOidcLogin<E extends Record<string, unknown>>(
   authUrl.searchParams.set('client_id', provider.clientId)
   authUrl.searchParams.set('redirect_uri', callbackUrl)
   authUrl.searchParams.set('response_type', 'code')
-  authUrl.searchParams.set('state', encodeStateData(stateData))
+  authUrl.searchParams.set('state', state)
   authUrl.searchParams.set('nonce', nonce)
 
   if (provider.scopes && provider.scopes.length > 0) {
     authUrl.searchParams.set('scope', provider.scopes.join(' '))
   }
 
-  return c.redirect(authUrl.toString())
+  return c.newResponse(null, {
+    status: 302,
+    headers: { Location: authUrl.toString() },
+  })
 }
 
 /**
@@ -578,40 +659,55 @@ async function handleOidcCallback<E extends Record<string, unknown>>(
   c: HttpContextInterface<E>,
   getCallbackUrl: ((provider: OidcProvider, c: HttpContextInterface<E>) => string) | undefined,
   callbackPath: string,
-  validateIdToken: boolean,
   fetchUserInfoEnabled: boolean,
   onSuccess: OidcOptions<E>['onSuccess'],
-  onError: NonNullable<OidcOptions<E>['onError']>
+  onError: NonNullable<OidcOptions<E>['onError']>,
+  verifyToken: (provider: OidcProvider, token: string) => Promise<JWTPayload>,
+  transactionPath: string,
+  transactionSecret: string | undefined,
+  transactionCookie: OAuthTransactionCookieOptions | undefined,
 ): Promise<Response> {
   const url = new URL(c.req.url)
-
-  // Check for error
-  const error = url.searchParams.get('error')
-  if (error) {
-    return onError(
-      {
-        code: error.toUpperCase(),
-        message: url.searchParams.get('error_description') || 'Authorization failed',
-      },
-      provider,
-      c
-    )
-  }
-
-  // Get code and state
-  const code = url.searchParams.get('code')
-  if (!code) {
-    return onError({ code: 'MISSING_CODE', message: 'Authorization code not found' }, provider, c)
-  }
 
   const stateParam = url.searchParams.get('state')
   if (!stateParam) {
     return onError({ code: 'MISSING_STATE', message: 'State parameter not found' }, provider, c)
   }
 
-  const stateData = decodeStateData(stateParam)
-  if (!stateData || stateData.provider !== provider.name) {
+  const consumed = await consumeOAuthTransaction(
+    c,
+    provider.name,
+    stateParam,
+    transactionSecret ?? provider.clientSecret,
+    transactionPath,
+    transactionCookie,
+  )
+  if (!consumed) {
     return onError({ code: 'INVALID_STATE', message: 'Invalid state parameter' }, provider, c)
+  }
+  const stateData = consumed.transaction
+  const finish = async (response: Response | Promise<Response>): Promise<Response> =>
+    withSetCookie(await response, consumed.clearCookie)
+
+  const error = url.searchParams.get('error')
+  if (error) {
+    return finish(onError(
+      {
+        code: error.toUpperCase(),
+        message: url.searchParams.get('error_description') || 'Authorization failed',
+      },
+      provider,
+      c
+    ))
+  }
+
+  const code = url.searchParams.get('code')
+  if (!code) {
+    return finish(onError(
+      { code: 'MISSING_CODE', message: 'Authorization code not found' },
+      provider,
+      c,
+    ))
   }
 
   // Exchange code for tokens
@@ -639,11 +735,11 @@ async function handleOidcCallback<E extends Record<string, unknown>>(
 
     if (!tokenResponse.ok) {
       const errorBody = await tokenResponse.text()
-      return onError(
+      return finish(onError(
         { code: 'TOKEN_EXCHANGE_FAILED', message: `Token exchange failed: ${tokenResponse.status}`, cause: new Error(errorBody) },
         provider,
         c
-      )
+      ))
     }
 
     const tokenData = (await tokenResponse.json()) as Record<string, unknown>
@@ -658,43 +754,46 @@ async function handleOidcCallback<E extends Record<string, unknown>>(
       raw: tokenData,
     }
 
-    // Validate ID token if present
-    let idTokenClaims: IdTokenClaims | null = null
-    if (tokens.idToken && validateIdToken) {
-      try {
-        idTokenClaims = decodeIdToken(tokens.idToken)
+    if (!tokens.idToken) {
+      return finish(onError(
+        { code: 'INVALID_ID_TOKEN', message: 'OIDC token response did not include an ID token' },
+        provider,
+        c,
+      ))
+    }
 
-        // Basic validation
-        if (idTokenClaims.iss !== provider.issuer) {
-          return onError({ code: 'INVALID_ISSUER', message: 'ID token issuer mismatch' }, provider, c)
-        }
+    let idTokenClaims: IdTokenClaims
+    try {
+      idTokenClaims = await verifyToken(provider, tokens.idToken) as IdTokenClaims
 
-        const audience = Array.isArray(idTokenClaims.aud) ? idTokenClaims.aud : [idTokenClaims.aud]
-        if (!audience.includes(provider.clientId)) {
-          return onError({ code: 'INVALID_AUDIENCE', message: 'ID token audience mismatch' }, provider, c)
-        }
-
-        if (idTokenClaims.exp && idTokenClaims.exp < Date.now() / 1000) {
-          return onError({ code: 'TOKEN_EXPIRED', message: 'ID token expired' }, provider, c)
-        }
-
-        // Validate nonce if present in state
-        if (stateData.nonce && idTokenClaims.nonce !== stateData.nonce) {
-          return onError({ code: 'INVALID_NONCE', message: 'ID token nonce mismatch' }, provider, c)
-        }
-      } catch (err) {
-        return onError(
-          { code: 'INVALID_ID_TOKEN', message: 'Failed to decode ID token', cause: err as Error },
-          provider,
-          c
-        )
+      if (
+        !idTokenClaims.sub
+        || !Number.isFinite(idTokenClaims.iat)
+        || !Number.isFinite(idTokenClaims.exp)
+      ) {
+        throw new Error('ID token is missing required claims')
       }
+      if (
+        Array.isArray(idTokenClaims.aud) &&
+        idTokenClaims.aud.length > 1 &&
+        idTokenClaims.azp !== provider.clientId
+      ) {
+        throw new Error('ID token authorized party mismatch')
+      }
+
+      if (stateData.nonce && idTokenClaims.nonce !== stateData.nonce) {
+        return finish(onError({ code: 'INVALID_NONCE', message: 'ID token nonce mismatch' }, provider, c))
+      }
+    } catch (err) {
+      return finish(onError(
+        { code: 'INVALID_ID_TOKEN', message: 'Failed to verify ID token', cause: err as Error },
+        provider,
+        c
+      ))
     }
 
     // Fetch user info
-    let userInfo: OidcUserInfo = idTokenClaims
-      ? { ...idTokenClaims }
-      : { sub: '' }
+    let userInfo: OidcUserInfo = { ...idTokenClaims }
 
     if (fetchUserInfoEnabled && provider.userInfoUrl && tokens.accessToken) {
       try {
@@ -714,13 +813,13 @@ async function handleOidcCallback<E extends Record<string, unknown>>(
       }
     }
 
-    return onSuccess(tokens, userInfo, provider, c)
+    return finish(onSuccess(tokens, userInfo, provider, c))
   } catch (err) {
-    return onError(
+    return finish(onError(
       { code: 'TOKEN_EXCHANGE_ERROR', message: 'Token exchange error', cause: err as Error },
       provider,
       c
-    )
+    ))
   }
 }
 
@@ -730,7 +829,11 @@ async function handleOidcCallback<E extends Record<string, unknown>>(
 async function handleBackchannelLogout<E extends Record<string, unknown>>(
   c: HttpContextInterface<E>,
   providers: OidcProvider[],
-  onBackchannelLogout: OidcOptions<E>['onBackchannelLogout']
+  onBackchannelLogout: OidcOptions<E>['onBackchannelLogout'],
+  verifyToken: (provider: OidcProvider, token: string) => Promise<JWTPayload>,
+  seenLogoutTokens: Map<string, number>,
+  clockTolerance: number,
+  maxAgeSeconds: number,
 ): Promise<Response> {
   try {
     // Parse logout token from form body
@@ -750,11 +853,8 @@ async function handleBackchannelLogout<E extends Record<string, unknown>>(
       )
     }
 
-    // Decode logout token (minimal validation)
-    const claims = decodeIdToken(logoutToken) as unknown as LogoutTokenClaims
-
-    // Find matching provider
-    const provider = providers.find((p) => p.issuer === claims.iss)
+    const untrusted = decodeIdToken(logoutToken) as unknown as LogoutTokenClaims
+    const provider = providers.find((p) => p.issuer === untrusted.iss)
     if (!provider) {
       return new Response(
         JSON.stringify({ error: 'invalid_request', error_description: 'Unknown issuer' }),
@@ -762,14 +862,7 @@ async function handleBackchannelLogout<E extends Record<string, unknown>>(
       )
     }
 
-    // Validate audience
-    const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
-    if (!audience.includes(provider.clientId)) {
-      return new Response(
-        JSON.stringify({ error: 'invalid_request', error_description: 'Invalid audience' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
+    const claims = await verifyToken(provider, logoutToken) as unknown as LogoutTokenClaims
 
     // Validate events claim
     if (!claims.events?.['http://schemas.openid.net/event/backchannel-logout']) {
@@ -777,6 +870,40 @@ async function handleBackchannelLogout<E extends Record<string, unknown>>(
         JSON.stringify({ error: 'invalid_request', error_description: 'Missing backchannel-logout event' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
+    }
+
+    const nowSeconds = Date.now() / 1000
+    if (
+      (!claims.sub && !claims.sid) ||
+      !claims.jti ||
+      !Number.isFinite(claims.iat) ||
+      claims.iat > nowSeconds + clockTolerance ||
+      nowSeconds - claims.iat > maxAgeSeconds ||
+      'nonce' in claims
+    ) {
+      return new Response(
+        JSON.stringify({ error: 'invalid_request', error_description: 'Invalid logout token claims' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const now = Date.now()
+    for (const [jti, expiresAt] of seenLogoutTokens) {
+      if (expiresAt <= now) seenLogoutTokens.delete(jti)
+    }
+    if (claims.jti) {
+      if (seenLogoutTokens.has(claims.jti)) {
+        return new Response(
+          JSON.stringify({ error: 'invalid_request', error_description: 'Logout token replayed' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+      if (seenLogoutTokens.size >= 10_000) {
+        const oldest = seenLogoutTokens.keys().next().value as string | undefined
+        if (oldest) seenLogoutTokens.delete(oldest)
+      }
+      const tokenExpiry = typeof claims.exp === 'number' ? claims.exp * 1000 : now + 120_000
+      seenLogoutTokens.set(claims.jti, Math.min(tokenExpiry, now + 120_000))
     }
 
     // Call handler
@@ -788,8 +915,8 @@ async function handleBackchannelLogout<E extends Record<string, unknown>>(
     return new Response(null, { status: 200 })
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: 'server_error', error_description: (err as Error).message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: 'invalid_request', error_description: 'Invalid logout token' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     )
   }
 }
@@ -882,8 +1009,8 @@ function matchPath(pathname: string, pattern: string): { params: Record<string, 
 }
 
 /**
- * Decode JWT ID token (without verification)
- * For full verification, use a proper JWT library
+ * Decode only enough untrusted JWT payload to select the configured issuer.
+ * The token is always cryptographically verified before claims are used.
  */
 function decodeIdToken(token: string): IdTokenClaims {
   const parts = token.split('.')

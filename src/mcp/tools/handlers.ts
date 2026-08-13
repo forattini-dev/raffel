@@ -277,8 +277,8 @@ export const handlers: Record<string, MCPToolHandler> = {
       md += '### Explicit + SOCKS5 suite\n\n'
       md += '```ts\n'
       md += "const suite = createProxySuite({\n"
-      md += "  explicit: { host: '0.0.0.0', port: 3128 },\n"
-      md += "  socks5: { host: '0.0.0.0', port: 1080 },\n"
+      md += "  explicit: { host: '127.0.0.1', port: 3128 },\n"
+      md += "  socks5: { host: '127.0.0.1', port: 1080 },\n"
       md += "  telemetry: { sourceHeader: 'x-service-name', percentiles: [0.5, 0.9, 0.95] },\n"
       md += '})\n```\n\n'
       md += '### Transparent capture\n\n'

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, rm, symlink } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -57,5 +57,22 @@ describe('serveStatic fallback routing', () => {
     const spaResponse = await app.fetch(new Request('http://localhost/admin'))
     expect(spaResponse.status).toBe(200)
     expect(await spaResponse.text()).toContain('spa')
+  })
+
+  it('does not follow symlinks outside the configured root', async () => {
+    tempDir = await createTempDir()
+    const publicDir = path.join(tempDir, 'public')
+    const secretFile = path.join(tempDir, 'secret.txt')
+    await mkdir(publicDir)
+    await writeFile(secretFile, 'must-not-leak')
+    await symlink(secretFile, path.join(publicDir, 'leak.txt'))
+
+    const app = new HttpApp()
+    app.use('/*', serveStatic({ root: publicDir }))
+
+    const response = await app.fetch(new Request('http://localhost/leak.txt'))
+
+    expect(response.status).toBe(403)
+    expect(await response.text()).not.toContain('must-not-leak')
   })
 })

@@ -236,14 +236,14 @@ Use raffel_feature_catalog and raffel_api_patterns before generating implementat
             res.end('Not found')
           }
         })
-        await new Promise<void>((resolve) => httpServer.listen(port, () => resolve()))
+        await new Promise<void>((resolve) => httpServer.listen(port, '127.0.0.1', () => resolve()))
         this.log(`HTTP server listening on port ${port}`)
         console.error(`Raffel MCP server running on http://localhost:${port}`)
         break
       }
       case 'sse': {
         const port = this.options.port || 3200
-        transport = createSseTransport({ port })
+        transport = createSseTransport({ port, host: '127.0.0.1' })
         this.log(`SSE server listening on port ${port}`)
         console.error(`Raffel MCP server running on http://localhost:${port}`)
         console.error(`SSE endpoint: http://localhost:${port}/sse`)

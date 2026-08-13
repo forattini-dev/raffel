@@ -86,7 +86,7 @@ export function createWebSocketAdapter(
 ): WebSocketAdapter {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     path = '/',
     maxPayloadSize = 1024 * 1024, // 1MB
     heartbeatInterval = 30000,

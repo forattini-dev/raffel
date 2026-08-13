@@ -42,7 +42,7 @@ export interface JsonServerOptions extends JsonModuleOptions {
   db: JsonDb | string
   /** HTTP port. Default: 3000 */
   port?: number
-  /** Hostname to bind. Default: '0.0.0.0' */
+  /** Hostname to bind. Default: '127.0.0.1' */
   hostname?: string
   /**
    * Protocol configuration.

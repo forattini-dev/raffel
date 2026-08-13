@@ -12,7 +12,7 @@ export interface MockServerOptions {
   spec: string | SpecDocument
   /** HTTP port. Default: 3000 */
   port?: number
-  /** Hostname. Default: '0.0.0.0' */
+  /** Hostname. Default: '127.0.0.1' */
   hostname?: string
   /** Simulate network latency in ms */
   delay?: number

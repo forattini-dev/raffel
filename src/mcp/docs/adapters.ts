@@ -352,7 +352,7 @@ const members = server.channels?.getMembers('presence-room-1')`,
         name: 'host',
         type: 'string',
         required: false,
-        default: "'0.0.0.0'",
+        default: "'127.0.0.1'",
         description: 'Host to bind to',
       },
       {
@@ -744,7 +744,7 @@ const server = createServer()
         name: 'host',
         type: 'string',
         required: false,
-        default: "'0.0.0.0'",
+        default: "'127.0.0.1'",
         description: 'Host to bind to',
       },
       {

@@ -2,6 +2,19 @@
  * Proxy authentication utilities.
  */
 import type { ProxyAuth, ProxyCredentials, ProxyStats } from '../types.js'
+import { timingSafeEqual } from 'node:crypto'
+
+function safeCredentialEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left)
+  const rightBuffer = Buffer.from(right)
+  const paddedLength = Math.max(leftBuffer.length, rightBuffer.length, 1)
+  const paddedLeft = Buffer.alloc(paddedLength)
+  const paddedRight = Buffer.alloc(paddedLength)
+  leftBuffer.copy(paddedLeft)
+  rightBuffer.copy(paddedRight)
+  const contentsEqual = timingSafeEqual(paddedLeft, paddedRight)
+  return leftBuffer.length === rightBuffer.length && contentsEqual
+}
 
 /** Mutable version of ProxyStats for internal tracking. */
 export interface MutableProxyStats {
@@ -19,10 +32,20 @@ export interface MutableProxyStats {
  */
 export function parseBasicProxyAuth(headerValue?: string): ProxyCredentials | null {
   if (!headerValue) return null
-  const match = /^Basic\s+(.+)$/i.exec(headerValue)
-  if (!match) return null
+  if (headerValue.length < 7 || headerValue.slice(0, 5).toLowerCase() !== 'basic') return null
+
+  let credentialsStart = 5
+  const firstSeparator = headerValue.charCodeAt(credentialsStart)
+  if (firstSeparator !== 0x20 && firstSeparator !== 0x09) return null
+  while (credentialsStart < headerValue.length) {
+    const character = headerValue.charCodeAt(credentialsStart)
+    if (character !== 0x20 && character !== 0x09) break
+    credentialsStart++
+  }
+  if (credentialsStart === headerValue.length) return null
+
   try {
-    const decoded = Buffer.from(match[1], 'base64').toString('utf8')
+    const decoded = Buffer.from(headerValue.slice(credentialsStart), 'base64').toString('utf8')
     const colon = decoded.indexOf(':')
     if (colon === -1) return null
     return {
@@ -50,10 +73,9 @@ export async function verifyProxyAuth(
   }
 
   if (auth.credentials) {
-    return (
-      auth.credentials.username === creds.username &&
-      auth.credentials.password === creds.password
-    )
+    const usernameMatches = safeCredentialEqual(auth.credentials.username, creds.username)
+    const passwordMatches = safeCredentialEqual(auth.credentials.password, creds.password)
+    return usernameMatches && passwordMatches
   }
 
   return true

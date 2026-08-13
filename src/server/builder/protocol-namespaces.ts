@@ -386,7 +386,7 @@ export function createTcpNamespace(ctx: TcpNamespaceContext): TcpNamespace {
             filePath: '<programmatic>',
             config: {
               port: options?.port ?? 0,
-              host: options?.host ?? '0.0.0.0',
+              host: options?.host ?? '127.0.0.1',
               keepAlive: true,
               keepAliveInitialDelay: 30000,
               timeout: 0,
@@ -455,7 +455,7 @@ export function createUdpNamespace(ctx: UdpNamespaceContext): UdpNamespace {
             filePath: '<programmatic>',
             config: {
               port: options?.port ?? 0,
-              host: options?.host ?? '0.0.0.0',
+              host: options?.host ?? '127.0.0.1',
               type: options?.type ?? 'udp4',
               reuseAddr: true,
               reusePort: false,

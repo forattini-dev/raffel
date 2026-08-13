@@ -53,11 +53,11 @@ function createSinglePortUnsupportedResponse(
 }
 
 function getSinglePortTcpHost(protocolsHost?: string): string {
-  return protocolsHost ?? '0.0.0.0'
+  return protocolsHost ?? '127.0.0.1'
 }
 
 function getSinglePortUdpHost(handlerHost?: string): string {
-  return handlerHost ?? '0.0.0.0'
+  return handlerHost ?? '127.0.0.1'
 }
 
 function isSinglePortTcpHostCompatible(host: string, sharedHost: string): boolean {

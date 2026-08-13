@@ -114,7 +114,7 @@ export function generateUdp(
   options: UdpGeneratorOptions = {}
 ): UdpGeneratorResult {
   const {
-    defaultHost = '0.0.0.0',
+    defaultHost = '127.0.0.1',
     defaultMaxPacketSize = 65507,
     defaultSecurity,
     contentTypes = USD_PROTOCOL_CONTENT_TYPES.udp,
