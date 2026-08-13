@@ -20,6 +20,10 @@ _Avoid_: Live stream, automatic reconnect
 An opaque ordered position supplied by the application that identifies where a Resumable Stream consumer can continue.
 _Avoid_: Timestamp, process-local sequence
 
+**Poll Cursor**:
+An opaque position after which a Long Poll Interaction waits exclusively for a change.
+_Avoid_: Resume Cursor, inclusive cursor
+
 **Replay Provider**:
 An application-supplied source of ordered stream records used by one or more Resumable Streams.
 _Avoid_: Raffel-owned event store, in-memory production replay
@@ -27,6 +31,14 @@ _Avoid_: Raffel-owned event store, in-memory production replay
 **Durable Stream Source**:
 An application-owned producer that retains ordered events independently of consumer connections.
 _Avoid_: Connection-scoped handler, Raffel background job
+
+**Source-Backed Stream**:
+A Resumable Stream whose execution is supplied directly by a Durable Stream Source instead of a connection-scoped handler.
+_Avoid_: Resumable handler, persisted handler output
+
+**Stream Record**:
+An ordered delivery record containing a Resume Cursor and business data emitted by a Replay Provider.
+_Avoid_: Business payload with embedded cursor, transport envelope
 
 **Capability Contract**:
 The protocol-independent USD definition of an application capability from which protocol-specific contracts are projected.
@@ -39,6 +51,10 @@ _Avoid_: Automatic replay fallback, Raffel-owned snapshot
 **Contract Projection**:
 A protocol-specific representation derived from a Capability Contract that preserves unsupported semantics as explicit extensions and diagnostics.
 _Avoid_: Independent protocol contract, silent lossy conversion
+
+**Long Poll Interaction**:
+An HTTP interaction that waits for a change or timeout and returns one response carrying continuation metadata.
+_Avoid_: Stream, repeated responses, new capability kind
 
 **AI workload**:
 Application behavior that uses Raffel's general protocol capabilities without becoming a Raffel-owned model or AI abstraction.
@@ -54,13 +70,17 @@ _Avoid_: Raffel AI Assistant, Raffel AI runtime
 - Applications integrate outbound clients, message brokers, and model SDKs around **Raffel**
 - A **Resumable Stream** adds recovery semantics that a **Live Stream** does not provide
 - A **Resumable Stream** uses a **Resume Cursor** and provides at-least-once delivery across reconnections
+- A **Long Poll Interaction** uses a **Poll Cursor** without repeating the indicated change
 - A **Resumable Stream** names a **Replay Provider** rather than relying on process-local history
 - A **Resumable Stream** subscribes to a **Durable Stream Source** that continues independently of its consumers
+- A **Source-Backed Stream** is the runtime form of a **Resumable Stream**
+- A **Replay Provider** emits **Stream Records** while the Capability Contract describes their business data
 - An **AI workload** may consume a **Live Stream** or **Resumable Stream** without changing Raffel's server-first boundary
 - **Raffel MCP** is a protocol surface of **Raffel**, not a model-provider abstraction
 - A **Capability Contract** may project OpenAPI for HTTP and proto metadata for gRPC
 - A consumer recovers an expired **Resume Cursor** by obtaining a **Stream Snapshot**
 - A **Contract Projection** derives from a **Capability Contract** without silently discarding semantics
+- A **Long Poll Interaction** remains an ordinary HTTP capability and is distinguished by contract metadata
 
 ## Example dialogue
 
