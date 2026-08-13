@@ -177,6 +177,41 @@ When a limit expires, Raffel aborts `ctx.signal`, closes the iterator, clears
 its timers, and ends the response. Omitting `controls` preserves the existing
 Live Stream bytes and behavior.
 
+## Source-Backed Resumable Streams
+
+Resumability is opt-in and application-owned. Register a provider containing a
+Durable Stream Source and Replay Provider, then reference it from the stream:
+
+```ts
+const resumable = {
+  provider: 'orderChanges',
+  delivery: 'at-least-once' as const,
+  cursor: { header: 'Last-Event-ID' as const, query: 'cursor' },
+  expiredCursor: { event: 'snapshot' as const },
+}
+
+server
+  .provide('orderChanges', () => createOrderChangesProvider(), {
+    onShutdown: provider => provider.close(),
+  })
+  .stream('orders/watch')
+  .input(orderInput)
+  .output(orderOutput)
+  .snapshot(orderSnapshot)
+  .resumable(resumable)
+```
+
+For fs-discovery, export `input`, `output`, `snapshot`, and `resumable` from the
+stream file. Do not export a default handler: the provider is the execution
+source. Initial connections call `source.subscribe()`. Reconnections replay
+after the opaque `Last-Event-ID` (or configured query fallback), then continue
+from the source. Raffel emits each Stream Record cursor as the SSE `id` while
+the SSE `data` remains the business payload described by `output`.
+
+Delivery is explicitly at least once, so applications and consumers must
+tolerate a record repeated at the replay/live boundary. Raffel does not parse
+cursors, deduplicate records, create storage, or run a background producer.
+
 ## Long polling is ordinary HTTP
 
 A Long Poll Interaction is not a stream capability. Each request waits for at

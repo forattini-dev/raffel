@@ -167,6 +167,7 @@ export function createProgrammaticRegistration(
             description: route.description,
             direction: route.streamDirection,
             controls: route.streamControls,
+            resumable: route.resumable,
             graphql: route.graphql,
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })
@@ -247,9 +248,11 @@ export function createProgrammaticRegistration(
       const handler = input.handler as StreamHandler
       const inputSchema = input.inputSchema
       const outputSchema = input.outputSchema
+      const snapshotSchema = input.snapshotSchema
       const description = 'meta' in input ? input.meta?.description : (input as AddStreamInput).description
       const direction = 'meta' in input ? input.meta?.direction : (input as AddStreamInput).direction
       const controls = 'meta' in input ? input.meta?.controls : (input as AddStreamInput).controls
+      const resumable = input.resumable
       const graphql = 'meta' in input ? input.meta?.graphql : (input as AddStreamInput).graphql
       const policies = 'meta' in input
         ? policyMetadataFromRouteMeta(input.meta)
@@ -259,10 +262,11 @@ export function createProgrammaticRegistration(
 
       const interceptors = [...globalInterceptors, ...routeInterceptors, ...inputInterceptors]
 
-      if (inputSchema || outputSchema) {
+      if (inputSchema || outputSchema || snapshotSchema) {
         const schema: HandlerSchema = {}
         if (inputSchema) schema.input = inputSchema
         if (outputSchema) schema.output = outputSchema
+        if (snapshotSchema) schema.snapshot = snapshotSchema
         schemaRegistry.register(name, schema)
       }
 
@@ -270,6 +274,7 @@ export function createProgrammaticRegistration(
         description,
         direction,
         controls,
+        resumable,
         graphql,
         policies,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
@@ -356,7 +361,10 @@ export function createProgrammaticRegistration(
           handler: handler as StreamHandler,
           inputSchema: opts?.input,
           outputSchema: opts?.output,
+          snapshotSchema: opts?.snapshot,
           direction: opts?.direction,
+          controls: opts?.controls,
+          resumable: opts?.resumable,
           description: opts?.description,
           graphql: opts?.graphql,
           policies: opts?.policies,

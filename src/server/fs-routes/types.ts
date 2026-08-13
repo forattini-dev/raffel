@@ -15,6 +15,7 @@ import type {
   HttpMethod,
   JsonRpcMeta,
   GrpcMeta,
+  ResumableStreamConfig,
 } from '../../types/index.js'
 import type { HttpContextInterface } from '../../http/context.js'
 import type { RouteCacheConfig } from '../../cache/server-runtime.js'
@@ -261,13 +262,19 @@ export interface DiscoveryStats {
  */
 export interface HandlerExports {
   /** Default export: the handler function */
-  default: DiscoveredHandlerFunction
+  default?: DiscoveredHandlerFunction
 
   /** Input schema (Zod) */
   input?: z.ZodType
 
   /** Output schema (Zod) */
   output?: z.ZodType
+
+  /** Stream Snapshot schema for expired Resume Cursor recovery. */
+  snapshot?: z.ZodType
+
+  /** Source-Backed Resumable Stream config; mutually exclusive with default. */
+  resumable?: ResumableStreamConfig
 
   /** Handler metadata */
   meta?: HandlerMeta
@@ -613,7 +620,7 @@ export interface ChannelMember {
  * ```
  */
 export interface StreamExports extends HandlerExports {
-  default: StreamHandlerFunction
+  default?: StreamHandlerFunction
 }
 
 export type StreamHandlerFunction = (
@@ -659,6 +666,12 @@ export interface LoadedRoute {
 
   /** Output schema */
   outputSchema?: z.ZodType
+
+  /** Stream Snapshot schema. */
+  snapshotSchema?: z.ZodType
+
+  /** Source-Backed Resumable Stream config. */
+  resumable?: ResumableStreamConfig
 
   /** TypeScript-inferred output shape used only by documentation generators. */
   inferredOutputSchema?: Record<string, unknown>

@@ -20,6 +20,7 @@ import type {
   StreamDirection,
   StreamOperationalControls,
   LongPollContract,
+  ResumableStreamConfig,
   RetryPolicy,
   ContractPolicies,
 } from '../../types/index.js'
@@ -165,10 +166,14 @@ export interface StreamBuilder<TInput = unknown, TOutput = unknown> {
   input<T extends z.ZodType>(schema: T): StreamBuilder<z.infer<T>, TOutput>
   /** Define output chunk schema */
   output<T extends z.ZodType>(schema: T): StreamBuilder<TInput, z.infer<T>>
+  /** Define the application Stream Snapshot schema. */
+  snapshot<T extends z.ZodType>(schema: T): this
   /** Set stream direction */
   direction(direction: StreamDirection): this
   /** Configure connection-scoped Live Stream controls. */
   controls(controls: StreamOperationalControls): this
+  /** Register a Source-Backed Resumable Stream without a connection handler. */
+  resumable(config: ResumableStreamConfig): void
   /** Add description */
   description(desc: string): this
   /** Customize GraphQL subscription exposure and metadata. */
@@ -554,10 +559,13 @@ export interface AddStreamInput {
   inputSchema?: import('zod').ZodType
   /** Output schema */
   outputSchema?: import('zod').ZodType
+  /** Snapshot schema used for expired Resume Cursor recovery. */
+  snapshotSchema?: import('zod').ZodType
   /** Stream direction */
   direction?: StreamDirection
   /** Connection-scoped Live Stream controls. */
   controls?: StreamOperationalControls
+  resumable?: ResumableStreamConfig
   /** Description */
   description?: string
   /** GraphQL subscription exposure metadata. */
@@ -626,8 +634,10 @@ export interface RegisterStreamOptions {
   kind: 'stream'
   input?: import('zod').ZodType
   output?: import('zod').ZodType
+  snapshot?: import('zod').ZodType
   direction?: StreamDirection
   controls?: StreamOperationalControls
+  resumable?: ResumableStreamConfig
   description?: string
   graphql?: GraphQLMeta
   policies?: ContractPolicies

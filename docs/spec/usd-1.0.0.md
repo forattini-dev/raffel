@@ -768,6 +768,7 @@ Defines Server-Sent Events (SSE) and streaming endpoints.
 | security | [[Security Requirement Object](#security-requirement-object)] | No | Security requirements. |
 | x-usd-backpressure | `boolean` | No | Whether backpressure is supported. |
 | x-usd-live-stream | `object` | No | Connection-scoped heartbeat, retry hint, maximum duration, and idle timeout. Does not imply replay. |
+| x-usd-resumable | `object` | No | Application-owned Replay Provider, Durable Stream Source, opaque cursor, and at-least-once recovery contract. |
 
 ### Stream Directions
 
@@ -1442,6 +1443,7 @@ The following `x-usd-*` prefixes are reserved:
 | `x-usd-presence` | WebSocket Channel | Presence configuration |
 | `x-usd-backpressure` | Stream Endpoint | Backpressure support |
 | `x-usd-live-stream` | Stream Endpoint | Connection-scoped Live Stream controls |
+| `x-usd-resumable` | Stream Endpoint | Source-Backed Resumable Stream contract |
 | `x-usd-client-streaming` | gRPC Method | Client streaming |
 | `x-usd-server-streaming` | gRPC Method | Server streaming |
 | `x-usd-notification` | JSON-RPC Method | Notification (no response) |

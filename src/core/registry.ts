@@ -17,6 +17,7 @@ import type {
   StreamDirection,
   StreamOperationalControls,
   LongPollContract,
+  ResumableStreamConfig,
   GraphQLMeta,
   HttpMethod,
   JsonRpcMeta,
@@ -76,6 +77,8 @@ export interface StreamRegistryOptions {
   contentTypes?: { default?: string; supported?: string[] }
   /** Connection-scoped controls for Live Streams. */
   controls?: StreamOperationalControls
+  /** Opt into application-owned replay and durable source consumption. */
+  resumable?: ResumableStreamConfig
   policies?: ContractPolicies
   graphql?: GraphQLMeta
   interceptors?: Interceptor[]
@@ -174,6 +177,31 @@ function validateStreamControls(controls?: StreamOperationalControls): void {
   }
 }
 
+function validateResumableStream(
+  config: ResumableStreamConfig | undefined,
+  direction: StreamDirection | undefined,
+): void {
+  if (!config) return
+  if (typeof config.provider !== 'string' || config.provider.trim().length === 0) {
+    throw new TypeError('Resumable Stream provider must not be empty')
+  }
+  if (config.delivery !== 'at-least-once') {
+    throw new TypeError("Resumable Stream delivery must be 'at-least-once'")
+  }
+  if (config.cursor?.header !== 'Last-Event-ID') {
+    throw new TypeError("Resumable Stream cursor header must be 'Last-Event-ID'")
+  }
+  if (config.cursor.query !== undefined && config.cursor.query.trim().length === 0) {
+    throw new TypeError('Resumable Stream cursor query name must not be empty')
+  }
+  if (config.expiredCursor?.event !== 'snapshot') {
+    throw new TypeError("Resumable Stream expired cursor event must be 'snapshot'")
+  }
+  if (direction !== undefined && direction !== 'server') {
+    throw new TypeError('Source-Backed Resumable Streams must use server direction')
+  }
+}
+
 function validateLongPollContract(contract?: LongPollContract): void {
   if (!contract) return
   for (const [name, value] of [['waitMs', contract.waitMs], ['retryMs', contract.retryMs]] as const) {
@@ -245,6 +273,7 @@ export function createRegistry(): Registry {
       options: StreamRegistryOptions = {}
     ): void {
       validateStreamControls(options.controls)
+      validateResumableStream(options.resumable, options.direction)
       if (procedures.has(name) || streams.has(name) || events.has(name)) {
         throw new Error(`Handler '${name}' already registered`)
       }
@@ -264,6 +293,7 @@ export function createRegistry(): Registry {
           tags: options.tags,
           streamDirection: options.direction ?? 'server',
           streamControls: options.controls,
+          resumable: options.resumable,
           contentType: options.contentType,
           contentTypes: options.contentTypes,
           graphql: options.graphql,

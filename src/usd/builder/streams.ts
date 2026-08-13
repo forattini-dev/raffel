@@ -70,6 +70,11 @@ export class StreamEndpointBuilder {
     return this
   }
 
+  resumable(config: import('../../types/handlers.js').ResumableStreamConfig): this {
+    this.endpoint['x-usd-resumable'] = { ...config }
+    return this
+  }
+
   /** Return to streams builder */
   done(): StreamsBuilder {
     return this.streamsBuilder

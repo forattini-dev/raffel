@@ -21,6 +21,7 @@ import {
   type LoadedMiddleware,
 } from './route-naming.js'
 import type { Interceptor } from '../../types/index.js'
+import { createSourceBackedStreamHandler } from '../../stream/resumable.js'
 import { createFileSystemDiscoverySource, type DiscoverySource, type DiscoverySourceFailure, type DiscoverySourceStats, type DiscoverySourceWalkResult } from './discovery-source.js'
 import {
   DISCOVERY_DEFAULTS,
@@ -47,6 +48,7 @@ import type {
   LoadedChannel,
   HandlerExports,
   ProcedureHandlerFunction,
+  StreamHandlerFunction,
   HandlerMeta,
   DirectoryMeta,
   MiddlewareExports,
@@ -1211,7 +1213,11 @@ async function loadDirectory(
     try {
       const exports = await source.importModule<HandlerExports>(filePath)
 
-      if (!exports.default || typeof exports.default !== 'function') {
+      const sourceBacked = kind === 'stream' && exports.resumable !== undefined
+      if (sourceBacked && exports.default !== undefined) {
+        throw new TypeError('Source-Backed Resumable Stream must not export a default handler')
+      }
+      if (!sourceBacked && (!exports.default || typeof exports.default !== 'function')) {
         logger.warn({ filePath }, 'Handler file missing default export')
         continue
       }
@@ -1254,9 +1260,13 @@ async function loadDirectory(
         name: parsed.name,
         params: parsed.params,
         filePath,
-        handler: exports.default,
+        handler: sourceBacked
+          ? createSourceBackedStreamHandler(exports.resumable!) as StreamHandlerFunction
+          : exports.default!,
         inputSchema: exports.input,
         outputSchema: exports.output,
+        snapshotSchema: exports.snapshot,
+        resumable: exports.resumable,
         inferredOutputSchema: inferredOutput?.status === 'inferred' ? inferredOutput.schema : undefined,
         meta: mergedMeta,
         middlewares,

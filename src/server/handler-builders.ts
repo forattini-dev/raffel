@@ -17,6 +17,7 @@ import type {
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
 import { mergeContractPolicies } from '../types/policies.js'
 import { normalizeInterceptors } from './interceptor-utils.js'
+import { createSourceBackedStreamHandler } from '../stream/resumable.js'
 import type { ProcedurePolicyConfig } from '../middleware/policy/types.js'
 import type { RouteCacheConfig } from '../cache/server-runtime.js'
 import type {
@@ -358,6 +359,7 @@ export function createStreamBuilder(
 ): StreamBuilder {
   let inputSchema: z.ZodType | undefined
   let outputSchema: z.ZodType | undefined
+  let snapshotSchema: z.ZodType | undefined
   let description: string | undefined
   let direction: StreamDirection | undefined
   let controls: import('../types/index.js').StreamOperationalControls | undefined
@@ -374,6 +376,10 @@ export function createStreamBuilder(
       outputSchema = schema
       return builder as StreamBuilder<unknown, z.infer<typeof schema>>
     },
+    snapshot(schema) {
+      snapshotSchema = schema
+      return builder
+    },
     description(desc) {
       description = desc
       return builder
@@ -389,6 +395,23 @@ export function createStreamBuilder(
     controls(config) {
       controls = config
       return builder
+    },
+    resumable(config) {
+      const schema: HandlerSchema = {}
+      if (inputSchema) schema.input = inputSchema
+      if (outputSchema) schema.output = outputSchema
+      if (snapshotSchema) schema.snapshot = snapshotSchema
+      if (schema.input || schema.output || schema.snapshot) schemaRegistry.register(name, schema)
+
+      registry.stream(name, createSourceBackedStreamHandler(config), {
+        description,
+        direction: 'server',
+        controls,
+        resumable: config,
+        graphql: graphqlMeta,
+        policies,
+        interceptors: interceptors.length > 0 ? interceptors : undefined,
+      })
     },
     use(interceptor) {
       interceptors.push(interceptor)
