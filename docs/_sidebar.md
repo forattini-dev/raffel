@@ -89,6 +89,7 @@
   - [Hooks](/tooling/hooks.md)
 
 - **Guides**
+  - [Real-time & asynchronous interactions](/guides/realtime-and-async.md)
   - [Testing](/guides/testing.md)
   - [REST API](/guides/rest-api.md)
   - [Building MCP Servers](/guides/mcp-server.md)
