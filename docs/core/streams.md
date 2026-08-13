@@ -297,8 +297,10 @@ curl -N http://localhost:3000/streams/logs.tail?level=error
 Response:
 
 ```
+event: data
 data: {"timestamp":"2024-01-01T00:00:00Z","message":"Error occurred","level":"error"}
 
+event: data
 data: {"timestamp":"2024-01-01T00:00:01Z","message":"Another error","level":"error"}
 
 event: end
@@ -309,6 +311,19 @@ SSE event types:
 - `data` (default) - Stream chunk
 - `end` - Stream completed successfully
 - `error` - Stream error occurred
+
+Raffel emits `data` as a named SSE event. Browser clients must subscribe to
+that name instead of relying on `EventSource.onmessage`:
+
+```ts
+const source = new EventSource('/streams/logs/tail?level=error')
+
+source.addEventListener('data', (event) => {
+  console.log(JSON.parse(event.data))
+})
+
+source.addEventListener('end', () => source.close())
+```
 
 ## WebSocket Streaming
 
@@ -330,10 +345,10 @@ Errors use the `stream:error` type with a standard error payload.
 
 ## File-Based Streams
 
-Streams can also be defined in the routes directory:
+Streams can also be defined through file-system discovery in `src/streams`:
 
 ```ts
-// routes/metrics/live.stream.ts
+// src/streams/metrics/live.ts
 import { z } from 'zod'
 
 export const meta = {
@@ -341,22 +356,24 @@ export const meta = {
   direction: 'server' as const,
 }
 
-export const inputSchema = z.object({
+export const input = z.object({
   interval: z.number().default(1000),
 })
 
-export const outputSchema = z.object({
+export const output = z.object({
   cpu: z.number(),
   memory: z.number(),
 })
 
 export default async function* handler(input, ctx) {
-  while (!ctx.signal?.aborted) {
-    yield {
-      cpu: process.cpuUsage().user / 1000000,
-      memory: process.memoryUsage().heapUsed,
+  const metrics = await subscribeToMetrics(input.interval)
+  try {
+    for await (const sample of metrics) {
+      if (ctx.signal.aborted) break
+      yield sample
     }
-    await new Promise((r) => setTimeout(r, input.interval))
+  } finally {
+    await metrics.close()
   }
 }
 ```

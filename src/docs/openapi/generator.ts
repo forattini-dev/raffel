@@ -741,16 +741,17 @@ export function generateOpenAPI(
     const path = nameToPath(meta.name, opts.streamPath)
     const operationId = `stream${meta.name.charAt(0).toUpperCase() + nameToOperationId(meta.name).slice(1)}`
     const namespace = opts.groupByNamespace ? extractNamespace(meta.name) : undefined
+    const streamTags = meta.tags?.length ? meta.tags : namespace ? [namespace] : undefined
 
-    if (namespace) {
-      tags.add(namespace)
+    if (streamTags) {
+      for (const tag of streamTags) tags.add(tag)
     }
 
     const operation: OpenAPIOperation = {
       operationId,
       summary: meta.description ?? `Stream ${meta.name}`,
       description: `Server-Sent Events stream for ${meta.name}. Direction: ${meta.streamDirection ?? 'server'}`,
-      tags: namespace ? [namespace] : undefined,
+      tags: streamTags,
       responses: {
         '200': {
           description: 'Server-Sent Events stream',

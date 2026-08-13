@@ -406,7 +406,7 @@ export function generateUSD(
 
       // Extract tags from streams
       for (const meta of ctx.registry.listStreams()) {
-        const streamTags = extractStreamTags(meta.name)
+        const streamTags = meta.tags?.length ? meta.tags : extractStreamTags(meta.name)
         assembly.addTags(streamTags)
       }
     }
