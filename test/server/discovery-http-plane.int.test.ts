@@ -50,6 +50,32 @@ afterEach(async () => {
 })
 
 describe('discovery.http plane (issue #110)', () => {
+  it('serves fs-discovered named catch-all routes at arbitrary depth (issue #187)', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-http-catch-all-'))
+    const httpDir = path.join(dir, 'http')
+    await mkdir(path.join(httpDir, '[...path]'), { recursive: true })
+    await writeFile(
+      path.join(httpDir, '[...path]', 'get.js'),
+      `export default async function (_input, ctx) {
+  return { path: ctx.params.path }
+}
+`,
+    )
+
+    const port = await getFreePort()
+    server = createServer({
+      port,
+      host: '127.0.0.1',
+      discovery: { http: httpDir },
+      extensions: ['.js'],
+    } as never)
+    await server.start()
+
+    const response = await fetch(`http://127.0.0.1:${port}/a/b/c`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ path: 'a/b/c' })
+  })
+
   it('infers the documented response schema from a TypeScript handler return type', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-typescript-output-'))
     const httpDir = path.join(dir, 'http')
