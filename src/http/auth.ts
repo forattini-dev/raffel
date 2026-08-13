@@ -55,7 +55,7 @@ function toCookieContext<E extends Record<string, unknown>>(
         },
       },
     },
-    header: (name: string, value: string) => c.header(name, value),
+    header: (name: string, value: string, options) => c.header(name, value, options),
   }
 }
 
@@ -137,6 +137,39 @@ export interface BearerAuthOptions<T = unknown> {
    * @default 'api'
    */
   realm?: string
+}
+
+/**
+ * Middleware that has explicit authentication semantics.
+ *
+ * Generic HTTP middleware (for example `cookieSession`) must not be passed to
+ * `compositeAuth`, because calling `next()` only means that middleware setup
+ * completed — it does not prove that a principal was authenticated.
+ */
+export interface HttpAuthDriver<E extends Record<string, unknown> = Record<string, unknown>> {
+  (
+    c: HttpContextInterface<E>,
+    next: () => Promise<void>
+  ): void | Promise<void | Response> | Response
+  readonly authDriver: true
+}
+
+function markAuthDriver<E extends Record<string, unknown>>(
+  middleware: HttpMiddleware<E>
+): HttpAuthDriver<E> {
+  Object.defineProperty(middleware, 'authDriver', {
+    configurable: false,
+    enumerable: false,
+    value: true,
+    writable: false,
+  })
+  return middleware as HttpAuthDriver<E>
+}
+
+function isAuthDriver<E extends Record<string, unknown>>(
+  middleware: HttpMiddleware<E>
+): middleware is HttpAuthDriver<E> {
+  return (middleware as Partial<HttpAuthDriver<E>>).authDriver === true
 }
 
 /**
@@ -294,7 +327,7 @@ export interface SessionManager {
  */
 export function basicAuth<E extends Record<string, unknown> = Record<string, unknown>>(
   options: BasicAuthOptions
-): HttpMiddleware<E> {
+): HttpAuthDriver<E> {
   const {
     username,
     password,
@@ -304,7 +337,7 @@ export function basicAuth<E extends Record<string, unknown> = Record<string, unk
 
   const isVerifyFn = typeof username === 'function'
 
-  return async (c, next) => {
+  return markAuthDriver(async (c, next) => {
     const authHeader = c.req.header('authorization') as string | undefined
 
     if (!authHeader || !authHeader.toLowerCase().startsWith('basic ')) {
@@ -334,8 +367,9 @@ export function basicAuth<E extends Record<string, unknown> = Record<string, unk
       valid = await (username as Function)(providedUsername, providedPassword)
     } else {
       // Timing-safe comparison
-      valid = timingSafeEqual(providedUsername, username as string) &&
-              timingSafeEqual(providedPassword, password || '')
+      const usernameMatches = timingSafeEqual(providedUsername, username as string)
+      const passwordMatches = timingSafeEqual(providedPassword, password || '')
+      valid = usernameMatches && passwordMatches
     }
 
     if (!valid) {
@@ -346,7 +380,7 @@ export function basicAuth<E extends Record<string, unknown> = Record<string, unk
     c.set('basicAuth' as keyof E, { username: providedUsername } as E[keyof E])
 
     await next()
-  }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -384,7 +418,7 @@ export function basicAuth<E extends Record<string, unknown> = Record<string, unk
 export function bearerAuth<
   T = unknown,
   E extends Record<string, unknown> = Record<string, unknown>
->(options: BearerAuthOptions<T>): HttpMiddleware<E> {
+>(options: BearerAuthOptions<T>): HttpAuthDriver<E> {
   const {
     verifyToken,
     headerName = 'authorization',
@@ -397,7 +431,7 @@ export function bearerAuth<
 
   const prefixLower = prefix.toLowerCase()
 
-  return async (c, next) => {
+  return markAuthDriver(async (c, next) => {
     let token: string | undefined
 
     // Try header first
@@ -432,7 +466,7 @@ export function bearerAuth<
     c.set(contextKey as keyof E, result as E[keyof E])
 
     await next()
-  }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -487,7 +521,7 @@ export function cookieSession<E extends Record<string, unknown> = Record<string,
     // Load existing session from cookie
     let sessionData: SessionData | null = null
     const cookieCtx = toCookieContext(c)
-    const existingCookie = await getSignedCookie(cookieCtx, secret, cookieName)
+    const existingCookie = await getSignedCookie(cookieCtx, cookieName, secret)
 
     if (existingCookie) {
       try {
@@ -600,6 +634,45 @@ export function cookieSession<E extends Record<string, unknown> = Record<string,
   }
 }
 
+/** Configuration for authenticating an already-loaded cookie session. */
+export interface SessionAuthOptions<E extends Record<string, unknown> = Record<string, unknown>> {
+  /** Context key populated by `cookieSession`. Default: `session`. */
+  contextKey?: string
+  /** Return true only when the session represents an authenticated principal. */
+  validate: (
+    session: SessionManager,
+    c: HttpContextInterface<E>
+  ) => boolean | Promise<boolean>
+  /** Bearer challenge realm. Default: `session`. */
+  realm?: string
+  /** Response message for absent or invalid sessions. */
+  errorMessage?: string
+}
+
+/**
+ * Authenticate a session that was loaded earlier by `cookieSession`.
+ * This middleware never creates a session and is safe to compose with other
+ * authentication drivers.
+ */
+export function sessionAuth<E extends Record<string, unknown> = Record<string, unknown>>(
+  options: SessionAuthOptions<E>
+): HttpAuthDriver<E> {
+  const {
+    contextKey = 'session',
+    validate,
+    realm = 'session',
+    errorMessage = 'Invalid or missing session',
+  } = options
+
+  return markAuthDriver(async (c, next) => {
+    const session = c.get(contextKey as keyof E) as SessionManager | undefined
+    if (!session || !(await validate(session, c))) {
+      return createBearerUnauthorizedResponse(realm, errorMessage)
+    }
+    await next()
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Composite Auth Middleware
 // ─────────────────────────────────────────────────────────────────────────────
@@ -616,7 +689,7 @@ export interface CompositeAuthOptions<E extends Record<string, unknown> = Record
   /**
    * Array of auth middlewares to combine
    */
-  drivers: HttpMiddleware<E>[]
+  drivers: HttpAuthDriver<E>[]
 
   /**
    * Strategy for combining auth methods
@@ -658,10 +731,10 @@ export interface CompositeAuthOptions<E extends Record<string, unknown> = Record
  * }))
  *
  * @example
- * // Require both session AND 2FA token
+ * // Require both session AND 2FA token. `cookieSession` must run before this.
  * app.use('/sensitive/*', compositeAuth({
  *   drivers: [
- *     cookieSession({ secret }),
+ *     sessionAuth({ validate: (session) => session.has('userId') }),
  *     bearerAuth({ headerName: 'x-2fa-token', verifyToken: verify2FA })
  *   ],
  *   strategy: 'all' // Both must pass
@@ -691,6 +764,12 @@ export function compositeAuth<E extends Record<string, unknown> = Record<string,
     throw new Error('compositeAuth requires at least one driver')
   }
 
+  if (!drivers.every((driver) => isAuthDriver(driver))) {
+    throw new TypeError(
+      'compositeAuth accepts authentication drivers only; apply cookieSession before compositeAuth and use sessionAuth to validate it'
+    )
+  }
+
   // Single driver - just return it
   if (drivers.length === 1) {
     return drivers[0]
@@ -717,7 +796,7 @@ export function compositeAuth<E extends Record<string, unknown> = Record<string,
 async function handleAnyStrategy<E extends Record<string, unknown>>(
   c: HttpContextInterface<E>,
   next: () => Promise<void | Response>,
-  drivers: HttpMiddleware<E>[],
+  drivers: HttpAuthDriver<E>[],
   realm: string,
   errorMessage: string
 ): Promise<void | Response> {
@@ -769,7 +848,7 @@ async function handleAnyStrategy<E extends Record<string, unknown>>(
 async function handleAllStrategy<E extends Record<string, unknown>>(
   c: HttpContextInterface<E>,
   next: () => Promise<void | Response>,
-  drivers: HttpMiddleware<E>[],
+  drivers: HttpAuthDriver<E>[],
   realm: string,
   errorMessage: string
 ): Promise<void | Response> {
@@ -807,7 +886,7 @@ async function handleAllStrategy<E extends Record<string, unknown>>(
 async function handlePriorityStrategy<E extends Record<string, unknown>>(
   c: HttpContextInterface<E>,
   next: () => Promise<void | Response>,
-  drivers: HttpMiddleware<E>[],
+  drivers: HttpAuthDriver<E>[],
   realm: string,
   errorMessage: string
 ): Promise<void | Response> {
@@ -927,12 +1006,13 @@ function createBearerUnauthorizedResponse(realm: string, message: string): Respo
  * Timing-safe string comparison
  */
 function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
+  const lengthMismatch = a.length !== b.length
+  if (lengthMismatch) {
     // Compare against same-length string to maintain constant time
     b = a
   }
 
-  let result = a.length === b.length ? 0 : 1
+  let result = lengthMismatch ? 1 : 0
   for (let i = 0; i < a.length; i++) {
     result |= a.charCodeAt(i) ^ b.charCodeAt(i)
   }
@@ -1223,6 +1303,7 @@ export default {
   basicAuth,
   bearerAuth,
   cookieSession,
+  sessionAuth,
   compositeAuth,
   pathAuth,
   pathRules,

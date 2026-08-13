@@ -28,11 +28,21 @@ export function createMcpAdapterFactory(): ProtocolAdapterFactory<McpAdapterOpti
   return async (context: ProtocolAdapterContext, options: McpAdapterOptions = {}): Promise<ProtocolAdapter> => {
     const { registry, schemaRegistry, router, host, port } = context
     const mcpPath = options.path ?? '/mcp'
+    const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
+    if (!loopback && !options.auth && !options.dangerouslyAllowUnauthenticatedNetwork) {
+      throw new Error(
+        'Externally bound MCP requires auth; set dangerouslyAllowUnauthenticatedNetwork only after an explicit risk review'
+      )
+    }
 
     // Create transport first so we can capture its send() for notifications
     const { transport, middleware } = createStreamableHttpTransport({
       path: mcpPath,
       auth: options.auth,
+      cors: options.cors,
+      maxBodySize: options.maxBodySize,
+      maxSessions: options.maxSessions,
+      maxStreamsPerSession: options.maxStreamsPerSession,
     })
 
     // Create protocol handler with notification support wired to the transport

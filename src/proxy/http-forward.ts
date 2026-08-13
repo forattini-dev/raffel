@@ -62,6 +62,8 @@ export interface HttpForwardProxyOptions {
   stripHeaders?: string[]
   /** Max request body size in bytes. Default: 10MB */
   maxBodySize?: number
+  /** Max buffered upstream response body size in bytes. Default: 10MB */
+  maxResponseBodySize?: number
   /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
   filter?: ProxyFilter
   /** Body validation (JSON only — skipped when Content-Type is not application/json) */
@@ -89,6 +91,7 @@ export interface HttpForwardProxy {
 }
 
 const BODY_TOO_LARGE = 'BODY_TOO_LARGE'
+const RESPONSE_TOO_LARGE = 'RESPONSE_TOO_LARGE'
 
 interface PreparedUpstreamRequest {
   method: string
@@ -179,14 +182,20 @@ async function bufferRequestBody(req: IncomingMessage, maxBodySize: number): Pro
   let bodySize = 0
 
   await new Promise<void>((resolve, reject) => {
-    req.on('data', (chunk: Buffer) => {
+    let settled = false
+    const onData = (chunk: Buffer) => {
+      if (settled) return
       bodySize += chunk.length
       if (bodySize > maxBodySize) {
+        settled = true
+        req.off('data', onData)
+        req.resume()
         reject(new Error(BODY_TOO_LARGE))
         return
       }
       bodyChunks.push(chunk)
-    })
+    }
+    req.on('data', onData)
     req.on('end', resolve)
     req.on('error', reject)
   })
@@ -194,11 +203,28 @@ async function bufferRequestBody(req: IncomingMessage, maxBodySize: number): Pro
   return Buffer.concat(bodyChunks)
 }
 
-async function bufferUpstreamResponse(upstreamRes: IncomingMessage): Promise<ForwardProxyResponse> {
+async function bufferUpstreamResponse(
+  upstreamRes: IncomingMessage,
+  maxResponseBodySize: number,
+): Promise<ForwardProxyResponse> {
   return new Promise<ForwardProxyResponse>((resolve, reject) => {
     const chunks: Buffer[] = []
-    upstreamRes.on('data', (chunk: Buffer) => chunks.push(chunk))
+    let size = 0
+    let settled = false
+    upstreamRes.on('data', (chunk: Buffer) => {
+      if (settled) return
+      size += chunk.length
+      if (size > maxResponseBodySize) {
+        settled = true
+        upstreamRes.destroy(new Error(RESPONSE_TOO_LARGE))
+        reject(new Error(RESPONSE_TOO_LARGE))
+        return
+      }
+      chunks.push(chunk)
+    })
     upstreamRes.on('end', () => {
+      if (settled) return
+      settled = true
       resolve({
         statusCode: upstreamRes.statusCode ?? 200,
         statusMessage: upstreamRes.statusMessage ?? 'OK',
@@ -206,7 +232,10 @@ async function bufferUpstreamResponse(upstreamRes: IncomingMessage): Promise<For
         body: Buffer.concat(chunks),
       })
     })
-    upstreamRes.on('error', reject)
+    upstreamRes.on('error', (error) => {
+      if (settled && error.message === RESPONSE_TOO_LARGE) return
+      reject(error)
+    })
   })
 }
 
@@ -238,6 +267,7 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
     timeout = 30_000,
     stripHeaders,
     maxBodySize = 10 * 1024 * 1024,
+    maxResponseBodySize = 10 * 1024 * 1024,
     filter,
     validate,
     onRequest,
@@ -473,7 +503,7 @@ export function createHttpForwardProxy(options: HttpForwardProxyOptions = {}): H
       })
 
       if (requiresBufferedResponse) {
-        const upstreamResponse = await bufferUpstreamResponse(upstreamRes)
+        const upstreamResponse = await bufferUpstreamResponse(upstreamRes, maxResponseBodySize)
 
         if (validate?.response && isJsonContentType(upstreamResponse.headers)) {
           const validation = validateJsonBody(validate, validate.response, upstreamResponse.body, 'Invalid JSON from upstream')

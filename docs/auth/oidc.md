@@ -17,12 +17,18 @@ const provider = await discoverOidcProvider({
 
 app.use('/auth/*', oidc({
   providers: [provider],
+  transactionSecret: process.env.OAUTH_TRANSACTION_SECRET,
   onSuccess: async (tokens, userInfo, _provider, c) => {
     c.set('user', userInfo)
     return c.redirect('/dashboard')
   },
 }))
 ```
+
+Raffel verifies ID-token signatures through the provider JWKS and validates the
+issuer, audience, algorithm, expiry, and nonce. Back-channel logout tokens use
+the same cryptographic verification, have a bounded age, and are protected
+against replay.
 
 ---
 

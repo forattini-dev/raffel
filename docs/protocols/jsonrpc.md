@@ -47,9 +47,9 @@ When JSON-RPC shares the HTTP server, `basePath` prefixes the JSON-RPC path
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | number | - | Port to listen on (omit to share HTTP) |
-| `host` | string | `'0.0.0.0'` | Host to bind to |
+| `host` | string | `'127.0.0.1'` | Host to bind to |
 | `path` | string | `'/'` | Endpoint path |
-| `cors` | boolean | `true` | Enable CORS headers |
+| `cors` | boolean | `false` | Enable CORS headers |
 | `maxBodySize` | number | `1MB` | Maximum request body size |
 | `timeout` | number | `30000` | Request timeout in ms |
 | `codecs` | array | - | Additional codecs for response negotiation |

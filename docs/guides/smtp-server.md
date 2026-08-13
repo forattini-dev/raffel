@@ -95,7 +95,7 @@ EOF
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | `number` | -- (required) | Port to listen on. Common choices: 25 (relay), 587 (submission), 465 (SMTPS) |
-| `host` | `string` | `'0.0.0.0'` | Interface to bind to |
+| `host` | `string` | `'127.0.0.1'` | Interface to bind to |
 | `hostname` | `string` | `'localhost'` | Server hostname used in EHLO greeting and banners |
 | `maxMessageSize` | `number` | `52428800` (50 MB) | Maximum message size in bytes |
 | `maxRecipients` | `number` | `100` | Maximum RCPT TO per transaction |

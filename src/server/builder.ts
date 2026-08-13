@@ -148,9 +148,9 @@ export function createServer(options: ServerOptions): RaffelServer {
 
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     basePath = '/',
-    cors = true,
+    cors = false,
     eventDelivery,
     websocket,
     jsonrpc,

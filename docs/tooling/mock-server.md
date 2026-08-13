@@ -326,7 +326,7 @@ raffel mock <source> [options]
 
 Options:
   -p, --port <port>       Server port (default: 3000)
-  --host <host>           Bind address (default: 0.0.0.0)
+  --host <host>           Bind address (default: 127.0.0.1)
   -d, --delay <ms>        Simulate network latency
   --readonly              Disable write operations (data mode only)
   --no-validate           Skip request body validation (spec mode only)

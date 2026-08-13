@@ -62,7 +62,7 @@ export interface SmtpAdapterOptions {
   /** Port to listen on (25 = relay, 587 = submission, 465 = SMTPS) */
   port: number
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Server hostname for EHLO greeting */

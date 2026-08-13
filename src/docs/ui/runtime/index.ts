@@ -2487,7 +2487,7 @@ function renderEndpointDetails(endpoint: Endpoint): any {
     appendMany([['Framing', data.framing], ['Inbound Message', resolveMessagePayload(data.messages?.inbound)], ['Outbound Message', resolveMessagePayload(data.messages?.outbound)]])
   }
   if (activeProtocol === 'udp') {
-    appendInfoGrid(container, [['Host', data.host ?? '0.0.0.0'], ['Port', data.port], ['Max Packet', data.maxPacketSize ? `${data.maxPacketSize} bytes` : undefined]])
+    appendInfoGrid(container, [['Host', data.host ?? '127.0.0.1'], ['Port', data.port], ['Max Packet', data.maxPacketSize ? `${data.maxPacketSize} bytes` : undefined]])
     appendMany([['Inbound Message', resolveMessagePayload(data.messages?.inbound)], ['Outbound Message', resolveMessagePayload(data.messages?.outbound)], ['Message Schema', resolveMessagePayload(data.message)]])
   }
   return container

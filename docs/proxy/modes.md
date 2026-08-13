@@ -107,11 +107,16 @@ Servidor SOCKS5 standalone com autenticação opcional, suporte a:
 const socks5 = createSocks5Proxy({
   port: 1080,
   host: '0.0.0.0',
+  auth: { credentials: { username, password } },
+  filter: { allowHosts: ['api.example.com'] },
   telemetry: {
     sourceHeader: 'x-service-name',
   },
 })
 ```
+
+Ao expor um proxy fora de loopback, autenticação e filtro de destino são
+obrigatórios. Alvos privados e link-local são bloqueados por padrão.
 
 O SOCKS5 também participa do middleware unificado nos eventos `socks5-connect`,
 `socks5-bind` e `socks5-udp-associate`. Nesses contextos você pode bloquear conexão,

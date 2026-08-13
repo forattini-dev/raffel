@@ -32,7 +32,7 @@ export interface DevelopmentScenarioInput {
 export type DevelopmentScenarioOutput = ServerOptions & { scenario: DevelopmentScenario }
 
 function buildOptionalTransportPorts(input: DevelopmentScenarioInput): { tcp?: { port: number; host: string } } {
-  const host = input.host ?? '0.0.0.0'
+  const host = input.host ?? '127.0.0.1'
   const config: { tcp?: { port: number; host: string } } = {}
   if (input.tcpPort !== undefined) {
     config.tcp = { port: input.tcpPort, host }
@@ -57,7 +57,7 @@ export function createServerScenario(
   input: DevelopmentScenarioInput
 ): DevelopmentScenarioOutput {
   const port = input.port
-  const host = input.host ?? '0.0.0.0'
+  const host = input.host ?? '127.0.0.1'
   const protocolAliasMode = input.protocolAliasMode ?? 'standard'
   const websocketPath = input.websocketPath ?? '/ws'
   const jsonrpcPath = input.jsonrpcPath ?? '/rpc'

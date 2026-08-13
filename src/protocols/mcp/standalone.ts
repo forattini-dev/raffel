@@ -37,6 +37,7 @@ import type {
 } from './types.js'
 import { createProtocolHandler, type McpProtocolHandler } from './protocol.js'
 import type { McpTransport } from './transport/types.js'
+import type { McpCorsOptions } from './transport/cors.js'
 
 export interface McpServer {
   /** Register a tool */
@@ -58,10 +59,26 @@ export interface McpServer {
   startStdio(): Promise<void>
 
   /** Start with Streamable HTTP transport */
-  startHttp(options: { port: number; host?: string; path?: string }): Promise<void>
+  startHttp(options: {
+    port: number
+    host?: string
+    path?: string
+    maxBodySize?: number
+    maxSessions?: number
+    maxStreamsPerSession?: number
+    cors?: McpCorsOptions
+    dangerouslyAllowUnauthenticatedNetwork?: boolean
+  }): Promise<void>
 
   /** Start with SSE transport (legacy) */
-  startSse(options: { port: number; host?: string }): Promise<void>
+  startSse(options: {
+    port: number
+    host?: string
+    maxBodySize?: number
+    maxClients?: number
+    cors?: McpCorsOptions
+    dangerouslyAllowUnauthenticatedNetwork?: boolean
+  }): Promise<void>
 
   /** Stop the server */
   stop(): Promise<void>
@@ -114,13 +131,33 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       await transport.start((request) => protocol.handleRequest(request))
     },
 
-    async startHttp(opts: { port: number; host?: string; path?: string }): Promise<void> {
+    async startHttp(opts: {
+      port: number
+      host?: string
+      path?: string
+      maxBodySize?: number
+      maxSessions?: number
+      maxStreamsPerSession?: number
+      cors?: McpCorsOptions
+      dangerouslyAllowUnauthenticatedNetwork?: boolean
+    }): Promise<void> {
+      const host = opts.host ?? '127.0.0.1'
+      const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
+      if (!loopback && !options.auth && !opts.dangerouslyAllowUnauthenticatedNetwork) {
+        throw new Error(
+          'Externally bound MCP requires auth; set dangerouslyAllowUnauthenticatedNetwork only after an explicit risk review'
+        )
+      }
       const { createServer: createHttpServer } = await import('http')
       const { createStreamableHttpTransport } = await import('./transport/streamable-http.js')
 
       const { transport: httpTransport, middleware } = createStreamableHttpTransport({
         path: opts.path ?? '/mcp',
         auth: options.auth,
+        maxBodySize: opts.maxBodySize,
+        maxSessions: opts.maxSessions,
+        maxStreamsPerSession: opts.maxStreamsPerSession,
+        cors: opts.cors,
       })
 
       transport = httpTransport
@@ -148,7 +185,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       })
 
       await new Promise<void>((resolve) => {
-        httpServer.listen(opts.port, opts.host ?? '0.0.0.0', resolve)
+        httpServer.listen(opts.port, host, resolve)
       })
 
       // Store reference for stop()
@@ -160,14 +197,34 @@ export function createMcpServer(options: McpServerOptions): McpServer {
         })
       }
 
-      console.error(`MCP server running on http://${opts.host ?? '0.0.0.0'}:${opts.port}${opts.path ?? '/mcp'}`)
+      console.error(`MCP server running on http://${host}:${opts.port}${opts.path ?? '/mcp'}`)
     },
 
-    async startSse(opts: { port: number; host?: string }): Promise<void> {
+    async startSse(opts: {
+      port: number
+      host?: string
+      maxBodySize?: number
+      maxClients?: number
+      cors?: McpCorsOptions
+      dangerouslyAllowUnauthenticatedNetwork?: boolean
+    }): Promise<void> {
+      const host = opts.host ?? '127.0.0.1'
+      const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
+      if (!loopback && !opts.dangerouslyAllowUnauthenticatedNetwork) {
+        throw new Error(
+          'Legacy MCP SSE cannot authenticate external clients; set dangerouslyAllowUnauthenticatedNetwork only after an explicit risk review'
+        )
+      }
       const { createSseTransport } = await import('./transport/sse.js')
-      transport = createSseTransport(opts)
+      transport = createSseTransport({
+        port: opts.port,
+        host,
+        maxBodySize: opts.maxBodySize,
+        maxClients: opts.maxClients,
+        cors: opts.cors,
+      })
       await transport.start((request) => protocol.handleRequest(request))
-      console.error(`MCP SSE server running on http://${opts.host ?? '0.0.0.0'}:${opts.port}/sse`)
+      console.error(`MCP SSE server running on http://${host}:${opts.port}/sse`)
     },
 
     async stop(): Promise<void> {

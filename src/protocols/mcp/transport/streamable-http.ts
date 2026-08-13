@@ -16,6 +16,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import type { JsonRpcRequest, JsonRpcResponse, McpAuthProvider, McpAuthInfo } from '../types.js'
 import { JsonRpcErrorCode } from '../types.js'
 import type { McpTransport, McpMessageHandler, JsonRpcMessage } from './types.js'
+import { applyMcpCors, type McpCorsOptions } from './cors.js'
 
 export interface StreamableHttpTransportOptions {
   /** MCP endpoint path (default: '/mcp') */
@@ -27,8 +28,20 @@ export interface StreamableHttpTransportOptions {
   /** Session TTL in ms (default: 30 minutes) */
   sessionTtl?: number
 
+  /** Maximum request body size. Default: 1 MiB. */
+  maxBodySize?: number
+
+  /** Maximum live stateful sessions. Default: 1000. */
+  maxSessions?: number
+
+  /** Maximum SSE streams attached to one session. Default: 5. */
+  maxStreamsPerSession?: number
+
   /** Auth provider — when set, rejects unauthenticated requests with 401 */
   auth?: McpAuthProvider
+
+  /** CORS policy. Disabled by default; true allows wildcard origins. */
+  cors?: McpCorsOptions
 }
 
 interface McpSession {
@@ -54,6 +67,9 @@ export function createStreamableHttpTransport(
   const path = options.path ?? '/mcp'
   const stateful = options.stateful ?? true
   const sessionTtl = options.sessionTtl ?? 30 * 60 * 1000 // 30 min
+  const maxBodySize = options.maxBodySize ?? 1024 * 1024
+  const maxSessions = options.maxSessions ?? 1000
+  const maxStreamsPerSession = options.maxStreamsPerSession ?? 5
 
   const authProvider = options.auth ?? null
 
@@ -91,7 +107,7 @@ export function createStreamableHttpTransport(
 
   // ─── Session Management ────────────────────────────────────
 
-  function getOrCreateSession(req: IncomingMessage): McpSession {
+  function getOrCreateSession(req: IncomingMessage): McpSession | null {
     const existingId = req.headers['mcp-session-id'] as string | undefined
 
     if (existingId && sessions.has(existingId)) {
@@ -100,6 +116,8 @@ export function createStreamableHttpTransport(
       return session
     }
 
+    cleanupSessions()
+    if (sessions.size >= maxSessions) return null
     const session: McpSession = {
       id: randomUUID(),
       createdAt: Date.now(),
@@ -128,16 +146,20 @@ export function createStreamableHttpTransport(
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = []
       let size = 0
-      const maxSize = 10 * 1024 * 1024 // 10MB
-
-      req.on('data', (chunk: Buffer) => {
+      let settled = false
+      const onData = (chunk: Buffer) => {
+        if (settled) return
         size += chunk.length
-        if (size > maxSize) {
+        if (size > maxBodySize) {
+          settled = true
+          req.off('data', onData)
+          req.resume()
           reject(new Error('Request body too large'))
           return
         }
         chunks.push(chunk)
-      })
+      }
+      req.on('data', onData)
 
       req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
       req.on('error', reject)
@@ -170,11 +192,7 @@ export function createStreamableHttpTransport(
     const url = req.url?.split('?')[0]
     if (url !== path) return false
 
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, Authorization, X-Api-Key')
-    res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id')
+    applyMcpCors(req, res, options.cors)
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
@@ -216,13 +234,16 @@ export function createStreamableHttpTransport(
       return true
     }
 
-    const session = stateful ? getOrCreateSession(req) : undefined
-
     let body: string
     try {
       body = await readBody(req)
-    } catch {
-      sendJsonRpcError(res, null, JsonRpcErrorCode.ParseError, 'Failed to read request body', session)
+    } catch (error) {
+      if ((error as Error).message === 'Request body too large') {
+        res.writeHead(413, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Request body too large' }))
+      } else {
+        sendJsonRpcError(res, null, JsonRpcErrorCode.ParseError, 'Failed to read request body')
+      }
       return true
     }
 
@@ -230,7 +251,14 @@ export function createStreamableHttpTransport(
     try {
       request = JSON.parse(body) as JsonRpcRequest
     } catch {
-      sendJsonRpcError(res, null, JsonRpcErrorCode.ParseError, 'Invalid JSON', session)
+      sendJsonRpcError(res, null, JsonRpcErrorCode.ParseError, 'Invalid JSON')
+      return true
+    }
+
+    const session = stateful ? getOrCreateSession(req) ?? undefined : undefined
+    if (stateful && !session) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' })
+      res.end(JSON.stringify({ error: 'Too many MCP sessions' }))
       return true
     }
 
@@ -257,6 +285,16 @@ export function createStreamableHttpTransport(
     }
 
     const session = getOrCreateSession(req)
+    if (!session) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' })
+      res.end(JSON.stringify({ error: 'Too many MCP sessions' }))
+      return true
+    }
+    if (session.sseStreams.size >= maxStreamsPerSession) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' })
+      res.end(JSON.stringify({ error: 'Too many MCP streams for session' }))
+      return true
+    }
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',

@@ -137,7 +137,7 @@ export const mockParser = createParser({
     },
     host: {
       type: 'string',
-      default: '0.0.0.0',
+      default: '127.0.0.1',
       description: 'Bind address',
     },
     delay: {
@@ -198,7 +198,7 @@ export async function runMockCommand(args: string[]): Promise<number> {
   }
 
   const port = (result.options.port as number) ?? 3000
-  const host = (result.options.host as string) ?? '0.0.0.0'
+  const host = (result.options.host as string) ?? '127.0.0.1'
   const delay = result.options.delay as number | undefined
   const readonly = result.options.readonly as boolean
   const validate = result.options.validate as boolean

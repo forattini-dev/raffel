@@ -41,7 +41,7 @@ export interface TcpAdapterOptions {
   /** Port to listen on */
   port: number
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Maximum message size in bytes (default: 16MB) */
@@ -422,7 +422,7 @@ export function createTcpAdapter(
 ): TcpAdapter {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     maxMessageSize,
     keepAliveInterval,
     contextFactory,

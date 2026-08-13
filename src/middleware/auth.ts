@@ -632,7 +632,7 @@ export function createRefreshInterceptor(options: RefreshInterceptorOptions): In
     path: '/',
     httpOnly: true,
     sameSite: 'Lax',
-    secure: false,
+    secure: true,
     ...refreshCookie,
   }
 

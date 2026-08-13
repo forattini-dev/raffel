@@ -329,7 +329,7 @@ Mock Server:
 
 Mock Options:
   -p, --port <port>         Server port (default: 3000)
-  --host <host>             Bind address (default: 0.0.0.0)
+  --host <host>             Bind address (default: 127.0.0.1)
   -d, --delay <ms>          Simulate network latency
   --readonly                Disable writes (data mode)
   --no-validate             Skip request validation (spec mode)

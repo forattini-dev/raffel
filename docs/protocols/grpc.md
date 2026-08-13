@@ -81,7 +81,7 @@ createServer({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | number | required | Port to listen on |
-| `host` | string | `'0.0.0.0'` | Host to bind to |
+| `host` | string | `'127.0.0.1'` | Host to bind to |
 | `protoPath` | string | required | Path to `.proto` file |
 | `serviceNames` | string[] | - | Register only specific services |
 | `packageName` | string | - | Prefix services with proto package |

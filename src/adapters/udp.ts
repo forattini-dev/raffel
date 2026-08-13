@@ -36,7 +36,7 @@ export interface UdpAdapterOptions {
   /** Port to listen on */
   port: number
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Maximum datagram size in bytes (default: 65507) */
@@ -111,7 +111,7 @@ export function createUdpAdapter(
 ): UdpAdapter {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     maxDatagramSize = DEFAULT_MAX_DATAGRAM_SIZE,
     socketType = 'udp4',
     multicast,

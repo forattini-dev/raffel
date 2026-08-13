@@ -18,7 +18,7 @@ export interface WebSocketAdapterOptions {
   /** Existing HTTP server to attach to */
   server?: Server
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Path for WebSocket endpoint (default: '/') */

@@ -436,7 +436,7 @@ function attachServerExtensions(
   })
 
   const port = options.port ?? 3000
-  const hostname = options.hostname ?? '0.0.0.0'
+  const hostname = options.hostname ?? '127.0.0.1'
   return new Promise<void>((resolve) => {
     server.listen(port, hostname, () => {
       onListen?.({ port, hostname })

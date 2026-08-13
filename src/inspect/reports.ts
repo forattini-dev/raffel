@@ -84,7 +84,7 @@ function getBindingSubjectId(binding: RuntimeInspectionTransportBinding): string
 }
 
 function formatAddress(transport: RuntimeInspectionTransport): string {
-  const host = transport.host ?? '0.0.0.0'
+  const host = transport.host ?? '127.0.0.1'
   const port = transport.port ?? 'n/a'
   return `${host}:${port}`
 }

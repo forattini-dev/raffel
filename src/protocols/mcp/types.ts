@@ -435,6 +435,21 @@ export interface McpAdapterOptions {
 
   /** Auth provider for the MCP HTTP endpoint */
   auth?: McpAuthProvider
+
+  /** CORS policy. Disabled by default; true allows wildcard origins. */
+  cors?: boolean | string | string[]
+
+  /** Explicit escape hatch for externally exposed MCP without auth. */
+  dangerouslyAllowUnauthenticatedNetwork?: boolean
+
+  /** Maximum request body size. Default: 1 MiB. */
+  maxBodySize?: number
+
+  /** Maximum live sessions. Default: 1000. */
+  maxSessions?: number
+
+  /** Maximum SSE streams per session. Default: 5. */
+  maxStreamsPerSession?: number
 }
 
 // ─── Sampling (server → client LLM request) ─────────────────────

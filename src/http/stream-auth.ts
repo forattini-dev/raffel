@@ -316,7 +316,7 @@ export async function extractCookieSession(
   const cookieCtx = toReqCookieContext(req)
 
   // Get signed cookie
-  const cookieValue = await getSignedCookie(cookieCtx, secret, cookieName)
+  const cookieValue = await getSignedCookie(cookieCtx, cookieName, secret)
   if (!cookieValue) {
     return null
   }

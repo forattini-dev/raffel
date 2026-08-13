@@ -86,7 +86,7 @@ async function loadSsh2(): Promise<Ssh2Module> {
 export function createSshAdapter(options: SshAdapterOptions): SshAdapter {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     banner,
     ident = 'SSH-2.0-Raffel',
     onSession,
@@ -97,8 +97,8 @@ export function createSshAdapter(options: SshAdapterOptions): SshAdapter {
     keepAliveMaxFailures = 3,
   } = options
 
-  // Default auth: anonymous (terminal.shop style) — explicit so users can override
-  const auth: SshAuthOptions = options.auth ?? { none: true }
+  // Authentication is fail-closed. Public terminal-style access must opt in.
+  const auth: SshAuthOptions = options.auth ?? { none: false }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let server: any = null

@@ -7,6 +7,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
 import type { ChannelManager } from './types.js'
 import { getChannelType } from './types.js'
 
@@ -17,6 +18,20 @@ export interface ChannelRestApiOptions {
   apiKey?: string
   /** Custom auth function (overrides apiKey) */
   auth?: (req: IncomingMessage) => boolean | Promise<boolean>
+  /** Explicitly expose administrative channel operations without auth. */
+  allowUnauthenticated?: boolean
+}
+
+function safeEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left)
+  const rightBuffer = Buffer.from(right)
+  const length = Math.max(leftBuffer.length, rightBuffer.length, 1)
+  const paddedLeft = Buffer.alloc(length)
+  const paddedRight = Buffer.alloc(length)
+  leftBuffer.copy(paddedLeft)
+  rightBuffer.copy(paddedRight)
+  const contentsMatch = timingSafeEqual(paddedLeft, paddedRight)
+  return leftBuffer.length === rightBuffer.length && contentsMatch
 }
 
 /**
@@ -37,6 +52,11 @@ export function createChannelRestApi(
   options: ChannelRestApiOptions = {}
 ): (req: IncomingMessage, res: ServerResponse) => boolean | Promise<boolean> {
   const basePath = (options.path ?? '/channels').replace(/\/+$/, '')
+  if (!options.auth && !options.apiKey && !options.allowUnauthenticated) {
+    throw new Error(
+      'Channel REST API requires auth or apiKey; set allowUnauthenticated only after an explicit risk review'
+    )
+  }
 
   /**
    * Check authorization
@@ -53,15 +73,15 @@ export function createChannelRestApi(
 
     if (options.apiKey) {
       const auth = req.headers['authorization']
-      if (auth !== `Bearer ${options.apiKey}`) {
+      const provided = Array.isArray(auth) ? auth[0] : auth
+      if (!provided || !safeEqual(provided, `Bearer ${options.apiKey}`)) {
         sendJson(res, 401, { error: 'Invalid API key' })
         return false
       }
       return true
     }
 
-    // No auth configured — allow all
-    return true
+    return options.allowUnauthenticated === true
   }
 
   function sendJson(res: ServerResponse, status: number, body: unknown): void {

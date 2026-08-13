@@ -115,7 +115,7 @@ describe('mockParser', () => {
   it('applies defaults', () => {
     const result = mockParser.parse(['spec.yaml'])
     expect(result.options.port).toBe(3000)
-    expect(result.options.host).toBe('0.0.0.0')
+    expect(result.options.host).toBe('127.0.0.1')
     expect(result.options.readonly).toBe(false)
     expect(result.options.validate).toBe(true)
     expect(result.options.jsonrpc).toBe(false)

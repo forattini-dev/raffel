@@ -82,7 +82,8 @@ function unsignId(signed: string, secret: string): string | null {
   const b = Buffer.alloc(maxLen)
   signedBuf.copy(a)
   expectedBuf.copy(b)
-  const match = signedBuf.length === expectedBuf.length && timingSafeEqual(a, b)
+  const contentsMatch = timingSafeEqual(a, b)
+  const match = signedBuf.length === expectedBuf.length && contentsMatch
   return match ? id : null
 }
 

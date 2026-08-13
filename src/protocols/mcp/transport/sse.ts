@@ -12,32 +12,47 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import type { JsonRpcRequest, JsonRpcResponse } from '../types.js'
 import { JsonRpcErrorCode } from '../types.js'
 import type { McpTransport, McpMessageHandler, JsonRpcMessage } from './types.js'
+import { applyMcpCors, type McpCorsOptions } from './cors.js'
 
 export interface SseTransportOptions {
   port: number
   host?: string
+  maxBodySize?: number
+  maxClients?: number
+  cors?: McpCorsOptions
 }
 
 export function createSseTransport(options: SseTransportOptions): McpTransport {
-  const { port, host = '0.0.0.0' } = options
+  const {
+    port,
+    host = '127.0.0.1',
+    maxBodySize = 1_048_576,
+    maxClients = 100,
+    cors,
+  } = options
 
   let server: Server | null = null
   let handler: McpMessageHandler | null = null
   const clients = new Set<ServerResponse>()
 
-  function readBody(req: IncomingMessage, maxBodySize = 1_048_576): Promise<string> {
+  function readBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = []
       let totalSize = 0
-      req.on('data', (chunk: Buffer) => {
+      let settled = false
+      const onData = (chunk: Buffer) => {
+        if (settled) return
         totalSize += chunk.length
         if (totalSize > maxBodySize) {
-          req.destroy()
+          settled = true
+          req.off('data', onData)
+          req.resume()
           reject(new Error('Request body too large'))
           return
         }
         chunks.push(chunk)
-      })
+      }
+      req.on('data', onData)
       req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
       req.on('error', reject)
     })
@@ -48,9 +63,7 @@ export function createSseTransport(options: SseTransportOptions): McpTransport {
       handler = messageHandler
 
       server = createHttpServer(async (req, res) => {
-        res.setHeader('Access-Control-Allow-Origin', '*')
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+        applyMcpCors(req, res, cors)
 
         if (req.method === 'OPTIONS') {
           res.writeHead(204)
@@ -60,6 +73,11 @@ export function createSseTransport(options: SseTransportOptions): McpTransport {
 
         // SSE endpoint
         if (req.method === 'GET' && req.url === '/sse') {
+          if (clients.size >= maxClients) {
+            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' })
+            res.end(JSON.stringify({ error: 'Too many SSE clients' }))
+            return
+          }
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -80,9 +98,10 @@ export function createSseTransport(options: SseTransportOptions): McpTransport {
           let body: string
           try {
             body = await readBody(req)
-          } catch {
-            res.writeHead(400, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'Failed to read body' }))
+          } catch (error) {
+            const tooLarge = (error as Error).message === 'Request body too large'
+            res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: tooLarge ? 'Request body too large' : 'Failed to read body' }))
             return
           }
 

@@ -228,7 +228,7 @@ export type SshHostKey =
 export interface SshAdapterOptions {
   /** Port to listen on (typical: 2222 for dev, 22 needs root) */
   port: number
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /**

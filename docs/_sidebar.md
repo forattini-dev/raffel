@@ -124,6 +124,7 @@
     - [Troubleshooting](/proxy/troubleshooting.md)
 
 - **Migration**
+  - [Security hardening v2](/migration/security-hardening-v2.md)
   - [From Express](/migration/frameworks.md#from-express)
   - [From Fastify](/migration/frameworks.md#from-fastify)
   - [From Fetch-first Routers](/migration/frameworks.md#from-fetch-first-routers)

@@ -13,7 +13,7 @@ export interface TcpConfig {
   /** Port to listen on */
   port: number | 'shared'
 
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
 
   /** Enable keep-alive (default: true) */

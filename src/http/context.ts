@@ -157,7 +157,7 @@ export interface HttpContextInterface<
   /**
    * Set a response header
    */
-  header(name: string, value: string): void
+  header(name: string, value: string, options?: { append?: boolean }): void
 
   /**
    * Get response status
@@ -379,6 +379,22 @@ class HttpRequestImpl implements HttpRequest {
 // HttpContext Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+function mergeHeaders(target: Headers, source: Headers): void {
+  source.forEach((value, key) => {
+    if (key.toLowerCase() !== 'set-cookie' && !target.has(key)) {
+      target.set(key, value)
+    }
+  })
+
+  const getSetCookie = (source as Headers & { getSetCookie?: () => string[] }).getSetCookie
+  const cookies = getSetCookie
+    ? getSetCookie.call(source)
+    : source.has('set-cookie')
+      ? [source.get('set-cookie')!]
+      : []
+  for (const cookie of cookies) target.append('set-cookie', cookie)
+}
+
 export class HttpContext<E extends Record<string, unknown> = Record<string, unknown>>
   implements HttpContextInterface<E>
 {
@@ -416,8 +432,12 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
   // Response Helpers
   // ───────────────────────────────────────────────────────────────────────────
 
-  header(name: string, value: string): void {
-    this.responseHeaders.set(name, value)
+  header(name: string, value: string, options?: { append?: boolean }): void {
+    if (options?.append) {
+      this.responseHeaders.append(name, value)
+    } else {
+      this.responseHeaders.set(name, value)
+    }
   }
 
   status(code: StatusCode): void {
@@ -446,11 +466,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
     responseHeaders.set('Content-Type', 'application/json; charset=UTF-8')
 
     // Merge with response headers set via header()
-    this.responseHeaders.forEach((value, key) => {
-      if (!responseHeaders.has(key)) {
-        responseHeaders.set(key, value)
-      }
-    })
+    mergeHeaders(responseHeaders, this.responseHeaders)
 
     return new Response(body, {
       status,
@@ -462,11 +478,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
     const responseHeaders = new Headers(headers)
     responseHeaders.set('Content-Type', 'text/plain; charset=UTF-8')
 
-    this.responseHeaders.forEach((value, key) => {
-      if (!responseHeaders.has(key)) {
-        responseHeaders.set(key, value)
-      }
-    })
+    mergeHeaders(responseHeaders, this.responseHeaders)
 
     return new Response(toFetchResponseBody(data), {
       status: status ?? this.responseStatus,
@@ -478,11 +490,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
     const responseHeaders = new Headers(headers)
     responseHeaders.set('Content-Type', 'text/html; charset=UTF-8')
 
-    this.responseHeaders.forEach((value, key) => {
-      if (!responseHeaders.has(key)) {
-        responseHeaders.set(key, value)
-      }
-    })
+    mergeHeaders(responseHeaders, this.responseHeaders)
 
     return new Response(data, {
       status: status ?? this.responseStatus,
@@ -493,11 +501,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
   body(data: BodyInit | null, status?: StatusCode, headers?: HeadersInit): Response {
     const responseHeaders = new Headers(headers)
 
-    this.responseHeaders.forEach((value, key) => {
-      if (!responseHeaders.has(key)) {
-        responseHeaders.set(key, value)
-      }
-    })
+    mergeHeaders(responseHeaders, this.responseHeaders)
 
     return new Response(toFetchResponseBody(data), {
       status: status ?? this.responseStatus,
@@ -516,11 +520,7 @@ export class HttpContext<E extends Record<string, unknown> = Record<string, unkn
   newResponse(body: BodyInit | null, init?: ResponseInit): Response {
     const responseHeaders = new Headers(init?.headers)
 
-    this.responseHeaders.forEach((value, key) => {
-      if (!responseHeaders.has(key)) {
-        responseHeaders.set(key, value)
-      }
-    })
+    mergeHeaders(responseHeaders, this.responseHeaders)
 
     return new Response(toFetchResponseBody(body), {
       ...init,

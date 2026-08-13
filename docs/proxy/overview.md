@@ -65,11 +65,11 @@ import { createProxySuite } from 'raffel'
 const suite = createProxySuite({
   explicit: {
     port: 3128,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
   },
   socks5: {
     port: 1080,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
   },
   telemetry: {
     metricsEndpoint: '/metrics',

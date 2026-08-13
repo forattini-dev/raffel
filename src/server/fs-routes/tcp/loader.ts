@@ -29,7 +29,7 @@ const logger = createLogger('tcp-loader')
 
 const DEFAULT_CONFIG: ResolvedTcpConfig = {
   port: 9000,
-  host: '0.0.0.0',
+  host: '127.0.0.1',
   keepAlive: true,
   keepAliveInitialDelay: 30000,
   timeout: 0,

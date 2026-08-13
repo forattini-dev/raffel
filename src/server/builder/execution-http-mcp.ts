@@ -24,12 +24,25 @@ export function createExecutionHttpMcp(context: ServerLifecycleExecutionContext)
     registerStopTask: (task: StopTask) => void
   ) {
     const { options: opts, path: mcpPath } = step.feature
+    const loopback = runtimePlan.effectiveHost === '127.0.0.1' || runtimePlan.effectiveHost === 'localhost' || runtimePlan.effectiveHost === '::1'
+    if (!loopback && !opts.auth && !opts.dangerouslyAllowUnauthenticatedNetwork) {
+      throw new Error(
+        'Externally bound MCP requires auth; set dangerouslyAllowUnauthenticatedNetwork only after an explicit risk review'
+      )
+    }
 
     const { createProtocolHandler } = await import('../../protocols/mcp/protocol.js')
     const { bridgeRegistry } = await import('../../protocols/mcp/registry-bridge.js')
     const { createStreamableHttpTransport } = await import('../../protocols/mcp/transport/streamable-http.js')
 
-    const { transport: mcpTransport, middleware: mcpMiddleware } = createStreamableHttpTransport({ path: mcpPath, auth: opts.auth })
+    const { transport: mcpTransport, middleware: mcpMiddleware } = createStreamableHttpTransport({
+      path: mcpPath,
+      auth: opts.auth,
+      cors: opts.cors,
+      maxBodySize: opts.maxBodySize,
+      maxSessions: opts.maxSessions,
+      maxStreamsPerSession: opts.maxStreamsPerSession,
+    })
 
     const protocol = createProtocolHandler({
       name: opts.name ?? 'raffel',

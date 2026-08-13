@@ -62,6 +62,15 @@ export interface GraphQLOptions {
   /** Max request body size in bytes (default: 1MB) */
   maxBodySize?: number
 
+  /** Maximum nested field depth. Default: 15. */
+  maxQueryDepth?: number
+
+  /** Maximum field selections after fragment expansion. Default: 1000. */
+  maxQueryComplexity?: number
+
+  /** Maximum aliased fields. Default: 50. */
+  maxAliases?: number
+
   /**
    * CORS configuration for GraphQL endpoint.
    * Inherits from server CORS if not specified.
@@ -84,6 +93,18 @@ export interface SubscriptionOptions {
 
   /** Keep-alive interval in ms (default: 30000) */
   keepAliveInterval?: number
+
+  /** Maximum WebSocket message size in bytes. Default: 1 MiB. */
+  maxPayload?: number
+
+  /** Maximum simultaneous subscriptions per connection. Default: 100. */
+  maxSubscriptionsPerConnection?: number
+
+  /** Maximum simultaneous subscription connections. Default: 1000. */
+  maxConnections?: number
+
+  /** Time allowed for connection_init in ms. Default: 5000. */
+  connectionInitTimeout?: number
 }
 
 export interface CorsConfig {

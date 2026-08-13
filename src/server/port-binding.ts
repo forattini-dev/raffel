@@ -51,7 +51,7 @@ export interface PortBinding {
 }
 
 export function createPortBinding(options: PortBindingOptions): PortBinding {
-  const { port, host = '0.0.0.0' } = options
+  const { port, host = '127.0.0.1' } = options
   const log: SinglePortLogger = options.logger ?? { debug: () => {}, warn: () => {} }
 
   let httpServer: HttpServer | null = null

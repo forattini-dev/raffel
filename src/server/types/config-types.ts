@@ -386,11 +386,11 @@ export interface ServerOptions {
 
   /** Port to listen on (HTTP) */
   port: number
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
   /** Base path for HTTP procedures (default: '/') */
   basePath?: string
-  /** CORS configuration (default: enabled with '*') */
+  /** CORS configuration (default: disabled) */
   cors?: CorsOptions | boolean
   /** HTTP adapter options */
   http?: HttpOptions
@@ -892,7 +892,7 @@ export interface JsonRpcOptions {
 export interface TcpOptions {
   /** Port (required - TCP always needs separate port) */
   port: number
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
   /** Max message size in bytes (default: 16MB) */
   maxMessageSize?: number
@@ -914,7 +914,7 @@ export interface GrpcTlsOptions {
 export interface GrpcOptions {
   /** Port to listen on */
   port: number
-  /** Host to bind to (default: '0.0.0.0') */
+  /** Host to bind to (default: '127.0.0.1') */
   host?: string
   /** Proto file path(s) */
   protoPath: string | string[]

@@ -200,7 +200,7 @@ export function createGrpcAdapter(
 ): GrpcAdapter {
   const {
     port,
-    host = '0.0.0.0',
+    host = '127.0.0.1',
     protoPath,
     packageName,
     serviceNames,

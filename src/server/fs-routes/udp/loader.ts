@@ -27,7 +27,7 @@ const logger = createLogger('udp-loader')
 
 const DEFAULT_CONFIG: ResolvedUdpConfig = {
   port: 9001,
-  host: '0.0.0.0',
+  host: '127.0.0.1',
   type: 'udp4',
   reuseAddr: true,
   reusePort: false,

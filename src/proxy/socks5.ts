@@ -68,6 +68,10 @@ export interface Socks5Options {
   maxConnections?: number
   /** Access control filter — allowlist/blocklist by host, TLD, port, or custom check */
   filter?: ProxyFilter
+  /** Explicit escape hatch for an externally bound proxy without auth/filter. */
+  dangerouslyAllowUnauthenticatedNetwork?: boolean
+  /** Allow proxying to private/link-local targets. Default: false on external binds. */
+  dangerouslyAllowPrivateTargets?: boolean
   /** Unified proxy middleware for CONNECT/BIND/UDP ASSOCIATE flows. */
   middleware?: ProxyMiddleware[]
   onConnect?: (info: Socks5ConnectionInfo) => void
@@ -828,12 +832,25 @@ function handleSocks5Connection(
 }
 
 export function createSocks5Proxy(options: Socks5Options): Socks5Proxy {
-  const { port, host = '0.0.0.0', maxConnections = 0 } = options
+  const { port, host = '127.0.0.1', maxConnections = 1000 } = options
+  const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
+  if (
+    !loopback &&
+    (!options.auth || !options.filter) &&
+    !options.dangerouslyAllowUnauthenticatedNetwork
+  ) {
+    throw new Error(
+      'Externally bound SOCKS5 proxies require both auth and filter; set dangerouslyAllowUnauthenticatedNetwork only after an explicit risk review'
+    )
+  }
+  const effectiveFilter = !loopback && !options.dangerouslyAllowPrivateTargets
+    ? { ...options.filter, blockPrivateRanges: true, resolveDns: true }
+    : options.filter
   const { mutable, snapshot } = createProxyStats()
   const telemetry = createOrReuseProxyTelemetry(options.telemetry)
   const proxyOptions: Socks5Options = telemetry
-    ? { ...options, host, telemetry: { ...options.telemetry, collector: telemetry } }
-    : { ...options, host }
+    ? { ...options, host, filter: effectiveFilter, telemetry: { ...options.telemetry, collector: telemetry } }
+    : { ...options, host, filter: effectiveFilter }
 
   let server: NetServer | null = null
   let boundPort: number | null = null
