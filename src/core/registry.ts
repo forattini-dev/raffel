@@ -64,6 +64,8 @@ export interface ProcedureOptions {
 export interface StreamRegistryOptions {
   description?: string
   direction?: StreamDirection
+  /** Tags for documentation grouping */
+  tags?: string[]
   /** Content type shorthand */
   contentType?: string
   /** Content type configuration */
@@ -228,6 +230,7 @@ export function createRegistry(): Registry {
           kind: 'stream',
           name,
           description: options.description,
+          tags: options.tags,
           streamDirection: options.direction ?? 'server',
           contentType: options.contentType,
           contentTypes: options.contentTypes,

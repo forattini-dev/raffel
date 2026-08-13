@@ -532,7 +532,7 @@ async function main() {
 ║                                                                              ║
 ║  Use EventSource in browsers:                                                ║
 ║    const es = new EventSource('/streams/time')                               ║
-║    es.onmessage = (e) => console.log(JSON.parse(e.data))                     ║
+║    es.addEventListener('data', (e) => console.log(JSON.parse(e.data)))       ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 `)

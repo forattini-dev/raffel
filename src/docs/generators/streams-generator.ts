@@ -119,7 +119,7 @@ function convertStreamEndpoint(
   }
 
   // Add tags based on stream name
-  const tags = extractStreamTags(meta.name)
+  const tags = meta.tags?.length ? meta.tags : extractStreamTags(meta.name)
   if (tags.length > 0) {
     endpoint.tags = tags
   }

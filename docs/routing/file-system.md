@@ -580,11 +580,25 @@ Stream handlers live in `src/streams` and can be `server`, `client`, or `bidi`.
 
 ```ts
 // src/streams/logs/tail.ts
-export const meta = { direction: 'server' }
+import { z } from 'zod'
+
+export const input = z.object({ service: z.string().min(1) })
+export const output = z.object({ line: z.string(), timestamp: z.string().datetime() })
+export const meta = {
+  direction: 'server' as const,
+  description: 'Follow service logs until the client disconnects.',
+  tags: ['Logs'],
+}
 
 export default async function* handler(input, ctx) {
-  for await (const line of tailLogs(input.service)) {
-    yield { line }
+  const connection = await tailLogs(input.service)
+  try {
+    for await (const line of connection) {
+      if (ctx.signal.aborted) break
+      yield { line, timestamp: new Date().toISOString() }
+    }
+  } finally {
+    await connection.close()
   }
 }
 ```
