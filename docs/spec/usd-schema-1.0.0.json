@@ -997,6 +997,16 @@
         "x-usd-backpressure": {
           "type": "boolean",
           "description": "Whether backpressure is supported."
+        },
+        "x-usd-live-stream": {
+          "type": "object",
+          "description": "Connection-scoped Live Stream controls. These fields do not imply replay or resumability.",
+          "properties": {
+            "heartbeatMs": { "type": "number", "exclusiveMinimum": 0 },
+            "retryMs": { "type": "number", "exclusiveMinimum": 0 },
+            "maxDurationMs": { "type": "number", "exclusiveMinimum": 0 },
+            "idleTimeoutMs": { "type": "number", "exclusiveMinimum": 0 }
+          }
         }
       },
       "additionalProperties": true

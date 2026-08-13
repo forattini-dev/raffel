@@ -99,6 +99,7 @@ export type {
   JsonRpcMeta,
   GrpcMeta,
   StreamDirection,
+  StreamOperationalControls,
   DeliveryGuarantee,
   RetryPolicy,
   HandlerMeta,

@@ -1,5 +1,10 @@
 import type { z } from 'zod'
-import type { Context, Interceptor, ProcedureHandler } from '../../types/index.js'
+import type {
+  Context,
+  Interceptor,
+  ProcedureHandler,
+  StreamOperationalControls,
+} from '../../types/index.js'
 import type { RouteCacheConfig } from '../../cache/server-runtime.js'
 
 // === HTTP Route Types ===
@@ -241,6 +246,8 @@ export interface StreamOptions<TInput = unknown, TOutput = unknown> {
   description?: string
   /** Tags for documentation grouping */
   tags?: string[]
+  /** Connection-scoped controls for Live Streams. */
+  controls?: StreamOperationalControls
   /** Input schema for stream parameters */
   input?: z.ZodType<TInput>
   /** Output schema for stream chunks (for documentation) */

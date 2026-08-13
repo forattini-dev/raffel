@@ -244,6 +244,9 @@ export interface USDStreamEndpoint {
 
   /** Whether stream supports backpressure */
   'x-usd-backpressure'?: boolean
+
+  /** Connection-scoped controls for a Live Stream. */
+  'x-usd-live-stream'?: import('../../types/handlers.js').StreamOperationalControls
 }
 
 // =============================================================================

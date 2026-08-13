@@ -18,6 +18,7 @@ import type {
   GraphQLMeta,
   HttpMethod,
   StreamDirection,
+  StreamOperationalControls,
   RetryPolicy,
   ContractPolicies,
 } from '../../types/index.js'
@@ -163,6 +164,8 @@ export interface StreamBuilder<TInput = unknown, TOutput = unknown> {
   output<T extends z.ZodType>(schema: T): StreamBuilder<TInput, z.infer<T>>
   /** Set stream direction */
   direction(direction: StreamDirection): this
+  /** Configure connection-scoped Live Stream controls. */
+  controls(controls: StreamOperationalControls): this
   /** Add description */
   description(desc: string): this
   /** Customize GraphQL subscription exposure and metadata. */
@@ -546,6 +549,8 @@ export interface AddStreamInput {
   outputSchema?: import('zod').ZodType
   /** Stream direction */
   direction?: StreamDirection
+  /** Connection-scoped Live Stream controls. */
+  controls?: StreamOperationalControls
   /** Description */
   description?: string
   /** GraphQL subscription exposure metadata. */
@@ -614,6 +619,7 @@ export interface RegisterStreamOptions {
   input?: import('zod').ZodType
   output?: import('zod').ZodType
   direction?: StreamDirection
+  controls?: StreamOperationalControls
   description?: string
   graphql?: GraphQLMeta
   policies?: ContractPolicies

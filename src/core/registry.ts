@@ -15,6 +15,7 @@ import type {
   DeliveryGuarantee,
   RetryPolicy,
   StreamDirection,
+  StreamOperationalControls,
   GraphQLMeta,
   HttpMethod,
   JsonRpcMeta,
@@ -70,6 +71,8 @@ export interface StreamRegistryOptions {
   contentType?: string
   /** Content type configuration */
   contentTypes?: { default?: string; supported?: string[] }
+  /** Connection-scoped controls for Live Streams. */
+  controls?: StreamOperationalControls
   policies?: ContractPolicies
   graphql?: GraphQLMeta
   interceptors?: Interceptor[]
@@ -159,6 +162,15 @@ export interface Registry {
   listEvents(): HandlerMeta[]
 }
 
+function validateStreamControls(controls?: StreamOperationalControls): void {
+  if (!controls) return
+  for (const [name, value] of Object.entries(controls)) {
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+      throw new TypeError(`${name} must be a positive finite number`)
+    }
+  }
+}
+
 /**
  * Create a new Registry
  */
@@ -214,6 +226,7 @@ export function createRegistry(): Registry {
       handler: StreamHandler<TInput, TOutput>,
       options: StreamRegistryOptions = {}
     ): void {
+      validateStreamControls(options.controls)
       if (procedures.has(name) || streams.has(name) || events.has(name)) {
         throw new Error(`Handler '${name}' already registered`)
       }
@@ -232,6 +245,7 @@ export function createRegistry(): Registry {
           description: options.description,
           tags: options.tags,
           streamDirection: options.direction ?? 'server',
+          streamControls: options.controls,
           contentType: options.contentType,
           contentTypes: options.contentTypes,
           graphql: options.graphql,

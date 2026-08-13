@@ -118,6 +118,10 @@ function convertStreamEndpoint(
     endpoint.contentTypes = resolvedContentTypes
   }
 
+  if (meta.streamControls) {
+    endpoint['x-usd-live-stream'] = { ...meta.streamControls }
+  }
+
   // Add tags based on stream name
   const tags = meta.tags?.length ? meta.tags : extractStreamTags(meta.name)
   if (tags.length > 0) {

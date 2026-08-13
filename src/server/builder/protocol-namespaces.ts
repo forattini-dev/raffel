@@ -228,6 +228,7 @@ export function createStreamsNamespace(ctx: StreamsNamespaceContext): StreamsNam
     registry.stream(streamName, handler, {
       description: options.description,
       direction,
+      controls: options.controls,
       interceptors: interceptors.length > 0 ? interceptors : undefined,
     })
     recordOperationRegistration(streamName, { source: programmaticSource() })

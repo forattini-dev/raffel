@@ -12,6 +12,7 @@ import { createServer as createHttpsServer } from 'node:https'
 import { resolveTlsOptions, type TlsOptions } from '../utils/tls.js'
 import type { Router } from '../core/router.js'
 import type { Envelope, Context, ContextSeed } from '../types/index.js'
+import type { StreamOperationalControls } from '../types/index.js'
 import type { Tracer, Span, SpanContext } from '../tracing/index.js'
 import { createLogger } from '../utils/logger.js'
 import { extractMetadataFromHeaders } from '../utils/header-metadata.js'
@@ -45,6 +46,7 @@ import {
   searchParamsToQuery,
   sendErrorResponse,
 } from '../server/http-lifecycle/index.js'
+import { writeSseStream } from './sse-runtime.js'
 
 const logger = createLogger('http-adapter')
 
@@ -123,6 +125,9 @@ export interface HttpAdapterOptions {
    * @default false
    */
   trustedProxies?: TrustedProxyConfig
+
+  /** Resolve connection-scoped controls for a registered Live Stream. */
+  resolveStreamControls?: (procedure: string) => StreamOperationalControls | undefined
 }
 
 /**
@@ -333,6 +338,7 @@ export function createHttpAdapter(
       logger.debug({ method: req.method, path: url.pathname, procedure }, 'Request received')
 
       let ctx: Context | null = null
+      let requestAbortController: AbortController | undefined
 
       try {
         // For methods that carry a request body, parse it first so the raw
@@ -350,7 +356,7 @@ export function createHttpAdapter(
           if (!parsedBody) return
         }
 
-        ctx = (await createHttpRequestContext({
+        const requestContext = await createHttpRequestContext({
           req,
           res,
           method,
@@ -362,7 +368,9 @@ export function createHttpAdapter(
           rawBody: parsedBody?.raw,
           trustedProxies,
           contextFactory: options.contextFactory,
-        })).ctx
+        })
+        ctx = requestContext.ctx
+        requestAbortController = requestContext.abortController
         if (span) {
           bindContextToSpan(ctx, span, parentContext, baggage)
         }
@@ -370,7 +378,14 @@ export function createHttpAdapter(
         // Handle based on type
         if (isStream && method === 'GET') {
           // Stream via SSE
-          await handleStream(req, res, procedure, url.searchParams, ctx)
+          await handleStream(
+            req,
+            res,
+            procedure,
+            url.searchParams,
+            ctx,
+            requestAbortController
+          )
         } else if (isEvent && method === 'POST') {
           // Fire-and-forget event
           await handleEvent(req, res, procedure, ctx, parsedBody!.payload)
@@ -425,7 +440,8 @@ export function createHttpAdapter(
     res: ServerResponse,
     procedure: string,
     params: URLSearchParams,
-    ctx: Context
+    ctx: Context,
+    abortController: AbortController
   ): Promise<void> {
     // Convert query params to payload
     const payload: Record<string, unknown> = {}
@@ -482,36 +498,16 @@ export function createHttpAdapter(
       'X-Accel-Buffering': 'no', // Disable nginx buffering
     })
 
-    try {
-      // Stream data as SSE events
-      for await (const chunk of result as AsyncIterable<Envelope>) {
-        if (ctx.signal.aborted) break
-        if (res.destroyed) break
-
-        const envelope = chunk as Envelope
-
-        // Map envelope type to SSE event type
-        let eventType = 'message'
-        if (envelope.type === 'stream:data') {
-          eventType = 'data'
-        } else if (envelope.type === 'stream:end') {
-          eventType = 'end'
-        } else if (envelope.type === 'stream:error') {
-          eventType = 'error'
-        }
-
-        // Send SSE event
-        res.write(`event: ${eventType}\n`)
-        res.write(`data: ${JSON.stringify(envelope.payload)}\n\n`)
-      }
-    } catch (err) {
-      const error = err as Error
-      logger.error({ err: error, procedure }, 'Stream error')
-      res.write(`event: error\n`)
-      res.write(`data: ${JSON.stringify({ code: 'STREAM_ERROR', message: error.message })}\n\n`)
-    } finally {
-      res.end()
-    }
+    await writeSseStream({
+      stream: result as AsyncIterable<Envelope>,
+      signal: ctx.signal,
+      controls: options.resolveStreamControls?.(procedure),
+      abort: (reason) => abortController.abort(reason),
+      write: (chunk) => { res.write(chunk) },
+      end: () => { res.end() },
+      isClosed: () => res.destroyed || res.writableEnded,
+      onError: (error) => logger.error({ err: error, procedure }, 'Stream error'),
+    })
   }
 
   /**

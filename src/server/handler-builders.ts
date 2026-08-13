@@ -351,6 +351,7 @@ export function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let description: string | undefined
   let direction: StreamDirection | undefined
+  let controls: import('../types/index.js').StreamOperationalControls | undefined
   let graphqlMeta: GraphQLMeta | undefined
   let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
@@ -376,6 +377,10 @@ export function createStreamBuilder(
       direction = dir
       return builder
     },
+    controls(config) {
+      controls = config
+      return builder
+    },
     use(interceptor) {
       interceptors.push(interceptor)
       return builder
@@ -395,6 +400,7 @@ export function createStreamBuilder(
       registry.stream(name, fn, {
         description,
         direction,
+        controls,
         graphql: graphqlMeta,
         policies,
         interceptors: interceptors.length > 0 ? interceptors : undefined,

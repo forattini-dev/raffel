@@ -64,6 +64,12 @@ export class StreamEndpointBuilder {
     return this
   }
 
+  /** Attach connection-scoped Live Stream controls. */
+  liveStream(controls: import('../../types/handlers.js').StreamOperationalControls): this {
+    this.endpoint['x-usd-live-stream'] = { ...controls }
+    return this
+  }
+
   /** Return to streams builder */
   done(): StreamsBuilder {
     return this.streamsBuilder
