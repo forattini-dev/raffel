@@ -251,6 +251,7 @@ export function registerDiscoveredHandlers(
       registry.stream(route.name, route.handler as StreamHandler, {
         description: route.meta?.description,
         direction: route.meta?.direction,
+        controls: route.meta?.controls,
         tags: route.meta?.tags,
         contentType: route.meta?.contentType,
         contentTypes: route.meta?.contentTypes,

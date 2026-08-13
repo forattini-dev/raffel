@@ -72,6 +72,18 @@ export type HandlerKind = 'procedure' | 'stream' | 'event'
  */
 export type StreamDirection = 'server' | 'client' | 'bidi'
 
+/** Operational controls for connection-scoped Live Streams. */
+export interface StreamOperationalControls {
+  /** Emit an SSE transport comment at this interval. */
+  heartbeatMs?: number
+  /** Emit an SSE retry hint when the connection opens. */
+  retryMs?: number
+  /** End the connection after this total duration. */
+  maxDurationMs?: number
+  /** End the connection when no business record is emitted for this duration. */
+  idleTimeoutMs?: number
+}
+
 /**
  * Delivery guarantee for events
  */
@@ -163,6 +175,9 @@ export interface HandlerMeta {
 
   /** Stream direction (for stream handlers) */
   streamDirection?: StreamDirection
+
+  /** Connection-scoped controls for Live Streams. */
+  streamControls?: StreamOperationalControls
 
   /** Delivery guarantee (for event handlers) */
   delivery?: DeliveryGuarantee

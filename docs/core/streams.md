@@ -149,6 +149,34 @@ server
 | gRPC | ✅ | ✅ | ✅ |
 | JSON-RPC | ❌ | ❌ | ❌ |
 
+## Live Stream operational controls
+
+File-discovered Live Streams can opt into connection-scoped production controls:
+
+```ts
+// src/streams/orders/watch.ts
+export const meta = {
+  direction: 'server' as const,
+  controls: {
+    heartbeatMs: 15_000,
+    retryMs: 2_000,
+    maxDurationMs: 60 * 60_000,
+    idleTimeoutMs: 60_000,
+  },
+}
+```
+
+- `heartbeatMs` emits `: heartbeat` SSE comments. Heartbeats are transport
+  traffic and never become business records.
+- `retryMs` emits the SSE `retry` hint once when the connection opens. It tells
+  clients when to reconnect but does not provide replay or resumability.
+- `maxDurationMs` bounds total connection lifetime.
+- `idleTimeoutMs` bounds time without a business record; heartbeats do not reset it.
+
+When a limit expires, Raffel aborts `ctx.signal`, closes the iterator, clears
+its timers, and ends the response. Omitting `controls` preserves the existing
+Live Stream bytes and behavior.
+
 ## RaffelStream API
 
 Under the hood, Raffel uses a custom stream abstraction with backpressure support:

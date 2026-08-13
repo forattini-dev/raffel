@@ -13,6 +13,7 @@ import type {
   DeliveryGuarantee,
   RetryPolicy,
   StreamDirection,
+  StreamOperationalControls,
   JsonRpcMeta,
   GrpcMeta,
   ContractPolicies,
@@ -60,6 +61,7 @@ export interface ModuleRoute {
   interceptors: Interceptor[]
   schema?: HandlerSchema
   streamDirection?: StreamDirection
+  streamControls?: StreamOperationalControls
   delivery?: DeliveryGuarantee
   retryPolicy?: RetryPolicy
   deduplicationWindow?: number
@@ -98,6 +100,7 @@ function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let description: string | undefined
   let streamDirection: StreamDirection | undefined
+  let streamControls: StreamOperationalControls | undefined
   let policies: ContractPolicies | undefined
   let graphql: import('../types/index.js').GraphQLMeta | undefined
   const interceptors: Interceptor[] = []
@@ -113,6 +116,10 @@ function createStreamBuilder(
     },
     direction(direction) {
       streamDirection = direction
+      return builder
+    },
+    controls(controls) {
+      streamControls = controls
       return builder
     },
     description(desc) {
@@ -146,6 +153,7 @@ function createStreamBuilder(
         policies,
         schema: schema.input || schema.output ? schema : undefined,
         streamDirection,
+        streamControls,
         graphql,
       })
     },

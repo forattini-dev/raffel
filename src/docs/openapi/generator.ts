@@ -75,6 +75,7 @@ export interface OpenAPIOperation {
   responses: Record<string, OpenAPIResponse>
   security?: Array<Record<string, string[]>>
   'x-raffel-policies'?: ContractPolicies
+  'x-raffel-live-stream'?: import('../../types/index.js').StreamOperationalControls
 }
 
 export interface OpenAPIResponse {
@@ -777,6 +778,9 @@ export function generateOpenAPI(
         '500': createErrorResponse('Internal Server Error'),
       },
       ...(meta.policies && { 'x-raffel-policies': meta.policies }),
+      ...(meta.streamControls && {
+        'x-raffel-live-stream': { ...meta.streamControls },
+      }),
     }
 
     // Add input schema as query params or request body based on direction

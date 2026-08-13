@@ -283,6 +283,15 @@ const USD_SCHEMA = {
               tags: { type: 'array', items: { type: 'string' } },
               security: { type: 'array' },
               'x-usd-backpressure': { type: 'boolean' },
+              'x-usd-live-stream': {
+                type: 'object',
+                properties: {
+                  heartbeatMs: { type: 'number', exclusiveMinimum: 0 },
+                  retryMs: { type: 'number', exclusiveMinimum: 0 },
+                  maxDurationMs: { type: 'number', exclusiveMinimum: 0 },
+                  idleTimeoutMs: { type: 'number', exclusiveMinimum: 0 },
+                },
+              },
             },
           },
         },

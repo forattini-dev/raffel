@@ -10,6 +10,7 @@ import type {
   Interceptor,
   RetryPolicy,
   StreamDirection,
+  StreamOperationalControls,
   HttpMethod,
   JsonRpcMeta,
   GrpcMeta,
@@ -353,6 +354,9 @@ export interface HandlerMeta {
 
   /** Stream direction (for streams) */
   direction?: StreamDirection
+
+  /** Connection-scoped controls for Live Streams. */
+  controls?: StreamOperationalControls
 
   /** GraphQL mapping metadata (procedures only) */
   graphql?: {

@@ -165,6 +165,7 @@ export function createProgrammaticRegistration(
           registry.stream(fullName, route.handler as StreamHandler, {
             description: route.description,
             direction: route.streamDirection,
+            controls: route.streamControls,
             graphql: route.graphql,
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })
@@ -245,6 +246,7 @@ export function createProgrammaticRegistration(
       const outputSchema = input.outputSchema
       const description = 'meta' in input ? input.meta?.description : (input as AddStreamInput).description
       const direction = 'meta' in input ? input.meta?.direction : (input as AddStreamInput).direction
+      const controls = 'meta' in input ? input.meta?.controls : (input as AddStreamInput).controls
       const graphql = 'meta' in input ? input.meta?.graphql : (input as AddStreamInput).graphql
       const policies = 'meta' in input
         ? policyMetadataFromRouteMeta(input.meta)
@@ -264,6 +266,7 @@ export function createProgrammaticRegistration(
       registry.stream(name, handler as any, {
         description,
         direction,
+        controls,
         graphql,
         policies,
         interceptors: interceptors.length > 0 ? interceptors : undefined,

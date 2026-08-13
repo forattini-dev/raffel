@@ -767,6 +767,7 @@ Defines Server-Sent Events (SSE) and streaming endpoints.
 | tags | [`string`] | No | Tags for grouping. |
 | security | [[Security Requirement Object](#security-requirement-object)] | No | Security requirements. |
 | x-usd-backpressure | `boolean` | No | Whether backpressure is supported. |
+| x-usd-live-stream | `object` | No | Connection-scoped heartbeat, retry hint, maximum duration, and idle timeout. Does not imply replay. |
 
 ### Stream Directions
 
@@ -788,6 +789,11 @@ x-usd:
       events:
         direction: server-to-client
         description: Real-time event stream
+        x-usd-live-stream:
+          heartbeatMs: 15000
+          retryMs: 2000
+          maxDurationMs: 3600000
+          idleTimeoutMs: 60000
         message:
           payload:
             $ref: "#/components/schemas/ServerEvent"
@@ -1434,6 +1440,7 @@ The following `x-usd-*` prefixes are reserved:
 | `x-usd-streaming` | HTTP Operation | Mark HTTP response as streaming |
 | `x-usd-presence` | WebSocket Channel | Presence configuration |
 | `x-usd-backpressure` | Stream Endpoint | Backpressure support |
+| `x-usd-live-stream` | Stream Endpoint | Connection-scoped Live Stream controls |
 | `x-usd-client-streaming` | gRPC Method | Client streaming |
 | `x-usd-server-streaming` | gRPC Method | Server streaming |
 | `x-usd-notification` | JSON-RPC Method | Notification (no response) |
