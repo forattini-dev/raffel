@@ -91,6 +91,7 @@
 - **Guides**
   - [Real-time & asynchronous interactions](/guides/realtime-and-async.md)
   - [Server-first service-to-service](/guides/service-to-service.md)
+  - [AI workload streaming](/guides/ai-workload-streaming.md)
   - [Testing](/guides/testing.md)
   - [REST API](/guides/rest-api.md)
   - [Building MCP Servers](/guides/mcp-server.md)
