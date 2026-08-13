@@ -35,6 +35,17 @@ export type {
   HttpMiddlewareRoute,
 } from './route-table.js'
 export { createHttpTracingMiddleware } from '../tracing/index.js'
+export {
+  LongPollAbortedError,
+  runLongPoll,
+} from './long-poll.js'
+export type {
+  PollCursor,
+  LongPollChange,
+  LongPollOutcome,
+  LongPollWaitContext,
+  RunLongPollOptions,
+} from './long-poll.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HttpContext - Request/Response Helpers

@@ -1438,6 +1438,7 @@ The following `x-usd-*` prefixes are reserved:
 | Extension | Location | Description |
 |-----------|----------|-------------|
 | `x-usd-streaming` | HTTP Operation | Mark HTTP response as streaming |
+| `x-usd-long-poll` | HTTP Operation | Describe one bounded ordinary HTTP Long Poll Interaction |
 | `x-usd-presence` | WebSocket Channel | Presence configuration |
 | `x-usd-backpressure` | Stream Endpoint | Backpressure support |
 | `x-usd-live-stream` | Stream Endpoint | Connection-scoped Live Stream controls |

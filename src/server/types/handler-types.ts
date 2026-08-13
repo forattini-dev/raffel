@@ -19,6 +19,7 @@ import type {
   HttpMethod,
   StreamDirection,
   StreamOperationalControls,
+  LongPollContract,
   RetryPolicy,
   ContractPolicies,
 } from '../../types/index.js'
@@ -136,6 +137,8 @@ export interface ProcedureBuilder<TInput = unknown, TOutput = unknown> {
    * ```
    */
   http(path: string, method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'): this
+  /** Describe the procedure as one ordinary HTTP Long Poll Interaction. */
+  longPoll(contract: LongPollContract): this
   /**
    * Add a before hook - runs before the handler.
    * Multiple before hooks run in order of registration.
@@ -338,6 +341,8 @@ export interface ProcedureDef<TInput = unknown, TOutput = unknown> {
    * - object: full config
    */
   http?: string | [HttpMethod, string] | { method?: HttpMethod; path: string }
+  /** Ordinary HTTP Long Poll Interaction contract. */
+  longPoll?: LongPollContract
   /** Short summary for docs */
   summary?: string
   /** Longer description */
@@ -523,6 +528,8 @@ export interface AddProcedureInput {
   httpPath?: string
   /** HTTP method override */
   httpMethod?: HttpMethod
+  /** Ordinary HTTP Long Poll Interaction contract. */
+  longPoll?: LongPollContract
   /** JSON-RPC metadata */
   jsonrpc?: JsonRpcMeta
   /** gRPC metadata */
@@ -608,6 +615,7 @@ export interface RegisterProcedureOptions {
   graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: HttpMethod
+  longPoll?: LongPollContract
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies

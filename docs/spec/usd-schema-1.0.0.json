@@ -298,9 +298,32 @@
         "x-usd-streaming": {
           "type": "boolean",
           "description": "Mark as streaming response."
+        },
+        "x-usd-long-poll": {
+          "$ref": "#/$defs/LongPollContract"
         }
       },
       "additionalProperties": true
+    },
+    "LongPollContract": {
+      "type": "object",
+      "required": ["cursor", "waitMs", "retryMs", "timeoutOutcome"],
+      "properties": {
+        "cursor": {
+          "type": "object",
+          "required": ["input", "output", "semantics"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "output": { "type": "string", "minLength": 1 },
+            "semantics": { "const": "exclusive" }
+          },
+          "additionalProperties": false
+        },
+        "waitMs": { "type": "number", "exclusiveMinimum": 0 },
+        "retryMs": { "type": "number", "exclusiveMinimum": 0 },
+        "timeoutOutcome": { "const": "timeout" }
+      },
+      "additionalProperties": false
     },
     "Parameter": {
       "type": "object",

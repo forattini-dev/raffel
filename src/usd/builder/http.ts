@@ -176,6 +176,11 @@ export class OperationBuilder {
     return this
   }
 
+  longPoll(contract: import('../../types/index.js').LongPollContract): this {
+    this.operation['x-usd-long-poll'] = contract
+    return this
+  }
+
   /** Return to path builder */
   done(): PathBuilder {
     return this.pathBuilder

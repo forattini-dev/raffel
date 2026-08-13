@@ -94,6 +94,7 @@ export type {
   HttpMethod,
   StreamDirection,
   StreamOperationalControls,
+  LongPollContract,
   DeliveryGuarantee,
   RetryPolicy,
   GraphQLMeta,

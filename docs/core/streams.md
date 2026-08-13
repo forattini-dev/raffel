@@ -177,6 +177,63 @@ When a limit expires, Raffel aborts `ctx.signal`, closes the iterator, clears
 its timers, and ends the response. Omitting `controls` preserves the existing
 Live Stream bytes and behavior.
 
+## Long polling is ordinary HTTP
+
+A Long Poll Interaction is not a stream capability. Each request waits for at
+most `waitMs` and returns exactly one ordinary HTTP response: either the first
+change strictly after the supplied cursor, or a timeout outcome that preserves
+that cursor. The client decides whether and when to make another request.
+
+With file-system discovery, declare the contract beside the handler and use
+`runLongPoll` for bounded waiting and cancellation:
+
+```ts
+// src/http/orders/updates/get.ts
+import { z } from 'zod'
+import { runLongPoll } from 'raffel/http'
+import { orderChanges } from '../../../application/order-changes.js'
+
+export const input = z.object({
+  cursor: z.string().nullable().default(null),
+})
+
+export const meta = {
+  httpPath: '/orders/updates',
+  httpMethod: 'GET' as const,
+  longPoll: {
+    cursor: { input: 'cursor', output: 'cursor', semantics: 'exclusive' as const },
+    waitMs: 25_000,
+    retryMs: 1_000,
+    timeoutOutcome: 'timeout' as const,
+  },
+}
+
+export default async function ordersUpdates(
+  { cursor }: z.infer<typeof input>,
+  ctx,
+) {
+  return runLongPoll({
+    cursor,
+    waitMs: meta.longPoll.waitMs,
+    retryMs: meta.longPoll.retryMs,
+    signal: ctx.signal,
+    wait: ({ after, signal }) => orderChanges.waitAfter(after, { signal }),
+  })
+}
+```
+
+The cursor is opaque and exclusive: Raffel never parses or increments it, and
+the application source must not return the current cursor again. `retryMs` is a
+bounded hint in the response, not an automatic polling loop. Raffel does not
+create a change store or a background worker; the application supplies the
+`wait` implementation and owns its data source.
+
+Imperative routes use the identical contract through
+`.longPoll(contract)` or `server.http.get(path, { longPoll: contract }, handler)`.
+USD emits `x-usd-long-poll`, OpenAPI emits `x-raffel-long-poll`, and generated
+docs label the endpoint as a **Long Poll Interaction** without introducing a
+new capability kind.
+
 ## RaffelStream API
 
 Under the hood, Raffel uses a custom stream abstraction with backpressure support:

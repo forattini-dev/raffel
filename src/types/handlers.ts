@@ -84,6 +84,24 @@ export interface StreamOperationalControls {
   idleTimeoutMs?: number
 }
 
+/** Documentation contract for one ordinary HTTP Long Poll Interaction. */
+export interface LongPollContract {
+  cursor: {
+    /** Request query/input field containing the last observed cursor. */
+    input: string
+    /** Response field containing the next cursor. */
+    output: string
+    /** The application must return only changes strictly after the input cursor. */
+    semantics: 'exclusive'
+  }
+  /** Maximum duration of one server-side wait. */
+  waitMs: number
+  /** Bounded client retry hint returned with either outcome. */
+  retryMs: number
+  /** Stable discriminator returned when the wait expires without a change. */
+  timeoutOutcome: 'timeout'
+}
+
 /**
  * Delivery guarantee for events
  */
@@ -178,6 +196,9 @@ export interface HandlerMeta {
 
   /** Connection-scoped controls for Live Streams. */
   streamControls?: StreamOperationalControls
+
+  /** Ordinary HTTP Long Poll Interaction metadata (procedures only). */
+  longPoll?: LongPollContract
 
   /** Delivery guarantee (for event handlers) */
   delivery?: DeliveryGuarantee

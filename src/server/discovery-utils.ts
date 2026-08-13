@@ -240,6 +240,7 @@ export function registerDiscoveredHandlers(
         httpPath: route.meta?.httpPath,
         httpMethod: route.meta?.httpMethod,
         httpSuccessStatus: route.meta?.httpSuccessStatus,
+        longPoll: route.meta?.longPoll,
         jsonrpc: route.meta?.jsonrpc,
         grpc: route.meta?.grpc,
         policies: policyMetadataFromRouteMeta(route.meta),
