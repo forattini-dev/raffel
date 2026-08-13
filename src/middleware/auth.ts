@@ -15,6 +15,18 @@ import type { OAuth2StrategyWithFlow, OAuth2Tokens } from './auth/oauth2.js'
 import type { USDSecurityRequirement, USDSecurityScheme } from '../usd/index.js'
 
 const AUTH_DOCUMENTATION = Symbol('raffel.auth.documentation')
+const AUTH_RUNTIME = Symbol.for('raffel.auth.runtime')
+const AUTH_ATTEMPT = Symbol.for('raffel.auth.attempt')
+
+export type AuthenticationRequirement = 'required' | 'optional' | 'none'
+
+export interface AuthenticationRuntime {
+  authenticate(
+    envelope: Envelope,
+    ctx: Context,
+    requirement?: AuthenticationRequirement
+  ): Promise<void>
+}
 
 export interface AuthStrategyDocumentation {
   /** Stable OpenAPI component name. Duplicate names receive a numeric suffix. */
@@ -32,6 +44,7 @@ export interface AuthMiddlewareDocumentation {
 
 type DocumentedAuthInterceptor = Interceptor & {
   [AUTH_DOCUMENTATION]?: AuthMiddlewareDocumentation
+  [AUTH_RUNTIME]?: AuthenticationRuntime
 }
 
 /**
@@ -804,71 +817,86 @@ export function buildPublicProcedureMatcher(
 export function createAuthMiddleware(options: AuthMiddlewareOptions): Interceptor {
   const { strategies, publicProcedures = [], onError } = options
   const isPublicProcedure = buildPublicProcedureMatcher(publicProcedures)
-
-  const interceptor: DocumentedAuthInterceptor = async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
-    if ((ctx as { auth?: AuthContext }).auth?.authenticated) {
-      return next()
-    }
-
-    const credentialsPresented = strategies.some((strategy) => {
+  const markCredentialsPresented = (envelope: Envelope, ctx: Context): boolean => {
+    const presented = strategies.some((strategy) => {
       try {
         return strategy.credentialsPresented?.(envelope, ctx) ?? false
       } catch {
         return true
       }
     })
-    if (credentialsPresented && !ctx.auth.credentialsPresented) {
+    if (presented && !ctx.auth.credentialsPresented) {
       ;(ctx as { auth: AuthContext }).auth = createAuthContext({
         ...ctx.auth,
         credentialsPresented: true,
       })
     }
+    return presented
+  }
 
+  const runtime: AuthenticationRuntime = {
+    async authenticate(envelope, ctx, requirement = 'required') {
+      if (requirement === 'none' || ctx.auth.authenticated) return
+
+      const previousAttempt = ctx.extensions.get(AUTH_ATTEMPT)
+      if (previousAttempt === 'anonymous') {
+        if (requirement === 'required') {
+          throw new RaffelError('UNAUTHENTICATED', 'Authentication required')
+        }
+        return
+      }
+
+      const credentialsPresented = markCredentialsPresented(envelope, ctx)
+
+      let authResult: AuthResult | null = null
+      for (const strategy of strategies) {
+        try {
+          authResult = await strategy.authenticate(envelope, ctx)
+          if (authResult) break
+        } catch (error) {
+          onError?.(error as Error, envelope)
+        }
+      }
+
+      if (!authResult) {
+        if (credentialsPresented) {
+          throw new RaffelError('UNAUTHENTICATED', 'Invalid credentials')
+        }
+        ctx.extensions.set(AUTH_ATTEMPT, 'anonymous')
+        if (requirement === 'required') {
+          throw new RaffelError('UNAUTHENTICATED', 'Authentication required')
+        }
+        return
+      }
+
+      if (!authResult.authenticated) {
+        throw new RaffelError('UNAUTHENTICATED', 'Invalid credentials')
+      }
+
+      ;(ctx as { auth: AuthContext }).auth = createAuthContext({
+        authenticated: true,
+        credentialsPresented: true,
+        principal: authResult.principal,
+        claims: {
+          ...authResult.claims,
+          roles: authResult.roles,
+        },
+      })
+      ctx.extensions.set(AUTH_ATTEMPT, 'authenticated')
+    },
+  }
+
+  const interceptor: DocumentedAuthInterceptor = async (envelope: Envelope, ctx: Context, next: () => Promise<unknown>) => {
     // Check if procedure is public (leading-slash / extension / wildcard tolerant)
     if (isPublicProcedure(envelope.procedure)) {
+      markCredentialsPresented(envelope, ctx)
       return next()
     }
-
-    // Try each strategy in order
-    let authResult: AuthResult | null = null
-
-    for (const strategy of strategies) {
-      try {
-        authResult = await strategy.authenticate(envelope, ctx)
-        if (authResult) break
-      } catch (error) {
-        if (onError) {
-          onError(error as Error, envelope)
-        }
-        // Continue to next strategy on error
-      }
-    }
-
-    // Check authentication result
-    if (!authResult) {
-      throw new RaffelError('UNAUTHENTICATED', 'Authentication required')
-    }
-
-    if (!authResult.authenticated) {
-      throw new RaffelError('UNAUTHENTICATED', 'Invalid credentials')
-    }
-
-    // Attach auth context
-    const authContext: AuthContext = createAuthContext({
-      authenticated: true,
-      credentialsPresented: true,
-      principal: authResult.principal,
-      claims: {
-        ...authResult.claims,
-        roles: authResult.roles,
-      },
-    })
-
-    // Update context with auth info
-    ;(ctx as any).auth = authContext
-
+    await runtime.authenticate(envelope, ctx, 'required')
     return next()
   }
+
+  Object.defineProperty(interceptor, AUTH_RUNTIME, { value: runtime })
 
   const securitySchemes: Record<string, USDSecurityScheme> = {}
   for (const strategy of strategies) {
@@ -904,6 +932,13 @@ export function getAuthMiddlewareDocumentation(
   interceptor: Interceptor,
 ): AuthMiddlewareDocumentation | undefined {
   return (interceptor as DocumentedAuthInterceptor)[AUTH_DOCUMENTATION]
+}
+
+/** Access the reusable authenticator attached by createAuthMiddleware. */
+export function getAuthenticationRuntime(
+  interceptor: Interceptor
+): AuthenticationRuntime | undefined {
+  return (interceptor as DocumentedAuthInterceptor)[AUTH_RUNTIME]
 }
 
 /**

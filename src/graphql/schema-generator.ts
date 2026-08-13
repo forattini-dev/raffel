@@ -28,6 +28,7 @@ import {
   type GraphQLNullableOutputType,
   type GraphQLNullableInputType,
   GraphQLError,
+  validateSchema,
   type GraphQLResolveInfo,
   Kind,
 } from 'graphql'
@@ -41,18 +42,27 @@ import {
 } from '../validation/index.js'
 import type { HandlerMeta } from '../types/index.js'
 import type {
+  GraphQLSecurityOptions,
   SchemaGenerationOptions,
   GeneratedSchemaInfo,
+  GraphQLDiagnostic,
 } from './types.js'
 import {
+  GRAPHQL_EXECUTION_BRIDGE_KEY,
   GRAPHQL_POLICY_BRIDGE_KEY,
+  type GraphQLExecutionBridge,
   type GraphQLPolicyBridge,
   type GraphQLResourceFieldAuthz,
   type GraphQLResourceRelationConfig,
   type GraphQLResourceRootFieldConfig,
+  type GraphQLResourceSubscriptionFieldConfig,
   type LoadedGraphQLResource,
 } from './resource.js'
 import { createLogger } from '../utils/logger.js'
+import {
+  authenticateGraphQLResolver,
+  validateDirectSecurity,
+} from './security.js'
 
 const logger = createLogger('graphql-schema')
 
@@ -99,6 +109,7 @@ export const GraphQLDateTime = new GraphQLScalarType({
 // === Default Options ===
 
 const DEFAULT_OPTIONS: Required<SchemaGenerationOptions> = {
+  exposure: 'all',
   procedureMapping: 'prefix',
   queryPrefixes: ['get', 'list', 'find', 'search', 'fetch', 'load', 'read', 'check', 'is', 'has', 'count'],
   includeEvents: false,
@@ -501,6 +512,40 @@ function buildArgsFromConfig(
   return Object.keys(args).length > 0 ? args : undefined
 }
 
+function buildArgsFromHandlerSchema(
+  ownerName: string,
+  fieldName: string,
+  schema: HandlerSchema | undefined,
+  cache: TypeCache
+): Record<string, { type: GraphQLInputType; description?: string }> | undefined {
+  if (!schema?.input) return undefined
+  const descriptor = getDescriptorForSchema(schema.input, schema.validator)
+  const { schema: inputSchema } = unwrapNullableSchema(descriptor.jsonSchema)
+  const properties = getObjectProperties(inputSchema)
+  if (!properties) {
+    return {
+      input: {
+        type: descriptorToGraphQLInput(descriptor, `${ownerName}${capitalizeName(fieldName)}Input`, cache, true),
+        description: getSchemaDescription(inputSchema),
+      },
+    }
+  }
+
+  const required = getRequiredFields(inputSchema)
+  return Object.fromEntries(Object.entries(properties).map(([name, property]) => [
+    name,
+    {
+      type: descriptorToGraphQLInput(
+        { ...descriptor, jsonSchema: property, diagnostics: [] },
+        `${ownerName}${capitalizeName(fieldName)}${capitalizeName(name)}`,
+        cache,
+        required.has(name)
+      ),
+      description: getSchemaDescription(property),
+    },
+  ]))
+}
+
 type GraphQLResourcePaginationConfig = NonNullable<GraphQLResourceRootFieldConfig['pagination']>
 
 interface ResolvedGraphQLResourcePaginationConfig {
@@ -591,6 +636,19 @@ function getGraphQLPolicyBridge(ctx: unknown): GraphQLPolicyBridge | undefined {
   return context?.extensions instanceof Map
     ? context.extensions.get(GRAPHQL_POLICY_BRIDGE_KEY) as GraphQLPolicyBridge | undefined
     : undefined
+}
+
+function getGraphQLExecutionBridge(ctx: unknown): GraphQLExecutionBridge {
+  const context = ctx as ContextLike
+  const bridge = context?.extensions instanceof Map
+    ? context.extensions.get(GRAPHQL_EXECUTION_BRIDGE_KEY) as GraphQLExecutionBridge | undefined
+    : undefined
+  if (!bridge) {
+    throw new GraphQLError('GraphQL execution bridge is unavailable', {
+      extensions: { code: 'FAILED_PRECONDITION' },
+    })
+  }
+  return bridge
 }
 
 interface ContextLike {
@@ -722,6 +780,12 @@ async function applyAuthzToResolvedValue(
 interface ResourceSchemaContext {
   resourcesByName: Map<string, LoadedGraphQLResource>
   cache: TypeCache
+  registry: Registry
+  schemaRegistry: SchemaRegistry
+  diagnostics: GraphQLDiagnostic[]
+  securityMode: 'router' | 'inherit'
+  authenticationAvailable: boolean
+  policyDefaultMode?: 'allow' | 'deny'
 }
 
 function createResourceObjectType(
@@ -789,6 +853,18 @@ function createRelationField(
     description: relation.description,
     resolve: async (parent, rawArgs, ctx, info) => {
       const args = rawArgs as Record<string, unknown>
+      if (relation.procedureRef) {
+        return getGraphQLExecutionBridge(ctx).executeProcedure(
+            relation.procedureRef,
+            { parent, args },
+            ctx as never
+          )
+      }
+      await authenticateGraphQLResolver(
+        ctx,
+        relation.auth ?? (resourceCtx.securityMode === 'inherit' ? 'required' : undefined),
+        `${ownerName}.${relationName}`,
+      )
       const value = relation.resolver
         ? await relation.resolver(parent, args, ctx as never, info as GraphQLResolveInfo)
         : relation.loader
@@ -807,9 +883,13 @@ function createRootResourceField(
 ): GraphQLFieldConfig<unknown, unknown> {
   const typeName = resourceTypeName(resource)
   const resourceType = createResourceObjectType(resource, resourceCtx)
-  const outputType = field.output
+  const referencedSchema = field.procedureRef
+    ? resourceCtx.schemaRegistry.get(field.procedureRef)
+    : undefined
+  const outputSchema = field.output ?? referencedSchema?.output
+  const outputType = outputSchema
     ? descriptorToGraphQLOutput(
-        getDescriptorForSchema(field.output),
+        getDescriptorForSchema(outputSchema, referencedSchema?.validator),
         `${typeName}${capitalizeName(fieldKey)}Output`,
         resourceCtx.cache,
         field.nullable !== true
@@ -821,7 +901,9 @@ function createRootResourceField(
     ? new GraphQLNonNull(outputType)
     : outputType
   const fieldName = field.field ?? fieldKey
-  const args = buildRootArgsFromConfig(typeName, fieldName, field, resourceCtx.cache)
+  const args = field.args || field.input || field.pagination
+    ? buildRootArgsFromConfig(typeName, fieldName, field, resourceCtx.cache)
+    : buildArgsFromHandlerSchema(typeName, fieldName, referencedSchema, resourceCtx.cache)
 
   return {
     type,
@@ -829,12 +911,106 @@ function createRootResourceField(
     description: field.description ?? `${resource.name}.${fieldKey}`,
     resolve: async (parent, rawArgs, ctx, info) => {
       const args = applyPaginationDefaults(rawArgs as Record<string, unknown>, field.pagination)
+      if (field.procedureRef) {
+        return getGraphQLExecutionBridge(ctx).executeProcedure(field.procedureRef, args, ctx as never)
+      }
+      await authenticateGraphQLResolver(
+        ctx,
+        field.auth ?? (resourceCtx.securityMode === 'inherit' ? 'required' : undefined),
+        fieldName,
+      )
       if (field.authorize && !await evaluateFieldAuthz(ctx, field.authorize, parent, args, parent)) {
         throw new GraphQLError('Policy denied', { extensions: { code: 'PERMISSION_DENIED' } })
       }
-      const value = await field.resolver(parent, args, ctx as never, info as GraphQLResolveInfo)
+      const value = field.resolver
+        ? await field.resolver(parent, args, ctx as never, info as GraphQLResolveInfo)
+        : (() => { throw new GraphQLError(`GraphQL field "${fieldName}" has no resolver`, { extensions: { code: 'FAILED_PRECONDITION' } }) })()
       return applyAuthzToResolvedValue(value, field.authz, args, ctx, parent, field.nullable)
     },
+  }
+}
+
+function createResourceSubscriptionField(
+  resource: LoadedGraphQLResource,
+  fieldKey: string,
+  field: GraphQLResourceSubscriptionFieldConfig,
+  resourceCtx: ResourceSchemaContext
+): GraphQLFieldConfig<unknown, unknown> {
+  const typeName = resourceTypeName(resource)
+  const fieldName = field.field ?? fieldKey
+  const referencedSchema = field.streamRef
+    ? resourceCtx.schemaRegistry.get(field.streamRef)
+    : undefined
+  const outputSchema = field.output ?? referencedSchema?.output
+  const resourceType = createResourceObjectType(resource, resourceCtx)
+  const outputType = outputSchema
+    ? descriptorToGraphQLOutput(
+        getDescriptorForSchema(outputSchema, referencedSchema?.validator),
+        `${typeName}${capitalizeName(fieldKey)}Output`,
+        resourceCtx.cache,
+        field.nullable !== true
+      )
+    : resourceType
+  const type = field.nullable === false && !(outputType instanceof GraphQLNonNull)
+    ? new GraphQLNonNull(outputType)
+    : outputType
+  const args = field.args || field.input
+    ? buildArgsFromConfig(typeName, fieldName, field.args, field.input, resourceCtx.cache)
+    : buildArgsFromHandlerSchema(typeName, fieldName, referencedSchema, resourceCtx.cache)
+
+  return {
+    type,
+    args,
+    description: field.description ?? `${resource.name}.${fieldKey}`,
+    subscribe: async (_parent, rawArgs, ctx, info) => {
+      const operationArgs = rawArgs as Record<string, unknown>
+      if (field.streamRef) {
+        return getGraphQLExecutionBridge(ctx).executeStream(field.streamRef, operationArgs, ctx as never)
+      }
+      await authenticateGraphQLResolver(
+        ctx,
+        field.auth ?? (resourceCtx.securityMode === 'inherit' ? 'required' : undefined),
+        fieldName,
+      )
+      if (field.authorize && !await evaluateFieldAuthz(ctx, field.authorize, undefined, operationArgs)) {
+        throw new GraphQLError('Policy denied', { extensions: { code: 'PERMISSION_DENIED' } })
+      }
+      if (field.subscribe) {
+        const iterable = await field.subscribe(
+          undefined,
+          operationArgs,
+          ctx as never,
+          info as GraphQLResolveInfo,
+        )
+        if (!field.authz) return iterable
+        return authorizeSubscriptionValues(iterable, field.authz, operationArgs, ctx, field.nullable)
+      }
+      throw new GraphQLError(`GraphQL subscription "${fieldName}" has no stream`, {
+        extensions: { code: 'FAILED_PRECONDITION' },
+      })
+    },
+    resolve: (value) => value,
+  }
+}
+
+async function* authorizeSubscriptionValues(
+  iterable: AsyncIterable<unknown>,
+  authz: GraphQLResourceFieldAuthz,
+  args: Record<string, unknown>,
+  ctx: unknown,
+  nullable: boolean | undefined,
+): AsyncIterable<unknown> {
+  for await (const value of iterable) {
+    if (value == null || await evaluateFieldAuthz(ctx, authz, value, args)) {
+      yield value
+      continue
+    }
+    if (authz.onDeny === 'filter') continue
+    if (authz.onDeny === 'null' && nullable !== false) {
+      yield null
+      continue
+    }
+    throw new GraphQLError('Policy denied', { extensions: { code: 'PERMISSION_DENIED' } })
   }
 }
 
@@ -842,9 +1018,11 @@ function addGraphQLResourceFields(
   graphqlResources: LoadedGraphQLResource[],
   queries: Record<string, GraphQLFieldConfig<unknown, unknown>>,
   mutations: Record<string, GraphQLFieldConfig<unknown, unknown>>,
+  subscriptions: Record<string, GraphQLFieldConfig<unknown, unknown>>,
   queryNames: string[],
   mutationNames: string[],
-  cache: TypeCache
+  subscriptionNames: string[],
+  resourceCtx: ResourceSchemaContext
 ): void {
   if (graphqlResources.length === 0) return
 
@@ -857,11 +1035,40 @@ function addGraphQLResourceFields(
     resourcesByName.set(resource.name, resource)
   }
 
-  const resourceCtx: ResourceSchemaContext = { resourcesByName, cache }
+  resourceCtx.resourcesByName = resourcesByName
   for (const resource of graphqlResources) {
     createResourceObjectType(resource, resourceCtx)
 
+    for (const [relationName, relation] of Object.entries(resource.relations ?? {})) {
+      if (!resourceCtx.resourcesByName.has(relation.type)) {
+        resourceCtx.diagnostics.push({
+          severity: 'warning',
+          code: 'UNKNOWN_RELATION_TYPE',
+          message: `Relation "${resource.name}.${relationName}" references unknown resource "${relation.type}" and will use JSON`,
+          source: resource.filePath,
+        })
+      }
+      if (relation.procedureRef && !resourceCtx.registry.getProcedure(relation.procedureRef)) {
+        resourceCtx.diagnostics.push({
+          severity: 'error',
+          code: 'UNKNOWN_PROCEDURE_REF',
+          message: `Relation "${resource.name}.${relationName}" references unknown procedure "${relation.procedureRef}"`,
+          source: resource.filePath,
+        })
+      }
+      validateDirectSecurity(
+        `${resource.name}.${relationName}`,
+        relation.procedureRef,
+        relation.auth,
+        Boolean(relation.authz),
+        false,
+        resource.filePath,
+        resourceCtx,
+      )
+    }
+
     for (const [key, field] of Object.entries(resource.queries ?? {})) {
+      validateResourceRootField(resource, key, field, 'query', resourceCtx)
       const name = toGraphQLName(field.field ?? key, 'field')
       if (queries[name]) throw new Error(`Duplicate GraphQL query field "${name}" from ${resource.filePath}`)
       queries[name] = createRootResourceField(resource, key, field, resourceCtx)
@@ -869,12 +1076,59 @@ function addGraphQLResourceFields(
     }
 
     for (const [key, field] of Object.entries(resource.mutations ?? {})) {
+      validateResourceRootField(resource, key, field, 'mutation', resourceCtx)
       const name = toGraphQLName(field.field ?? key, 'field')
       if (mutations[name]) throw new Error(`Duplicate GraphQL mutation field "${name}" from ${resource.filePath}`)
       mutations[name] = createRootResourceField(resource, key, field, resourceCtx)
       mutationNames.push(name)
     }
+
+    for (const [key, field] of Object.entries(resource.subscriptions ?? {})) {
+      if (!field.streamRef && !field.subscribe) {
+        resourceCtx.diagnostics.push({ severity: 'error', code: 'MISSING_SUBSCRIPTION_SOURCE', message: `Subscription "${resource.name}.${key}" requires streamRef or subscribe`, source: resource.filePath })
+      }
+      if (field.streamRef && !resourceCtx.registry.getStream(field.streamRef)) {
+        resourceCtx.diagnostics.push({ severity: 'error', code: 'UNKNOWN_STREAM_REF', message: `Subscription "${resource.name}.${key}" references unknown stream "${field.streamRef}"`, source: resource.filePath })
+      }
+      validateDirectSecurity(
+        `${resource.name}.${key}`,
+        field.streamRef,
+        field.auth,
+        Boolean(field.authorize),
+        true,
+        resource.filePath,
+        resourceCtx,
+      )
+      const name = toGraphQLName(field.field ?? key, 'field')
+      if (subscriptions[name]) throw new Error(`Duplicate GraphQL subscription field "${name}" from ${resource.filePath}`)
+      subscriptions[name] = createResourceSubscriptionField(resource, key, field, resourceCtx)
+      subscriptionNames.push(name)
+    }
   }
+}
+
+function validateResourceRootField(
+  resource: LoadedGraphQLResource,
+  key: string,
+  field: GraphQLResourceRootFieldConfig,
+  operation: 'query' | 'mutation',
+  resourceCtx: ResourceSchemaContext
+): void {
+  if (!field.procedureRef && !field.resolver) {
+    resourceCtx.diagnostics.push({ severity: 'error', code: 'MISSING_RESOLVER', message: `Field "${resource.name}.${key}" requires procedureRef or resolver`, source: resource.filePath })
+  }
+  if (field.procedureRef && !resourceCtx.registry.getProcedure(field.procedureRef)) {
+    resourceCtx.diagnostics.push({ severity: 'error', code: 'UNKNOWN_PROCEDURE_REF', message: `Field "${resource.name}.${key}" references unknown procedure "${field.procedureRef}"`, source: resource.filePath })
+  }
+  validateDirectSecurity(
+    `${resource.name}.${key}`,
+    field.procedureRef,
+    field.auth,
+    operation === 'mutation' ? Boolean(field.authorize) : Boolean(field.authorize || field.authz),
+    operation === 'mutation',
+    resource.filePath,
+    resourceCtx,
+  )
 }
 
 // === Schema Generation ===
@@ -884,6 +1138,10 @@ export interface GenerateSchemaParams {
   schemaRegistry: SchemaRegistry
   graphqlResources?: LoadedGraphQLResource[]
   options?: SchemaGenerationOptions
+  schemaValidation?: 'warn' | 'error'
+  security?: GraphQLSecurityOptions
+  authenticationAvailable?: boolean
+  policyDefaultMode?: 'allow' | 'deny'
 }
 
 export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSchemaInfo {
@@ -903,9 +1161,20 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
   const mutationNames: string[] = []
   const subscriptionNames: string[] = []
   const skipped: Array<{ name: string; reason: string }> = []
+  const diagnostics: GraphQLDiagnostic[] = []
+  const fields = {
+    queries: {} as Record<string, string>,
+    mutations: {} as Record<string, string>,
+    subscriptions: {} as Record<string, string>,
+  }
 
   // Process procedures → Query or Mutation
   for (const meta of registry.listProcedures()) {
+    if (options.exposure === 'explicit' && !meta.graphql) continue
+    if (meta.graphql?.type === 'subscription') {
+      diagnostics.push({ severity: 'error', code: 'INVALID_EXPOSURE', message: 'Procedures cannot be GraphQL subscriptions', operation: meta.name })
+      continue
+    }
     const schema = schemaRegistry.get(meta.name)
     const isQuery = isProcedureQuery(meta, options)
 
@@ -914,7 +1183,8 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
       schema,
       options,
       typeCache,
-      'procedure'
+      'procedure',
+      meta
     )
 
     if (!field) {
@@ -922,19 +1192,30 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
       continue
     }
 
-    const fieldName = options.fieldNameGenerator(meta.name)
+    const fieldName = toGraphQLName(meta.graphql?.field ?? options.fieldNameGenerator(meta.name), 'field')
 
     if (isQuery) {
+      if (queries[fieldName]) {
+        diagnostics.push({ severity: 'error', code: 'DUPLICATE_FIELD', message: `Duplicate GraphQL query field "${fieldName}"`, operation: meta.name })
+        continue
+      }
       queries[fieldName] = field
       queryNames.push(meta.name)
+      fields.queries[fieldName] = meta.name
     } else {
+      if (mutations[fieldName]) {
+        diagnostics.push({ severity: 'error', code: 'DUPLICATE_FIELD', message: `Duplicate GraphQL mutation field "${fieldName}"`, operation: meta.name })
+        continue
+      }
       mutations[fieldName] = field
       mutationNames.push(meta.name)
+      fields.mutations[fieldName] = meta.name
     }
   }
 
   // Process streams → Subscription
   for (const meta of registry.listStreams()) {
+    if (options.exposure === 'explicit' && !meta.graphql) continue
     const schema = schemaRegistry.get(meta.name)
 
     const field = createFieldFromHandler(
@@ -942,7 +1223,8 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
       schema,
       options,
       typeCache,
-      'stream'
+      'stream',
+      meta
     )
 
     if (!field) {
@@ -950,14 +1232,20 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
       continue
     }
 
-    const fieldName = options.fieldNameGenerator(meta.name)
+    const fieldName = toGraphQLName(meta.graphql?.field ?? options.fieldNameGenerator(meta.name), 'field')
+    if (subscriptions[fieldName]) {
+      diagnostics.push({ severity: 'error', code: 'DUPLICATE_FIELD', message: `Duplicate GraphQL subscription field "${fieldName}"`, operation: meta.name })
+      continue
+    }
     subscriptions[fieldName] = field
     subscriptionNames.push(meta.name)
+    fields.subscriptions[fieldName] = meta.name
   }
 
   // Process events → Mutation (if enabled)
   if (options.includeEvents) {
     for (const meta of registry.listEvents()) {
+      if (options.exposure === 'explicit' && !meta.graphql) continue
       const schema = schemaRegistry.get(meta.name)
 
       const field = createFieldFromHandler(
@@ -965,7 +1253,8 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
         schema,
         options,
         typeCache,
-        'event'
+        'event',
+        meta
       )
 
       if (!field) {
@@ -973,19 +1262,36 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
         continue
       }
 
-      const fieldName = options.fieldNameGenerator(meta.name)
+      const fieldName = toGraphQLName(meta.graphql?.field ?? options.fieldNameGenerator(meta.name), 'field')
+      if (mutations[fieldName]) {
+        diagnostics.push({ severity: 'error', code: 'DUPLICATE_FIELD', message: `Duplicate GraphQL mutation field "${fieldName}"`, operation: meta.name })
+        continue
+      }
       mutations[fieldName] = field
       mutationNames.push(meta.name)
+      fields.mutations[fieldName] = meta.name
     }
   }
 
+  const resourceCtx: ResourceSchemaContext = {
+    resourcesByName: new Map(),
+    cache: typeCache,
+    registry,
+    schemaRegistry,
+    diagnostics,
+    securityMode: params.security?.mode ?? 'router',
+    authenticationAvailable: params.authenticationAvailable === true,
+    policyDefaultMode: params.policyDefaultMode,
+  }
   addGraphQLResourceFields(
     graphqlResources,
     queries,
     mutations,
+    subscriptions,
     queryNames,
     mutationNames,
-    typeCache
+    subscriptionNames,
+    resourceCtx
   )
 
   // Build schema
@@ -1027,16 +1333,21 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
       },
     })
 
-    return {
-      schema: new GraphQLSchema({
+    const schema = new GraphQLSchema({
         query: dummyQuery,
         mutation: mutationType,
         subscription: subscriptionType,
-      }),
+      })
+    appendSchemaValidationDiagnostics(schema, diagnostics)
+    enforceSchemaDiagnostics(diagnostics, params.schemaValidation)
+    return {
+      schema,
       queries: ['_health'],
       mutations: mutationNames,
       subscriptions: subscriptionNames,
       skipped,
+      fields,
+      diagnostics,
     }
   }
 
@@ -1045,6 +1356,8 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
     mutation: mutationType,
     subscription: subscriptionType,
   })
+  appendSchemaValidationDiagnostics(schema, diagnostics)
+  enforceSchemaDiagnostics(diagnostics, params.schemaValidation)
 
   logger.info(
     {
@@ -1062,17 +1375,40 @@ export function generateGraphQLSchema(params: GenerateSchemaParams): GeneratedSc
     mutations: mutationNames,
     subscriptions: subscriptionNames,
     skipped,
+    fields,
+    diagnostics,
+  }
+}
+
+function appendSchemaValidationDiagnostics(schema: GraphQLSchema, diagnostics: GraphQLDiagnostic[]): void {
+  for (const error of validateSchema(schema)) {
+    diagnostics.push({ severity: 'error', code: 'INVALID_SCHEMA', message: error.message })
+  }
+}
+
+function enforceSchemaDiagnostics(
+  diagnostics: GraphQLDiagnostic[],
+  mode: 'warn' | 'error' = 'warn'
+): void {
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error')
+  if (errors.some((diagnostic) => diagnostic.fatal) || (errors.length > 0 && mode === 'error')) {
+    throw new Error(`GraphQL schema validation failed: ${errors.map((error) => error.message).join('; ')}`)
+  }
+  for (const diagnostic of diagnostics) {
+    logger.warn({ diagnostic }, 'GraphQL schema diagnostic')
   }
 }
 
 function isProcedureQuery(meta: HandlerMeta, options: Required<SchemaGenerationOptions>): boolean {
+  if (meta.graphql?.type === 'query') return true
+  if (meta.graphql?.type === 'mutation') return false
   switch (options.procedureMapping) {
     case 'all-queries':
       return true
     case 'all-mutations':
       return false
     case 'meta':
-      return meta.graphql?.type === 'query'
+      return false
     case 'prefix':
     default: {
       // Check if name starts with a query prefix
@@ -1091,7 +1427,8 @@ function createFieldFromHandler(
   schema: HandlerSchema | undefined,
   options: Required<SchemaGenerationOptions>,
   cache: TypeCache,
-  kind: 'procedure' | 'stream' | 'event'
+  kind: 'procedure' | 'stream' | 'event',
+  meta?: HandlerMeta
 ): GraphQLFieldConfig<unknown, unknown> | null {
   const typeName = options.typeNameGenerator(handlerName)
 
@@ -1148,6 +1485,14 @@ function createFieldFromHandler(
   return {
     type: outputType,
     args: Object.keys(args).length > 0 ? args : undefined,
-    description: `Handler: ${handlerName}`,
+    description: meta?.graphql?.description ?? meta?.description ?? `Handler: ${handlerName}`,
+    deprecationReason: meta?.graphql?.deprecationReason,
+    extensions: {
+      raffel: {
+        handler: handlerName,
+        tags: meta?.graphql?.tags ?? meta?.tags,
+        cost: meta?.graphql?.cost ?? 1,
+      },
+    },
   }
 }

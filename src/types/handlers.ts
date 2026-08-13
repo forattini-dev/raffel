@@ -92,7 +92,12 @@ export interface RetryPolicy {
 }
 
 export interface GraphQLMeta {
-  type: 'query' | 'mutation'
+  type: 'query' | 'mutation' | 'subscription'
+  field?: string
+  description?: string
+  deprecationReason?: string
+  tags?: string[]
+  cost?: number
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'

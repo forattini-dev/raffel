@@ -13,6 +13,7 @@ import {
 } from './execution-adapter-lifecycle.js'
 import type { ServerLifecycleExecutionContext } from './execution-types.js'
 import { createNormalizedGraphQLOptions } from './execution-protocol-utils.js'
+import { getAuthenticationRuntime } from '../../middleware/auth.js'
 
 type WebProtocolPostPortBindingStep = Extract<
   ServerRuntimePostPortBindingStep,
@@ -24,7 +25,7 @@ type WebProtocolPostPortBindingStep = Extract<
 
 export function createExecutionWebProtocols(context: ServerLifecycleExecutionContext) {
   const { state } = context
-  const { registry, schemaRegistry, router, graphqlResources, graphqlPolicyBridge } = context.core
+  const { registry, schemaRegistry, router, graphqlResources, graphqlPolicyBridge, resolvedProviders } = context.core
   const createWsAdapter = context.factories?.createWebSocketAdapter ?? createWebSocketAdapter
   const createRpcAdapter = context.factories?.createJsonRpcAdapter ?? createJsonRpcAdapter
   const createGqlAdapter = context.factories?.createGraphQLAdapter ?? createGraphQLAdapter
@@ -126,6 +127,8 @@ export function createExecutionWebProtocols(context: ServerLifecycleExecutionCon
             ),
             graphqlResources,
             policyBridge: graphqlPolicyBridge,
+            providers: resolvedProviders,
+            authenticationRuntime: context.core.globalInterceptors.map(getAuthenticationRuntime).find(Boolean),
           }),
           name: 'graphql',
           registerStopTask,

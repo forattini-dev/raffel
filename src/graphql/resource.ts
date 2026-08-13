@@ -4,6 +4,24 @@ import type { Context } from '../types/context.js'
 import type { Decision, Policy, Resource } from '../middleware/policy/types.js'
 
 export const GRAPHQL_POLICY_BRIDGE_KEY = Symbol.for('raffel.graphql.policyBridge')
+export const GRAPHQL_EXECUTION_BRIDGE_KEY = Symbol.for('raffel.graphql.executionBridge')
+export const GRAPHQL_AUTHENTICATION_BRIDGE_KEY = Symbol.for('raffel.graphql.authenticationBridge')
+
+export type GraphQLAuthRequirement = 'required' | 'optional' | 'none'
+
+export interface GraphQLAuthenticationBridge {
+  readonly mode: 'router' | 'inherit'
+  authenticate(
+    ctx: Context,
+    requirement: GraphQLAuthRequirement | undefined,
+    fieldName: string
+  ): Promise<void>
+}
+
+export interface GraphQLExecutionBridge {
+  executeProcedure(name: string, input: unknown, ctx: Context): Promise<unknown>
+  executeStream(name: string, input: unknown, ctx: Context): AsyncIterable<unknown>
+}
 
 export type GraphQLResourceResolver<
   TParent = unknown,
@@ -36,6 +54,7 @@ export interface GraphQLResourceFieldAuthz<
 }
 
 export interface GraphQLPolicyBridge {
+  readonly defaultMode?: 'allow' | 'deny'
   evaluate(
     ctx: Context,
     authz: GraphQLResourceFieldAuthz,
@@ -43,7 +62,28 @@ export interface GraphQLPolicyBridge {
     args: Record<string, unknown>,
     parent?: unknown
   ): Promise<Decision>
+  evaluateOperation?(
+    ctx: Context,
+    authorization: GraphQLOperationPolicyResolution
+  ): Promise<Decision>
 }
+
+export interface GraphQLOperationPolicyInput {
+  operationName?: string
+  operationType: 'query' | 'mutation' | 'subscription'
+  variables?: Record<string, unknown>
+}
+
+export interface GraphQLOperationPolicyResolution {
+  action: string
+  resource: Resource | Resource[] | null
+  mode?: GraphQLResourcePolicyMode
+}
+
+export type GraphQLOperationPolicyResolver = (
+  operation: GraphQLOperationPolicyInput,
+  ctx: Context
+) => GraphQLOperationPolicyResolution | Promise<GraphQLOperationPolicyResolution>
 
 export interface GraphQLResourceRootFieldConfig<
   TParent = unknown,
@@ -63,7 +103,12 @@ export interface GraphQLResourceRootFieldConfig<
     maxLimit?: number
     cursorField?: string
   }
-  resolver: GraphQLResourceResolver<TParent, TArgs, TValue | TValue[] | null>
+  /** Authentication requirement for direct resolvers. Omit to inherit GraphQL security mode. */
+  auth?: GraphQLAuthRequirement
+  /** Execute an existing Raffel procedure through its complete Router pipeline. */
+  procedureRef?: string
+  /** Direct resolver escape hatch. Either resolver or procedureRef is required. */
+  resolver?: GraphQLResourceResolver<TParent, TArgs, TValue | TValue[] | null>
   /**
    * Pre-resolver authorization for operation-level gates. Use this for
    * mutation guards or list/get access checks that can be decided from args.
@@ -86,10 +131,36 @@ export interface GraphQLResourceRelationConfig<
   args?: Record<string, z.ZodTypeAny>
   many?: boolean
   nullable?: boolean
+  /** Authentication requirement for direct resolver/loader relations. */
+  auth?: GraphQLAuthRequirement
   resolver?: GraphQLResourceResolver<TParent, TArgs, TValue | TValue[] | null>
+  /** Procedure receives `{ parent, args }` through the Raffel Router. */
+  procedureRef?: string
   batchKey?: (parent: TParent) => unknown
   loader?: string
   authz?: GraphQLResourceFieldAuthz<TValue, TArgs, TParent>
+}
+
+export interface GraphQLResourceSubscriptionFieldConfig<
+  TArgs extends Record<string, unknown> = Record<string, unknown>,
+  TValue = unknown,
+> {
+  field?: string
+  description?: string
+  args?: Record<string, z.ZodTypeAny>
+  input?: z.ZodTypeAny
+  output?: z.ZodTypeAny
+  nullable?: boolean
+  /** Authentication requirement for direct subscriptions. */
+  auth?: GraphQLAuthRequirement
+  /** Existing Raffel server stream to expose as a subscription. */
+  streamRef?: string
+  /** Direct AsyncIterable-producing resolver escape hatch. */
+  subscribe?: GraphQLResourceResolver<unknown, TArgs, AsyncIterable<TValue>>
+  /** Authorization gate evaluated before creating the AsyncIterable. */
+  authorize?: GraphQLResourceFieldAuthz<unknown, TArgs, unknown>
+  /** Authorization evaluated for each emitted value. */
+  authz?: GraphQLResourceFieldAuthz<TValue, TArgs, unknown>
 }
 
 export interface GraphQLResourceConfig<TRecord = unknown> {
@@ -100,6 +171,7 @@ export interface GraphQLResourceConfig<TRecord = unknown> {
   description?: string
   queries?: Record<string, GraphQLResourceRootFieldConfig<unknown, Record<string, unknown>, TRecord>>
   mutations?: Record<string, GraphQLResourceRootFieldConfig<unknown, Record<string, unknown>, TRecord>>
+  subscriptions?: Record<string, GraphQLResourceSubscriptionFieldConfig<Record<string, unknown>, TRecord>>
   relations?: Record<string, GraphQLResourceRelationConfig<TRecord>>
 }
 

@@ -68,7 +68,7 @@ export interface ModuleRoute {
   afterHooks?: AfterHook<any, any>[]
   errorHooks?: ErrorHook<any>[]
   /** GraphQL mapping (only for procedure kind) */
-  graphql?: { type: 'query' | 'mutation' }
+  graphql?: import('../types/index.js').GraphQLMeta
 }
 
 export interface RouterModuleDefinition {
@@ -99,6 +99,7 @@ function createStreamBuilder(
   let description: string | undefined
   let streamDirection: StreamDirection | undefined
   let policies: ContractPolicies | undefined
+  let graphql: import('../types/index.js').GraphQLMeta | undefined
   const interceptors: Interceptor[] = []
 
   const builder: StreamBuilder = {
@@ -116,6 +117,10 @@ function createStreamBuilder(
     },
     description(desc) {
       description = desc
+      return builder
+    },
+    graphql(config = 'subscription') {
+      graphql = typeof config === 'string' ? { type: config } : config
       return builder
     },
     use(interceptor) {
@@ -141,6 +146,7 @@ function createStreamBuilder(
         policies,
         schema: schema.input || schema.output ? schema : undefined,
         streamDirection,
+        graphql,
       })
     },
   }

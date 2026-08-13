@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
 import {
   createAuthMiddleware,
+  getAuthenticationRuntime,
   createAuthzMiddleware,
   createBearerStrategy,
   createApiKeyStrategy,
@@ -391,6 +392,27 @@ describe('Authentication Middleware', () => {
   })
 
   describe('Auth Middleware', () => {
+    it('exposes a reusable runtime with optional and idempotent authentication', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-123' })
+      const middleware = createAuthMiddleware({
+        strategies: [createBearerStrategy({ verify })],
+      })
+      const runtime = getAuthenticationRuntime(middleware)
+      const anonymous = createTestEnvelope('graphql.optional')
+
+      await runtime?.authenticate(anonymous, anonymous.context, 'optional')
+      expect(anonymous.context.auth.authenticated).toBe(false)
+
+      const authenticated = createTestEnvelope('graphql.required', {
+        authorization: 'Bearer valid-token',
+      })
+      await runtime?.authenticate(authenticated, authenticated.context, 'required')
+      await runtime?.authenticate(authenticated, authenticated.context, 'required')
+
+      expect(authenticated.context.auth.principal).toBe('user-123')
+      expect(verify).toHaveBeenCalledTimes(1)
+    })
+
     it('should pass through for public procedures', async () => {
       const middleware = createAuthMiddleware({
         strategies: [],

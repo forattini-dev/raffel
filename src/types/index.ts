@@ -95,6 +95,7 @@ export type {
   StreamDirection,
   DeliveryGuarantee,
   RetryPolicy,
+  GraphQLMeta,
   HandlerMeta,
   RegisteredHandler,
   Interceptor,

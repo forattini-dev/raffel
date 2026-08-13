@@ -21,6 +21,7 @@ import type {
   GraphQLResourceFieldAuthz,
   GraphQLResourceRelationConfig,
   GraphQLResourceRootFieldConfig,
+  GraphQLResourceSubscriptionFieldConfig,
   LoadedGraphQLResource,
 } from '../../graphql/index.js'
 import { convertSchema, createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
@@ -65,9 +66,14 @@ export function generateGraphQL(
   for (const meta of ctx.registry.listProcedures()) {
     const schema = ctx.schemaRegistry?.get(meta.name)
     if (!schema) continue
-    const field = defaultFieldNameGenerator(meta.name)
-    const kind = isQueryProcedure(meta.name, meta.graphql?.type) ? 'query' : 'mutation'
-    const operation = convertHandlerOperation(field, kind, 'procedure', meta.name, schema, schemaRegistry, meta.description, meta.tags)
+    const field = meta.graphql?.field ?? defaultFieldNameGenerator(meta.name)
+    const kind = isQueryProcedure(
+      meta.name,
+      meta.graphql?.type === 'subscription' ? undefined : meta.graphql?.type
+    ) ? 'query' : 'mutation'
+    const operation = convertHandlerOperation(field, kind, 'procedure', meta.name, schema, schemaRegistry, meta.graphql?.description ?? meta.description, meta.graphql?.tags ?? meta.tags)
+    operation.deprecationReason = meta.graphql?.deprecationReason
+    operation.cost = meta.graphql?.cost
     if (kind === 'query') queries[field] = operation
     else mutations[field] = operation
     for (const tag of operation.tags ?? []) tags.add(tag)
@@ -76,8 +82,10 @@ export function generateGraphQL(
   for (const meta of ctx.registry.listStreams()) {
     const schema = ctx.schemaRegistry?.get(meta.name)
     if (!schema) continue
-    const field = defaultFieldNameGenerator(meta.name)
-    const operation = convertHandlerOperation(field, 'subscription', 'stream', meta.name, schema, schemaRegistry, meta.description)
+    const field = meta.graphql?.field ?? defaultFieldNameGenerator(meta.name)
+    const operation = convertHandlerOperation(field, 'subscription', 'stream', meta.name, schema, schemaRegistry, meta.graphql?.description ?? meta.description, meta.graphql?.tags)
+    operation.deprecationReason = meta.graphql?.deprecationReason
+    operation.cost = meta.graphql?.cost
     subscriptions[field] = operation
     for (const tag of operation.tags ?? []) tags.add(tag)
   }
@@ -96,6 +104,11 @@ export function generateGraphQL(
     for (const [key, field] of Object.entries(resource.mutations ?? {})) {
       const fieldName = field.field ?? key
       mutations[fieldName] = convertResourceOperation(resource, key, fieldName, 'mutation', field, schemaRegistry)
+    }
+
+    for (const [key, field] of Object.entries(resource.subscriptions ?? {})) {
+      const fieldName = field.field ?? key
+      subscriptions[fieldName] = convertResourceSubscription(resource, key, fieldName, field, schemaRegistry)
     }
   }
 
@@ -150,7 +163,9 @@ function convertRelations(
       ...(relation.nullable !== undefined ? { nullable: relation.nullable } : {}),
       ...(relation.args ? { args: convertArgsSchema(`${resourceName}${sanitizeName(name)}RelationArgs`, relation.args, schemaRegistry) } : {}),
       ...(relation.loader ? { loader: relation.loader } : {}),
+      ...(relation.procedureRef ? { procedureRef: relation.procedureRef } : {}),
       ...(relation.batchKey ? { batchKey: true } : {}),
+      ...(relation.auth ? { auth: relation.auth } : {}),
       ...(relation.authz ? { authz: convertAuthz(relation.authz) } : {}),
     }
   }
@@ -179,6 +194,8 @@ function convertResourceOperation(
     kind,
     source: 'resource',
     resource: resource.name,
+    ...(field.procedureRef ? { procedureRef: field.procedureRef } : {}),
+    ...(field.auth ? { auth: field.auth } : {}),
     ...(field.description ? { description: field.description } : {}),
     ...(field.args ? { args: convertArgsSchema(`${schemaPrefix}Args`, field.args, schemaRegistry) } : {}),
     ...(field.input ? { input: schemaRegistry.add(`${schemaPrefix}Input`, field.input) } : {}),
@@ -188,6 +205,32 @@ function convertResourceOperation(
     ...(field.pagination ? { pagination: normalizePagination(field.pagination) } : {}),
     ...(field.authorize ? { authorize: convertAuthz(field.authorize) } : {}),
     ...(field.authz ? { authz: convertAuthz(field.authz) } : {}),
+    tags: [resource.namespace ?? resource.name],
+  }
+}
+
+function convertResourceSubscription(
+  resource: LoadedGraphQLResource,
+  key: string,
+  fieldName: string,
+  field: GraphQLResourceSubscriptionFieldConfig,
+  schemaRegistry: ConvertedSchemaRegistry,
+): USDGraphQLOperation {
+  const schemaPrefix = `${sanitizeName(resource.name)}${sanitizeName(key)}`
+  return {
+    field: fieldName,
+    kind: 'subscription',
+    source: 'resource',
+    resource: resource.name,
+    ...(field.description ? { description: field.description } : {}),
+    ...(field.args ? { args: convertArgsSchema(`${schemaPrefix}Args`, field.args, schemaRegistry) } : {}),
+    ...(field.input ? { input: schemaRegistry.add(`${schemaPrefix}Input`, field.input) } : {}),
+    ...(field.output ? { output: schemaRegistry.add(`${schemaPrefix}Output`, field.output) } : {}),
+    ...(field.streamRef ? { streamRef: field.streamRef } : {}),
+    ...(field.auth ? { auth: field.auth } : {}),
+    ...(field.authorize ? { authorize: convertAuthz(field.authorize) } : {}),
+    ...(field.authz ? { authz: convertAuthz(field.authz) } : {}),
+    ...(field.nullable !== undefined ? { nullable: field.nullable } : {}),
     tags: [resource.namespace ?? resource.name],
   }
 }
