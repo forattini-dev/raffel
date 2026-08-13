@@ -1049,19 +1049,18 @@ function setCorsHeaders(req: IncomingMessage, res: ServerResponse, cors: GraphQL
       }
     : cors
 
-  if (config.credentials && (config.origin === '*' || config.origin === true)) {
+  if (config.origin === true) {
+    throw new TypeError('GraphQL CORS origin=true is not allowed; use an explicit origin string or allowlist')
+  }
+
+  if (config.credentials && config.origin === '*') {
     throw new TypeError('GraphQL CORS credentials require an explicit origin allowlist')
   }
 
   if (config.origin) {
     const requestOrigin = req.headers.origin
     if (Array.isArray(config.origin)) {
-      if (requestOrigin && config.origin.includes(requestOrigin)) {
-        res.setHeader('Access-Control-Allow-Origin', requestOrigin)
-        res.setHeader('Vary', 'Origin')
-      }
-    } else if (config.origin === true) {
-      if (requestOrigin) {
+      if (requestOrigin && requestOrigin !== 'null' && config.origin.includes(requestOrigin)) {
         res.setHeader('Access-Control-Allow-Origin', requestOrigin)
         res.setHeader('Vary', 'Origin')
       }
