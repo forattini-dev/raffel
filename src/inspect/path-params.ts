@@ -24,5 +24,9 @@ export function extractPathParameters(pathname: string | undefined): string[] {
     .map((segment) => segment.trim())
     .filter(Boolean)
     .filter((segment) => segment.startsWith(':'))
-    .map((segment) => segment.slice(1).replace(/[?*]+$/, ''))
+    .map((segment) => {
+      let end = segment.length
+      while (end > 1 && (segment[end - 1] === '?' || segment[end - 1] === '*')) end -= 1
+      return segment.slice(1, end)
+    })
 }

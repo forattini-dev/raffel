@@ -18,7 +18,7 @@
  * ```
  */
 
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
@@ -99,10 +99,12 @@ export interface DocsMcpServerOptions extends Omit<McpServerOptions, 'name' | 'v
 function resolveGitRepo(repo: string, branch?: string, subpath?: string): string {
   const tmpDir = mkdtempSync(join(tmpdir(), 'raffel-docs-'))
   const branchArgs = branch ? ['--branch', branch] : []
-  const cmd = ['git', 'clone', '--depth', '1', ...branchArgs, repo, tmpDir].join(' ')
 
   try {
-    execSync(cmd, { stdio: 'pipe', timeout: 60_000 })
+    execFileSync('git', ['clone', '--depth', '1', ...branchArgs, '--', repo, tmpDir], {
+      stdio: 'pipe',
+      timeout: 60_000,
+    })
   } catch (error) {
     throw new Error(`Failed to clone ${repo}: ${error instanceof Error ? error.message : String(error)}`)
   }

@@ -42,6 +42,8 @@ export interface MockProxyServerOptions {
   mode?: ProxyMode
   /** Upstream request timeout (ms). Default: 30000 */
   timeout?: number
+  /** Validate the real upstream TLS certificate. Defaults to true. */
+  upstreamRejectUnauthorized?: boolean
   intercept?: {
     logPayloads?: boolean
     maxPayloadSize?: number
@@ -69,6 +71,7 @@ export class MockProxyServer extends EventEmitter {
       host: options.host ?? '127.0.0.1',
       mode: options.mode ?? 'forward',
       timeout: options.timeout ?? 30000,
+      upstreamRejectUnauthorized: options.upstreamRejectUnauthorized ?? true,
       intercept: options.intercept ?? {},
     }
   }
@@ -322,7 +325,7 @@ export class MockProxyServer extends EventEmitter {
     const upstreamTls = tlsConnect({
       host,
       port,
-      rejectUnauthorized: false,
+      rejectUnauthorized: this._options.upstreamRejectUnauthorized,
     })
 
     upstreamTls.on('secureConnect', () => {

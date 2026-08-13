@@ -518,7 +518,7 @@ export function generateOpenAPI(
     restResources: options?.restResources,
   }
 
-  const paths: Record<string, OpenAPIPathItem> = {}
+  const paths: Record<string, OpenAPIPathItem> = Object.create(null)
   const tags = new Set<string>()
   const schemas: Record<string, unknown> = {}
 

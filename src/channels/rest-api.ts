@@ -51,7 +51,10 @@ export function createChannelRestApi(
   manager: ChannelManager,
   options: ChannelRestApiOptions = {}
 ): (req: IncomingMessage, res: ServerResponse) => boolean | Promise<boolean> {
-  const basePath = (options.path ?? '/channels').replace(/\/+$/, '')
+  const configuredPath = options.path ?? '/channels'
+  let pathEnd = configuredPath.length
+  while (pathEnd > 0 && configuredPath[pathEnd - 1] === '/') pathEnd -= 1
+  const basePath = configuredPath.slice(0, pathEnd)
   if (!options.auth && !options.apiKey && !options.allowUnauthenticated) {
     throw new Error(
       'Channel REST API requires auth or apiKey; set allowUnauthenticated only after an explicit risk review'

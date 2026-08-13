@@ -354,9 +354,16 @@ function extractChannelParameters(name: string): string[] {
     .replace(/^private-/, '')
 
   const params: string[] = []
-  const braceMatches = withoutPrefix.match(/\{([^}]+)\}/g) || []
-  for (const match of braceMatches) {
-    params.push(match.slice(1, -1))
+  let cursor = 0
+  while (cursor < withoutPrefix.length) {
+    const openingBrace = withoutPrefix.indexOf('{', cursor)
+    if (openingBrace < 0) break
+    const closingBrace = withoutPrefix.indexOf('}', openingBrace + 1)
+    if (closingBrace < 0) break
+    if (closingBrace > openingBrace + 1) {
+      params.push(withoutPrefix.slice(openingBrace + 1, closingBrace))
+    }
+    cursor = closingBrace + 1
   }
 
   const colonMatches = withoutPrefix.match(/:([a-zA-Z0-9_]+)/g) || []

@@ -162,6 +162,11 @@ let searchQuery = ''
 let routeState = parseRouteHash()
 let activePagePath = resolveDocsAlias(routeState.pagePath)
 let activeHeadingId = routeState.headingId
+// Authentication material is deliberately memory-only. Persisting API keys,
+// tokens, or OAuth client secrets in Web Storage makes them available to any
+// script running on the documentation origin.
+const credentialMemory = new Map<string, Record<string, any>>()
+const pendingOAuthMemory = new Map<string, Record<string, any>>()
 const docsPlugins: DocsRuntimePlugin[] = []
 const themeStorageKey = 'raffel-docs-theme'
 const sidebarWidthStorageKey = 'raffel-docs-sidebar-width'
@@ -245,12 +250,16 @@ function unmountDocsComponents(root: any = doc): void {
 
 function esc(value: unknown): string {
   if (value === undefined || value === null) return ''
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
+  let escaped = ''
+  for (const character of String(value)) {
+    if (character === '&') escaped += '&amp;'
+    else if (character === '<') escaped += '&lt;'
+    else if (character === '>') escaped += '&gt;'
+    else if (character === '"') escaped += '&quot;'
+    else if (character === "'") escaped += '&#x27;'
+    else escaped += character
+  }
+  return escaped
 }
 
 function slugifyHeading(value: unknown): string {
@@ -2560,14 +2569,11 @@ function credentialStorageKey(schemeName: string): string {
 }
 
 function readStoredCredential(schemeName: string): Record<string, any> {
-  try {
-    const value = win.sessionStorage?.getItem?.(credentialStorageKey(schemeName))
-    return value ? JSON.parse(value) : {}
-  } catch { return {} }
+  return { ...(credentialMemory.get(credentialStorageKey(schemeName)) ?? {}) }
 }
 
 function storeCredential(schemeName: string, value: Record<string, any>): void {
-  try { win.sessionStorage?.setItem?.(credentialStorageKey(schemeName), JSON.stringify(value)) } catch { /* unavailable storage */ }
+  credentialMemory.set(credentialStorageKey(schemeName), { ...value })
 }
 
 function authSchemeKind(scheme: any): string {
@@ -2778,6 +2784,9 @@ async function startOAuthAuthorization(schemeName: string, flowName: string, flo
   const state = randomOAuthState()
   const authorization = new URL(flow.authorizationUrl)
   const popup = (win as any).open?.('', 'raffel-oauth', 'popup,width=540,height=720')
+  if (!popup) {
+    throw new Error('OAuth authorization requires popups so credentials can remain memory-only.')
+  }
   authorization.searchParams.set('response_type', flowName === 'implicit' ? 'token' : 'code')
   authorization.searchParams.set('client_id', value('clientId'))
   authorization.searchParams.set('redirect_uri', redirectUri)
@@ -2790,19 +2799,13 @@ async function startOAuthAuthorization(schemeName: string, flowName: string, flo
     authorization.searchParams.set('code_challenge', pkce.challenge)
     authorization.searchParams.set('code_challenge_method', pkce.method)
   }
-  try {
-    win.sessionStorage?.setItem?.(`${credentialStorageKey(schemeName)}:pending`, JSON.stringify({
-      schemeName, flowName, state, redirectUri, tokenUrl: flow.tokenUrl,
-      clientId: value('clientId'), clientSecret: value('clientSecret'), scopes: value('scopes'),
-      codeVerifier,
-    }))
-  } catch { /* unavailable storage */ }
-  if (popup) {
-    if (typeof popup.location?.replace === 'function') popup.location.replace(authorization.toString())
-    else popup.location = authorization.toString()
-  } else {
-    (win.location as any)?.assign?.(authorization.toString())
-  }
+  pendingOAuthMemory.set(state, {
+    schemeName, flowName, state, redirectUri, tokenUrl: flow.tokenUrl,
+    clientId: value('clientId'), clientSecret: value('clientSecret'), scopes: value('scopes'),
+    codeVerifier,
+  })
+  if (typeof popup.location?.replace === 'function') popup.location.replace(authorization.toString())
+  else popup.location = authorization.toString()
 }
 
 function appendOAuthFlowFields(form: any, schemeName: string, scheme: any, stored: Record<string, any>): void {
@@ -2895,16 +2898,8 @@ function oauthCallbackParams(): URLSearchParams | null {
 
 function findPendingOAuth(state: string | null): any | null {
   if (!state) return null
-  for (const schemeName of Object.keys(spec?.components?.securitySchemes ?? {})) {
-    try {
-      const key = `${credentialStorageKey(schemeName)}:pending`
-      const raw = win.sessionStorage?.getItem?.(key)
-      if (!raw) continue
-      const pending = JSON.parse(raw)
-      if (pending.state === state) return { ...pending, key }
-    } catch { /* ignore malformed pending state */ }
-  }
-  return null
+  const pending = pendingOAuthMemory.get(state)
+  return pending ? { ...pending } : null
 }
 
 async function finishOAuthAuthorization(params: URLSearchParams): Promise<void> {
@@ -2941,7 +2936,7 @@ async function finishOAuthAuthorization(params: URLSearchParams): Promise<void> 
     scopes: pending.scopes,
     tokenUrl: pending.tokenUrl,
   })
-  try { win.sessionStorage?.removeItem?.(pending.key) } catch { /* unavailable storage */ }
+  pendingOAuthMemory.delete(pending.state)
   render()
 }
 
@@ -3663,7 +3658,9 @@ async function renderMermaidDiagrams(root: any = doc): Promise<void> {
     const id = `raffel-mermaid-${Date.now()}-${index}`
     Promise.resolve(mermaid.render(id, source))
       .then((result: any) => {
-        diagram.innerHTML = typeof result === 'string' ? result : result.svg
+        const safeSvg = parseMermaidSvg(typeof result === 'string' ? result : result.svg)
+        if (!safeSvg) throw new Error('Mermaid returned invalid SVG output.')
+        diagram.replaceChildren(safeSvg)
         result?.bindFunctions?.(diagram)
         diagram.dataset.mermaidRendered = 'true'
         diagram.classList.remove('mermaid-fallback', 'mermaid-error')
@@ -3675,6 +3672,25 @@ async function renderMermaidDiagrams(root: any = doc): Promise<void> {
         diagram.setAttribute('title', error instanceof Error ? error.message : 'Unable to render Mermaid diagram')
       })
   })
+}
+
+function parseMermaidSvg(markup: unknown): any | null {
+  const Parser = (win as any).DOMParser
+  if (typeof Parser !== 'function') return null
+  const parsed = new Parser().parseFromString(String(markup ?? ''), 'image/svg+xml')
+  const svg = parsed?.documentElement
+  if (!svg || String(svg.localName).toLowerCase() !== 'svg') return null
+  svg.querySelectorAll?.('script, foreignObject, iframe, object, embed, link')?.forEach((node: any) => node.remove())
+  ;[svg, ...Array.from(svg.querySelectorAll?.('*') ?? [])].forEach((element: any) => {
+    for (const attribute of Array.from(element.attributes ?? []) as any[]) {
+      const name = String(attribute.name).toLowerCase()
+      const value = String(attribute.value).trim().toLowerCase()
+      if (name.startsWith('on') || ((name === 'href' || name === 'xlink:href') && !value.startsWith('#'))) {
+        element.removeAttribute(attribute.name)
+      }
+    }
+  })
+  return doc.importNode?.(svg, true) ?? svg.cloneNode(true)
 }
 
 /**

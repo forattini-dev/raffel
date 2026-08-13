@@ -64,7 +64,11 @@ export function resolveDiscoveryDir(baseDir: string, dir: string): string {
  */
 export function normalizeDiscoveryPrefix(prefix: string | undefined): string {
   if (!prefix) return ''
-  return prefix.replace(/^\/+|\/+$/g, '')
+  let start = 0
+  let end = prefix.length
+  while (start < end && prefix[start] === '/') start += 1
+  while (end > start && prefix[end - 1] === '/') end -= 1
+  return prefix.slice(start, end)
 }
 
 /**

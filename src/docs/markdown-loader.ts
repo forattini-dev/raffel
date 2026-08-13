@@ -489,8 +489,20 @@ function stripYamlString(value: string): string {
 }
 
 function stripSidebarLabel(value: string): string {
-  return value
-    .replace(/<!--[\s\S]*?-->/g, '')
+  let withoutComments = ''
+  let cursor = 0
+  while (cursor < value.length) {
+    const commentStart = value.indexOf('<!--', cursor)
+    if (commentStart < 0) {
+      withoutComments += value.slice(cursor)
+      break
+    }
+    withoutComments += value.slice(cursor, commentStart)
+    const commentEnd = value.indexOf('-->', commentStart + 4)
+    if (commentEnd < 0) break
+    cursor = commentEnd + 3
+  }
+  return withoutComments
     .replace(/[_*`]+/g, '')
     .replace(/\s+/g, ' ')
     .trim()

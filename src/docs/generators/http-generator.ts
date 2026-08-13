@@ -90,7 +90,7 @@ export function generateHttpPaths(
     baseUrl = 'https://api.example.com',
   } = options
 
-  const paths: USDPaths = {}
+  const paths: USDPaths = Object.create(null)
   const tags = new Set<string>()
   const schemaRegistry = createDocSchemaRegistry()
   const isAuthPublicProcedure = buildPublicProcedureMatcher(authPublicProcedures)

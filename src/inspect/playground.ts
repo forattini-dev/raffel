@@ -362,6 +362,10 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload)
 }
 
+function playgroundRequestError(): { error: string } {
+  return { error: 'The playground request could not be completed.' }
+}
+
 export function createRuntimePlaygroundServer(options: {
   graph: RuntimeInspectionGraph
   entrypoint?: string
@@ -459,8 +463,8 @@ export function createRuntimePlaygroundServer(options: {
     if (req.method === 'POST' && url.pathname === '/__invoke') {
       try {
         sendJson(res, 200, await handleInvoke(await parseJsonBody<RuntimePlaygroundInvokeRequest>(req)))
-      } catch (error) {
-        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
+      } catch {
+        sendJson(res, 400, playgroundRequestError())
       }
       return
     }
@@ -468,8 +472,8 @@ export function createRuntimePlaygroundServer(options: {
     if (req.method === 'POST' && url.pathname === '/__session/open') {
       try {
         sendJson(res, 200, await handleOpenSession(await parseJsonBody<RuntimePlaygroundInvokeRequest>(req)))
-      } catch (error) {
-        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
+      } catch {
+        sendJson(res, 400, playgroundRequestError())
       }
       return
     }
@@ -483,8 +487,8 @@ export function createRuntimePlaygroundServer(options: {
         }
         session.send(payload.message)
         sendJson(res, 200, toSessionView(session))
-      } catch (error) {
-        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
+      } catch {
+        sendJson(res, 400, playgroundRequestError())
       }
       return
     }

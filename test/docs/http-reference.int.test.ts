@@ -754,7 +754,7 @@ describe('HTTP reference documentation', () => {
     expect(win.document.getElementById('mainContent').textContent).toContain('Authorization: Bearer proxy-token')
   })
 
-  it('supports every OAuth grant and keeps the client secret in session storage', async () => {
+  it('supports every OAuth grant and keeps credentials out of Web Storage', async () => {
     const win = createReference({
       openapi: '3.1.0',
       info: { title: 'OAuth API', version: '1.0.0' },
@@ -823,7 +823,7 @@ describe('HTTP reference documentation', () => {
     expect(String(requests[0].init.body)).toContain('client_secret=session-secret')
     expect(win.document.getElementById('mainContent').textContent).toContain('Authorization: Bearer oauth-token')
     expect([...Array(win.localStorage.length)].map((_, index) => win.localStorage.key(index))).not.toContainEqual(expect.stringContaining('oauth'))
-    expect([...Array(win.sessionStorage.length)].map((_, index) => win.sessionStorage.getItem(win.sessionStorage.key(index)))).toContainEqual(expect.stringContaining('session-secret'))
+    expect([...Array(win.sessionStorage.length)].map((_, index) => win.sessionStorage.getItem(win.sessionStorage.key(index)))).not.toContainEqual(expect.stringContaining('session-secret'))
   })
 
   it('uses PKCE for the browser authorization-code flow', async () => {
@@ -884,11 +884,9 @@ describe('HTTP reference documentation', () => {
     const authorization = new URL(authorizationUrl)
     expect(authorization.searchParams.get('code_challenge_method')).toBe('S256')
     expect(authorization.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    const pendingKey = [...Array(win.sessionStorage.length)]
-      .map((_, index) => win.sessionStorage.key(index))
-      .find(key => key?.endsWith(':pending'))
-    const pending = JSON.parse(win.sessionStorage.getItem(pendingKey))
-    expect(pending.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    const state = authorization.searchParams.get('state')
+    expect(state).toBeTruthy()
+    expect([...Array(win.sessionStorage.length)].map((_, index) => win.sessionStorage.getItem(win.sessionStorage.key(index)))).not.toContainEqual(expect.stringContaining('codeVerifier'))
 
     win.dispatchEvent(new win.MessageEvent('message', {
       origin: win.location.origin,
@@ -904,7 +902,7 @@ describe('HTTP reference documentation', () => {
       origin: win.location.origin,
       data: {
         type: 'raffel-oauth-callback',
-        params: new URLSearchParams({ code: 'authorization-code', state: pending.state }).toString(),
+        params: new URLSearchParams({ code: 'authorization-code', state: state! }).toString(),
       },
     }))
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -912,7 +910,7 @@ describe('HTTP reference documentation', () => {
     expect(requests.length).toBeGreaterThanOrEqual(1)
     requests.forEach(request => {
       expect(request.url).toBe('https://identity.example.com/token')
-      expect(String(request.init.body)).toContain(`code_verifier=${encodeURIComponent(pending.codeVerifier)}`)
+      expect(new URLSearchParams(String(request.init.body)).get('code_verifier')).toMatch(/^[A-Za-z0-9_-]{43}$/)
     })
   })
 

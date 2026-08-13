@@ -99,11 +99,15 @@ const BASE_DEV_DEPENDENCIES = {
 }
 
 function sanitizePackageName(input: string): string {
-  const normalized = input
+  const replaced = input
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._/-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  let start = 0
+  let end = replaced.length
+  while (start < end && replaced[start] === '-') start += 1
+  while (end > start && replaced[end - 1] === '-') end -= 1
+  const normalized = replaced.slice(start, end)
   return normalized || 'raffel-service'
 }
 

@@ -169,8 +169,9 @@ function setCorsHeaders(
 
   // Origin
   if (config.origin === true) {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
-    res.setHeader('Vary', 'Origin')
+    // `origin: true` is intentionally credentialless (guarded above), so a
+    // wildcard is sufficient and avoids reflecting attacker-controlled input.
+    res.setHeader('Access-Control-Allow-Origin', '*')
   } else if (typeof config.origin === 'string') {
     res.setHeader('Access-Control-Allow-Origin', config.origin)
   } else if (Array.isArray(config.origin)) {
