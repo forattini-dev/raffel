@@ -18,11 +18,15 @@ fast HTTP front door, not as a compatibility layer for other routers.
 | `/users` | Exact path | `/users` |
 | `/users/:id` | Named segment | `/users/123` |
 | `/users/:id?` | Optional segment | `/users` and `/users/123` |
+| `/files/:path*` | Required named catch-all | `/files/a` and `/files/a/b/c` |
+| `/files/:path*?` | Optional named catch-all | `/files` and `/files/a/b/c` |
 | `/assets/*` | Terminal wildcard, captures the remainder | `/assets`, `/assets/app.js`, `/assets/css/main.css` |
 | `*` | App-wide catch-all | `/`, `/health`, `/nested/path` |
 
 Terminal wildcards capture the remainder into `c.req.param('*')`. When the
 remainder is omitted, the route still matches and the wildcard param is absent.
+Named catch-alls capture the full decoded remainder under their declared name.
+The file-system router emits these forms for `[...path]` and `[[...path]]`.
 
 ## Precedence
 

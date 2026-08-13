@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HttpRouteTable } from '../../src/http/route-table.js'
+import { parseRoutePath } from '../../src/server/fs-routes/route-naming.js'
 
 describe('HttpRouteTable', () => {
   it('matches dynamic params without Fetch dependencies', () => {
@@ -52,6 +53,29 @@ describe('HttpRouteTable', () => {
     expect(emptyRemainder.params).toEqual({})
     expect(fallback.route?.handler).toBe('catch-all')
     expect(fallback.params).toEqual({ '*': 'system/health' })
+  })
+
+  it('matches the named catch-all pattern emitted by fs route discovery', () => {
+    const parsed = parseRoutePath('[...path]/get')
+    const table = new HttpRouteTable<string, string>()
+    table.register({
+      method: 'GET',
+      path: `/${parsed.segments.slice(0, -1).join('/')}`,
+      handler: 'catch-all',
+    })
+
+    expect(table.match('GET', '/a').params).toEqual({ path: 'a' })
+    expect(table.match('GET', '/a/b/c').params).toEqual({ path: 'a/b/c' })
+    expect(table.match('GET', '/a%40b/c').params).toEqual({ path: 'a@b/c' })
+    expect(table.match('GET', '/').route).toBeNull()
+  })
+
+  it('supports optional named catch-all parameters', () => {
+    const table = new HttpRouteTable<string, string>()
+    table.register({ method: 'GET', path: '/docs/:path*?', handler: 'docs' })
+
+    expect(table.match('GET', '/docs').params).toEqual({})
+    expect(table.match('GET', '/docs/api/users').params).toEqual({ path: 'api/users' })
   })
 
   it('prefers exact routes over dynamic routes regardless of registration order', () => {

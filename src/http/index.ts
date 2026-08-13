@@ -25,6 +25,7 @@ export type { HttpCacheMiddlewareOptions } from './cache.js'
 export {
   HttpRouteTable,
   compilePath,
+  matchRoutePath,
 } from './route-table.js'
 export type {
   HttpRoute,

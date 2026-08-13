@@ -74,6 +74,21 @@ describe('server.http.* namespace path matching', () => {
     })
   })
 
+  it('resolves programmatic catch-all routes at arbitrary depth', async () => {
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' })
+
+    server.get('*', async (_input: unknown, ctx: any) => ({
+      path: ctx.params?.['*'],
+    }))
+
+    await server.start()
+
+    const response = await fetch(`http://127.0.0.1:${port}/proxy/a/b/c`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ path: 'proxy/a/b/c' })
+  })
+
   it('still resolves static paths without params', async () => {
     const port = await getFreePort()
     server = createServer({ port, host: '127.0.0.1' })

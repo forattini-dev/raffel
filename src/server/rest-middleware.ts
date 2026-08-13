@@ -29,6 +29,7 @@ import { bindContextToSpan, setHttpTelemetryRoute } from '../tracing/index.js'
 import {
   decodePathParam,
   HttpRouteTable,
+  matchRoutePath,
   type HttpMethod,
   type HttpRouteMethod,
 } from '../http/route-table.js'
@@ -280,19 +281,14 @@ export function createHttpOverrideMiddleware(
         ? joinBasePath(basePath, normalized)
         : normalized
 
-      const pathPattern = fullPath.replace(/:(\w+)/g, '([^/]+)')
-      const regex = new RegExp(`^${pathPattern}/?$`)
-      const pathMatch = url.pathname.match(regex)
-      if (!pathMatch) continue
+      const params = matchRoutePath(fullPath, url.pathname)
+        ?? (url.pathname.endsWith('/')
+          ? matchRoutePath(fullPath, url.pathname.slice(0, -1))
+          : null)
+      if (!params) continue
       setHttpTelemetryRoute(req, {
         route: fullPath,
         procedure: meta.name,
-      })
-
-      const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
-      const params: Record<string, string> = {}
-      paramNames.forEach((name: string, i: number) => {
-        params[name] = decodePathParam(pathMatch[i + 1])
       })
 
       const responseCodec = resolveHttpResponseCodec(req, res, codecs)
@@ -319,7 +315,7 @@ export function createHttpOverrideMiddleware(
       // Path params are authoritative identifiers; keep them separate on
       // `ctx.input.params` and make them win over body/query keys when the
       // flattened procedure input collides.
-      if (paramNames.length > 0) {
+      if (Object.keys(params).length > 0) {
         if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
           payload = { ...(payload as Record<string, unknown>), ...params }
         } else if (payload === undefined || payload === null || (typeof payload === 'object' && Object.keys(payload as object).length === 0)) {

@@ -291,10 +291,17 @@ export function compilePath(path: string): CompiledPattern {
       continue
     }
 
-    const paramMatch = segment.match(/^:([a-zA-Z_][a-zA-Z0-9_]*)(\?)?$/)
+    const paramMatch = segment.match(/^:([a-zA-Z_][a-zA-Z0-9_]*)(\*\?|\*|\?)?$/)
     if (paramMatch) {
       paramNames.push(paramMatch[1])
-      pattern += paramMatch[2] ? '(?:/([^/]+))?' : '/([^/]+)'
+      const modifier = paramMatch[2]
+      if (modifier === '*') {
+        pattern += index === escapedSegments.length - 1 ? '/(.+)' : '/(.+?)'
+      } else if (modifier === '*?') {
+        pattern += index === escapedSegments.length - 1 ? '(?:/(.*))?' : '(?:/(.*?))?'
+      } else {
+        pattern += modifier === '?' ? '(?:/([^/]+))?' : '/([^/]+)'
+      }
       continue
     }
 
@@ -347,6 +354,14 @@ function matchPath(
     }
   }
   return params
+}
+
+/** Match one pathname against a Raffel route pattern and extract its parameters. */
+export function matchRoutePath(
+  pathPattern: string,
+  pathname: string,
+): Record<string, string> | null {
+  return matchPath(pathname, compilePath(pathPattern))
 }
 
 /** Decode a captured path parameter without rejecting malformed request URLs. */

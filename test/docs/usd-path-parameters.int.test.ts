@@ -142,4 +142,28 @@ describe('USD procedure path parameters', () => {
     expect(curl?.source).toContain('/api/v1/org/hubs/string')
     expect(curl?.source).not.toContain(':hubId')
   })
+
+  it('normalizes named catch-all modifiers in OpenAPI paths and samples', () => {
+    const registry = createRegistry()
+    const schemaRegistry = createSchemaRegistry()
+
+    registry.procedure('files.catchAll', async () => ({}), {
+      httpMethod: 'GET',
+      httpPath: '/files/:path*',
+    })
+
+    const handlers = createUSDHandlers(
+      { registry, schemaRegistry },
+      { info: { title: 'Files', version: '1.0.0' } },
+    )
+    const paths = handlers.getOpenAPIDocument().paths
+    const operation = getOperation(paths, '/files/{path}', 'get')
+
+    expect(paths?.['/files/{path}*']).toBeUndefined()
+    expect(operation?.parameters).toEqual([
+      expect.objectContaining({ name: 'path', in: 'path', required: true }),
+    ])
+    expect(operation?.['x-codeSamples']?.find(sample => sample.lang === 'curl')?.source)
+      .toContain('/files/string')
+  })
 })

@@ -750,7 +750,7 @@ function createPaginationParameters(
  * Convert path params from :id to {id} format
  */
 function convertPathParams(path: string): string {
-  return path.replace(/:(\w+)/g, '{$1}')
+  return path.replace(/:(\w+)(?:\*\?|\*|\?)?/g, '{$1}')
 }
 
 /**

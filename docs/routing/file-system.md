@@ -243,10 +243,14 @@ Examples:
 - `src/streams/logs/tail.ts` -> `logs/tail`
 - `src/http/users/[id]/get.ts` -> `users/:id/get`
 - `src/http/posts/[...slug].ts` -> `posts/:slug*`
+- `src/http/posts/[[...slug]].ts` -> `posts/:slug*?`
 - `src/http/posts/[[slug]].ts` -> `posts/:slug?`
 
-If you want gRPC `service.method` names, name the file with a dot. Dynamic segments
-are part of the route name only; adapters do not extract params.
+For verb-convention HTTP handlers, `[...slug]` matches one or more path segments
+and `[[...slug]]` also matches the route prefix with no remainder. The full
+remainder is available as `ctx.params.slug`. If you want gRPC `service.method`
+names, name the file with a dot. Outside the HTTP route plane, dynamic segments
+remain part of the route name and are not interpreted by protocol adapters.
 
 ## Handler exports
 
