@@ -315,6 +315,13 @@ describe('Transparent Proxy utils', () => {
     expect(parseBasicProxyAuth('Basic notbase64!!!')).toBeNull()
   })
 
+  it('parseBasicProxyAuth handles long whitespace input in linear time', async () => {
+    const { parseBasicProxyAuth } = await import('../../src/proxy/utils/auth.js')
+    const malformed = `Basic ${' '.repeat(1_000_000)}`
+
+    expect(parseBasicProxyAuth(malformed)).toBeNull()
+  })
+
   it('stripHopByHopHeaders removes expected headers', async () => {
     const { stripHopByHopHeaders } = await import('../../src/proxy/utils/hop-headers.js')
     const result = stripHopByHopHeaders({
