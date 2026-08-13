@@ -2108,6 +2108,8 @@ function renderResponseSamples(responses: Record<string, any>, endpoint: Endpoin
   return wrap
 }
 
+const DEFAULT_EXPANDED_SCHEMA_DEPTH = 3
+
 function renderSchemaTree(parent: any, schema: any, depth = 0, refStack = new Set<string>()): void {
   if (!schema) return
   const pointer = schema.$ref ? String(schema.$ref) : ''
@@ -2134,9 +2136,13 @@ function renderSchemaTree(parent: any, schema: any, depth = 0, refStack = new Se
       const contract = createContractRow(key, prop, schema.required?.includes(key) === true)
       div.appendChild(contract.row)
       if (contract.nestedSchema && contract.toggle) {
+        const initiallyExpanded = depth < DEFAULT_EXPANDED_SCHEMA_DEPTH
         const children = doc.createElement('div')
-        children.className = 'schema-tree-children collapsed'
+        children.className = `schema-tree-children${initiallyExpanded ? '' : ' collapsed'}`
         renderSchemaTree(children, contract.nestedSchema, depth + 1, nextRefStack)
+        contract.toggle.classList.toggle('open', initiallyExpanded)
+        contract.toggle.setAttribute('aria-expanded', String(initiallyExpanded))
+        contract.toggle.setAttribute('aria-label', `${initiallyExpanded ? 'Collapse' : 'Expand'} ${key}`)
         contract.toggle.onclick = () => {
           const collapsed = children.classList.toggle('collapsed')
           contract.toggle.classList.toggle('open', !collapsed)
@@ -2150,13 +2156,18 @@ function renderSchemaTree(parent: any, schema: any, depth = 0, refStack = new Se
     const contract = createContractRow('items', schema.items, true)
     div.appendChild(contract.row)
     if (contract.nestedSchema && contract.toggle) {
+      const initiallyExpanded = depth < DEFAULT_EXPANDED_SCHEMA_DEPTH
       const children = doc.createElement('div')
-      children.className = 'schema-tree-children collapsed'
+      children.className = `schema-tree-children${initiallyExpanded ? '' : ' collapsed'}`
       renderSchemaTree(children, contract.nestedSchema, depth + 1, nextRefStack)
+      contract.toggle.classList.toggle('open', initiallyExpanded)
+      contract.toggle.setAttribute('aria-expanded', String(initiallyExpanded))
+      contract.toggle.setAttribute('aria-label', `${initiallyExpanded ? 'Collapse' : 'Expand'} items`)
       contract.toggle.onclick = () => {
         const collapsed = children.classList.toggle('collapsed')
         contract.toggle.classList.toggle('open', !collapsed)
         contract.toggle.setAttribute('aria-expanded', String(!collapsed))
+        contract.toggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} items`)
       }
       div.appendChild(children)
     }
