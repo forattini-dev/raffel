@@ -100,6 +100,7 @@ export type {
   GrpcMeta,
   StreamDirection,
   StreamOperationalControls,
+  LongPollContract,
   DeliveryGuarantee,
   RetryPolicy,
   HandlerMeta,

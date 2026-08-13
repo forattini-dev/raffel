@@ -2375,6 +2375,20 @@ function renderEndpointDetails(endpoint: Endpoint): any {
     const right = doc.createElement('div')
     right.className = 'endpoint-right'
 
+    const longPoll = data['x-usd-long-poll'] ?? data['x-raffel-long-poll']
+    if (longPoll) {
+      const section = doc.createElement('div')
+      section.className = 'endpoint-subsection long-poll-interaction'
+      section.innerHTML = '<div class="subsection-label">Long Poll Interaction</div>'
+      appendInfoGrid(section, [
+        ['Cursor', `${longPoll.cursor?.input ?? 'cursor'} → ${longPoll.cursor?.output ?? 'cursor'} (${longPoll.cursor?.semantics ?? 'exclusive'})`],
+        ['Maximum wait', longPoll.waitMs ? `${longPoll.waitMs} ms` : undefined],
+        ['Retry hint', longPoll.retryMs ? `${longPoll.retryMs} ms` : undefined],
+        ['Timeout outcome', longPoll.timeoutOutcome],
+      ])
+      left.appendChild(section)
+    }
+
     const params = (data.parameters ?? []) as any[]
     if (params.length > 0) {
       const section = doc.createElement('div')

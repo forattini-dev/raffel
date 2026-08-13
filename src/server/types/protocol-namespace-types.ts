@@ -4,6 +4,7 @@ import type {
   Interceptor,
   ProcedureHandler,
   StreamOperationalControls,
+  LongPollContract,
 } from '../../types/index.js'
 import type { RouteCacheConfig } from '../../cache/server-runtime.js'
 
@@ -43,6 +44,8 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
    * `POST` create → `201`, `DELETE` delete → `204`, everything else → `200`.
    */
   successStatus?: number
+  /** Ordinary HTTP Long Poll Interaction contract. */
+  longPoll?: LongPollContract
 }
 
 

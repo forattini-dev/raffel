@@ -71,6 +71,7 @@ export interface ProcedureRegistrationMeta {
   graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+  longPoll?: import('../types/index.js').LongPollContract
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies
@@ -110,6 +111,7 @@ export function createProcedureBuilder(
       graphql: registration.graphql,
       httpPath: registration.httpPath,
       httpMethod: registration.httpMethod,
+      longPoll: registration.longPoll,
       jsonrpc: registration.jsonrpc,
       grpc: registration.grpc,
       policies: registration.policies,
@@ -134,6 +136,7 @@ export function createProcedureBuilder(
   let graphqlMeta: GraphQLMeta | undefined
   let httpPath: string | undefined
   let httpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | undefined
+  let longPoll: import('../types/index.js').LongPollContract | undefined
   let jsonrpcMeta: JsonRpcMeta | undefined
   let grpcMeta: GrpcMeta | undefined
   let policies: ContractPolicies | undefined
@@ -182,6 +185,10 @@ export function createProcedureBuilder(
     http(path, method = 'POST') {
       httpPath = path
       httpMethod = method
+      return builder
+    },
+    longPoll(contract) {
+      longPoll = contract
       return builder
     },
     use(interceptor) {
@@ -272,6 +279,7 @@ export function createProcedureBuilder(
           graphql: graphqlMeta,
           httpPath,
           httpMethod,
+          longPoll,
           jsonrpc: jsonrpcMeta,
           grpc: grpcMeta,
           policies,
@@ -322,6 +330,7 @@ export function createProcedureBuilder(
         graphql: graphqlMeta,
         httpPath,
         httpMethod,
+        longPoll,
         jsonrpc: jsonrpcMeta,
         grpc: grpcMeta,
         policies,

@@ -76,6 +76,7 @@ export interface OpenAPIOperation {
   security?: Array<Record<string, string[]>>
   'x-raffel-policies'?: ContractPolicies
   'x-raffel-live-stream'?: import('../../types/index.js').StreamOperationalControls
+  'x-raffel-long-poll'?: import('../../types/index.js').LongPollContract
 }
 
 export interface OpenAPIResponse {
@@ -696,6 +697,7 @@ export function generateOpenAPI(
         '500': createErrorResponse('Internal Server Error'),
       },
       ...(meta.policies && { 'x-raffel-policies': meta.policies }),
+      ...(meta.longPoll && { 'x-raffel-long-poll': meta.longPoll }),
     }
 
     // Resolve the documented HTTP method. The path item only models the five

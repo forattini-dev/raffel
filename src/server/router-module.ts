@@ -14,6 +14,7 @@ import type {
   RetryPolicy,
   StreamDirection,
   StreamOperationalControls,
+  LongPollContract,
   JsonRpcMeta,
   GrpcMeta,
   ContractPolicies,
@@ -47,6 +48,7 @@ export interface ModuleRoute {
   httpPath?: string
   /** HTTP method override for procedures */
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+  longPoll?: LongPollContract
   /** JSON-RPC metadata for USD generation */
   jsonrpc?: JsonRpcMeta
   /** gRPC metadata for USD generation */
@@ -258,6 +260,7 @@ function createModuleView(
             tags: registration.tags,
             httpPath: registration.httpPath,
             httpMethod: registration.httpMethod,
+            longPoll: registration.longPoll,
             jsonrpc: registration.jsonrpc,
             grpc: registration.grpc,
             policies: registration.policies,

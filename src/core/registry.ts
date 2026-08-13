@@ -16,6 +16,7 @@ import type {
   RetryPolicy,
   StreamDirection,
   StreamOperationalControls,
+  LongPollContract,
   GraphQLMeta,
   HttpMethod,
   JsonRpcMeta,
@@ -45,6 +46,8 @@ export interface ProcedureOptions {
    * handler completes without error. Defaults to `200`.
    */
   httpSuccessStatus?: number
+  /** Describe this ordinary HTTP procedure as a Long Poll Interaction. */
+  longPoll?: LongPollContract
   jsonrpc?: JsonRpcMeta
   grpc?: GrpcMeta
   policies?: ContractPolicies
@@ -171,6 +174,18 @@ function validateStreamControls(controls?: StreamOperationalControls): void {
   }
 }
 
+function validateLongPollContract(contract?: LongPollContract): void {
+  if (!contract) return
+  for (const [name, value] of [['waitMs', contract.waitMs], ['retryMs', contract.retryMs]] as const) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new TypeError(`${name} must be a positive finite number`)
+    }
+  }
+  if (!contract.cursor.input || !contract.cursor.output) {
+    throw new TypeError('Long Poll cursor input and output names must not be empty')
+  }
+}
+
 /**
  * Create a new Registry
  */
@@ -190,6 +205,8 @@ export function createRegistry(): Registry {
       if (procedures.has(name) || streams.has(name) || events.has(name)) {
         throw new Error(`Handler '${name}' already registered`)
       }
+
+      validateLongPollContract(options.longPoll)
 
       const policies = normalizeContractPolicies(options.policies)
       const interceptors = [
@@ -211,6 +228,7 @@ export function createRegistry(): Registry {
           httpPath: options.httpPath,
           httpMethod: options.httpMethod,
           httpSuccessStatus: options.httpSuccessStatus,
+          longPoll: options.longPoll,
           jsonrpc: options.jsonrpc,
           grpc: options.grpc,
           policies,

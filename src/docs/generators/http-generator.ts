@@ -242,6 +242,7 @@ function createProcedureOperation(
     policies?: ContractPolicies
     auth?: 'required' | 'optional' | 'none'
     authz?: import('../../middleware/policy/types.js').ProcedurePolicyConfig
+    longPoll?: import('../../types/index.js').LongPollContract
   },
   handlerSchema: HandlerSchema | undefined,
   schemaRegistry: ConvertedSchemaRegistry,
@@ -263,6 +264,7 @@ function createProcedureOperation(
     tags,
     responses: createProcedureResponses(meta.name, handlerSchema, schemaRegistry, includeErrorResponses),
     ...(meta.policies && { 'x-raffel-policies': meta.policies }),
+    ...(meta.longPoll && { 'x-usd-long-poll': meta.longPoll }),
     ...(meta.authz && {
       'x-raffel-authz': {
         action: meta.authz.action ?? meta.name,

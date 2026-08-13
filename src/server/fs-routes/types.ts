@@ -11,6 +11,7 @@ import type {
   RetryPolicy,
   StreamDirection,
   StreamOperationalControls,
+  LongPollContract,
   HttpMethod,
   JsonRpcMeta,
   GrpcMeta,
@@ -371,6 +372,9 @@ export interface HandlerMeta {
 
   /** HTTP success status override for procedures (e.g. 201 on create). */
   httpSuccessStatus?: number
+
+  /** Ordinary HTTP Long Poll Interaction contract. */
+  longPoll?: LongPollContract
 
   /**
    * Resource action name override when a route is composed under a same-named

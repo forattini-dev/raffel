@@ -489,6 +489,9 @@ export interface USDOperation {
   /** Mark as streaming response */
   'x-usd-streaming'?: boolean
 
+  /** Describe this operation as one ordinary HTTP Long Poll Interaction. */
+  'x-usd-long-poll'?: import('../../types/index.js').LongPollContract
+
   /** Code samples in multiple languages (rendered by Redoc and compatible UIs) */
   'x-codeSamples'?: USDCodeSample[]
 

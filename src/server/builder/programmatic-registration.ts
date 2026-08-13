@@ -156,6 +156,7 @@ export function createProgrammaticRegistration(
             graphql: route.graphql,
             httpPath: route.httpPath,
             httpMethod: route.httpMethod,
+            longPoll: route.longPoll,
             jsonrpc: route.jsonrpc,
             grpc: route.grpc,
             authz: route.authz,
@@ -200,6 +201,7 @@ export function createProgrammaticRegistration(
       const graphql = 'meta' in input ? input.meta?.graphql : (input as AddProcedureInput).graphql
       const httpPath = 'meta' in input ? input.meta?.httpPath : (input as AddProcedureInput).httpPath
       const httpMethod = 'meta' in input ? input.meta?.httpMethod : (input as AddProcedureInput).httpMethod
+      const longPoll = 'meta' in input ? input.meta?.longPoll : (input as AddProcedureInput).longPoll
       const jsonrpc = 'meta' in input ? input.meta?.jsonrpc : (input as AddProcedureInput).jsonrpc
       const grpc = 'meta' in input ? input.meta?.grpc : (input as AddProcedureInput).grpc
       const policies = 'meta' in input
@@ -223,6 +225,7 @@ export function createProgrammaticRegistration(
         graphql,
         httpPath,
         httpMethod,
+        longPoll,
         jsonrpc,
         grpc,
         policies,
@@ -384,6 +387,7 @@ export function createProgrammaticRegistration(
         graphql: opts?.graphql,
         httpPath: opts?.httpPath,
         httpMethod: opts?.httpMethod,
+        longPoll: opts?.longPoll,
         jsonrpc: opts?.jsonrpc,
         grpc: opts?.grpc,
         policies: opts?.policies,

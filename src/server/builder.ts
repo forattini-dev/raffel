@@ -736,10 +736,8 @@ export function createServer(options: ServerOptions): RaffelServer {
     const isOptionsObject = typeof optionsOrHandler === 'object' && optionsOrHandler !== null
     const options = isOptionsObject ? (optionsOrHandler as import('./types.js').HttpRouteOptions) : {}
     const handler = isOptionsObject ? maybeHandler! : (optionsOrHandler as import('./types.js').HttpRouteHandler)
-
     // Generate procedure name from method and path (e.g., "get:/users/:id")
     const name = `${method.toLowerCase()}:${path}`
-
     registerProcedureOperation({
       name,
       handler: handler as ProcedureHandler,
@@ -751,13 +749,13 @@ export function createServer(options: ServerOptions): RaffelServer {
       httpPath: path,
       httpMethod: method,
       httpSuccessStatus: options.successStatus,
+      longPoll: options.longPoll,
       cache: options.cache,
       interceptors: [...httpInterceptors, ...(options.use ?? [])],
       registration: { source: programmaticSource('http-namespace') },
     })
 
     logger.debug({ name, path, method }, 'Added HTTP route')
-
     return server
   }
 
@@ -1126,6 +1124,7 @@ export function createServer(options: ServerOptions): RaffelServer {
             graphql: registration.graphql,
             httpPath: registration.httpPath,
             httpMethod: registration.httpMethod,
+            longPoll: registration.longPoll,
             jsonrpc: registration.jsonrpc,
             grpc: registration.grpc,
             policies: registration.policies,
@@ -1222,6 +1221,7 @@ export function createServer(options: ServerOptions): RaffelServer {
           tags: def.tags,
           httpPath,
           httpMethod,
+          longPoll: def.longPoll,
           policies: def.policies,
           cache: def.cache,
           interceptors: def.use ?? [],
