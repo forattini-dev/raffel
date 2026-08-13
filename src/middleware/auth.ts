@@ -747,10 +747,12 @@ export function createRefreshInterceptor(options: RefreshInterceptorOptions): In
  * `api/health/get` and `api/health/get.ts` all normalise to the same value.
  */
 function normalizePublicProcedureName(name: string): string {
-  return name
-    .trim()
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/\.(ts|js|mjs|cjs)$/i, '')
+  const trimmed = name.trim()
+  let start = 0
+  let end = trimmed.length
+  while (start < end && trimmed[start] === '/') start += 1
+  while (end > start && trimmed[end - 1] === '/') end -= 1
+  return trimmed.slice(start, end).replace(/\.(ts|js|mjs|cjs)$/i, '')
 }
 
 /**

@@ -91,20 +91,24 @@ function isEditableFalse(frontmatter: Record<string, unknown> | null | undefined
 }
 
 function stripTrailingSlash(value: string): string {
-  return value.replace(/\/+$/, '')
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') end -= 1
+  return value.slice(0, end)
 }
 
 function stripLeadingSlash(value: string): string {
-  return value.replace(/^\/+/, '')
+  let start = 0
+  while (start < value.length && value[start] === '/') start += 1
+  return value.slice(start)
 }
 
 function stripSlashes(value: string): string {
-  return value.replace(/^\/+/, '').replace(/\/+$/, '')
+  return stripTrailingSlash(stripLeadingSlash(value))
 }
 
 function normalizePathPrefix(prefix: string | undefined): string {
   if (!prefix) return ''
-  const cleaned = String(prefix).replace(/\\/g, '/').replace(/^\/+/, '')
+  const cleaned = stripLeadingSlash(String(prefix).replace(/\\/g, '/'))
   if (!cleaned) return ''
   return cleaned.endsWith('/') ? cleaned : `${cleaned}/`
 }

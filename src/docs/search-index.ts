@@ -168,17 +168,35 @@ function normalizeDocsPath(path: string): string {
   const raw = String(path ?? '').trim()
   if (!raw) return '/'
   const withSlash = raw.startsWith('/') ? raw : `/${raw}`
-  return withSlash.replace(/\/+$/, '') || '/'
+  let end = withSlash.length
+  while (end > 0 && withSlash[end - 1] === '/') end -= 1
+  return withSlash.slice(0, end) || '/'
 }
 
 function slugifyHeading(value: string): string {
-  return value
+  let withoutTags = ''
+  let insideTag = false
+  for (const character of value) {
+    if (character === '<') {
+      insideTag = true
+      continue
+    }
+    if (insideTag) {
+      if (character === '>') insideTag = false
+      continue
+    }
+    withoutTags += character
+  }
+  const slug = withoutTags
     .toLowerCase()
-    .replace(/<[^>]*>/g, '')
     .replace(/[^\w\s-]/g, '')
     .trim()
     .replace(/[\s_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  let start = 0
+  let end = slug.length
+  while (start < end && slug[start] === '-') start += 1
+  while (end > start && slug[end - 1] === '-') end -= 1
+  return slug.slice(start, end)
 }
 
 function parseHeadingTitle(value: string): { title: string, id: string, customId: boolean, ignore: boolean, ignoreAll: boolean } {

@@ -180,7 +180,7 @@ ${generateClientRuntimeScript()}
 
   // Generate HTML
   return `<!DOCTYPE html>
-<html lang="en" data-theme="${theme}"${themeConfig ? ' data-theme-configured="true"' : ''}>
+<html lang="en" data-theme="${escapeHtml(theme)}"${themeConfig ? ' data-theme-configured="true"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -264,7 +264,15 @@ function generateOpenGraphTags(openGraph: OpenGraphConfig): string {
 }
 
 function isIcoFaviconUrl(favicon: string): boolean {
-  return favicon.replace(/[?#].*$/, '').toLowerCase().endsWith('.ico')
+  const queryIndex = favicon.indexOf('?')
+  const fragmentIndex = favicon.indexOf('#')
+  const suffixIndex = queryIndex < 0
+    ? fragmentIndex
+    : fragmentIndex < 0
+      ? queryIndex
+      : Math.min(queryIndex, fragmentIndex)
+  const path = suffixIndex < 0 ? favicon : favicon.slice(0, suffixIndex)
+  return path.toLowerCase().endsWith('.ico')
 }
 
 function firstDefined(...values: Array<string | undefined>): string | undefined {

@@ -60,7 +60,24 @@ export function extractRoutes(doc: USDDocument | Record<string, unknown>): MockR
  *   /users/{userId}/posts/{postId}  =>  /users/:userId/posts/:postId
  */
 export function toExpressPath(openapiPath: string): string {
-  return openapiPath.replace(/\{([^}]+)\}/g, ':$1')
+  let result = ''
+  let cursor = 0
+  while (cursor < openapiPath.length) {
+    if (openapiPath[cursor] !== '{') {
+      result += openapiPath[cursor]
+      cursor += 1
+      continue
+    }
+    const closingBrace = openapiPath.indexOf('}', cursor + 1)
+    if (closingBrace <= cursor + 1) {
+      result += openapiPath[cursor]
+      cursor += 1
+      continue
+    }
+    result += `:${openapiPath.slice(cursor + 1, closingBrace)}`
+    cursor = closingBrace + 1
+  }
+  return result
 }
 
 /**

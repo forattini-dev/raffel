@@ -234,16 +234,38 @@ export function compileFormat(
   format: string,
   colorize: boolean = false
 ): (req: IncomingMessage, res: ServerResponse, ctx: LogContext) => string {
-  // Parse tokens in format string
-  // Matches :token, :token[arg], :token[arg1,arg2]
-  const tokenRegex = /:([a-z-]+)(?:\[([^\]]+)\])?/gi
-
   return (req, res, ctx) => {
-    return format.replace(tokenRegex, (_, tokenName: string, arg?: string) => {
+    let output = ''
+    let cursor = 0
+    while (cursor < format.length) {
+      const colon = format.indexOf(':', cursor)
+      if (colon < 0) {
+        output += format.slice(cursor)
+        break
+      }
+      output += format.slice(cursor, colon)
+      let nameEnd = colon + 1
+      while (nameEnd < format.length && /[a-z-]/i.test(format[nameEnd])) nameEnd += 1
+      if (nameEnd === colon + 1) {
+        output += ':'
+        cursor = colon + 1
+        continue
+      }
+      let end = nameEnd
+      let arg: string | undefined
+      if (format[nameEnd] === '[') {
+        const closingBracket = format.indexOf(']', nameEnd + 1)
+        if (closingBracket > nameEnd + 1) {
+          arg = format.slice(nameEnd + 1, closingBracket)
+          end = closingBracket + 1
+        }
+      }
+      const tokenName = format.slice(colon + 1, nameEnd)
       const getter = tokens[tokenName.toLowerCase()]
-      if (!getter) return '-'
-      return getter(req, res, ctx, arg, colorize)
-    })
+      output += getter ? getter(req, res, ctx, arg, colorize) : '-'
+      cursor = end
+    }
+    return output
   }
 }
 

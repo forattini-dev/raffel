@@ -69,7 +69,13 @@ export async function executeDocsTryItProxy(
     })
   } catch (error) {
     const timedOut = controller.signal.aborted
-    return problem(timedOut ? 504 : 502, timedOut ? 'Upstream request timed out' : 'Upstream request failed', String((error as Error)?.message ?? error))
+    return problem(
+      timedOut ? 504 : 502,
+      timedOut ? 'Upstream request timed out' : 'Upstream request failed',
+      timedOut
+        ? 'The declared upstream server did not respond before the configured timeout.'
+        : 'The declared upstream server could not complete the request.',
+    )
   } finally {
     clearTimeout(timeout)
   }
