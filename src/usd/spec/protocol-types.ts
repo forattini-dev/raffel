@@ -49,7 +49,9 @@ export interface USDGraphQLRelation {
   nullable?: boolean
   args?: USDSchema | { $ref: string }
   loader?: string
+  procedureRef?: string
   batchKey?: boolean
+  auth?: 'required' | 'optional' | 'none'
   authz?: USDGraphQLAuthz
 }
 
@@ -59,6 +61,11 @@ export interface USDGraphQLOperation {
   description?: string
   resource?: string
   source?: 'procedure' | 'stream' | 'event' | 'resource'
+  procedureRef?: string
+  streamRef?: string
+  deprecationReason?: string
+  cost?: number
+  auth?: 'required' | 'optional' | 'none'
   args?: USDSchema | { $ref: string }
   input?: USDSchema | { $ref: string }
   output?: USDSchema | { $ref: string }

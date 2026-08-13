@@ -11,6 +11,7 @@ import type {
   StreamDirection,
   JsonRpcMeta,
   GrpcMeta,
+  GraphQLMeta,
   ContractPolicies,
 } from '../types/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
@@ -67,7 +68,7 @@ export interface ProcedureRegistrationMeta {
   summary?: string
   description?: string
   tags?: string[]
-  graphql?: { type: 'query' | 'mutation' }
+  graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
   jsonrpc?: JsonRpcMeta
@@ -130,7 +131,7 @@ export function createProcedureBuilder(
   let summary: string | undefined
   let description: string | undefined
   let procedureTags: string[] | undefined
-  let graphqlMeta: { type: 'query' | 'mutation' } | undefined
+  let graphqlMeta: GraphQLMeta | undefined
   let httpPath: string | undefined
   let httpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | undefined
   let jsonrpcMeta: JsonRpcMeta | undefined
@@ -166,8 +167,8 @@ export function createProcedureBuilder(
       procedureTags = tagsArr
       return builder
     },
-    graphql(type) {
-      graphqlMeta = { type }
+    graphql(config) {
+      graphqlMeta = typeof config === 'string' ? { type: config } : config
       return builder
     },
     jsonrpc(meta) {
@@ -350,6 +351,7 @@ export function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let description: string | undefined
   let direction: StreamDirection | undefined
+  let graphqlMeta: GraphQLMeta | undefined
   let policies: ContractPolicies | undefined
   const interceptors: Interceptor[] = [...inheritedInterceptors]
 
@@ -364,6 +366,10 @@ export function createStreamBuilder(
     },
     description(desc) {
       description = desc
+      return builder
+    },
+    graphql(config = 'subscription') {
+      graphqlMeta = typeof config === 'string' ? { type: config } : config
       return builder
     },
     direction(dir) {
@@ -389,6 +395,7 @@ export function createStreamBuilder(
       registry.stream(name, fn, {
         description,
         direction,
+        graphql: graphqlMeta,
         policies,
         interceptors: interceptors.length > 0 ? interceptors : undefined,
       })

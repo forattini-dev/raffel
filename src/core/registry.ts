@@ -69,6 +69,7 @@ export interface StreamRegistryOptions {
   /** Content type configuration */
   contentTypes?: { default?: string; supported?: string[] }
   policies?: ContractPolicies
+  graphql?: GraphQLMeta
   interceptors?: Interceptor[]
 }
 
@@ -230,6 +231,7 @@ export function createRegistry(): Registry {
           streamDirection: options.direction ?? 'server',
           contentType: options.contentType,
           contentTypes: options.contentTypes,
+          graphql: options.graphql,
           policies,
         },
         interceptors: interceptors.length > 0 ? interceptors : undefined,

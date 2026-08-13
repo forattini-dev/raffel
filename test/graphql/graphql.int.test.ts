@@ -7,18 +7,29 @@
  * - Middleware (integration)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { z } from 'zod'
-import { graphql as executeGraphQLQuery } from 'graphql'
+import {
+  graphql as executeGraphQLQuery,
+  GraphQLObjectType,
+  GraphQLSchema,
+  GraphQLString,
+} from 'graphql'
 import { createRegistry } from '../../src/core/registry.js'
 import { createRouter } from '../../src/core/router.js'
 import { createSchemaRegistry } from '../../src/validation/index.js'
 import { generateGraphQLSchema, GraphQLJSON, GraphQLDateTime } from '../../src/graphql/schema-generator.js'
 import { createGraphQLAdapter, createGraphQLMiddleware } from '../../src/graphql/adapter.js'
-import { graphqlResource } from '../../src/graphql/index.js'
+import { graphqlResource, hashGraphQLDocument } from '../../src/graphql/index.js'
 import type { GraphQLAdapterOptions } from '../../src/graphql/types.js'
 import type { IncomingMessage, ServerResponse, Server } from 'node:http'
 import { createServer as createHttpServer } from 'node:http'
+import { WebSocket, type RawData } from 'ws'
+import {
+  createAuthMiddleware,
+  createBearerStrategy,
+  getAuthenticationRuntime,
+} from '../../src/middleware/auth.js'
 
 const TEST_PORT = 23463
 
@@ -35,6 +46,23 @@ const DEFAULT_CONFIG = {
 interface GraphQLResponse {
   data?: Record<string, unknown>
   errors?: Array<{ message: string; [key: string]: unknown }>
+}
+
+function waitForWebSocketMessage(
+  ws: WebSocket,
+  predicate: (message: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for WebSocket message')), 3000)
+    const onMessage = (data: RawData) => {
+      const message = JSON.parse(data.toString()) as Record<string, unknown>
+      if (!predicate(message)) return
+      clearTimeout(timeout)
+      ws.off('message', onMessage)
+      resolve(message)
+    }
+    ws.on('message', onMessage)
+  })
 }
 
 // =============================================================================
@@ -588,6 +616,44 @@ describe('GraphQL Adapter', () => {
   })
 
   describe('query execution', () => {
+    it('supports explicit exposure and custom field metadata', () => {
+      registry.procedure('internal.hidden', async () => true)
+      registry.procedure('public.status', async () => true, {
+        graphql: { type: 'query', field: 'serviceStatus', description: 'Current status', cost: 2 },
+      })
+      schemaRegistry.register('internal.hidden', { output: z.boolean() })
+      schemaRegistry.register('public.status', { output: z.boolean() })
+
+      const generated = generateGraphQLSchema({
+        registry,
+        schemaRegistry,
+        options: { exposure: 'explicit' },
+      })
+
+      expect(generated.fields.queries).toEqual({ serviceStatus: 'public.status' })
+      expect(generated.schema.getQueryType()?.getFields().serviceStatus.description).toBe('Current status')
+      expect(generated.schema.getMutationType()).toBeUndefined()
+    })
+
+    it('reports invalid procedure references and supports strict schema validation', () => {
+      const resource = {
+        ...graphqlResource({
+          name: 'missingRef',
+          schema: z.object({ id: z.string() }),
+          queries: { item: { procedureRef: 'missing.get' } },
+        }),
+        filePath: 'missing.graphql.ts',
+      }
+      const generated = generateGraphQLSchema({ registry, schemaRegistry, graphqlResources: [resource] })
+      expect(generated.diagnostics).toContainEqual(expect.objectContaining({ code: 'UNKNOWN_PROCEDURE_REF' }))
+      expect(() => generateGraphQLSchema({
+        registry,
+        schemaRegistry,
+        graphqlResources: [resource],
+        schemaValidation: 'error',
+      })).toThrow('GraphQL schema validation failed')
+    })
+
     it('should execute queries via HTTP', async () => {
       adapter = createGraphQLAdapter({
         router,
@@ -666,6 +732,369 @@ describe('GraphQL Adapter', () => {
         protocol: 'graphql',
         operation: 'graphql',
       })
+    })
+
+    it('executes resource procedureRef through the Router with providers', async () => {
+      registry.procedure('accounts.get', async (input: unknown, ctx) => ({
+        id: (input as { id: string }).id,
+        name: (ctx.services.accounts as { label: string }).label,
+      }))
+      schemaRegistry.register('accounts.get', {
+        input: z.object({ id: z.string() }),
+        output: z.object({ id: z.string(), name: z.string() }),
+      })
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG },
+        providers: { accounts: { label: 'router-provider' } },
+        graphqlResources: [{
+          ...graphqlResource({
+            name: 'account',
+            schema: z.object({ id: z.string(), name: z.string() }),
+            queries: { account: { procedureRef: 'accounts.get' } },
+          }),
+          filePath: 'account.graphql.ts',
+        }],
+      })
+      await adapter.start()
+
+      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ account(id: "42") { id name } }' }),
+      })
+      const result = await response.json() as GraphQLResponse
+      expect(result.data?.account).toEqual({ id: '42', name: 'router-provider' })
+    })
+
+    it('authenticates direct resolvers in inherit mode and returns field errors', async () => {
+      const auth = createAuthMiddleware({
+        strategies: [createBearerStrategy({
+          verify: async (token) => token === 'valid'
+            ? { authenticated: true, principal: 'user-42' }
+            : { authenticated: false },
+        })],
+      })
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, security: { mode: 'inherit' } },
+        authenticationRuntime: getAuthenticationRuntime(auth),
+        graphqlResources: [{
+          ...graphqlResource({
+            name: 'viewer',
+            schema: z.object({ id: z.string() }),
+            queries: {
+              viewer: {
+                resolver: async (_parent, _args, ctx) => ({ id: ctx.auth.principal ?? 'anonymous' }),
+              },
+            },
+          }),
+          filePath: 'viewer.graphql.ts',
+        }],
+      })
+      await adapter.start()
+
+      const denied = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ viewer { id } }' }),
+      })
+      const deniedBody = await denied.json() as GraphQLResponse
+      expect(denied.status).toBe(200)
+      expect(deniedBody.data?.viewer).toBeNull()
+      expect((deniedBody.errors?.[0].extensions as { code?: string })?.code).toBe('UNAUTHENTICATED')
+
+      const allowed = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer valid' },
+        body: JSON.stringify({ query: '{ viewer { id } }' }),
+      })
+      expect((await allowed.json() as GraphQLResponse).data?.viewer).toEqual({ id: 'user-42' })
+    })
+
+    it('does not duplicate Router authentication for procedureRef fields', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'user-1' })
+      const auth = createAuthMiddleware({
+        strategies: [createBearerStrategy({ verify })],
+      })
+      router = createRouter(registry, { interceptors: [auth] })
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, security: { mode: 'inherit' } },
+        authenticationRuntime: getAuthenticationRuntime(auth),
+        graphqlResources: [{
+          ...graphqlResource({
+            name: 'user',
+            schema: z.object({ id: z.string(), name: z.string() }),
+            queries: { user: { procedureRef: 'users.get' } },
+          }),
+          filePath: 'user.graphql.ts',
+        }],
+      })
+      await adapter.start()
+
+      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer valid' },
+        body: JSON.stringify({ query: '{ user { id } }' }),
+      })
+      expect((await response.json() as GraphQLResponse).data?.user).toEqual({ id: '1' })
+      expect(verify).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails startup for uncovered direct mutations under default-deny', () => {
+      const auth = createAuthMiddleware({ strategies: [] })
+      expect(() => createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, security: { mode: 'inherit' } },
+        authenticationRuntime: getAuthenticationRuntime(auth),
+        policyBridge: {
+          defaultMode: 'deny',
+          evaluate: async () => ({ allowed: false, reason: 'deny' }),
+        },
+        graphqlResources: [{
+          ...graphqlResource({
+            name: 'note',
+            schema: z.object({ id: z.string() }),
+            mutations: { createNote: { resolver: async () => ({ id: '1' }) } },
+          }),
+          filePath: 'note.graphql.ts',
+        }],
+      })).toThrow('pre-resolver authorize policy')
+    })
+
+    it('allows an explicitly public direct field in inherit/default-deny mode', async () => {
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, security: { mode: 'inherit' } },
+        policyBridge: {
+          defaultMode: 'deny',
+          evaluate: async () => ({ allowed: false, reason: 'implicit_deny' }),
+        },
+        graphqlResources: [{
+          ...graphqlResource({
+            name: 'status',
+            schema: z.object({ value: z.string() }),
+            queries: {
+              publicStatus: {
+                auth: 'none',
+                resolver: async () => ({ value: 'ok' }),
+              },
+            },
+          }),
+          filePath: 'status.graphql.ts',
+        }],
+      })
+      await adapter.start()
+
+      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ publicStatus { value } }' }),
+      })
+      expect((await response.json() as GraphQLResponse).data?.publicStatus).toEqual({ value: 'ok' })
+    })
+
+    it('protects a custom schema before execution with HTTP 401 semantics', async () => {
+      const auth = createAuthMiddleware({
+        strategies: [createBearerStrategy({
+          verify: async () => ({ authenticated: true, principal: 'custom-user' }),
+        })],
+      })
+      const schema = new GraphQLSchema({
+        query: new GraphQLObjectType({
+          name: 'Query',
+          fields: { greeting: { type: GraphQLString, resolve: () => 'hello' } },
+        }),
+      })
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, schema, security: { mode: 'inherit' } },
+        authenticationRuntime: getAuthenticationRuntime(auth),
+      })
+      await adapter.start()
+
+      const denied = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ greeting }' }),
+      })
+      expect(denied.status).toBe(401)
+
+      const allowed = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer valid' },
+        body: JSON.stringify({ query: '{ greeting }' }),
+      })
+      expect((await allowed.json() as GraphQLResponse).data?.greeting).toBe('hello')
+    })
+
+    it('authorizes custom-schema operations before execution', async () => {
+      let allowed = false
+      const schema = new GraphQLSchema({
+        query: new GraphQLObjectType({
+          name: 'Query',
+          fields: { secret: { type: GraphQLString, resolve: () => 'classified' } },
+        }),
+      })
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: {
+          ...DEFAULT_CONFIG,
+          schema,
+          security: {
+            mode: 'inherit',
+            customSchema: {
+              auth: 'none',
+              authorize: ({ operationType }) => ({
+                action: `graphql.${operationType}`,
+                resource: { type: 'graphql', id: 'schema' },
+              }),
+            },
+          },
+        },
+        policyBridge: {
+          defaultMode: 'deny',
+          evaluate: async () => ({ allowed: false, reason: 'implicit_deny' }),
+          evaluateOperation: async () => ({
+            allowed,
+            reason: allowed ? 'allow' : 'implicit_deny',
+          }),
+        },
+      })
+      await adapter.start()
+
+      const request = () => fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ secret }' }),
+      })
+      const denied = await request()
+      expect(denied.status).toBe(403)
+      await denied.json()
+      allowed = true
+      expect((await (await request()).json() as GraphQLResponse).data?.secret).toBe('classified')
+    })
+
+    it('authenticates every subscribe operation with a fresh context', async () => {
+      const verify = vi.fn().mockResolvedValue({ authenticated: true, principal: 'subscriber' })
+      const auth = createAuthMiddleware({
+        strategies: [createBearerStrategy({ verify })],
+      })
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, security: { mode: 'inherit' }, subscriptions: true },
+        authenticationRuntime: getAuthenticationRuntime(auth),
+        graphqlResources: [{
+          ...graphqlResource({
+            name: 'tick',
+            schema: z.object({ id: z.string() }),
+            subscriptions: {
+              ticks: {
+                subscribe: async function* (_parent, _args, ctx) {
+                  yield { id: ctx.auth.principal ?? 'anonymous' }
+                },
+              },
+            },
+          }),
+          filePath: 'tick.graphql.ts',
+        }],
+      })
+      await adapter.start()
+
+      const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/graphql`, 'graphql-transport-ws')
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', () => resolve())
+        ws.once('error', reject)
+      })
+      ws.send(JSON.stringify({
+        type: 'connection_init',
+        payload: { headers: { authorization: 'Bearer valid' } },
+      }))
+      await waitForWebSocketMessage(ws, message => message.type === 'connection_ack')
+
+      for (const id of ['one', 'two']) {
+        ws.send(JSON.stringify({
+          id,
+          type: 'subscribe',
+          payload: { query: 'subscription { ticks { id } }' },
+        }))
+        const message = await waitForWebSocketMessage(
+          ws,
+          candidate => candidate.type === 'next' && candidate.id === id,
+        )
+        expect(message.payload).toEqual({ data: { ticks: { id: 'subscriber' } } })
+      }
+      expect(verify).toHaveBeenCalledTimes(2)
+      ws.close()
+    })
+
+    it('supports GET queries and rejects GET mutations', async () => {
+      adapter = createGraphQLAdapter({ router, registry, schemaRegistry, host: '127.0.0.1', port: TEST_PORT, config: { ...DEFAULT_CONFIG } })
+      await adapter.start()
+
+      const queryResponse = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql?query=${encodeURIComponent('{ usersGet { id } }')}`)
+      expect(queryResponse.status).toBe(200)
+      expect((await queryResponse.json() as GraphQLResponse).data?.usersGet).toEqual({ id: '1' })
+
+      const mutationResponse = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql?query=${encodeURIComponent('mutation { usersCreate(name: "A") { id } }')}`)
+      expect(mutationResponse.status).toBe(405)
+    })
+
+    it('registers and resolves automatic persisted queries', async () => {
+      adapter = createGraphQLAdapter({
+        router,
+        registry,
+        schemaRegistry,
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        config: { ...DEFAULT_CONFIG, persistedOperations: true },
+      })
+      await adapter.start()
+      const query = '{ usersGet { id } }'
+      const extensions = { persistedQuery: { version: 1, sha256Hash: hashGraphQLDocument(query) } }
+
+      const register = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, extensions }),
+      })
+      expect((await register.json() as GraphQLResponse).data?.usersGet).toEqual({ id: '1' })
+
+      const hit = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ extensions }),
+      })
+      expect((await hit.json() as GraphQLResponse).data?.usersGet).toEqual({ id: '1' })
     })
 
     it('should filter resource query results through the GraphQL policy bridge', async () => {

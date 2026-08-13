@@ -29,48 +29,52 @@ export function createGraphQLPolicyBridge(
   bootstrap: PolicyBootstrap | null,
 ): GraphQLPolicyBridge | undefined {
   if (!bootstrap) return undefined
+  const resolvedBootstrap = bootstrap
 
-  return {
-    async evaluate(ctx, authz, value, args, parent) {
-      const principal = await bootstrap.resolvePrincipal(ctx)
-      const rawResource = await authz.resource(value, args, ctx, parent)
-      const resources = rawResource == null
-        ? [{ type: '*', id: '*', tenantId: principal.tenantId }]
-        : Array.isArray(rawResource)
-          ? rawResource
-          : [rawResource]
-      if (resources.length === 0) {
-        resources.push({ type: '*', id: '*', tenantId: principal.tenantId })
-      }
-      const protocol = (ctx as { protocol?: unknown }).protocol
-      const protocolValue = typeof protocol === 'string' ? protocol : 'graphql'
+  async function evaluateResources(
+    ctx: Context,
+    action: string,
+    rawResource: import('../../middleware/policy/types.js').Resource | import('../../middleware/policy/types.js').Resource[] | null,
+    mode: 'all' | 'any' | undefined,
+  ) {
+    const principal = await resolvedBootstrap.resolvePrincipal(ctx)
+    const resources = rawResource == null
+      ? [{ type: '*', id: '*', tenantId: principal.tenantId }]
+      : Array.isArray(rawResource)
+        ? [...rawResource]
+        : [rawResource]
+    if (resources.length === 0) {
+      resources.push({ type: '*', id: '*', tenantId: principal.tenantId })
+    }
+    const protocol = (ctx as { protocol?: unknown }).protocol
+    const protocolValue = typeof protocol === 'string' ? protocol : 'graphql'
 
-      let lastDecision: Awaited<ReturnType<PolicyEnginePort['evaluate']>> | undefined
-      if (authz.mode === 'any') {
-        for (const resource of resources) {
-          const decision = await bootstrap.engine.evaluate({
-            principal,
-            action: authz.action,
-            resource,
-            protocol: protocolValue,
-          })
-          lastDecision = decision
-          if (decision.allowed) return decision
-        }
-        return lastDecision!
-      }
-
+    let lastDecision: Awaited<ReturnType<PolicyEnginePort['evaluate']>> | undefined
+    if (mode === 'any') {
       for (const resource of resources) {
-        const decision = await bootstrap.engine.evaluate({
-          principal,
-          action: authz.action,
-          resource,
-          protocol: protocolValue,
-        })
+        const decision = await resolvedBootstrap.engine.evaluate({ principal, action, resource, protocol: protocolValue })
         lastDecision = decision
-        if (!decision.allowed) return decision
+        if (decision.allowed) return decision
       }
       return lastDecision!
+    }
+
+    for (const resource of resources) {
+      const decision = await resolvedBootstrap.engine.evaluate({ principal, action, resource, protocol: protocolValue })
+      lastDecision = decision
+      if (!decision.allowed) return decision
+    }
+    return lastDecision!
+  }
+
+  return {
+    defaultMode: resolvedBootstrap.defaultMode,
+    async evaluate(ctx, authz, value, args, parent) {
+      const rawResource = await authz.resource(value, args, ctx, parent)
+      return evaluateResources(ctx, authz.action, rawResource, authz.mode)
+    },
+    async evaluateOperation(ctx, authorization) {
+      return evaluateResources(ctx, authorization.action, authorization.resource, authorization.mode)
     },
   }
 }

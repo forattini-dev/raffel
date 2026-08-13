@@ -15,6 +15,7 @@ import type {
   EventHandler,
   JsonRpcMeta,
   GrpcMeta,
+  GraphQLMeta,
   HttpMethod,
   StreamDirection,
   RetryPolicy,
@@ -110,7 +111,7 @@ export interface ProcedureBuilder<TInput = unknown, TOutput = unknown> {
    */
   authz(config: ProcedurePolicyConfig<TInput, Context>): this
   /** Mark GraphQL mapping */
-  graphql(type: 'query' | 'mutation'): this
+  graphql(config: 'query' | 'mutation' | GraphQLMeta): this
   /** Configure JSON-RPC metadata for USD generation */
   jsonrpc(meta: JsonRpcMeta): this
   /** Configure gRPC metadata for USD generation */
@@ -164,6 +165,8 @@ export interface StreamBuilder<TInput = unknown, TOutput = unknown> {
   direction(direction: StreamDirection): this
   /** Add description */
   description(desc: string): this
+  /** Customize GraphQL subscription exposure and metadata. */
+  graphql(config?: 'subscription' | GraphQLMeta): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
   /** Attach contract-bound runtime policies */
@@ -512,9 +515,7 @@ export interface AddProcedureInput {
   /** Tags for grouping */
   tags?: string[]
   /** GraphQL mapping */
-  graphql?: {
-    type: 'query' | 'mutation'
-  }
+  graphql?: GraphQLMeta
   /** HTTP path override */
   httpPath?: string
   /** HTTP method override */
@@ -547,6 +548,8 @@ export interface AddStreamInput {
   direction?: StreamDirection
   /** Description */
   description?: string
+  /** GraphQL subscription exposure metadata. */
+  graphql?: GraphQLMeta
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
   /** Interceptors */
@@ -597,7 +600,7 @@ export interface RegisterProcedureOptions {
   summary?: string
   description?: string
   tags?: string[]
-  graphql?: { type: 'query' | 'mutation' }
+  graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: HttpMethod
   jsonrpc?: JsonRpcMeta
@@ -612,6 +615,7 @@ export interface RegisterStreamOptions {
   output?: import('zod').ZodType
   direction?: StreamDirection
   description?: string
+  graphql?: GraphQLMeta
   policies?: ContractPolicies
   interceptors?: Interceptor[]
 }

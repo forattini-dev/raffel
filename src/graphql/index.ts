@@ -43,17 +43,34 @@ export {
 // === Resource Discovery Helpers ===
 export {
   graphqlResource,
+  GRAPHQL_AUTHENTICATION_BRIDGE_KEY,
+  GRAPHQL_EXECUTION_BRIDGE_KEY,
   GRAPHQL_POLICY_BRIDGE_KEY,
 } from './resource.js'
+
+export {
+  InMemoryPersistedOperationStore,
+  hashGraphQLDocument,
+} from './persisted-operations.js'
+export type { PersistedOperationStore } from './persisted-operations.js'
+export type { GraphQLMeta } from '../types/handlers.js'
+export { exportGraphQLArtifacts } from './artifacts.js'
+export type {
+  GraphQLArtifactExportOptions,
+  GraphQLArtifactExportResult,
+} from './artifacts.js'
 
 // === Types ===
 export type {
   GraphQLOptions,
+  GraphQLSecurityOptions,
   GraphQLAdapter,
   GraphQLAdapterOptions,
   SubscriptionOptions,
   SchemaGenerationOptions,
   GeneratedSchemaInfo,
+  GraphQLDiagnostic,
+  PersistedOperationsOptions,
   ZodToGraphQLOptions,
   SupportedZodType,
   CorsConfig as GraphQLCorsConfig,
@@ -61,12 +78,19 @@ export type {
 export type { GraphQLMiddleware } from './adapter.js'
 export type {
   GraphQLPolicyBridge,
+  GraphQLAuthenticationBridge,
+  GraphQLAuthRequirement,
+  GraphQLOperationPolicyInput,
+  GraphQLOperationPolicyResolution,
+  GraphQLOperationPolicyResolver,
   GraphQLResourceConfig,
   GraphQLResourceFieldAuthz,
   GraphQLResourceRelationConfig,
   GraphQLResourceRootFieldConfig,
+  GraphQLResourceSubscriptionFieldConfig,
   GraphQLResourceResolver,
   GraphQLResourcePolicyMode,
   GraphQLResourcePolicyDenyBehavior,
   LoadedGraphQLResource,
+  GraphQLExecutionBridge,
 } from './resource.js'

@@ -4,12 +4,19 @@
  * Type definitions for GraphQL adapter and schema generation.
  */
 
-import type { GraphQLSchema } from 'graphql'
+import type { GraphQLError, GraphQLFormattedError, GraphQLSchema } from 'graphql'
 import type { Registry } from '../core/registry.js'
 import type { SchemaRegistry } from '../validation/index.js'
 import type { Router } from '../core/router.js'
 import type { Codec } from '../utils/content-codecs.js'
-import type { GraphQLPolicyBridge, LoadedGraphQLResource } from './resource.js'
+import type { AuthenticationRuntime } from '../middleware/auth.js'
+import type {
+  GraphQLAuthRequirement,
+  GraphQLOperationPolicyResolver,
+  GraphQLPolicyBridge,
+  LoadedGraphQLResource,
+} from './resource.js'
+import type { PersistedOperationStore } from './persisted-operations.js'
 
 // === Server Options ===
 
@@ -62,6 +69,24 @@ export interface GraphQLOptions {
   /** Max request body size in bytes (default: 1MB) */
   maxBodySize?: number
 
+  /** Operation exposure policy. `all` preserves the Raffel 1.x behavior. */
+  exposure?: 'all' | 'explicit'
+
+  /** Startup behavior for schema diagnostics. Default: 'warn'. */
+  schemaValidation?: 'warn' | 'error'
+
+  /** Authentication and authorization behavior for direct GraphQL resolvers. */
+  security?: GraphQLSecurityOptions
+
+  /** Mask unexpected resolver errors. Defaults to true in production. */
+  errorMasking?: boolean
+
+  /** Final public error formatter. */
+  formatError?: (error: GraphQLError) => GraphQLFormattedError
+
+  /** Automatic/safelisted persisted operation configuration. */
+  persistedOperations?: boolean | PersistedOperationsOptions
+
   /** Maximum nested field depth. Default: 15. */
   maxQueryDepth?: number
 
@@ -87,6 +112,30 @@ export interface GraphQLOptions {
   context?: (req: GraphQLRequestInfo) => Record<string, unknown> | Promise<Record<string, unknown>>
 }
 
+export interface GraphQLSecurityOptions {
+  /**
+   * `router` preserves Raffel 1.x behavior. `inherit` requires authentication
+   * for direct resolvers unless a field explicitly opts out with `auth: 'none'`.
+   */
+  mode?: 'router' | 'inherit'
+
+  /** Security gate applied before executing a user-supplied GraphQL schema. */
+  customSchema?: {
+    /** Defaults to `required` in inherit mode and remains unset in router mode. */
+    auth?: GraphQLAuthRequirement
+    /** Resolve the policy action/resource for the complete operation. */
+    authorize?: GraphQLOperationPolicyResolver
+  }
+}
+
+export interface PersistedOperationsOptions {
+  /** `allow` implements APQ registration; `require` accepts only known hashes. */
+  mode?: 'disabled' | 'allow' | 'require'
+  store?: PersistedOperationStore
+  maxEntries?: number
+  ttlMs?: number
+}
+
 export interface SubscriptionOptions {
   /** WebSocket path for subscriptions (default: same as GraphQL path) */
   path?: string
@@ -105,6 +154,9 @@ export interface SubscriptionOptions {
 
   /** Time allowed for connection_init in ms. Default: 5000. */
   connectionInitTimeout?: number
+
+  /** Close slow consumers after this many queued WebSocket bytes. Default: 1 MiB. */
+  maxBufferedAmount?: number
 }
 
 export interface CorsConfig {
@@ -117,6 +169,9 @@ export interface CorsConfig {
 // === Schema Generation ===
 
 export interface SchemaGenerationOptions {
+  /** Handler exposure policy. Default: `all` for 1.x compatibility. */
+  exposure?: 'all' | 'explicit'
+
   /**
    * How to categorize procedures as Query vs Mutation.
    * - 'prefix': Use naming convention (get*, list*, find* → Query, others → Mutation)
@@ -184,6 +239,26 @@ export interface GeneratedSchemaInfo {
 
   /** Handlers that couldn't be mapped (missing schemas) */
   skipped: Array<{ name: string; reason: string }>
+
+  /** Stable field-to-handler mapping, including custom field names. */
+  fields: {
+    queries: Record<string, string>
+    mutations: Record<string, string>
+    subscriptions: Record<string, string>
+  }
+
+  /** Schema generation and validation diagnostics. */
+  diagnostics: GraphQLDiagnostic[]
+}
+
+export interface GraphQLDiagnostic {
+  severity: 'warning' | 'error'
+  code: string
+  message: string
+  source?: string
+  operation?: string
+  /** Security diagnostics marked fatal cannot be downgraded to warnings. */
+  fatal?: boolean
 }
 
 // === Adapter ===
@@ -212,6 +287,12 @@ export interface GraphQLAdapterOptions {
 
   /** Policy bridge used by GraphQL resource field resolvers. */
   policyBridge?: GraphQLPolicyBridge
+
+  /** Reusable authentication runtime extracted from the global auth middleware. */
+  authenticationRuntime?: AuthenticationRuntime
+
+  /** Provider instances exposed to GraphQL resolver contexts as `ctx.services`. */
+  providers?: Readonly<Record<string, unknown>>
 }
 
 export interface GraphQLAdapter {

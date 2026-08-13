@@ -6,6 +6,7 @@ import type {
 } from '../runtime-plan.js'
 import type { ServerLifecycleExecutionContext } from './execution-types.js'
 import { createNormalizedGraphQLOptions } from './execution-protocol-utils.js'
+import { getAuthenticationRuntime } from '../../middleware/auth.js'
 
 type GraphQLHttpMiddlewareStep = Extract<
   ServerRuntimeHttpMiddlewareStep,
@@ -14,7 +15,7 @@ type GraphQLHttpMiddlewareStep = Extract<
 
 export function createExecutionHttpGraphQL(context: ServerLifecycleExecutionContext) {
   const { state } = context
-  const { registry, schemaRegistry, router, graphqlResources, graphqlPolicyBridge } = context.core
+  const { registry, schemaRegistry, router, graphqlResources, graphqlPolicyBridge, resolvedProviders, globalInterceptors } = context.core
   const createMiddleware = context.factories?.createGraphQLMiddleware ?? createGraphQLMiddleware
 
   function executeHttpGraphQLStep(
@@ -32,6 +33,8 @@ export function createExecutionHttpGraphQL(context: ServerLifecycleExecutionCont
       ),
       graphqlResources,
       policyBridge: graphqlPolicyBridge,
+      providers: resolvedProviders,
+      authenticationRuntime: globalInterceptors.map(getAuthenticationRuntime).find(Boolean),
     })
     httpMiddleware.push(state.graphqlMiddleware.value.middleware)
 

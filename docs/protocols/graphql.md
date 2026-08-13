@@ -48,7 +48,10 @@ GraphQL enforces request size and timeout settings:
 - `maxBodySize` limits the raw request body size (default: 1MB). Oversized
   requests return `413` with `errors[0].extensions.code = 'PAYLOAD_TOO_LARGE'`.
 - `timeout` sets a hard deadline for parsing, validation, and execution.
-  Timeouts return `504` with `errors[0].extensions.code = 'DEADLINE_EXCEEDED'`.
+  Timeouts return `408` with `errors[0].extensions.code = 'DEADLINE_EXCEEDED'`
+  and abort the `ctx.signal` passed to handlers and resolvers.
+- `maxQueryDepth`, `maxQueryComplexity`, and `maxAliases` reject abusive
+  documents before execution.
 
 ## Content Negotiation
 
@@ -69,6 +72,9 @@ messages at the configured interval.
 Clients can pass `connection_init` payloads to seed auth/context. The payload
 is exposed in resolver context under `raffel.connection_init`, and any
 `headers`/`metadata` fields are merged into envelope metadata.
+
+Each subscription gets its own cancellation signal. `complete`, disconnect,
+shutdown, and slow-consumer protection stop the iterator and abort that signal.
 
 ## Error extensions
 
@@ -214,6 +220,80 @@ resolver and is suited to mutation guards. `authz` runs against the resolved
 value; lists can use `onDeny: 'filter'`, nullable fields can use
 `onDeny: 'null'`, and the default behavior is to throw `PERMISSION_DENIED`.
 
+### Authentication and policy inheritance
+
+GraphQL reuses the authentication runtime from `createAuthMiddleware`; it does
+not require a separate token verifier. Enable secure defaults for direct
+resolvers with `security.mode: 'inherit'`:
+
+```ts
+createServer({
+  middleware: [createAuthMiddleware({ strategies: [bearer] })],
+  policy: { defaultMode: 'deny', policies },
+  graphql: {
+    path: '/graphql',
+    security: { mode: 'inherit' },
+  },
+})
+
+graphqlResource({
+  name: 'Lead',
+  schema: LeadSchema,
+  queries: {
+    lead: {
+      // auth defaults to "required" in inherit mode
+      resolver: (_parent, args, ctx) => ctx.services.leads.get(args.id),
+      authz: {
+        action: 'lead.read',
+        resource: (lead) => ({ type: 'lead', id: lead.id }),
+      },
+    },
+    health: {
+      auth: 'none', // explicit public opt-out
+      resolver: () => ({ status: 'ok' }),
+    },
+  },
+})
+```
+
+Direct fields accept `auth: 'required' | 'optional' | 'none'`. In `inherit`
+mode, omitted `auth` means `required`; `none` is the explicit public marker.
+With a default-deny policy engine, Raffel fails startup when protected direct
+queries/relations have no `authorize` or `authz`, or when mutations and
+subscriptions have no pre-execution `authorize` gate. Authentication and
+policy failures inside generated field resolvers use normal GraphQL partial
+data semantics (HTTP 200 with field errors).
+
+`procedureRef` and `streamRef` are different: their complete Router pipeline
+already executes authentication, policies, validation, rate limits, and other
+interceptors. Do not add field-level `auth`; Raffel rejects that conflict so
+credentials are never verified twice.
+
+For a user-supplied schema, protect the complete operation before execution:
+
+```ts
+graphql: {
+  schema,
+  security: {
+    mode: 'inherit',
+    customSchema: {
+      auth: 'required',
+      authorize: ({ operationType, operationName }, ctx) => ({
+        action: `graphql.${operationType}`,
+        resource: { type: 'graphql-operation', id: operationName ?? 'anonymous' },
+      }),
+    },
+  },
+}
+```
+
+Custom-schema authentication/authorization failures happen before execution,
+so HTTP responses use 401/403. Each WebSocket `subscribe` message receives a
+fresh context and repeats these checks; principals are not shared between
+subscriptions on the same connection. `security.mode: 'router'` remains the
+1.x compatibility default and emits diagnostics for unannotated direct
+resolvers instead of changing their behavior.
+
 When the resource is loaded through FS discovery, co-located policy files are
 loaded too. Use `leads.graphql.policy.yaml` next to `leads.graphql.ts`, or an
 ancestor `_policy.yaml`, to provide the rules evaluated by `authorize`/`authz`.
@@ -232,3 +312,60 @@ Relations are explicit. Use `resolver` for custom logic, or `loader` +
 
 See [GraphQL Resource Discovery](/spec/graphql-resource-discovery.md) for the
 full architecture notes.
+
+## Explicit exposure and operation metadata
+
+Raffel 1.x keeps `exposure: 'all'` for compatibility. New services can opt in
+to a smaller public surface:
+
+```ts
+createServer({
+  graphql: { exposure: 'explicit', schemaValidation: 'error' },
+})
+
+server.procedure('users.get')
+  .graphql({
+    type: 'query',
+    field: 'user',
+    description: 'Load one user',
+    tags: ['users'],
+    cost: 2,
+  })
+```
+
+Streams support `.graphql()` in the same way and are exposed as subscriptions.
+Generated schema information includes stable field-to-handler maps and
+structured diagnostics. `schemaValidation: 'error'` fails startup when a
+resource references a missing procedure/stream or the final schema is invalid.
+
+## Reusing the Raffel execution pipeline
+
+Resource roots should normally use `procedureRef`; subscriptions should use
+`streamRef`. This preserves validation, interceptors, policies, cache, rate
+limits, providers, metrics, tracing, and cancellation:
+
+```ts
+graphqlResource({
+  name: 'User',
+  schema: UserSchema,
+  queries: { user: { procedureRef: 'users.get' } },
+  subscriptions: { userChanged: { streamRef: 'users.watch' } },
+  relations: {
+    manager: { type: 'User', procedureRef: 'users.getManager' },
+  },
+})
+```
+
+Root procedures receive the GraphQL arguments. Relation procedures receive
+`{ parent, args }`. Direct `resolver`/`subscribe` functions remain available
+as escape hatches and receive providers through `ctx.services`.
+
+## Persisted operations and generated artifacts
+
+`persistedOperations: true` enables APQ registration with SHA-256. The expanded
+form supports `mode: 'allow' | 'require'`, TTL/entry limits, or a custom async
+store. `require` acts as a safelist and never learns new documents at runtime.
+
+Use `exportGraphQLArtifacts({ schema, outDir, documents })` to write portable
+SDL, introspection JSON, a persisted-operation manifest, and a ready-to-edit
+GraphQL Code Generator `client` preset configuration without opening a port.

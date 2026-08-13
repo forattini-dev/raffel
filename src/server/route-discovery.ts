@@ -17,6 +17,7 @@ import type {
   DeliveryGuarantee,
   RetryPolicy,
   Context,
+  GraphQLMeta,
 } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
 import { createRouterModule } from './router-module.js'
@@ -34,12 +35,13 @@ export interface RouteDefinitionBase {
 export interface ProcedureRouteDefinition extends RouteDefinitionBase {
   kind: 'procedure'
   handler: ProcedureHandler
-  graphql?: { type: 'query' | 'mutation' }
+  graphql?: GraphQLMeta
 }
 
 export interface StreamRouteDefinition extends RouteDefinitionBase {
   kind: 'stream'
   handler: StreamHandler
+  graphql?: GraphQLMeta
 }
 
 export interface EventRouteDefinition extends RouteDefinitionBase {
@@ -189,7 +191,7 @@ function registerRoute(module: RouterModule, name: string, definition: RouteDefi
     if (schema?.input) builder.input(schema.input as z.ZodType)
     if (schema?.output) builder.output(schema.output as z.ZodType)
     if (definition.description) builder.description(definition.description)
-    if (definition.graphql) builder.graphql(definition.graphql.type)
+    if (definition.graphql) builder.graphql(definition.graphql)
     for (const interceptor of interceptors) builder.use(interceptor)
     // Cast needed because ProcedureHandler allows sync returns but builder expects Promise
     builder.handler(definition.handler as (input: unknown, ctx: Context) => Promise<unknown>)
@@ -202,6 +204,7 @@ function registerRoute(module: RouterModule, name: string, definition: RouteDefi
     if (schema?.input) builder.input(schema.input as z.ZodType)
     if (schema?.output) builder.output(schema.output as z.ZodType)
     if (definition.description) builder.description(definition.description)
+    if (definition.graphql) builder.graphql(definition.graphql)
     for (const interceptor of interceptors) builder.use(interceptor)
     // Cast needed because StreamHandler is a union type
     builder.handler(definition.handler as (input: unknown, ctx: Context) => AsyncIterable<unknown>)

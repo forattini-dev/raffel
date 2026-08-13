@@ -9,6 +9,8 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { WebSocketServer, WebSocket } from 'ws'
 import {
   graphql,
+  execute,
+  getOperationAST,
   parse,
   validate,
   subscribe,
@@ -18,6 +20,7 @@ import {
   type ExecutionResult,
   type DocumentNode,
   type FragmentDefinitionNode,
+  type FieldNode,
   type SelectionSetNode,
 } from 'graphql'
 import type { Router } from '../core/router.js'
@@ -33,7 +36,19 @@ import type {
   SubscriptionOptions,
 } from './types.js'
 import { generateGraphQLSchema } from './schema-generator.js'
-import { GRAPHQL_POLICY_BRIDGE_KEY } from './resource.js'
+import {
+  GRAPHQL_AUTHENTICATION_BRIDGE_KEY,
+  GRAPHQL_EXECUTION_BRIDGE_KEY,
+  GRAPHQL_POLICY_BRIDGE_KEY,
+  type GraphQLExecutionBridge,
+} from './resource.js'
+import type { AuthenticationRuntime } from '../middleware/auth.js'
+import {
+  createGraphQLAuthenticationBridge,
+  enforceCustomSchemaSecurity,
+  GraphQLAdapterError,
+  validateCustomSchemaSecurity,
+} from './security.js'
 import { createLogger } from '../utils/logger.js'
 import { sid } from '../utils/id/index.js'
 import {
@@ -50,20 +65,14 @@ import {
   type Codec,
 } from '../utils/content-codecs.js'
 import type { ClosableHttpServer } from '../types/server.js'
+import {
+  InMemoryPersistedOperationStore,
+  hashGraphQLDocument,
+  type PersistedOperationStore,
+} from './persisted-operations.js'
 
 const logger = createLogger('graphql-adapter')
 const CONNECTION_INIT_KEY = Symbol.for('raffel.connection_init')
-
-class GraphQLAdapterError extends Error {
-  code: string
-  status: number
-
-  constructor(code: string, status: number, message: string) {
-    super(message)
-    this.code = code
-    this.status = status
-  }
-}
 
 export interface GraphQLMiddleware {
   middleware: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>
@@ -79,6 +88,8 @@ export interface GraphQLMiddlewareOptions {
   config: GraphQLAdapterOptions['config']
   graphqlResources?: GraphQLAdapterOptions['graphqlResources']
   policyBridge?: GraphQLAdapterOptions['policyBridge']
+  providers?: GraphQLAdapterOptions['providers']
+  authenticationRuntime?: GraphQLAdapterOptions['authenticationRuntime']
 }
 
 // === GraphiQL HTML ===
@@ -110,9 +121,10 @@ function getGraphiQLHTML(endpoint: string): string {
 // === Request Parsing ===
 
 interface GraphQLRequest {
-  query: string
+  query?: string
   operationName?: string
   variables?: Record<string, unknown>
+  extensions?: Record<string, unknown>
 }
 
 async function parseGraphQLRequest(
@@ -147,6 +159,7 @@ async function parseGraphQLRequest(
           query: parsed.query,
           operationName: parsed.operationName,
           variables: parsed.variables,
+          extensions: parsed.extensions,
         })
       } catch (err) {
         reject(new GraphQLAdapterError('PARSE_ERROR', 400, 'Invalid request body'))
@@ -154,6 +167,76 @@ async function parseGraphQLRequest(
     })
     req.on('error', reject)
   })
+}
+
+function parseGraphQLGetRequest(url: URL): GraphQLRequest {
+  const parseObject = (name: string): Record<string, unknown> | undefined => {
+    const value = url.searchParams.get(name)
+    if (!value) return undefined
+    try {
+      const parsed = JSON.parse(value)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error()
+      return parsed as Record<string, unknown>
+    } catch {
+      throw new GraphQLAdapterError('PARSE_ERROR', 400, `Invalid ${name}`)
+    }
+  }
+  return {
+    query: url.searchParams.get('query') ?? undefined,
+    operationName: url.searchParams.get('operationName') ?? undefined,
+    variables: parseObject('variables'),
+    extensions: parseObject('extensions'),
+  }
+}
+
+interface PersistedQueryExtension {
+  version: number
+  sha256Hash: string
+}
+
+function getPersistedQueryExtension(request: GraphQLRequest): PersistedQueryExtension | undefined {
+  const value = request.extensions?.persistedQuery
+  if (!value || typeof value !== 'object') return undefined
+  const extension = value as Partial<PersistedQueryExtension>
+  if (extension.version !== 1 || typeof extension.sha256Hash !== 'string') {
+    throw new GraphQLAdapterError('PERSISTED_QUERY_INVALID', 400, 'Invalid persisted query extension')
+  }
+  return { version: 1, sha256Hash: extension.sha256Hash }
+}
+
+async function resolvePersistedOperation(
+  request: GraphQLRequest,
+  mode: 'disabled' | 'allow' | 'require',
+  store: PersistedOperationStore,
+  schema: GraphQLSchema,
+  ttlMs: number
+): Promise<GraphQLRequest> {
+  const persisted = getPersistedQueryExtension(request)
+  if (mode === 'disabled') {
+    if (!request.query) throw new GraphQLAdapterError('INVALID_ARGUMENT', 400, 'GraphQL query is required')
+    return request
+  }
+  if (!persisted) {
+    if (mode === 'require') throw new GraphQLAdapterError('PERSISTED_QUERY_REQUIRED', 400, 'Persisted query is required')
+    if (!request.query) throw new GraphQLAdapterError('INVALID_ARGUMENT', 400, 'GraphQL query is required')
+    return request
+  }
+  if (!request.query) {
+    const query = await store.get(persisted.sha256Hash)
+    if (!query) throw new GraphQLAdapterError('PERSISTED_QUERY_NOT_FOUND', 200, 'PersistedQueryNotFound')
+    return { ...request, query }
+  }
+  if (hashGraphQLDocument(request.query) !== persisted.sha256Hash) {
+    throw new GraphQLAdapterError('PERSISTED_QUERY_HASH_MISMATCH', 400, 'Persisted query hash does not match query')
+  }
+  if (mode === 'require' && !await store.get(persisted.sha256Hash)) {
+    throw new GraphQLAdapterError('PERSISTED_QUERY_NOT_FOUND', 200, 'PersistedQueryNotFound')
+  }
+  let document: DocumentNode
+  try { document = parse(request.query) } catch { throw new GraphQLAdapterError('GRAPHQL_PARSE_FAILED', 400, 'Invalid GraphQL document') }
+  if (validate(schema, document).length > 0) throw new GraphQLAdapterError('GRAPHQL_VALIDATION_FAILED', 422, 'Invalid GraphQL document')
+  if (mode === 'allow') await store.set(persisted.sha256Hash, request.query, ttlMs)
+  return request
 }
 
 function requestHasBody(req: IncomingMessage): boolean {
@@ -183,13 +266,40 @@ function createErrorResult(code: string, message: string): ExecutionResult {
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function formatExecutionResult(
+  result: ExecutionResult,
+  config: GraphQLOptions,
+  requestId: string
+): ExecutionResult {
+  if (!result.errors?.length) return result
+  const mask = config.errorMasking ?? process.env.NODE_ENV === 'production'
+  return {
+    ...result,
+    errors: result.errors.map((error) => {
+      if (config.formatError) return config.formatError(error) as GraphQLError
+      const safeCode = typeof error.extensions?.code === 'string' ? error.extensions.code : undefined
+      if (mask && error.originalError && !safeCode) {
+        return new GraphQLError('Internal server error', {
+          path: error.path,
+          extensions: { code: 'INTERNAL', requestId },
+        })
+      }
+      return new GraphQLError(error.message, {
+        path: error.path,
+        extensions: { ...error.extensions, requestId },
+      })
+    }),
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout?: () => void): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) {
     return promise
   }
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      onTimeout?.()
       reject(new GraphQLAdapterError('DEADLINE_EXCEEDED', 408, 'Request deadline exceeded'))
     }, timeoutMs)
 
@@ -348,36 +458,62 @@ function createRootValue(
   const root: Record<string, unknown> = {}
 
   // Map queries
-  for (const queryName of schemaInfo.queries) {
+  for (const [graphqlField, queryName] of Object.entries(schemaInfo.fields.queries)) {
     if (queryName === '_health') {
-      root[fieldName(queryName)] = () => true
+      root[graphqlField] = () => true
       continue
     }
-    root[fieldName(queryName)] = (args: Record<string, unknown>) =>
+    root[graphqlField] = (args: Record<string, unknown>) =>
       executeProcedure(router, queryName, args, ctx, metadata)
   }
 
   // Map mutations
-  for (const mutationName of schemaInfo.mutations) {
+  for (const [graphqlField, mutationName] of Object.entries(schemaInfo.fields.mutations)) {
     // Check if it's a procedure or event
     const procedure = registry.getProcedure(mutationName)
     if (procedure) {
-      root[fieldName(mutationName)] = (args: Record<string, unknown>) =>
+      root[graphqlField] = (args: Record<string, unknown>) =>
         executeProcedure(router, mutationName, args, ctx, metadata)
     } else {
       // It's an event
-      root[fieldName(mutationName)] = (args: Record<string, unknown>) =>
+      root[graphqlField] = (args: Record<string, unknown>) =>
         emitEvent(router, mutationName, args, ctx, metadata)
     }
   }
 
   // Map subscriptions (return async iterators)
-  for (const subscriptionName of schemaInfo.subscriptions) {
-    root[fieldName(subscriptionName)] = (args: Record<string, unknown>) =>
+  for (const [graphqlField, subscriptionName] of Object.entries(schemaInfo.fields.subscriptions)) {
+    root[graphqlField] = (args: Record<string, unknown>) =>
       executeStream(router, subscriptionName, args, ctx, metadata)
   }
 
   return root
+}
+
+function attachGraphQLRuntimeContext(
+  ctx: Context,
+  router: Router,
+  metadata: Record<string, string>,
+  providers: Readonly<Record<string, unknown>> | undefined,
+  policyBridge: GraphQLAdapterOptions['policyBridge'] | undefined,
+  authenticationRuntime: AuthenticationRuntime | undefined,
+  securityMode: 'router' | 'inherit',
+): void {
+  if (providers) {
+    ctx.services = Object.freeze({ ...ctx.services, ...providers })
+  }
+  if (policyBridge) ctx.extensions.set(GRAPHQL_POLICY_BRIDGE_KEY, policyBridge)
+  const authenticationBridge = createGraphQLAuthenticationBridge(
+    authenticationRuntime,
+    securityMode,
+    metadata,
+  )
+  ctx.extensions.set(GRAPHQL_AUTHENTICATION_BRIDGE_KEY, authenticationBridge)
+  const bridge: GraphQLExecutionBridge = {
+    executeProcedure: (name, input, operationCtx) => executeProcedure(router, name, input, operationCtx, metadata),
+    executeStream: (name, input, operationCtx) => executeStream(router, name, input, operationCtx, metadata),
+  }
+  ctx.extensions.set(GRAPHQL_EXECUTION_BRIDGE_KEY, bridge)
 }
 
 interface GraphQLHandlers {
@@ -387,34 +523,86 @@ interface GraphQLHandlers {
   createSubscriptionServer: (server: Server) => WebSocketServer | null
 }
 
+interface CachedGraphQLDocument {
+  document: DocumentNode
+  validationErrors: readonly GraphQLError[]
+}
+
+function getCachedGraphQLDocument(
+  schema: GraphQLSchema,
+  query: string,
+  cache: Map<string, CachedGraphQLDocument>
+): CachedGraphQLDocument {
+  const key = hashGraphQLDocument(query)
+  const cached = cache.get(key)
+  if (cached) {
+    cache.delete(key)
+    cache.set(key, cached)
+    return cached
+  }
+  const document = parse(query)
+  const entry = { document, validationErrors: validate(schema, document) }
+  cache.set(key, entry)
+  if (cache.size > 1000) {
+    const oldest = cache.keys().next().value as string | undefined
+    if (oldest) cache.delete(oldest)
+  }
+  return entry
+}
+
 function createGraphQLHandlers(
   router: Router,
   registry: Registry,
   schemaRegistry: SchemaRegistry,
   config: GraphQLAdapterOptions['config'],
   graphqlResources: GraphQLAdapterOptions['graphqlResources'] = [],
-  policyBridge?: GraphQLAdapterOptions['policyBridge']
+  policyBridge?: GraphQLAdapterOptions['policyBridge'],
+  providers?: GraphQLAdapterOptions['providers'],
+  authenticationRuntime?: GraphQLAdapterOptions['authenticationRuntime'],
 ): GraphQLHandlers {
   let schema: GraphQLSchema
   let schemaInfo: GeneratedSchemaInfo | null = null
 
   // Generate or use provided schema
   if (config.schema) {
+    const warning = validateCustomSchemaSecurity(config, authenticationRuntime, policyBridge)
+    if (warning) logger.warn(warning)
     schema = config.schema
   } else if (config.generateSchema !== false) {
     const generated = generateGraphQLSchema({
       registry,
       schemaRegistry,
       graphqlResources,
-      options: config.schemaOptions,
+      options: { ...config.schemaOptions, exposure: config.exposure ?? config.schemaOptions?.exposure },
+      schemaValidation: config.schemaValidation,
+      security: config.security,
+      authenticationAvailable: Boolean(authenticationRuntime),
+      policyDefaultMode: policyBridge?.defaultMode,
     })
     schema = generated.schema
     schemaInfo = generated
+    if ((config.exposure ?? config.schemaOptions?.exposure ?? 'all') === 'all' && process.env.NODE_ENV === 'production') {
+      logger.warn('GraphQL exposure defaults to all registered handlers in Raffel 1.x; prefer exposure: explicit')
+    }
   } else {
     throw new Error('GraphQL adapter requires either a schema or generateSchema: true')
   }
 
   const codecs = resolveCodecs(config.codecs)
+  const documentCache = new Map<string, CachedGraphQLDocument>()
+  const persistedOptions = typeof config.persistedOperations === 'object'
+    ? config.persistedOperations
+    : {}
+  const persistedMode = config.persistedOperations === true
+    ? 'allow'
+    : config.persistedOperations === false || config.persistedOperations === undefined
+      ? 'disabled'
+      : persistedOptions.mode ?? 'allow'
+  const persistedStore = persistedOptions.store ?? new InMemoryPersistedOperationStore(
+    persistedOptions.maxEntries,
+    persistedOptions.ttlMs
+  )
+  const persistedTtlMs = persistedOptions.ttlMs ?? 60 * 60 * 1000
 
   const handleRequest = async (
     req: IncomingMessage,
@@ -457,9 +645,12 @@ function createGraphQLHandlers(
       res.end(JSON.stringify(createErrorResult('NOT_ACCEPTABLE', 'Not acceptable')))
       return
     }
+    const responseContentType = acceptHeader?.includes('application/graphql-response+json')
+      ? 'application/graphql-response+json; charset=utf-8'
+      : responseCodec.contentTypes[0] ?? 'application/json'
 
-    // Handle GraphQL POST
-    if (req.method !== 'POST') {
+    // Handle GraphQL POST and idempotent GET queries
+    if (req.method !== 'POST' && req.method !== 'GET') {
       res.writeHead(405, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Method not allowed' }))
       return
@@ -467,29 +658,47 @@ function createGraphQLHandlers(
 
     const timeoutMs = config.timeout ?? 0
     const maxBodySize = config.maxBodySize ?? 1024 * 1024
+    const abortController = new AbortController()
+    const abortRequest = () => abortController.abort(new Error('GraphQL client disconnected'))
+    req.once('aborted', abortRequest)
+    res.once('close', () => {
+      if (!res.writableEnded) abortRequest()
+    })
 
     try {
       const result = await withTimeout((async () => {
-        const contentType = typeof req.headers['content-type'] === 'string'
-          ? req.headers['content-type']
-          : undefined
-        let requestCodec = jsonCodec
-        if (contentType) {
-          const selected = selectCodecForContentType(contentType, codecs)
-          if (!selected || selected.name === 'csv') {
+        let gqlRequest: GraphQLRequest
+        if (req.method === 'GET') {
+          gqlRequest = parseGraphQLGetRequest(url)
+        } else {
+          const contentType = typeof req.headers['content-type'] === 'string'
+            ? req.headers['content-type']
+            : undefined
+          let requestCodec = jsonCodec
+          if (contentType) {
+            const selected = selectCodecForContentType(contentType, codecs)
+            if (!selected || selected.name === 'csv') {
+              throw new GraphQLAdapterError('UNSUPPORTED_MEDIA_TYPE', 415, 'Unsupported media type')
+            }
+            requestCodec = selected
+          } else if (requestHasBody(req)) {
             throw new GraphQLAdapterError('UNSUPPORTED_MEDIA_TYPE', 415, 'Unsupported media type')
           }
-          requestCodec = selected
-        } else if (requestHasBody(req)) {
-          throw new GraphQLAdapterError('UNSUPPORTED_MEDIA_TYPE', 415, 'Unsupported media type')
+          gqlRequest = await parseGraphQLRequest(req, maxBodySize, requestCodec)
         }
-
-        const gqlRequest = await parseGraphQLRequest(req, maxBodySize, requestCodec)
+        gqlRequest = await resolvePersistedOperation(
+          gqlRequest,
+          persistedMode,
+          persistedStore,
+          schema,
+          persistedTtlMs
+        )
 
         const metadata = extractMetadataFromHeaders(req.headers)
 
         // Create context
         const ctx = createContext(sid(), {
+          signal: abortController.signal,
           protocol: 'graphql',
           input: {
             body: gqlRequest.variables ?? {},
@@ -500,9 +709,15 @@ function createGraphQLHandlers(
             operationName: gqlRequest.operationName,
           },
         })
-        if (policyBridge) {
-          ctx.extensions.set(GRAPHQL_POLICY_BRIDGE_KEY, policyBridge)
-        }
+        attachGraphQLRuntimeContext(
+          ctx,
+          router,
+          metadata,
+          providers,
+          policyBridge,
+          authenticationRuntime,
+          config.security?.mode ?? 'router',
+        )
         if (timeoutMs > 0) {
           ctx.deadline = Date.now() + timeoutMs
         }
@@ -523,7 +738,7 @@ function createGraphQLHandlers(
         }
 
         // Execute GraphQL
-        return executeGraphQL(
+        const executionResult = await executeGraphQL(
           schema,
           gqlRequest,
           router,
@@ -533,20 +748,23 @@ function createGraphQLHandlers(
           metadata,
           config.introspection !== false,
           config,
+          req.method ?? 'POST',
+          documentCache,
         )
-      })(), timeoutMs)
+        return formatExecutionResult(executionResult, config, ctx.requestId)
+      })(), timeoutMs, () => abortController.abort(new Error('GraphQL request deadline exceeded')))
 
-      res.writeHead(200, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
+      res.writeHead(200, { 'Content-Type': responseContentType })
       res.end(responseCodec.encode(result))
     } catch (err) {
       if (err instanceof GraphQLAdapterError) {
-        res.writeHead(err.status, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
+        res.writeHead(err.status, { 'Content-Type': responseContentType })
         res.end(responseCodec.encode(createErrorResult(err.code, err.message)))
         return
       }
 
       logger.error({ err }, 'GraphQL execution error')
-      res.writeHead(500, { 'Content-Type': responseCodec.contentTypes[0] ?? 'application/json' })
+      res.writeHead(500, { 'Content-Type': responseContentType })
       res.end(responseCodec.encode({
         errors: [{ message: 'Internal server error' }],
       }))
@@ -554,7 +772,7 @@ function createGraphQLHandlers(
   }
 
   const createSubscriptionServer = (server: Server): WebSocketServer | null => {
-    if (config.subscriptions === false || !schemaInfo?.subscriptions.length) {
+    if (config.subscriptions === false || !schema.getSubscriptionType()) {
       return null
     }
 
@@ -580,10 +798,16 @@ function createGraphQLHandlers(
         schema,
         router,
         registry,
-        schemaInfo!,
+        schemaInfo,
         subscriptionOptions,
         config,
-        policyBridge
+        policyBridge,
+        providers,
+        authenticationRuntime,
+        documentCache,
+        persistedMode,
+        persistedStore,
+        persistedTtlMs
       )
     })
 
@@ -594,18 +818,21 @@ function createGraphQLHandlers(
   return { schema, schemaInfo, handleRequest, createSubscriptionServer }
 }
 
-function fieldName(handlerName: string): string {
-  // Convert 'users.get' to 'usersGet'
-  const parts = handlerName.split(/[.\-_]/)
-  return parts
-    .map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
-    .join('')
-}
-
 // === Adapter Implementation ===
 
 export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAdapter {
-  const { router, registry, schemaRegistry, config, host, port, graphqlResources, policyBridge } = options
+  const {
+    router,
+    registry,
+    schemaRegistry,
+    config,
+    host,
+    port,
+    graphqlResources,
+    policyBridge,
+    providers,
+    authenticationRuntime,
+  } = options
 
   let server: Server | null = null
   let wss: WebSocketServer | null = null
@@ -617,7 +844,9 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
     schemaRegistry,
     config,
     graphqlResources,
-    policyBridge
+    policyBridge,
+    providers,
+    authenticationRuntime,
   )
 
   return {
@@ -682,14 +911,25 @@ export function createGraphQLAdapter(options: GraphQLAdapterOptions): GraphQLAda
 }
 
 export function createGraphQLMiddleware(options: GraphQLMiddlewareOptions): GraphQLMiddleware {
-  const { router, registry, schemaRegistry, config, graphqlResources, policyBridge } = options
+  const {
+    router,
+    registry,
+    schemaRegistry,
+    config,
+    graphqlResources,
+    policyBridge,
+    providers,
+    authenticationRuntime,
+  } = options
   const { schema, schemaInfo, handleRequest, createSubscriptionServer } = createGraphQLHandlers(
     router,
     registry,
     schemaRegistry,
     config,
     graphqlResources,
-    policyBridge
+    policyBridge,
+    providers,
+    authenticationRuntime,
   )
 
   const middleware = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
@@ -730,27 +970,38 @@ async function executeGraphQL(
   ctx: Context,
   metadata: Record<string, string>,
   introspection: boolean,
-  limits: Pick<GraphQLOptions, 'maxQueryDepth' | 'maxQueryComplexity' | 'maxAliases'>,
+  config: GraphQLOptions,
+  method: string = 'POST',
+  documentCache: Map<string, CachedGraphQLDocument> = new Map(),
 ): Promise<ExecutionResult> {
   const { query, operationName, variables } = request
+  if (!query) return createErrorResult('INVALID_ARGUMENT', 'GraphQL query is required')
 
   // Parse document
   let document: DocumentNode
+  let validationErrors: readonly GraphQLError[]
   try {
-    document = parse(query)
+    const cached = getCachedGraphQLDocument(schema, query, documentCache)
+    document = cached.document
+    validationErrors = cached.validationErrors
   } catch (err) {
     return {
       errors: [{ message: `Syntax error: ${(err as Error).message}` } as any],
     }
   }
 
-  const limitError = validateDocumentLimits(document, limits)
+  const limitError = validateDocumentLimits(document, config, schema, operationName, variables)
   if (limitError) return { errors: [limitError] }
 
+  const operation = getOperationAST(document, operationName)
+  if (!operation) return createErrorResult('INVALID_ARGUMENT', 'Operation could not be determined')
+  if (method === 'GET' && operation.operation !== 'query') {
+    throw new GraphQLAdapterError('METHOD_NOT_ALLOWED', 405, 'GET may only execute GraphQL queries')
+  }
+
   // Validate
-  const validationErrors = validate(schema, document)
   if (validationErrors.length > 0) {
-    return { errors: validationErrors }
+    return { errors: [...validationErrors] }
   }
 
   // Check introspection
@@ -763,20 +1014,31 @@ async function executeGraphQL(
     }
   }
 
+  if (!schemaInfo) {
+    await enforceCustomSchemaSecurity(config, ctx, operation, variables)
+  }
+
   // Create root value with resolvers
   const rootValue = schemaInfo
     ? createRootValue(router, registry, schemaInfo, ctx, metadata)
     : {}
 
   // Execute
-  return graphql({
-    schema,
-    source: query,
-    rootValue,
-    contextValue: ctx,
-    variableValues: variables,
-    operationName,
-  })
+  return ctx.tracing.trace(
+    'raffel.graphql.operation',
+    {
+      'graphql.operation.type': operation.operation,
+      'graphql.operation.name': operation.name?.value ?? 'anonymous',
+    },
+    () => execute({
+      schema,
+      document,
+      rootValue,
+      contextValue: ctx,
+      variableValues: variables,
+      operationName,
+    })
+  )
 }
 
 // === WebSocket Subscriptions ===
@@ -787,12 +1049,18 @@ function handleSubscriptionConnection(
   schema: GraphQLSchema,
   router: Router,
   registry: Registry,
-  schemaInfo: GeneratedSchemaInfo,
+  schemaInfo: GeneratedSchemaInfo | null,
   options: SubscriptionOptions,
-  limits: Pick<GraphQLOptions, 'maxQueryDepth' | 'maxQueryComplexity' | 'maxAliases'>,
-  policyBridge?: GraphQLAdapterOptions['policyBridge']
+  config: GraphQLOptions,
+  policyBridge?: GraphQLAdapterOptions['policyBridge'],
+  providers?: GraphQLAdapterOptions['providers'],
+  authenticationRuntime?: GraphQLAdapterOptions['authenticationRuntime'],
+  documentCache: Map<string, CachedGraphQLDocument> = new Map(),
+  persistedMode: 'disabled' | 'allow' | 'require' = 'disabled',
+  persistedStore: PersistedOperationStore = new InMemoryPersistedOperationStore(),
+  persistedTtlMs = 60 * 60 * 1000
 ): void {
-  const subscriptions = new Map<string, AsyncIterator<unknown>>()
+  const subscriptions = new Map<string, { iterator: AsyncIterator<unknown>; controller: AbortController }>()
   const connectionMetadata = extractMetadataFromHeaders(req.headers)
   let connectionInitPayload: unknown = undefined
   const keepAliveInterval = options.keepAliveInterval
@@ -809,8 +1077,9 @@ function handleSubscriptionConnection(
   }, options.connectionInitTimeout ?? 5000)
 
   ws.on('message', async (data) => {
+    let message: { id?: string; type?: string; payload?: unknown } = {}
     try {
-      const message = JSON.parse(data.toString())
+      message = JSON.parse(data.toString())
 
       switch (message.type) {
         case 'connection_init': {
@@ -830,6 +1099,10 @@ function handleSubscriptionConnection(
             ws.close(4401, 'Unauthorized')
             return
           }
+          if (typeof message.id !== 'string' || !message.id) {
+            ws.close(4400, 'Subscribe message requires an ID')
+            return
+          }
           if (subscriptions.size >= (options.maxSubscriptionsPerConnection ?? 100)) {
             ws.send(JSON.stringify({
               id: message.id,
@@ -843,7 +1116,16 @@ function handleSubscriptionConnection(
             return
           }
           const { id, payload } = message
-          const { query, operationName, variables } = payload
+          const operationRequest = await resolvePersistedOperation(
+            payload as GraphQLRequest,
+            persistedMode,
+            persistedStore,
+            schema,
+            persistedTtlMs
+          )
+          const { query, operationName, variables } = operationRequest
+          if (!query) throw new GraphQLAdapterError('INVALID_ARGUMENT', 400, 'GraphQL query is required')
+          const operationController = new AbortController()
 
           const metadata = mergeMetadata(
             connectionMetadata,
@@ -852,6 +1134,7 @@ function handleSubscriptionConnection(
             extractMetadataFromRecord((connectionInitPayload as { metadata?: unknown })?.metadata)
           )
           const ctx = createContext(sid(), {
+            signal: operationController.signal,
             protocol: 'graphql',
             input: {
               metadata,
@@ -862,25 +1145,53 @@ function handleSubscriptionConnection(
               operationName,
             },
           })
-          if (policyBridge) {
-            ctx.extensions.set(GRAPHQL_POLICY_BRIDGE_KEY, policyBridge)
-          }
+          attachGraphQLRuntimeContext(
+            ctx,
+            router,
+            metadata,
+            providers,
+            policyBridge,
+            authenticationRuntime,
+            config.security?.mode ?? 'router',
+          )
           if (connectionInitPayload !== undefined) {
             ctx.extensions.set(CONNECTION_INIT_KEY, connectionInitPayload)
           }
 
-          const document = parse(query)
-          const limitError = validateDocumentLimits(document, limits)
+          if (config.context) {
+            const customContext = await config.context({
+              method: 'WS',
+              url: req.url ?? config.path ?? '/graphql',
+              headers: req.headers as Record<string, string | string[] | undefined>,
+            })
+            for (const [key, value] of Object.entries(customContext ?? {})) {
+              ctx.extensions.set(Symbol.for(key), value)
+            }
+          }
+
+          const { document, validationErrors } = getCachedGraphQLDocument(schema, query, documentCache)
+          const limitError = validateDocumentLimits(document, config, schema, operationName, variables)
           if (limitError) {
             ws.send(JSON.stringify({ id, type: 'error', payload: [limitError] }))
             return
           }
-          const validationErrors = validate(schema, document)
-          if (validationErrors.length > 0) {
-            ws.send(JSON.stringify({ id, type: 'error', payload: validationErrors }))
+          const operation = getOperationAST(document, operationName)
+          if (!operation || operation.operation !== 'subscription') {
+            ws.send(JSON.stringify({
+              id,
+              type: 'error',
+              payload: [createGraphQLError('INVALID_ARGUMENT', 'WebSocket subscribe requires a subscription operation')],
+            }))
             return
           }
-          const rootValue = createRootValue(router, registry, schemaInfo, ctx, metadata)
+          if (validationErrors.length > 0) {
+            ws.send(JSON.stringify({ id, type: 'error', payload: [...validationErrors] }))
+            return
+          }
+          if (!schemaInfo) {
+            await enforceCustomSchemaSecurity(config, ctx, operation, variables)
+          }
+          const rootValue = schemaInfo ? createRootValue(router, registry, schemaInfo, ctx, metadata) : {}
 
           const result = await subscribe({
             schema,
@@ -900,13 +1211,17 @@ function handleSubscriptionConnection(
             return
           }
 
-          subscriptions.set(id, result as AsyncIterator<unknown>)
+          subscriptions.set(id, { iterator: result as AsyncIterator<unknown>, controller: operationController })
 
           // Stream results
           ;(async () => {
             try {
               for await (const value of result as AsyncIterable<ExecutionResult>) {
                 if (ws.readyState !== WebSocket.OPEN) break
+                if (ws.bufferedAmount > (options.maxBufferedAmount ?? 1024 * 1024)) {
+                  ws.close(1013, 'Slow GraphQL subscription consumer')
+                  break
+                }
                 try {
                   ws.send(JSON.stringify({
                     id,
@@ -933,6 +1248,7 @@ function handleSubscriptionConnection(
                 // Socket already closed, ignore
               }
             } finally {
+              operationController.abort(new Error('GraphQL subscription completed'))
               subscriptions.delete(id)
             }
           })()
@@ -941,9 +1257,11 @@ function handleSubscriptionConnection(
 
         case 'complete': {
           const { id } = message
-          const iterator = subscriptions.get(id)
-          if (iterator?.return) {
-            iterator.return(undefined)
+          if (typeof id !== 'string') return
+          const subscription = subscriptions.get(id)
+          subscription?.controller.abort(new Error('GraphQL subscription cancelled'))
+          if (subscription?.iterator.return) {
+            subscription.iterator.return(undefined)
           }
           subscriptions.delete(id)
           break
@@ -956,6 +1274,12 @@ function handleSubscriptionConnection(
       }
     } catch (err) {
       logger.error({ err }, 'WebSocket message error')
+      if (message.id && ws.readyState === WebSocket.OPEN) {
+        const error = err instanceof GraphQLAdapterError
+          ? createGraphQLError(err.code, err.message)
+          : createGraphQLError('INTERNAL', 'Internal server error')
+        ws.send(JSON.stringify({ id: message.id, type: 'error', payload: [error] }))
+      }
     }
   })
 
@@ -965,9 +1289,10 @@ function handleSubscriptionConnection(
       clearInterval(pingTimer)
     }
     // Clean up all subscriptions
-    for (const [_id, iterator] of subscriptions) {
-      if (iterator?.return) {
-        iterator.return(undefined)
+    for (const [_id, subscription] of subscriptions) {
+      subscription.controller.abort(new Error('GraphQL connection closed'))
+      if (subscription.iterator.return) {
+        subscription.iterator.return(undefined)
       }
     }
     subscriptions.clear()
@@ -977,6 +1302,9 @@ function handleSubscriptionConnection(
 function validateDocumentLimits(
   document: DocumentNode,
   options: Pick<GraphQLOptions, 'maxQueryDepth' | 'maxQueryComplexity' | 'maxAliases'>,
+  schema?: GraphQLSchema,
+  operationName?: string,
+  variables?: Record<string, unknown>,
 ): GraphQLError | null {
   const fragments = new Map<string, FragmentDefinitionNode>()
   for (const definition of document.definitions) {
@@ -988,10 +1316,33 @@ function validateDocumentLimits(
   let aliases = 0
   let complexity = 0
   let maxDepth = 0
+  const fieldCosts = new Map<string, number>()
+  for (const type of Object.values(schema?.getTypeMap() ?? {})) {
+    if (!('getFields' in type) || typeof type.getFields !== 'function') continue
+    for (const [name, field] of Object.entries(type.getFields())) {
+      const configured = (field.extensions?.raffel as { cost?: unknown } | undefined)?.cost
+      const cost = typeof configured === 'number' && Number.isFinite(configured) && configured >= 0
+        ? configured
+        : 1
+      fieldCosts.set(name, Math.max(fieldCosts.get(name) ?? 1, cost))
+    }
+  }
+  const paginationMultiplier = (field: FieldNode): number => {
+    for (const arg of field.arguments ?? []) {
+      if (arg.name.value !== 'first' && arg.name.value !== 'limit') continue
+      const raw = arg.value.kind === Kind.INT
+        ? Number.parseInt(arg.value.value, 10)
+        : arg.value.kind === Kind.VARIABLE
+          ? variables?.[arg.value.name.value]
+          : undefined
+      if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(1, Math.min(100, Math.floor(raw)))
+    }
+    return 1
+  }
   const walk = (selectionSet: SelectionSetNode, depth: number, fragmentStack: Set<string>): void => {
     for (const selection of selectionSet.selections) {
       if (selection.kind === Kind.FIELD) {
-        complexity++
+        complexity += (fieldCosts.get(selection.name.value) ?? 1) * paginationMultiplier(selection)
         if (selection.alias) aliases++
         maxDepth = Math.max(maxDepth, depth)
         if (selection.selectionSet) walk(selection.selectionSet, depth + 1, fragmentStack)
@@ -1011,6 +1362,7 @@ function validateDocumentLimits(
   }
   for (const definition of document.definitions) {
     if (definition.kind === Kind.OPERATION_DEFINITION) {
+      if (operationName && definition.name?.value !== operationName) continue
       walk(definition.selectionSet, 1, new Set())
     }
   }
