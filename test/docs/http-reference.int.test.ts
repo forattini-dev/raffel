@@ -106,7 +106,7 @@ describe('HTTP reference documentation', () => {
     expect(bodyPaths).toEqual(sidebarPaths)
   })
 
-  it('renders compact contract rows with requiredness, examples, rich descriptions, and collapsed nesting', () => {
+  it('renders compact contract rows with requiredness, examples, rich descriptions, and collapsible nesting', () => {
     const win = createReference({
       openapi: '3.1.0',
       info: { title: 'Clients API', version: '1.0.0' },
@@ -164,11 +164,73 @@ describe('HTTP reference documentation', () => {
     const settingsRow = settingsName.closest('.schema-tree-row')
     const toggle = settingsRow.querySelector('.schema-tree-toggle')
     const children = settingsRow.nextElementSibling
-    expect(children.classList.contains('collapsed')).toBe(true)
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    toggle.click()
     expect(children.classList.contains('collapsed')).toBe(false)
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    toggle.click()
+    expect(children.classList.contains('collapsed')).toBe(true)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('expands the first three nested response schema levels by default', () => {
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Identity API', version: '1.0.0' },
+      paths: {
+        '/legal-entities': {
+          get: {
+            responses: {
+              '200': {
+                description: 'Legal entities',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        legalEntities: {
+                          type: 'array',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              provenance: {
+                                type: 'object',
+                                properties: {
+                                  sourceSummary: {
+                                    type: 'object',
+                                    properties: {
+                                      details: {
+                                        type: 'object',
+                                        properties: { state: { type: 'string' } },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const main = win.document.getElementById('mainContent')
+    const childrenFor = (name: string): any => {
+      const nameElement = [...main.querySelectorAll('.schema-tree-name')]
+        .find((element: any) => element.textContent === name) as any
+      return nameElement.closest('.schema-tree-row').nextElementSibling
+    }
+
+    expect(childrenFor('legalEntities').classList.contains('collapsed')).toBe(false)
+    expect(childrenFor('provenance').classList.contains('collapsed')).toBe(false)
+    expect(childrenFor('sourceSummary').classList.contains('collapsed')).toBe(false)
+    expect(childrenFor('details').classList.contains('collapsed')).toBe(true)
+    expect(main.textContent).toContain('state')
   })
 
   it('renders a referenced error schema instead of its JSON pointer', () => {
