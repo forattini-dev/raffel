@@ -12,10 +12,12 @@ export interface SseStreamWriterOptions {
 }
 
 function writeEnvelope(write: (chunk: string) => void, envelope: Envelope): void {
-  let eventType = 'message'
-  if (envelope.type === 'stream:data') eventType = 'data'
-  else if (envelope.type === 'stream:end') eventType = 'end'
-  else if (envelope.type === 'stream:error') eventType = 'error'
+  let eventType = envelope.metadata['x-raffel-stream-event'] ?? 'message'
+  if (!envelope.metadata['x-raffel-stream-event']) {
+    if (envelope.type === 'stream:data') eventType = 'data'
+    else if (envelope.type === 'stream:end') eventType = 'end'
+    else if (envelope.type === 'stream:error') eventType = 'error'
+  }
 
   write(`event: ${eventType}\n`)
   const cursor = envelope.metadata['x-raffel-stream-cursor']

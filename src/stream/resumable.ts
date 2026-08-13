@@ -50,11 +50,23 @@ async function* ensureRecords<TData>(
     if (!record || typeof record.cursor !== 'string' || !('data' in record)) {
       throw new TypeError('Durable Stream Source must emit StreamRecord { cursor, data } values')
     }
-    if (record.cursor.length === 0 || /[\0\r\n]/u.test(record.cursor)) {
-      throw new TypeError('Stream Record cursor must be safe for SSE framing')
-    }
+    assertSseSafeCursor(record.cursor)
     yield record
   }
+}
+
+function assertSseSafeCursor(cursor: string): void {
+  if (cursor.length === 0 || /[\0\r\n]/u.test(cursor)) {
+    throw new TypeError('Stream Record cursor must be safe for SSE framing')
+  }
+}
+
+function ensureSnapshot<TState>(snapshot: StreamSnapshot<TState>): StreamSnapshot<TState> {
+  if (!snapshot || typeof snapshot.cursor !== 'string' || !('data' in snapshot)) {
+    throw new TypeError('Replay Provider must return StreamSnapshot { cursor, data }')
+  }
+  assertSseSafeCursor(snapshot.cursor)
+  return snapshot
 }
 
 /** Build the synthetic handler used by a Source-Backed Resumable Stream. */
@@ -74,7 +86,7 @@ export function createSourceBackedStreamHandler<
         signal: ctx.signal,
       })
       if (replay.outcome === 'cursor-expired') {
-        throw new ResumeCursorExpiredError(replay.snapshot)
+        throw new ResumeCursorExpiredError(ensureSnapshot(replay.snapshot))
       }
       yield* ensureRecords(replay.records)
       liveAfter = replay.through

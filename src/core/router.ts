@@ -35,6 +35,7 @@ import { getStatusForCode } from '../errors/codes.js'
 import { sid as generateId } from '../utils/id/index.js'
 import { createLogger } from '../utils/logger.js'
 import { isAsyncIterable } from '../utils/type-guards.js'
+import { ResumeCursorExpiredError } from '../stream/resumable.js'
 import {
   CONTRACT_POLICY_METADATA_KEY,
   mergeContractPolicies,
@@ -650,6 +651,21 @@ async function* wrapStreamInEnvelopes(
       context: request.context,
     }
   } catch (err) {
+    if (resumable && err instanceof ResumeCursorExpiredError) {
+      yield {
+        id: `${request.id}:stream:snapshot`,
+        procedure: request.procedure,
+        type: 'stream:data',
+        payload: err.snapshot.data,
+        metadata: {
+          'x-raffel-stream-cursor': err.snapshot.cursor,
+          'x-raffel-stream-event': 'snapshot',
+        },
+        context: request.context,
+      }
+      return
+    }
+
     // Send stream error
     const error = err as Error
     const code = err instanceof RaffelError ? err.code : 'STREAM_ERROR'
