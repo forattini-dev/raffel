@@ -26,10 +26,14 @@ when messages genuinely flow independently in both directions.
 ## Live Stream over SSE with fs-discovery
 
 A Live Stream has a handler because the connection itself drives production:
+`AppContext` below is an application-owned narrowing of Raffel's `Context`
+whose `services` expose the typed `orders` and `orderChanges` ports.
 
+<!-- validated-example: real-time-live-stream -->
 ```ts
 // src/streams/orders/live.ts
 import { z } from 'zod'
+import type { AppContext } from '../../application/context.js'
 
 export const input = z.object({
   region: z.string(),
@@ -51,8 +55,11 @@ export const meta = {
   },
 }
 
-export default async function* liveOrders(input, ctx) {
-  const subscription = await ctx.services.orders.subscribe(input.region)
+export default async function* liveOrders(
+  request: z.infer<typeof input>,
+  ctx: AppContext,
+): AsyncGenerator<z.infer<typeof output>> {
+  const subscription = await ctx.services.orders.subscribe(request.region)
   try {
     for await (const update of subscription) {
       if (ctx.signal.aborted) break
@@ -67,11 +74,14 @@ export default async function* liveOrders(input, ctx) {
 Raffel emits named SSE events. Browser code must listen for `data`; native
 `message` handling does not receive this named event:
 
+<!-- validated-example: real-time-browser-sse -->
 ```ts
+// src/browser/orders-live.ts
 const source = new EventSource('/streams/orders/live?region=br')
 
 source.addEventListener('data', (event) => {
-  applyOrderUpdate(JSON.parse(event.data))
+  const message = event as MessageEvent<string>
+  applyOrderUpdate(JSON.parse(message.data))
 })
 
 source.addEventListener('end', () => source.close())
@@ -87,6 +97,7 @@ transport traffic, not a business record, and does not create durability.
 A Source-Backed Resumable Stream exports its contracts and provider reference,
 but no default handler. The provider drives initial, replay, and live reads:
 
+<!-- validated-example: real-time-resumable-stream -->
 ```ts
 // src/streams/orders/resumable.ts
 import { z } from 'zod'
@@ -147,10 +158,12 @@ Long polling requires application storage or pub-sub. Raffel bounds the wait,
 propagates cancellation, and documents the cursor contract; it cannot detect a
 future business change without an application change source.
 
+<!-- validated-example: real-time-long-poll -->
 ```ts
 // src/http/orders/updates/get.ts
 import { z } from 'zod'
 import { runLongPoll } from 'raffel/http'
+import type { AppContext } from '../../../application/context.js'
 
 export const input = z.object({
   cursor: z.string().nullable().default(null),
@@ -181,9 +194,12 @@ export const meta = {
   },
 }
 
-export default function getOrderUpdate(input, ctx) {
+export default function getOrderUpdate(
+  request: z.infer<typeof input>,
+  ctx: AppContext,
+): Promise<z.infer<typeof output>> {
   return runLongPoll({
-    cursor: input.cursor,
+    cursor: request.cursor,
     waitMs: meta.longPoll.waitMs,
     retryMs: meta.longPoll.retryMs,
     signal: ctx.signal,
@@ -249,6 +265,10 @@ according to the service trust boundary.
   terminate, refresh out of band, or require reconnect.
 - Test duplicate delivery, cursor expiration, snapshot replacement, proxy
   timeout, cancellation, and instance termination before production rollout.
+
+Keep unit coverage deterministic with in-memory sources and an explicit
+`AbortController`; reserve sockets, browsers, and proxies for focused
+integration checks. See [Testing](/guides/testing.md) for the shared policy.
 
 The invariant is simple: Raffel owns transport coordination and contract
 projection; the application owns business state, durability, and recovery data.

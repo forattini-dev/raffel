@@ -127,7 +127,7 @@ Core auth helpers:
 - `createCookieSessionStrategy`
 - `createAuthzMiddleware`
 
-See [Auth Overview](auth/overview.md).
+See [Auth Overview](/auth/overview.md).
 
 ---
 

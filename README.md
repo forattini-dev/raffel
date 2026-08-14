@@ -1064,6 +1064,9 @@ Express, Fastify, Fetch-first routers, `ws`, and Socket.IO.
 
 Browse the full site at **[forattini-dev.github.io/raffel](https://forattini-dev.github.io/raffel)** or read the Markdown sources directly under [`docs/`](./docs/).
 
+When editing documentation, run `pnpm check:docs` to validate local links and
+the canonical TypeScript examples with deterministic, in-memory tests.
+
 ### Reference
 
 | Topic | Description |

@@ -257,6 +257,7 @@
     "test:unit": "vitest run -c vitest.config.unit.ts",
     "test:int": "vitest run -c vitest.config.int.ts",
     "test:docs-ui-browser": "pnpm run build && node scripts/verify-docs-ui-browser.mjs",
+    "check:docs": "vitest run -c vitest.config.unit.ts test/docs --maxWorkers=1 --no-file-parallelism --isolate",
     "test:full": "vitest run -c vitest.config.ts",
     "test:coverage": "vitest run -c vitest.config.unit.ts --coverage",
     "test:coverage:full": "vitest run -c vitest.config.ts --coverage",

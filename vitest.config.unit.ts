@@ -1,6 +1,13 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  resolve: {
+    alias: [
+      { find: 'raffel/http', replacement: fileURLToPath(new URL('./src/http/index.ts', import.meta.url)) },
+      { find: 'raffel', replacement: fileURLToPath(new URL('./src/index.ts', import.meta.url)) },
+    ],
+  },
   test: {
     globals: true,
     environment: 'node',
