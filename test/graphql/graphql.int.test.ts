@@ -48,6 +48,14 @@ interface GraphQLResponse {
   errors?: Array<{ message: string; [key: string]: unknown }>
 }
 
+function fetchGraphQL(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  // Each test boots a different server on the same origin. Reusing a socket
+  // from the server stopped by the previous test makes Undici race its close.
+  headers.set('connection', 'close')
+  return globalThis.fetch(input, { ...init, headers })
+}
+
 function waitForWebSocketMessage(
   ws: WebSocket,
   predicate: (message: Record<string, unknown>) => boolean,
@@ -666,7 +674,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -691,7 +699,7 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -716,7 +724,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Request-Id': 'graphql-context' },
         body: JSON.stringify({
@@ -762,7 +770,7 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query: '{ account(id: "42") { id name } }' }),
@@ -802,7 +810,7 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const denied = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const denied = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query: '{ viewer { id } }' }),
@@ -812,7 +820,7 @@ describe('GraphQL Adapter', () => {
       expect(deniedBody.data?.viewer).toBeNull()
       expect((deniedBody.errors?.[0].extensions as { code?: string })?.code).toBe('UNAUTHENTICATED')
 
-      const allowed = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const allowed = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer valid' },
         body: JSON.stringify({ query: '{ viewer { id } }' }),
@@ -845,7 +853,7 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer valid' },
         body: JSON.stringify({ query: '{ user { id } }' }),
@@ -907,7 +915,7 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query: '{ publicStatus { value } }' }),
@@ -938,14 +946,14 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const denied = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const denied = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query: '{ greeting }' }),
       })
       expect(denied.status).toBe(401)
 
-      const allowed = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const allowed = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer valid' },
         body: JSON.stringify({ query: '{ greeting }' }),
@@ -992,7 +1000,7 @@ describe('GraphQL Adapter', () => {
       })
       await adapter.start()
 
-      const request = () => fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const request = () => fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query: '{ secret }' }),
@@ -1065,11 +1073,11 @@ describe('GraphQL Adapter', () => {
       adapter = createGraphQLAdapter({ router, registry, schemaRegistry, host: '127.0.0.1', port: TEST_PORT, config: { ...DEFAULT_CONFIG } })
       await adapter.start()
 
-      const queryResponse = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql?query=${encodeURIComponent('{ usersGet { id } }')}`)
+      const queryResponse = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql?query=${encodeURIComponent('{ usersGet { id } }')}`)
       expect(queryResponse.status).toBe(200)
       expect((await queryResponse.json() as GraphQLResponse).data?.usersGet).toEqual({ id: '1' })
 
-      const mutationResponse = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql?query=${encodeURIComponent('mutation { usersCreate(name: "A") { id } }')}`)
+      const mutationResponse = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql?query=${encodeURIComponent('mutation { usersCreate(name: "A") { id } }')}`)
       expect(mutationResponse.status).toBe(405)
     })
 
@@ -1086,12 +1094,12 @@ describe('GraphQL Adapter', () => {
       const query = '{ usersGet { id } }'
       const extensions = { persistedQuery: { version: 1, sha256Hash: hashGraphQLDocument(query) } }
 
-      const register = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const register = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, extensions }),
       })
       expect((await register.json() as GraphQLResponse).data?.usersGet).toEqual({ id: '1' })
 
-      const hit = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const hit = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ extensions }),
       })
       expect((await hit.json() as GraphQLResponse).data?.usersGet).toEqual({ id: '1' })
@@ -1154,7 +1162,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1193,7 +1201,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1218,7 +1226,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1246,7 +1254,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'OPTIONS',
       })
 
@@ -1266,7 +1274,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
         method: 'OPTIONS',
       })
 
@@ -1288,7 +1296,7 @@ describe('GraphQL Adapter', () => {
 
       await adapter.start()
 
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT}/other`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/other`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: '{ _health }' }),
@@ -1367,7 +1375,7 @@ describe('GraphQL Middleware', () => {
 
     try {
       // test.ping is a mutation (no query prefix), so we need mutation syntax
-      const response = await fetch(`http://127.0.0.1:${TEST_PORT + 1}/graphql`, {
+      const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT + 1}/graphql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1446,7 +1454,7 @@ describe('GraphQL Error Handling', () => {
     await adapter.start()
 
     // error.throw doesn't have a query prefix, so it's mapped to a mutation
-    const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+    const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1472,7 +1480,7 @@ describe('GraphQL Error Handling', () => {
 
     await adapter.start()
 
-    const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+    const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{ invalid json',
@@ -1495,7 +1503,7 @@ describe('GraphQL Error Handling', () => {
 
     await adapter.start()
 
-    const response = await fetch(`http://127.0.0.1:${TEST_PORT}/graphql`, {
+    const response = await fetchGraphQL(`http://127.0.0.1:${TEST_PORT}/graphql`, {
       method: 'PUT',
     })
 

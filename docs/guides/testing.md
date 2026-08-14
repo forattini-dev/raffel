@@ -579,5 +579,3 @@ so `.input()` / `.output()` are enforced during tests.
 - **[Events](/core/events.md)** — delivery guarantees and `ack`
 - **[Mock Server](/tooling/mock-server.md)** — full mock and `raffel mock` reference
 - **[Providers (DI)](/tooling/providers.md)** — how `ctx.services` is populated
-</content>
-</invoke>

@@ -16,6 +16,7 @@ visible in USD and generated documentation.
 Put provider-specific code in an application adapter. Expose only the port the
 handler needs:
 
+<!-- validated-example: ai-model-gateway -->
 ```ts
 export interface ModelGateway {
   stream(request: {
@@ -25,7 +26,7 @@ export interface ModelGateway {
   }): AsyncIterable<
     | { type: 'delta'; text: string }
     | { type: 'usage'; inputTokens: number; outputTokens: number }
-    | { type: 'final'; text: string; finishReason: string }
+    | { type: 'final'; text: string; finishReason: 'stop' | 'length' | 'content_filter' | 'tool' }
   >
 }
 ```
@@ -51,11 +52,15 @@ changing the Raffel route contract.
 
 ## Canonical fs-discovery stream
 
-The route declares every event with a discriminated union:
+The route declares every event with a discriminated union. `AppContext` is the
+application-owned narrowing of Raffel's `Context` that exposes the typed
+`modelGateway` port through `services`:
 
+<!-- validated-example: ai-workload-stream -->
 ```ts
 // src/streams/assistant/chat.ts
 import { z } from 'zod'
+import type { AppContext } from '../../application/context.js'
 
 export const input = z.object({
   conversationId: z.string().uuid(),
@@ -113,13 +118,16 @@ export const meta = {
   },
 }
 
-export default async function* chat(input, ctx) {
+export default async function* chat(
+  request: z.infer<typeof input>,
+  ctx: AppContext,
+): AsyncGenerator<z.infer<typeof output>> {
   let sequence = 0
 
   try {
     const events = ctx.services.modelGateway.stream({
-      prompt: input.prompt,
-      conversationId: input.conversationId,
+      prompt: request.prompt,
+      conversationId: request.conversationId,
       signal: ctx.signal,
     })
 
@@ -173,13 +181,16 @@ started the client can only observe the stream error/close path.
 Application SSE uses Raffel's named `data`, `end`, and `error` events. The
 business discriminator remains inside each `data` payload:
 
+<!-- validated-example: ai-browser-sse -->
 ```ts
+// src/browser/assistant-chat.ts
 const source = new EventSource(
-  `/streams/assistant/chat?conversationId=${conversationId}&prompt=${encodeURIComponent(prompt)}`,
+  `/streams/assistant/chat?conversationId=${conversationId}&prompt=${encodeURIComponent(userPrompt)}`,
 )
 
 source.addEventListener('data', event => {
-  const item = JSON.parse(event.data)
+  const message = event as MessageEvent<string>
+  const item = JSON.parse(message.data)
 
   switch (item.type) {
     case 'delta': appendText(item.text); break

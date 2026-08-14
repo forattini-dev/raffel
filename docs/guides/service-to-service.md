@@ -27,25 +27,28 @@ reason to expose every capability on every transport.
 
 Keep remote clients outside route files and inject narrow application ports:
 
+<!-- validated-example: service-provider-composition -->
 ```ts
+// src/server.ts
+import { createServer } from 'raffel'
+import { billingConfig, createBillingClient } from './application/billing.js'
+
 const server = createServer({ port: 3000 })
 
-server.provide('billing', ({ services }) => {
-  return createBillingClient({
-    baseUrl: services.config.billingUrl,
-    credentials: services.secrets.billing,
-  })
-}, {
+server.provide('billing', () => createBillingClient(billingConfig), {
   onShutdown: client => client.close(),
 })
 ```
 
 The inbound handler depends on the application port, not on Raffel pretending
-to be a remote SDK:
+to be a remote SDK. `AppContext` is the application's narrowing of Raffel's
+`Context`, with a typed `billing` port under `services`:
 
+<!-- validated-example: service-http-route -->
 ```ts
 // src/http/orders/create/post.ts
 import { z } from 'zod'
+import type { AppContext } from '../../../application/context.js'
 
 export const input = z.object({
   orderId: z.string(),
@@ -63,14 +66,17 @@ export const meta = {
   httpMethod: 'POST' as const,
 }
 
-export default async function createOrder(input, ctx) {
+export default async function createOrder(
+  request: z.infer<typeof input>,
+  ctx: AppContext,
+): Promise<z.infer<typeof output>> {
   const payment = await ctx.services.billing.charge({
-    amount: input.amount,
-    idempotencyKey: input.idempotencyKey,
+    amount: request.amount,
+    idempotencyKey: request.idempotencyKey,
     signal: ctx.signal,
     deadline: ctx.deadline,
   })
-  return { orderId: input.orderId, paymentId: payment.id }
+  return { orderId: request.orderId, paymentId: payment.paymentId }
 }
 ```
 
