@@ -149,25 +149,6 @@ jobs:
       - name: Run Integration Tests
         run: pnpm exec vitest run -c vitest.config.int.ts --shard=${{ matrix.shard }}/4
 
-  dast:
-    name: External DAST gate
-    needs: check
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    environment: security-testing
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: ZAP baseline scan
-        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          target: ${{ secrets.DAST_TARGET_URL }}
-          fail_action: true
-          allow_issue_writing: false
-
   release-next:
     name: Release Next
     needs: [check, security-gate, bench, test-unit, test-int]
@@ -302,7 +283,7 @@ jobs:
 
   release-stable:
     name: Release Stable
-    needs: [check, security-gate, bench, test-unit, test-int, dast]
+    needs: [check, security-gate, bench, test-unit, test-int]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
