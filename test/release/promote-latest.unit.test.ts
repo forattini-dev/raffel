@@ -62,4 +62,16 @@ describe('stable release promotion', () => {
       'node scripts/promote-latest.mjs @forattini-dev/raffel',
     )
   })
+
+  it('publishes stable releases without external DAST configuration', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8')
+    const stableRelease = workflow.split('  release-stable:')[1]
+
+    expect(workflow).not.toMatch(
+      /DAST_TARGET_URL|security-testing|zaproxy|External DAST/,
+    )
+    expect(stableRelease).toContain(
+      'needs: [check, security-gate, bench, test-unit, test-int]',
+    )
+  })
 })
