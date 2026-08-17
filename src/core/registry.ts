@@ -237,9 +237,15 @@ export function createRegistry(): Registry {
       validateLongPollContract(options.longPoll)
 
       const policies = normalizeContractPolicies(options.policies)
+      // Authentication before authorization: the interceptors passed in by the
+      // caller carry the global auth middleware (and, for discovery routes, the
+      // per-route auth interceptor). The contract-policy gate derived from
+      // `meta.auth` only checks `ctx.auth` — it cannot authenticate — so it MUST
+      // run after them, or a route declaring `meta.auth: 'required'` throws
+      // `Authentication required` before anything ever reads the credential.
       const interceptors = [
-        ...createPolicyInterceptors(policies),
         ...(options.interceptors ?? []),
+        ...createPolicyInterceptors(policies),
       ]
 
       procedures.set(name, {
@@ -279,9 +285,15 @@ export function createRegistry(): Registry {
       }
 
       const policies = normalizeContractPolicies(options.policies)
+      // Authentication before authorization: the interceptors passed in by the
+      // caller carry the global auth middleware (and, for discovery routes, the
+      // per-route auth interceptor). The contract-policy gate derived from
+      // `meta.auth` only checks `ctx.auth` — it cannot authenticate — so it MUST
+      // run after them, or a route declaring `meta.auth: 'required'` throws
+      // `Authentication required` before anything ever reads the credential.
       const interceptors = [
-        ...createPolicyInterceptors(policies),
         ...(options.interceptors ?? []),
+        ...createPolicyInterceptors(policies),
       ]
 
       streams.set(name, {
@@ -313,9 +325,15 @@ export function createRegistry(): Registry {
       }
 
       const policies = normalizeContractPolicies(options.policies)
+      // Authentication before authorization: the interceptors passed in by the
+      // caller carry the global auth middleware (and, for discovery routes, the
+      // per-route auth interceptor). The contract-policy gate derived from
+      // `meta.auth` only checks `ctx.auth` — it cannot authenticate — so it MUST
+      // run after them, or a route declaring `meta.auth: 'required'` throws
+      // `Authentication required` before anything ever reads the credential.
       const interceptors = [
-        ...createPolicyInterceptors(policies),
         ...(options.interceptors ?? []),
+        ...createPolicyInterceptors(policies),
       ]
 
       events.set(name, {
