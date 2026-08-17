@@ -411,4 +411,38 @@ routes:
     expect(response.status).toBe(200)
     expect(response.body).toBe('auto-cert-ok')
   })
+
+  it('rejects an externally bound reverse proxy without auth/filter or the escape flag', async () => {
+    const config = parseReverseProxyConfig({
+      server: { host: '0.0.0.0', port: 0 },
+      routes: [{ match: { pathPrefix: '/' }, target: `http://127.0.0.1:${upstreamA.port}`, name: 'domain' }],
+    })
+    await expect(createReverseProxy(config)).rejects.toThrow(/require both auth and filter/)
+  })
+
+  it('propagates dangerouslyAllow* flags so an external bind can front a private, middleware-authed target', async () => {
+    // Reproduz o edge do svc-bureaus: bind externo (0.0.0.0), auth feita por
+    // middleware (não ProxyAuth), encaminhando para um domain server co-locado
+    // em 127.0.0.1. Sem a propagação das flags, o boot falharia ou o forward
+    // para o alvo privado seria bloqueado por blockPrivateRanges.
+    upstreamA.get('/health', () => ({ status: 200, body: 'domain-ok' }))
+
+    const config = parseReverseProxyConfig({
+      server: { host: '0.0.0.0', port: 0 },
+      routes: [
+        { match: { pathPrefix: '/' }, target: `http://127.0.0.1:${upstreamA.port}`, name: 'domain', stripPrefix: false },
+      ],
+      proxy: {
+        dangerouslyAllowUnauthenticatedNetwork: true,
+        dangerouslyAllowPrivateTargets: true,
+      },
+    })
+
+    reverse = await createReverseProxy(config)
+    const proxyPort = await reverse.start()
+
+    const response = await fetchViaProxy('/health', proxyPort)
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('domain-ok')
+  })
 })

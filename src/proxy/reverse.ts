@@ -123,6 +123,22 @@ export interface ReverseProxyProxyOptions {
   upgrade?: Omit<ExplicitProxyUpgradeOptions, never>
   /** Optional telemetry endpoints and shared collector settings. */
   telemetry?: ExplicitProxyTelemetryOptions
+  /**
+   * Escape hatch for an externally bound reverse proxy whose inbound auth is
+   * enforced by `proxy.middleware` (e.g. a Bearer/JWT verifier) rather than by
+   * the proxy-level `ProxyAuth` (Proxy-Authorization). Without this, an external
+   * bind with `middleware` auth is forced to either fail the boot check or set a
+   * `ProxyAuth` that answers 407 to callers that use `Authorization`, not
+   * `Proxy-Authorization`. Propagated to the underlying explicit proxy.
+   */
+  dangerouslyAllowUnauthenticatedNetwork?: boolean
+  /**
+   * Allow forwarding to private/link-local targets — e.g. a co-located domain
+   * server on `127.0.0.1` that the reverse proxy fronts. Propagated to the
+   * underlying explicit proxy, which otherwise forces `blockPrivateRanges` on
+   * external binds.
+   */
+  dangerouslyAllowPrivateTargets?: boolean
 }
 
 export interface ReverseProxyConfig {
@@ -683,6 +699,8 @@ export async function createReverseProxy(configInput: ReverseProxyConfig | Loade
     host: config.server.host,
     auth: config.proxy.auth,
     filter: config.proxy.filter,
+    dangerouslyAllowUnauthenticatedNetwork: config.proxy.dangerouslyAllowUnauthenticatedNetwork,
+    dangerouslyAllowPrivateTargets: config.proxy.dangerouslyAllowPrivateTargets,
     forward: config.proxy.forward,
     tunnel: config.proxy.tunnel,
     upgrade: config.proxy.upgrade,
