@@ -241,7 +241,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=26"
   },
   "scripts": {
     "build": "tsc && tsc -p tsconfig.ui.json && pnpm run build:docs-ui-assets",
