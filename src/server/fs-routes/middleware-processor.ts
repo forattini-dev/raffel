@@ -92,7 +92,7 @@ function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Inte
       return next()
     }
 
-    if (authConfig && hasPresentedCredentials(envelope, authConfig)) {
+    if (authConfig && hasPresentedCredentials(envelope, ctx, authConfig)) {
       ctx.auth = createAuthContext({
         ...ctx.auth,
         credentialsPresented: true,
@@ -150,7 +150,7 @@ function createAuthInterceptor(meta: HandlerMeta, authConfig?: AuthConfig): Inte
  */
 async function tryAuthenticate(envelope: Envelope, ctx: Context, authConfig: AuthConfig): Promise<boolean> {
   // Get credential from envelope metadata (set by adapter)
-  const credential = extractCredential(envelope, authConfig)
+  const credential = extractCredential(envelope, ctx, authConfig)
 
   if (!credential) {
     return false
@@ -186,24 +186,62 @@ async function tryAuthenticate(envelope: Envelope, ctx: Context, authConfig: Aut
   return false
 }
 
-function hasPresentedCredentials(envelope: Envelope, authConfig: AuthConfig): boolean {
-  const metadata = envelope.metadata
+/**
+ * Reads a credential header from BOTH places it can live.
+ *
+ * `envelope.metadata` is the protocol-agnostic carrier and stays the first
+ * choice. But the HTTP adapter's standard dispatch builds the envelope from
+ * `ctx.input.metadata`, which carries no request headers — only the streaming
+ * path runs `extractMetadataFromHeaders`. Reading metadata alone therefore made
+ * EVERY file-based route with `meta.auth !== 'none'` reject a perfectly valid
+ * credential with `401 Authentication required`, because `tryAuthenticate` gave
+ * up before ever calling `verify`/`strategy`.
+ *
+ * The protocol context is the fallback: over HTTP the header is always present at
+ * `ctx.http.headers`, lower-cased by the adapter.
+ */
+function readCredentialHeader(
+  envelope: Envelope,
+  ctx: Context,
+  name: 'authorization' | 'x-api-key' | 'apiKey',
+): string | undefined {
+  const metadata = envelope.metadata ?? {}
+  const capitalized = name.charAt(0).toUpperCase() + name.slice(1)
+  const fromMetadata = metadata[name] ?? metadata[capitalized]
+  if (fromMetadata !== undefined) return fromMetadata
+
+  const headers = ctx.http?.headers
+  if (!headers) return undefined
+  return headers[name] ?? headers[name.toLowerCase()] ?? headers[capitalized]
+}
+
+function hasPresentedCredentials(
+  envelope: Envelope,
+  ctx: Context,
+  authConfig: AuthConfig,
+): boolean {
   if (authConfig.strategy === 'api-key') {
-    return metadata['x-api-key'] !== undefined || metadata.apiKey !== undefined
+    return (
+      readCredentialHeader(envelope, ctx, 'x-api-key') !== undefined ||
+      readCredentialHeader(envelope, ctx, 'apiKey') !== undefined
+    )
   }
-  return metadata.authorization !== undefined || metadata.Authorization !== undefined
+  return readCredentialHeader(envelope, ctx, 'authorization') !== undefined
 }
 
 /**
- * Extract credential from envelope metadata based on strategy
+ * Extract credential from the envelope metadata or the protocol context.
  */
-function extractCredential(envelope: Envelope, authConfig: AuthConfig): string | undefined {
+function extractCredential(
+  envelope: Envelope,
+  ctx: Context,
+  authConfig: AuthConfig,
+): string | undefined {
   const strategy = authConfig.strategy
-  const metadata = envelope.metadata
 
   if (strategy === 'bearer' || strategy === undefined) {
     // Bearer token from Authorization header
-    const authHeader = metadata.authorization ?? metadata.Authorization
+    const authHeader = readCredentialHeader(envelope, ctx, 'authorization')
     if (authHeader?.startsWith('Bearer ')) {
       return authHeader.slice(7)
     }
@@ -211,12 +249,15 @@ function extractCredential(envelope: Envelope, authConfig: AuthConfig): string |
 
   if (strategy === 'api-key') {
     // API key from header or query
-    return metadata['x-api-key'] ?? metadata.apiKey
+    return (
+      readCredentialHeader(envelope, ctx, 'x-api-key') ??
+      readCredentialHeader(envelope, ctx, 'apiKey')
+    )
   }
 
   // Custom strategy handles its own extraction
   if (typeof strategy === 'function') {
-    return metadata.authorization ?? metadata.Authorization
+    return readCredentialHeader(envelope, ctx, 'authorization')
   }
 
   return undefined
