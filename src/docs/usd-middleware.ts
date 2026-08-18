@@ -36,7 +36,7 @@ import { dump as yamlStringify } from 'js-yaml'
 import { serialize as toonStringify, type JsonValue as ToonJsonValue } from '@reddb-io/toon'
 import { generateUICSS, generateUIHTML, generateUIRuntimeJS } from './ui/index.js'
 import type { OpenGraphConfig, TryItOutConfig } from './ui/types.js'
-import { executeDocsTryItProxy, type DocsTryItRequest } from './try-it-proxy.js'
+import { executeDocsTryItProxy, executeDocsTryItStreamProxy, type DocsTryItRequest } from './try-it-proxy.js'
 import {
   createMarkdownDocsState,
   DOCUMENTATION_FORMATS,
@@ -451,6 +451,8 @@ export interface USDHandlers {
   serveDocsAsset: (pathname: string) => Response | null
   /** Execute one opt-in, allowlisted documentation request through the bounded proxy. */
   serveTryItProxy: (payload: unknown) => Promise<Response>
+  /** Open an opt-in, allowlisted SSE / EventSource stream through the streaming proxy. */
+  serveTryItStreamProxy: (targetUrl: string | null, authorization?: string | null) => Promise<Response>
   /** Get the USD document */
   getUSDDocument: () => USDDocument
   /** Get the OpenAPI document */
@@ -855,6 +857,38 @@ export function createUSDHandlers(
       })
     },
 
+    serveTryItStreamProxy: async (targetUrl: string | null, authorization?: string | null) => {
+      const proxy = typeof mergedUI?.tryItOut === 'object' && mergedUI.tryItOut.mode === 'proxy'
+        ? mergedUI.tryItOut
+        : null
+      if (!proxy) {
+        return new Response(JSON.stringify({
+          type: 'about:blank',
+          title: 'Documentation stream proxy is disabled',
+          status: 404,
+        }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/problem+json; charset=utf-8' },
+        })
+      }
+      if (!targetUrl) {
+        return new Response(JSON.stringify({
+          type: 'about:blank',
+          title: 'Invalid documentation stream request',
+          status: 400,
+          detail: 'A `url` query parameter naming the declared upstream stream is required.',
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/problem+json; charset=utf-8' },
+        })
+      }
+      return executeDocsTryItStreamProxy({ url: targetUrl, authorization: authorization ?? undefined }, {
+        servers: getUSD().servers,
+        allowedOrigins: proxy.allowedOrigins,
+        timeoutMs: proxy.timeoutMs,
+      })
+    },
+
     getUSDDocument: getUSD,
     getOpenAPIDocument: getOpenAPI,
     getMarkdownDocsState,
@@ -946,6 +980,11 @@ export function mountUSDDocs(
     } catch {
       return handlers.serveTryItProxy(null)
     }
+  })
+  app.get(`${basePath}/-/stream`, (c) => {
+    const request = c.req as { url: string }
+    const query = new URL(request.url, 'http://x').searchParams
+    return handlers.serveTryItStreamProxy(query.get('url'), query.get('authorization'))
   })
 
   // Spec endpoints.

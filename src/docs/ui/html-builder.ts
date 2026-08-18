@@ -293,12 +293,15 @@ function normalizePageNav(value: boolean | PageNavConfig | undefined): { enabled
 }
 
 function normalizeTryItOut(value: boolean | TryItOutConfig | undefined, basePath: string): Record<string, unknown> {
-  if (!value) return { enabled: false, mode: 'direct', proxyUrl: `${basePath}/-/request` }
-  if (value === true) return { enabled: true, mode: 'direct', proxyUrl: `${basePath}/-/request` }
+  const proxyUrl = `${basePath}/-/request`
+  const streamProxyUrl = `${basePath}/-/stream`
+  if (!value) return { enabled: false, mode: 'direct', proxyUrl, streamProxyUrl }
+  if (value === true) return { enabled: true, mode: 'direct', proxyUrl, streamProxyUrl }
   return {
     enabled: true,
     mode: value.mode === 'proxy' ? 'proxy' : 'direct',
-    proxyUrl: `${basePath}/-/request`,
+    proxyUrl,
+    streamProxyUrl,
   }
 }
 

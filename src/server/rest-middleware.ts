@@ -424,6 +424,29 @@ export function createDocsRouteMiddleware(
         const headers: Record<string, string> = { 'Content-Type': contentType }
         const cacheControl = response.headers.get('Cache-Control')
         if (cacheControl) headers['Cache-Control'] = cacheControl
+        // Event streams must be piped incrementally: buffering them via
+        // arrayBuffer() would never resolve on an open (infinite) stream.
+        if (response.body && contentType.includes('text/event-stream')) {
+          res.writeHead(response.status, headers)
+          const reader = response.body.getReader()
+          const cancel = () => { void reader.cancel().catch(() => {}) }
+          req.on?.('close', cancel)
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              if (!res.write(Buffer.from(value))) {
+                await new Promise<void>(resolve => res.once('drain', resolve))
+              }
+            }
+          } catch {
+            // Upstream stream ended or client disconnected — fall through to end.
+          } finally {
+            req.off?.('close', cancel)
+          }
+          res.end()
+          return true
+        }
         res.writeHead(response.status, headers)
         res.end(Buffer.from(await response.arrayBuffer()))
         return true

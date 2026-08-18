@@ -10,16 +10,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { markdownClientScript } from './markdown.js'
-import { protocolClientScript } from './protocols.js'
-import { docsPagesClientScript } from './docs-pages.js'
-import { navigationClientScript } from './navigation.js'
-import { contentClientScript } from './content.js'
-import { tryItClientScript } from './try-it.js'
-import { cardsAndCodeClientScript } from './cards-and-code.js'
-import { schemaRenderingClientScript } from './schema-rendering.js'
-import { endpointDetailsClientScript } from './endpoint-details.js'
-import { initClientScript } from './init.js'
 import { generatePrismBrowserBundle } from '../prism-browser-bundle.js'
 
 const require = createRequire(import.meta.url)
@@ -82,7 +72,11 @@ export function generateClientDataScript(
 export function generateClientRuntimeScript(): string {
   cachedSharedRuntimeScript ??= generateSharedRuntimeScript()
   if (cachedSharedRuntimeScript) return cachedSharedRuntimeScript
-  return generateLegacyClientRuntimeScript()
+  throw new Error(
+    'Raffel docs runtime could not be located. Expected the compiled runtime at '
+    + 'dist/docs/ui/runtime or the TypeScript source at src/docs/ui/runtime relative to the docs UI '
+    + 'package. Reinstall raffel or run `pnpm run build` so the docs UI runtime asset is present.',
+  )
 }
 
 export function generateInlineRuntimeDependencyScripts(): string {
@@ -172,91 +166,6 @@ function stripModuleSyntax(source: string): string {
 
 function escapeScriptBody(source: string): string {
   return source.replace(/<\/script/gi, '<\\/script')
-}
-
-function generateLegacyClientRuntimeScript(): string {
-  return `
-    (function () {
-    const docsData = window.__RAFFEL_DOCS__ || {};
-    const spec = docsData.spec || { info: { title: 'API', version: '1.0.0' }, paths: {} };
-    const tagGroups = docsData.tagGroups || [];
-    const heroConfig = docsData.heroConfig || null;
-    const sidebarConfig = docsData.sidebarConfig || {};
-    const introductionMarkdown = docsData.introductionMarkdown || null;
-    const docsPages = docsData.docsPages || [];
-    const docsAliases = docsData.docsAliases || {};
-    const searchIndex = docsData.searchIndex || [];
-    const docsSidebar = Array.isArray(docsData.docsSidebar) ? docsData.docsSidebar : [];
-    const docsAssetBasePath = docsData.docsAssetBasePath || '';
-    const footerMarkdown = docsData.footerMarkdown || null;
-    const tocConfig = docsData.tocConfig || {};
-    const markdownConfig = docsData.markdownConfig || {};
-    const docsRepoConfig = docsData.docsRepoConfig || null;
-    const breadcrumbsConfig = docsData.breadcrumbsConfig && typeof docsData.breadcrumbsConfig === 'object'
-      ? docsData.breadcrumbsConfig
-      : { enabled: true, hideOnHome: true };
-    const pageNavConfig = docsData.pageNavConfig || { enabled: true, hide: [] };
-    const docsPlugins = [];
-    function getDocsRuntimeState() {
-      return { activePagePath, activeHeadingId, activeProtocol, searchQuery };
-    }
-    function getPluginContext(extra = {}) {
-      return Object.assign({}, getDocsRuntimeState(), extra);
-    }
-    function registerDocsPlugin(plugin) {
-      if (!plugin) return;
-      if (typeof plugin === 'function') {
-        plugin({ use: registerDocsPlugin, getState: getDocsRuntimeState });
-        return;
-      }
-      if (typeof plugin === 'object') docsPlugins.push(plugin);
-    }
-    function installDocsPluginApi() {
-      (window.__RAFFEL_DOCS_PLUGINS__ || []).forEach(registerDocsPlugin);
-      window.RaffelDocs = Object.assign({}, window.RaffelDocs || {}, {
-        apiVersion: 1,
-        use: registerDocsPlugin,
-        plugins: docsPlugins,
-        getState: getDocsRuntimeState
-      });
-    }
-    function applyStringHook(hookName, value, context) {
-      return docsPlugins.reduce((current, plugin) => {
-        const next = plugin[hookName] ? plugin[hookName](current, context) : undefined;
-        return typeof next === 'string' ? next : current;
-      }, value);
-    }
-    function runVoidHook(hookName, context) {
-      docsPlugins.forEach(plugin => plugin[hookName]?.(context));
-    }
-    function applySearchResultsHook(results, context) {
-      return docsPlugins.reduce((current, plugin) => {
-        const next = plugin.onSearchResults ? plugin.onSearchResults(current, context) : undefined;
-        return Array.isArray(next) ? next : current;
-      }, results);
-    }
-    function unmountDocsComponents(root = document) {
-      root?.querySelectorAll?.('[data-raffel-component-mounted="true"]').forEach(target => {
-        docsPlugins.forEach(plugin => plugin.unmountComponent?.(target, getPluginContext({
-          pagePath: target.getAttribute?.('data-page-path') || activePagePath
-        })));
-        delete target.dataset.raffelComponentMounted;
-      });
-    }
-${[
-      markdownClientScript,
-      protocolClientScript,
-      docsPagesClientScript,
-      navigationClientScript,
-      contentClientScript,
-      tryItClientScript,
-      cardsAndCodeClientScript,
-      schemaRenderingClientScript,
-      endpointDetailsClientScript,
-      initClientScript
-    ].join('')}
-    })();
-`
 }
 
 /**

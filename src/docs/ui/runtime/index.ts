@@ -2358,11 +2358,171 @@ function renderAsyncContracts(title: string, entries: Record<string, any>, callb
   return section
 }
 
+// Merge content-type declarations across the three USD layers (operation →
+// protocol → global) the same way the reference generator does, so a console
+// row shows the effective default plus every supported media type.
+function resolveEffectiveContentTypes(operationTypes: any, protocolTypes: any): { default: string; supported: string[] } {
+  const globalTypes = (xUsd && (xUsd as any).contentTypes) ? (xUsd as any).contentTypes : {}
+  const defaultType = (operationTypes && operationTypes.default)
+    || (protocolTypes && protocolTypes.default)
+    || globalTypes.default
+    || 'application/json'
+  const supportedList = (operationTypes && operationTypes.supported)
+    || (protocolTypes && protocolTypes.supported)
+    || globalTypes.supported
+    || []
+  const supported = Array.isArray(supportedList) ? supportedList.slice() : []
+  if (defaultType && supported.indexOf(defaultType) === -1) supported.unshift(defaultType)
+  return { default: defaultType, supported }
+}
+
+function appendContentTypesSection(container: any, label: string, contentTypes: { default: string; supported: string[] } | null): void {
+  if (!contentTypes) return
+  const section = doc.createElement('div')
+  section.className = 'endpoint-subsection'
+  section.innerHTML = `<div class="subsection-label">${esc(label)}</div>`
+  const grid = doc.createElement('div')
+  grid.className = 'info-grid'
+  const supportedText = (contentTypes.supported && contentTypes.supported.length > 0)
+    ? contentTypes.supported.join(', ')
+    : contentTypes.default
+  grid.innerHTML =
+    `<div class="info-card"><div class="info-card-title">Default</div><div class="info-card-value">${esc(contentTypes.default || 'application/json')}</div></div>` +
+    `<div class="info-card"><div class="info-card-title">Supported</div><div class="info-card-value">${esc(supportedText || 'application/json')}</div></div>`
+  section.appendChild(grid)
+  container.appendChild(section)
+}
+
+// Multi-language client snippets for WebSocket channels.
+function generateWsCodeSample(lang: string, url: string, path: string, data: any): string {
+  const channelType = data?.type || 'public'
+  const subscribeMsg = { type: 'subscribe', channel: path, id: '1' }
+  const subscribeMsgStr = JSON.stringify(subscribeMsg, null, 2)
+  const publishMsg = data?.publish?.message?.payload
+    ? { type: 'publish', channel: path, event: 'message', data: generateExampleFromSchema(data.publish.message.payload), id: '2' }
+    : null
+  const needsAuth = channelType === 'private' || channelType === 'presence'
+  const authUrl = needsAuth ? `${url}?token=YOUR_TOKEN` : url
+  const indent = (value: string, pad: string) => value.split('\n').map((line, i) => i === 0 ? line : pad + line).join('\n')
+  switch (lang) {
+    case 'wscat': {
+      let out = `wscat -c "${authUrl}"\n\n# Subscribe to channel:\n> ${JSON.stringify(subscribeMsg)}`
+      if (publishMsg) out += `\n\n# Publish a message:\n> ${JSON.stringify(publishMsg)}`
+      return out
+    }
+    case 'javascript': {
+      let out = `const ws = new WebSocket("${authUrl}");\n\n`
+      out += `ws.onopen = () => {\n  console.log("Connected");\n  // Subscribe to channel\n  ws.send(JSON.stringify(${indent(subscribeMsgStr, '    ')}));\n};\n\n`
+      out += `ws.onmessage = (event) => {\n  const msg = JSON.parse(event.data);\n  console.log("Received:", msg);\n`
+      if (publishMsg) out += `\n  // After subscribed, you can publish:\n  // ws.send(JSON.stringify(${JSON.stringify(publishMsg)}));\n`
+      out += `};\n\nws.onclose = () => {\n  console.log("Disconnected");\n};`
+      return out
+    }
+    case 'recker': {
+      let out = `import { ws } from "recker";\n\n`
+      out += needsAuth
+        ? `const socket = await ws("${url}", {\n  query: { token: "YOUR_TOKEN" }\n});\n\n`
+        : `const socket = await ws("${url}");\n\n`
+      out += `// Subscribe to channel\nsocket.send(${indent(subscribeMsgStr, '  ')});\n\n`
+      out += `// Listen for messages\nsocket.on("message", (data) => {\n  console.log("Received:", data);\n});\n`
+      if (publishMsg) out += `\n// Publish a message\n// socket.send(${JSON.stringify(publishMsg)});\n`
+      return out
+    }
+    case 'python': {
+      let out = `import asyncio\nimport websockets\nimport json\n\n`
+      out += `async def connect():\n    async with websockets.connect("${authUrl}") as ws:\n`
+      out += `        # Subscribe to channel\n        await ws.send(json.dumps(${indent(subscribeMsgStr, '        ')}))\n        \n`
+      out += `        # Wait for messages\n        async for message in ws:\n            data = json.loads(message)\n            print(f"Received: {data}")\n\n`
+      out += `asyncio.run(connect())`
+      return out
+    }
+    default:
+      return '// Not implemented'
+  }
+}
+
+// Multi-language client snippets for SSE / EventSource streams.
+function generateStreamCodeSample(lang: string, url: string): string {
+  switch (lang) {
+    case 'curl':
+      return `curl -N "${url}"\n\n# -N disables buffering for streaming output`
+    case 'eventsource':
+      return `const eventSource = new EventSource("${url}");\n\neventSource.onmessage = (event) => {\n  console.log("Received:", event.data);\n};\n\neventSource.onerror = (error) => {\n  console.error("Error:", error);\n  eventSource.close();\n};\n\n// To close the connection:\n// eventSource.close();`
+    case 'recker':
+      return `import { sse } from "recker";\n\nconst stream = sse("${url}");\n\nfor await (const event of stream) {\n  console.log("Received:", event.data);\n}`
+    case 'python':
+      return `import sseclient\nimport requests\n\nresponse = requests.get("${url}", stream=True)\nclient = sseclient.SSEClient(response)\n\nfor event in client.events():\n    print(f"Event: {event.event}, Data: {event.data}")`
+    default:
+      return '// Not implemented'
+  }
+}
+
+// Tabbed client-code panel for the non-HTTP protocols that carry a live console
+// (WebSocket, streams). Mirrors renderCodeExamples' markup so the shared code
+// tab / copy styling applies.
+function renderProtocolCodeSamples(kind: 'websocket' | 'streams', endpoint: Endpoint, data: any): any {
+  const base = String(spec.servers?.[0]?.url ?? 'http://localhost:3000').replace(/\/$/, '')
+  const isWs = kind === 'websocket'
+  const url = isWs
+    ? `${base.replace(/^http/, 'ws')}${(wsSpec as any).path ?? '/ws'}`
+    : `${base}/${(streamsSpec as any).pathPrefix ?? 'streams'}/${endpoint.path}`.replace(/([^:]\/)\/+/g, '$1')
+  const langs: Array<[string, string, string]> = isWs
+    ? [['wscat', 'wscat', 'bash'], ['javascript', 'WebSocket', 'javascript'], ['recker', 'Recker', 'typescript'], ['python', 'Python', 'python']]
+    : [['curl', 'cURL', 'bash'], ['eventsource', 'EventSource', 'javascript'], ['recker', 'Recker', 'typescript'], ['python', 'Python', 'python']]
+
+  const section = doc.createElement('div')
+  section.className = 'endpoint-subsection'
+  section.innerHTML = '<div class="subsection-label">Client examples</div>'
+  const wrap = doc.createElement('div')
+  wrap.className = 'http-code-samples'
+  const tabs = doc.createElement('div')
+  tabs.className = 'code-tabs'
+  const contents = doc.createElement('div')
+  contents.className = 'code-contents'
+
+  langs.forEach(([key, label, language], index) => {
+    const tab = doc.createElement('button')
+    tab.type = 'button'
+    tab.className = `code-tab${index === 0 ? ' active' : ''}`
+    tab.textContent = label
+    const content = doc.createElement('div')
+    content.className = `code-content${index === 0 ? ' active' : ''}`
+    const pre = doc.createElement('pre')
+    pre.className = 'http-code-sample-pre'
+    pre.setAttribute('data-code-toolbar', 'managed')
+    const code = doc.createElement('code')
+    code.className = `language-${language}`
+    code.textContent = isWs
+      ? generateWsCodeSample(key, url, endpoint.path, data)
+      : generateStreamCodeSample(key, url)
+    pre.appendChild(code)
+    content.appendChild(pre)
+    tab.onclick = () => {
+      tabs.querySelectorAll('.code-tab').forEach((t: any) => t.classList.remove('active'))
+      contents.querySelectorAll('.code-content').forEach((c: any) => c.classList.remove('active'))
+      tab.classList.add('active')
+      content.classList.add('active')
+    }
+    tabs.appendChild(tab)
+    contents.appendChild(content)
+  })
+
+  const copy = createSampleCopyButton('http-code-copy', () => {
+    const active = contents.querySelector('.code-content.active pre')
+    return active?.textContent ?? ''
+  })
+  tabs.appendChild(copy)
+  wrap.appendChild(tabs)
+  wrap.appendChild(contents)
+  section.appendChild(wrap)
+  return section
+}
+
 function renderEndpointDetails(endpoint: Endpoint): any {
   const container = doc.createElement('div')
   container.className = 'endpoint-details'
   const data = (endpoint.data ?? {}) as any
-  appendProtocolConsole(container, { doc, spec, wsSpec, streamsSpec, jsonrpcSpec, activeProtocol, endpoint, data, esc, escapeAttr })
+  appendProtocolConsole(container, { doc, spec, wsSpec, streamsSpec, jsonrpcSpec, activeProtocol, endpoint, data, esc, escapeAttr, tryItConfig })
   const appendMany = (items: Array<[string, unknown]>) => items.forEach(([title, value]) => appendSchemaSubsection(container, title, value))
   if (activeProtocol === 'http') {
     // Two-column operation layout (ReDoc-style): the left column carries the
@@ -2487,6 +2647,9 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   if (activeProtocol === 'websocket') {
     appendInfoGrid(container, [['Channel Type', data.type], ['Path', endpoint.path]])
     appendMany([['Parameters', parameterMapToSchema(data.parameters)], ['Subscribe Message', resolveMessagePayload(data.subscribe?.message)], ['Publish Message', resolveMessagePayload(data.publish?.message)]])
+    appendContentTypesSection(container, 'Subscribe Content Types', resolveEffectiveContentTypes(data.subscribe?.contentTypes, (wsSpec as any)?.contentTypes))
+    appendContentTypesSection(container, 'Publish Content Types', resolveEffectiveContentTypes(data.publish?.contentTypes, (wsSpec as any)?.contentTypes))
+    container.appendChild(renderProtocolCodeSamples('websocket', endpoint, data))
   }
   if (activeProtocol === 'graphql') {
     appendInfoGrid(container, [['Endpoint', graphqlSpec.endpoint], ['Kind', data.kind], ['Resource', data.resource ?? data.name], ['Source', data.source]])
@@ -2503,23 +2666,29 @@ function renderEndpointDetails(endpoint: Endpoint): any {
     ])
     appendStreamProjectionDiagnostics(container, resumable?.projections)
     appendMany([['Parameters', parameterMapToSchema(data.parameters)], ['Message Schema', resolveMessagePayload(data.message)]])
+    appendContentTypesSection(container, 'Content Types', resolveEffectiveContentTypes(data.contentTypes, (streamsSpec as any)?.contentTypes))
+    container.appendChild(renderProtocolCodeSamples('streams', endpoint, data))
   }
   if (activeProtocol === 'jsonrpc') {
     appendInfoGrid(container, [['Method', endpoint.path], ['Notification', data['x-usd-notification'] === true ? 'yes' : undefined], ['Streaming', data['x-usd-streaming'] === true ? 'yes' : undefined]])
     appendMany([['Parameters', data.params], ['Result', data.result], ['Errors', data.errors]])
+    appendContentTypesSection(container, 'Content Types', resolveEffectiveContentTypes(data.contentTypes, (jsonrpcSpec as any)?.contentTypes))
   }
   if (activeProtocol === 'grpc') {
     const method = data.method ?? {}
     appendInfoGrid(container, [['Service', data.serviceName], ['Method', data.methodName], ['Type', getGrpcMethodType(method).replace(/_/g, ' ')]])
     appendMany([['Request', method.input], ['Response', method.output]])
+    appendContentTypesSection(container, 'Content Types', resolveEffectiveContentTypes(method.contentTypes, (grpcSpec as any)?.contentTypes))
   }
   if (activeProtocol === 'tcp') {
     appendInfoGrid(container, [['Host', data.host ?? 'localhost'], ['Port', data.port], ['TLS', data.tls?.enabled === true ? 'enabled' : undefined]])
     appendMany([['Framing', data.framing], ['Inbound Message', resolveMessagePayload(data.messages?.inbound)], ['Outbound Message', resolveMessagePayload(data.messages?.outbound)]])
+    appendContentTypesSection(container, 'Content Types', resolveEffectiveContentTypes(data.contentTypes, (tcpSpec as any)?.contentTypes))
   }
   if (activeProtocol === 'udp') {
     appendInfoGrid(container, [['Host', data.host ?? '127.0.0.1'], ['Port', data.port], ['Max Packet', data.maxPacketSize ? `${data.maxPacketSize} bytes` : undefined]])
     appendMany([['Inbound Message', resolveMessagePayload(data.messages?.inbound)], ['Outbound Message', resolveMessagePayload(data.messages?.outbound)], ['Message Schema', resolveMessagePayload(data.message)]])
+    appendContentTypesSection(container, 'Content Types', resolveEffectiveContentTypes(data.contentTypes, (udpSpec as any)?.contentTypes))
   }
   return container
 }

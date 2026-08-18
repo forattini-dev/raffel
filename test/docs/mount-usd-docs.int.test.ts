@@ -207,4 +207,60 @@ describe('mountUSDDocs (issue #111)', () => {
       body: '{"status":"healthy"}',
     })
   })
+
+  it('streams an allowed SSE upstream through the opt-in stream proxy', async () => {
+    const port = await getFreePort()
+    const base = `http://127.0.0.1:${port}`
+    const app = new HttpApp()
+    const registry = createRegistry()
+    const schemaRegistry = createSchemaRegistry()
+    app.get('/streams/prices', () => new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: one\n\n'))
+          controller.enqueue(new TextEncoder().encode('data: two\n\n'))
+          controller.close()
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    ))
+
+    mountUSDDocs(app, { registry, schemaRegistry }, {
+      basePath: '/coding',
+      servers: [{ url: base }],
+      ui: { tryItOut: { mode: 'proxy' } },
+    })
+
+    const server = serve({ fetch: app.fetch.bind(app), port, hostname: '127.0.0.1' })
+    stop = () => new Promise<void>((resolve) => server.close(() => resolve()))
+
+    const streamed = await fetch(`${base}/coding/-/stream?url=${encodeURIComponent(`${base}/streams/prices`)}`)
+    expect(streamed.status).toBe(200)
+    expect(streamed.headers.get('content-type')).toMatch(/text\/event-stream/)
+    await expect(streamed.text()).resolves.toBe('data: one\n\ndata: two\n\n')
+
+    // A target outside the declared servers is refused.
+    const rejected = await fetch(`${base}/coding/-/stream?url=${encodeURIComponent('http://169.254.169.254/x')}`)
+    expect(rejected.status).toBe(403)
+  })
+
+  it('leaves the stream proxy disabled (404) in direct mode', async () => {
+    const port = await getFreePort()
+    const base = `http://127.0.0.1:${port}`
+    const app = new HttpApp()
+    const registry = createRegistry()
+    const schemaRegistry = createSchemaRegistry()
+
+    mountUSDDocs(app, { registry, schemaRegistry }, {
+      basePath: '/coding',
+      servers: [{ url: base }],
+      ui: { tryItOut: true }, // direct mode — no proxy routes active
+    })
+
+    const server = serve({ fetch: app.fetch.bind(app), port, hostname: '127.0.0.1' })
+    stop = () => new Promise<void>((resolve) => server.close(() => resolve()))
+
+    const res = await fetch(`${base}/coding/-/stream?url=${encodeURIComponent(`${base}/x`)}`)
+    expect(res.status).toBe(404)
+  })
 })
