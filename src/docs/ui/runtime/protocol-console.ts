@@ -9,6 +9,21 @@ type ConsoleDeps = {
   data: any
   esc: (value: unknown) => string
   escapeAttr: (value: unknown) => string
+  /** Try-it config `{ enabled, mode, proxyUrl, streamProxyUrl }`; when `mode === 'proxy'` SSE routes through the same-origin stream proxy. */
+  tryItConfig?: any
+}
+
+/**
+ * Resolve the URL an EventSource should open: the raw upstream in `direct`
+ * mode, or the same-origin `-/stream` proxy (with the upstream passed as a
+ * `url` query param) when the docs are configured for `proxy` mode. Routing
+ * through the proxy avoids CORS and keeps the stream on the declared origin.
+ */
+function resolveStreamUrl(tryItConfig: any, target: string): string {
+  if (tryItConfig?.mode === 'proxy' && tryItConfig.streamProxyUrl) {
+    return `${tryItConfig.streamProxyUrl}?url=${encodeURIComponent(target)}`
+  }
+  return target
 }
 
 export function appendProtocolConsole(container: any, deps: ConsoleDeps): void {
@@ -72,7 +87,7 @@ function bindLiveConsole(panel: any, deps: ConsoleDeps): void {
         socket.onclose = () => { run.textContent = 'Connect'; write('closed') }
       } else {
         if (events) { events.close(); events = null; run.textContent = 'Connect'; return }
-        events = new EventSource(url.value)
+        events = new EventSource(resolveStreamUrl(deps.tryItConfig, url.value))
         events.onopen = () => { run.textContent = 'Close'; write('connected') }
         events.onmessage = (event: any) => write(`event ${event.data}`)
         events.onerror = () => write('stream error')

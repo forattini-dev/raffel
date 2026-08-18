@@ -118,6 +118,83 @@ This exposes:
 | `/docs/-/raffel-docs.css` | Reusable frontend docs stylesheet |
 | `/docs/-/assets/*` | Static assets referenced by Markdown pages |
 
+## Try It Out and the request proxy
+
+Every generated HTTP operation can render an interactive **Try It Out** panel — a
+"Run request" button that sends a live request and shows the status, headers, and
+body inline. WebSocket channels and SSE streams get a live console (connect /
+subscribe / message log) instead. Try It Out is **opt-in**:
+
+```ts
+server.enableUSD({
+  basePath: '/docs',
+  info: { title: 'Acme API', version: '1.0.0' },
+  ui: {
+    tryItOut: true, // or a config object — see below
+  },
+})
+```
+
+Credentials entered through the **Authorize** UI (bearer, API key, basic, OAuth2,
+OIDC) are attached to Try It Out requests automatically, and the selected server
+from the docs header is used as the request base URL.
+
+### Direct vs. proxy mode
+
+Try It Out has two request modes. The default is `direct`:
+
+| Mode | How the request travels | When to use |
+| --- | --- | --- |
+| `direct` (default) | The browser calls the API directly with `fetch` (and `credentials: 'include'`). | Same-origin docs, or an API that returns permissive CORS headers. |
+| `proxy` | The browser posts the request to a **same-origin** endpoint on the docs server, which forwards it to the declared API and relays the response back. | Cross-origin APIs that do **not** send CORS headers — the proxy avoids the browser CORS block without loosening the API. |
+
+Enable proxy mode with the object form:
+
+```ts
+ui: {
+  tryItOut: {
+    mode: 'proxy',
+    // Extra exact origins the proxy may reach, in addition to the document `servers`.
+    allowedOrigins: ['https://api.acme.com'],
+    // Abort an upstream request after this many ms (default 15000).
+    timeoutMs: 15000,
+    // Maximum buffered upstream response for HTTP requests (default 1 MiB).
+    maxResponseBytes: 1_048_576,
+  },
+}
+```
+
+Proxy mode adds two same-origin routes under `<basePath>/-/`, mounted **only when
+`mode: 'proxy'` is set** (in `direct` mode they return `404`):
+
+| Route | Purpose |
+| --- | --- |
+| `POST /docs/-/request` | Bounded HTTP request proxy — forwards one request and returns a `{ status, statusText, headers, body }` envelope. |
+| `GET /docs/-/stream` | SSE / EventSource proxy — pipes a `text/event-stream` from `?url=<upstream>` back to the browser. |
+
+### Origin allowlist (why requests can't go to other sites)
+
+Both proxy routes only connect to origins that are **explicitly declared**: the USD
+document's `servers` (respecting each server's base path) plus any `allowedOrigins`
+you list. Any other target returns `403 Request target is not allowed`. Credentialed
+URLs (`user:pass@host`) and non-`http(s)` schemes are rejected, hop-by-hop and
+`sec-*`/`proxy-*` request headers are stripped, and `set-cookie` is removed from
+responses. This keeps the proxy from being turned into an open relay/SSRF vector —
+a request from the docs page can never be pointed at an arbitrary host.
+
+The SSE proxy is `GET` because `EventSource` only issues GETs and cannot set headers.
+To reach an authenticated stream, pass the credential as a query parameter
+(`?url=…&authorization=Bearer%20<token>`); the proxy moves it into the upstream
+`Authorization` header. The value only travels to the same-origin docs server, not
+cross-site.
+
+> **WebSocket** try-it connects **directly** from the browser by design — there is
+> no WebSocket proxy. Proxying a WebSocket requires taking over the connection
+> upgrade at the server layer, which is architecture-dependent (load balancers, TLS
+> termination, upgrade handling) and can break in deployments where an HTTP request
+> proxy works fine. The proxy is intentionally HTTP + SSE only; cross-origin
+> WebSocket channels depend on the API accepting the origin.
+
 ## Mounting on a standalone HttpApp
 
 When wiring USD docs onto a `HttpApp` (or any `app.get(path, handler)`-shaped router) directly, use `mountUSDDocs(app, ctx, config)` instead of calling `createUSDHandlers` and registering the eight handlers by hand:

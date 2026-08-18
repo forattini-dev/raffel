@@ -81,6 +81,80 @@ export async function executeDocsTryItProxy(
   }
 }
 
+export interface DocsTryItStreamRequest {
+  url: string
+  /** Optional bearer/authorization value forwarded upstream (EventSource cannot set headers itself). */
+  authorization?: string
+}
+
+/**
+ * Same-origin proxy for a docs "try it out" SSE / EventSource console.
+ *
+ * Unlike {@link executeDocsTryItProxy} this does NOT buffer the response — it
+ * pipes the upstream `text/event-stream` body straight back so an infinite
+ * stream keeps flowing. The same origin allowlist applies: only declared USD
+ * server origins (or explicitly configured `allowedOrigins`) are reachable, so
+ * the console cannot be pointed at an arbitrary host.
+ */
+export async function executeDocsTryItStreamProxy(
+  payload: DocsTryItStreamRequest,
+  options: DocsTryItProxyOptions,
+): Promise<Response> {
+  const target = parseTarget(payload?.url ?? '')
+  const allowedServers = resolveServerUrls(options.servers ?? [])
+  const allowedOrigins = new Set((options.allowedOrigins ?? []).flatMap(origin => {
+    const parsed = parseTarget(origin)
+    return parsed ? [parsed.origin] : []
+  }))
+  if (!target || (!allowedOrigins.has(target.origin) && !allowedServers.some(server => isWithinServer(target, server)))) {
+    return problem(403, 'Request target is not allowed', 'The documentation proxy only connects to declared API server origins.')
+  }
+
+  const headers = new Headers({ accept: 'text/event-stream' })
+  if (payload.authorization) headers.set('authorization', payload.authorization)
+
+  // Guard only the connection handshake; once headers arrive we stop the timer
+  // so the (potentially infinite) stream body is never aborted mid-flight.
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000)
+  let upstream: Response
+  try {
+    upstream = await (options.fetchImpl ?? fetch)(target.toString(), {
+      method: 'GET',
+      headers,
+      redirect: 'manual',
+      signal: controller.signal,
+    })
+  } catch {
+    clearTimeout(timeout)
+    const timedOut = controller.signal.aborted
+    return problem(
+      timedOut ? 504 : 502,
+      timedOut ? 'Upstream stream timed out' : 'Upstream stream failed',
+      timedOut
+        ? 'The declared upstream server did not start the stream before the configured timeout.'
+        : 'The declared upstream server could not open the stream.',
+    )
+  }
+  clearTimeout(timeout)
+
+  if (!upstream.ok || !upstream.body) {
+    return problem(
+      upstream.status >= 400 ? upstream.status : 502,
+      'Upstream stream unavailable',
+      'The declared upstream server did not return a readable event stream.',
+    )
+  }
+
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
 const HOP_BY_HOP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',

@@ -124,6 +124,14 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         path: `${docsBasePath}/-/request`,
         handler: async (_pathname, _params, req) => state.usdDocsHandlers.value!.serveTryItProxy(await readDocsProxyPayload(req)),
       },
+      {
+        method: 'GET',
+        path: `${docsBasePath}/-/stream`,
+        handler: (_pathname, _params, req) => {
+          const query = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`).searchParams
+          return state.usdDocsHandlers.value!.serveTryItStreamProxy(query.get('url'), query.get('authorization'))
+        },
+      },
       { method: 'GET', path: `${docsBasePath}/-/raffel-docs.js`, handler: state.usdDocsHandlers.value.serveUIRuntime },
       { method: 'GET', path: `${docsBasePath}/-/marked.umd.js`, handler: state.usdDocsHandlers.value.serveUIMarkdownEngine },
       { method: 'GET', path: `${docsBasePath}/-/prism.js`, handler: state.usdDocsHandlers.value.serveUISyntaxHighlighter },
