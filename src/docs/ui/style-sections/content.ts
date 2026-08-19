@@ -7,7 +7,7 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     /* ========== BREADCRUMBS ========== */
     .docs-breadcrumb {
-      margin: 0 0 16px 0;
+      margin: 0 0 20px 0;
       font-size: 12px;
       color: var(--text-muted);
     }
@@ -407,6 +407,16 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
 
     .markdown-content .heading-anchor:hover {
       color: var(--text-secondary);
+    }
+
+    /* The global \`* { margin: 0 }\` reset strips the UA heading margins; every
+       other md heading restores its own, so md-h1 needs one too — otherwise the
+       page title sits flush against the breadcrumb above and the content below. */
+    .markdown-content .md-h1 {
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.25;
+      margin: 0 0 24px 0;
     }
 
     .markdown-content .md-h2 {
