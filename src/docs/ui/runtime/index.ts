@@ -3416,6 +3416,13 @@ function renderContent(): void {
   // mid-search, in which case the search results take the surface.
   if (!searchQuery) {
     main.appendChild(renderDocsOverview())
+    if (introductionMarkdown) {
+      const introduction = doc.createElement('section')
+      introduction.className = 'docs-introduction markdown-content'
+      introduction.id = 'introduction'
+      introduction.innerHTML = parseMarkdown(introductionMarkdown)
+      main.appendChild(introduction)
+    }
     const authentication = renderAuthenticationSection()
     if (authentication) main.appendChild(authentication)
     const webhooks = renderAsyncContracts('Webhooks', spec.webhooks ?? {})
@@ -4202,8 +4209,6 @@ function init(): void {
   if (activePagePath && activePagePath !== routeState.pagePath) {
     win.history?.replaceState?.(null, '', routeToHash(activePagePath, activeHeadingId))
   }
-  const intro = byId('introductionContent')
-  if (intro && introductionMarkdown) intro.innerHTML = parseMarkdown(introductionMarkdown)
   initSidebarResize()
   bindEvents()
   renderFooter()

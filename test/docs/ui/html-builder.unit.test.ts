@@ -58,7 +58,11 @@ describe('Documentation UI HTML builder', () => {
     expect(html).toContain('<title>Telemetry &lt;API&gt;</title>')
     expect(html).toContain('<link rel="icon" type="image/x-icon" href="/favicon.ico">')
     expect(html).toContain('<header class="hero">')
-    expect(html).toContain('<section class="introduction" id="introduction">')
+    // The introduction is no longer a static full-width section in the shell —
+    // it is carried as embedded data and rendered client-side inside the main
+    // content on the root view (see runtime renderContent).
+    expect(html).not.toContain('<section class="introduction" id="introduction">')
+    expect(html).toContain('introductionMarkdown:')
     expect(html).toContain('<div class="app-container" id="docs" data-sidebar-hidden="false">')
     expect(html).toContain('class="sidebar-resizer"')
     expect(html).toContain('role="separator"')

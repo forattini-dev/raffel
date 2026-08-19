@@ -36,21 +36,6 @@ export function generateSkipLink(skipLink: UIConfig['skipLink']): string {
 }
 
 /**
- * Generate introduction section HTML. Markdown is rendered by the client script.
- */
-export function generateIntroductionSection(introduction: string | undefined): string {
-  if (!introduction) return ''
-
-  return `
-  <section class="introduction" id="introduction">
-    <div class="introduction-content" id="introductionContent">
-      <!-- Markdown will be rendered by client-side script -->
-    </div>
-  </section>
-  `
-}
-
-/**
  * Generate GitHub corner SVG (file-backed Markdown).
  */
 function generateGitHubCorner(url: string): string {

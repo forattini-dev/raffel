@@ -20,7 +20,6 @@ import { escapeHtml, escapeJsonForScript, generateHeroBackgroundCSS, sanitizeCss
 import {
   generateAppContainer,
   generateHeroSection,
-  generateIntroductionSection,
   generateSkipLink,
   generateTopNavigation,
   mergeHeroConfig,
@@ -193,7 +192,6 @@ ${generateClientRuntimeScript()}
 <body>
   ${generateSkipLink(ui?.skipLink)}
   ${generateHeroSection(hero, logo, title, version, generateTopNavigation(logo, title, navItems))}
-  ${generateIntroductionSection(introduction)}
   ${hero ? '' : generateTopNavigation(logo, title, navItems)}
   ${generateAppContainer(logo, title, sidebar, footer)}
   <script>
