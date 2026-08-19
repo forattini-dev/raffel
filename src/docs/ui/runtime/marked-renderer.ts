@@ -94,7 +94,11 @@ function buildRenderer(currentPath: string | undefined, seenHeadingIds: Map<stri
       return `<h${token.depth} class="md-h${token.depth}" id="${deps.escapeAttr(id)}"${ignored}><a class="heading-anchor" href="${deps.escapeAttr(href)}">#</a>${deps.parseMarkdown(parsed.title, currentPath).replace(/^<p class="md-p">|<\/p>\n?$/g, '')}</h${token.depth}>`
     },
     paragraph(this: any, token: any) { return `<p class="md-p">${inline(this, token.tokens)}</p>` },
-    list(this: any, token: any) { const tag = token.ordered ? 'ol' : 'ul'; return `<${tag} class="md-list">${token.items.map((item: any) => this.listitem(item)).join('')}</${tag}>` },
+    list(this: any, token: any) {
+      const tag = token.ordered ? 'ol' : 'ul'
+      const start = token.ordered && token.start && token.start !== 1 ? ` start="${deps.escapeAttr(token.start)}"` : ''
+      return `<${tag} class="md-list"${start}>${token.items.map((item: any) => this.listitem(item)).join('')}</${tag}>`
+    },
     listitem(this: any, item: any) { return `<li>${item.task ? `<input type="checkbox" disabled${item.checked ? ' checked' : ''}> ` : ''}${this.parser.parse(item.tokens)}</li>` },
     codespan(token: any) { return `<code class="md-inline-code">${deps.esc(token.text)}</code>` },
     code(token: any) {
@@ -126,7 +130,13 @@ function buildRenderer(currentPath: string | undefined, seenHeadingIds: Map<stri
       const classAttr = parsed.attrs.classes.length > 0 ? '' : ' class="md-image"'
       return `<img${classAttr} src="${deps.escapeAttr(resolved)}" alt="${deps.escapeAttr(token.text)}"${attrs}>`
     },
-    text(token: any) { return deps.renderEmojiShorthand(deps.esc(token.text)) },
+    text(this: any, token: any) {
+      // A block-level `text` token (e.g. an item in a tight list) carries its
+      // inline markup as child tokens. The default renderer recurses into them;
+      // returning the raw `token.text` would leak literal `**`, backticks, etc.
+      if (token.tokens && token.tokens.length) return this.parser.parseInline(token.tokens)
+      return deps.renderEmojiShorthand(deps.esc(token.text))
+    },
   }
 }
 
