@@ -25,6 +25,7 @@ export type {
   MetricDefinition,
   MetricRegistry,
   ExportFormat,
+  AdditionalMetricCollector,
 } from './types.js'
 
-export { DEFAULT_HISTOGRAM_BUCKETS, AUTO_METRICS } from './types.js'
+export { DEFAULT_HISTOGRAM_BUCKETS, AUTO_METRICS, OTEL_METRICS } from './types.js'

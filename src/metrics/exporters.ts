@@ -18,10 +18,22 @@ function formatLabels(labels: Labels): string {
   entries.sort(([a], [b]) => a.localeCompare(b))
 
   const formatted = entries
-    .map(([k, v]) => `${k}="${escapePrometheusValue(v)}"`)
+    .map(([k, v]) => `${sanitizePrometheusIdentifier(k)}="${escapePrometheusValue(v)}"`)
     .join(',')
 
   return `{${formatted}}`
+}
+
+function sanitizePrometheusIdentifier(value: string): string {
+  const sanitized = value.replace(/[^a-zA-Z0-9_:]/g, '_')
+  return /^[a-zA-Z_:]/.test(sanitized) ? sanitized : `_${sanitized}`
+}
+
+function prometheusMetricName(metric: MetricDefinition): string {
+  const base = sanitizePrometheusIdentifier(metric.name)
+  if (metric.unit === 's' && !base.endsWith('_seconds')) return `${base}_seconds`
+  if (metric.unit === 'By' && !base.endsWith('_bytes')) return `${base}_bytes`
+  return base
 }
 
 /**
@@ -49,19 +61,20 @@ export function exportPrometheus(
   const lines: string[] = []
 
   for (const metric of metrics.values()) {
+    const metricName = prometheusMetricName(metric)
     // HELP line
     if (metric.description) {
-      lines.push(`# HELP ${metric.name} ${metric.description}`)
+      lines.push(`# HELP ${metricName} ${metric.description}`)
     }
 
     // TYPE line
-    lines.push(`# TYPE ${metric.name} ${metric.type}`)
+    lines.push(`# TYPE ${metricName} ${metric.type}`)
 
     if (metric.type === 'histogram') {
       // Histogram format with buckets
       for (const histValue of metric.histogramValues!.values()) {
         const baseLabels = formatLabels(histValue.labels)
-        const baseName = metric.name
+        const baseName = metricName
 
         // Bucket values (cumulative)
         for (const bucket of histValue.buckets) {
@@ -84,7 +97,7 @@ export function exportPrometheus(
       // Counter and gauge format
       for (const value of metric.values.values()) {
         const labelStr = formatLabels(value.labels)
-        lines.push(`${metric.name}${labelStr} ${value.value}`)
+        lines.push(`${metricName}${labelStr} ${value.value}`)
       }
     }
 

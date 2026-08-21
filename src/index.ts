@@ -730,12 +730,14 @@ export {
   exportJson,
   DEFAULT_HISTOGRAM_BUCKETS,
   AUTO_METRICS,
+  OTEL_METRICS,
 } from './metrics/index.js'
 export type {
   MetricType,
   Labels,
   MetricOptions,
   MetricsConfig,
+  AdditionalMetricCollector,
   MetricValue,
   HistogramBucket,
   HistogramValue,

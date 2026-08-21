@@ -5,6 +5,7 @@
  */
 
 import type { Interceptor } from '../types/index.js'
+import type { ProcedureOptions } from '../core/registry.js'
 import type { MetricsConfig, MetricRegistry } from '../metrics/index.js'
 import type { TracingConfig, Tracer } from '../tracing/index.js'
 import { createMetricRegistry, createMetricsInterceptor, startProcessMetricsCollection } from '../metrics/index.js'
@@ -33,7 +34,11 @@ export interface TelemetryState {
 }
 
 export interface TelemetryRegistryLike {
-  procedure: (name: string, handler: () => Promise<unknown>) => void
+  procedure: (
+    name: string,
+    handler: () => Promise<unknown>,
+    options?: ProcedureOptions
+  ) => void
 }
 
 export interface TelemetryStartupContext {
@@ -74,6 +79,7 @@ export function configureMetrics(
     defaultLabels: config.defaultLabels,
     collectRequestMetrics: config.collectRequestMetrics ?? true,
     collectProcessMetrics: config.collectProcessMetrics ?? false,
+    additionalCollectors: config.additionalCollectors ?? [],
   }
 
   state.metricsRegistry = createMetricRegistry()
@@ -129,9 +135,31 @@ export async function initializeTelemetry(
       })
     }
 
-    registry.procedure('__metrics__', async () => {
-      return state.metricsRegistry!.export('prometheus')
-    })
+    registry.procedure(
+      '__metrics__',
+      async () => {
+        const nativeMetrics = state.metricsRegistry!.export('prometheus')
+        const additionalMetrics = await Promise.all(
+          (state.metricsConfig?.additionalCollectors ?? []).map((collector) => collector())
+        )
+        const body = [nativeMetrics, ...additionalMetrics]
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .join('\n\n')
+        return new Response(`${body}\n`, {
+          status: 200,
+          headers: {
+            'cache-control': 'no-store',
+            'content-type': 'text/plain; version=0.0.4; charset=utf-8',
+          },
+        })
+      },
+      {
+        httpPath: state.metricsConfig.endpoint,
+        httpMethod: 'GET',
+        summary: 'Prometheus metrics exposition',
+      }
+    )
 
     logger.info({ endpoint: state.metricsConfig.endpoint }, 'Metrics enabled')
   }

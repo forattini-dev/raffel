@@ -94,6 +94,7 @@ export function createMetricRegistry(): MetricRegistry {
       type,
       description: opts.description ?? '',
       labelKeys: opts.labels ?? [],
+      unit: opts.unit,
       values: new Map(),
     }
 

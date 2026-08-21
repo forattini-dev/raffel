@@ -7,6 +7,8 @@ import {
   createMetricRegistry,
   DEFAULT_HISTOGRAM_BUCKETS,
   AUTO_METRICS,
+  OTEL_METRICS,
+  createMetricsInterceptor,
   registerProcessMetrics,
   collectProcessMetrics,
 } from '../../src/metrics/index.js'
@@ -401,5 +403,43 @@ describe('AUTO_METRICS constants', () => {
     expect(AUTO_METRICS.PROCESS_CPU).toBe('process_cpu_seconds_total')
     expect(AUTO_METRICS.PROCESS_MEMORY).toBe('process_resident_memory_bytes')
     expect(AUTO_METRICS.EVENTLOOP_LAG).toBe('nodejs_eventloop_lag_seconds')
+  })
+})
+
+describe('OpenTelemetry server metrics', () => {
+  it('exports semantic HTTP duration names and attributes in Prometheus format', async () => {
+    const registry = createMetricRegistry()
+    const interceptor = createMetricsInterceptor(registry)
+    const response = new Response('ok', { status: 503 })
+
+    await interceptor(
+      { id: 'request-1', type: 'request', procedure: 'health', payload: {} },
+      {
+        protocol: 'http',
+        http: {
+          kind: 'http',
+          method: 'GET',
+          path: '/health/123',
+          route: '/health/:id',
+          url: 'https://service.test/health/123',
+          headers: {},
+        },
+      } as never,
+      async () => response
+    )
+
+    const output = registry.export('prometheus')
+    expect(output).toContain('# TYPE http_server_request_duration_seconds histogram')
+    expect(output).toContain('http_request_method="GET"')
+    expect(output).toContain('http_route="/health/:id"')
+    expect(output).toContain('http_response_status_code="503"')
+    expect(output).toContain('error_type="503"')
+  })
+
+  it('registers the RPC duration metric with the standard buckets', () => {
+    const registry = createMetricRegistry()
+    createMetricsInterceptor(registry)
+    expect(registry.getMetric(OTEL_METRICS.RPC_SERVER_CALL_DURATION)?.buckets)
+      .toEqual(DEFAULT_HISTOGRAM_BUCKETS)
   })
 })

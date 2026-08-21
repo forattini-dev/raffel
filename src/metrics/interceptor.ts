@@ -4,9 +4,9 @@
  * Automatically collects request metrics (duration, count, errors).
  */
 
-import type { Interceptor, Envelope } from '../types/index.js'
+import type { Context, Interceptor, Envelope } from '../types/index.js'
 import type { MetricRegistry } from './types.js'
-import { AUTO_METRICS } from './types.js'
+import { AUTO_METRICS, DEFAULT_HISTOGRAM_BUCKETS, OTEL_METRICS } from './types.js'
 
 const processCpuState = new WeakMap<MetricRegistry, number>()
 
@@ -19,20 +19,25 @@ export function createMetricsInterceptor(
   // Register auto-metrics if not already registered
   ensureAutoMetricsRegistered(registry)
 
-  return async (envelope: Envelope, _ctx, next) => {
+  return async (envelope: Envelope, ctx, next) => {
     const procedure = envelope.procedure ?? 'unknown'
     const end = registry.timer(AUTO_METRICS.REQUEST_DURATION, { procedure })
+    const startedAt = performance.now()
 
     try {
       const result = await next()
+      const errorCode = getEnvelopeErrorCode(result)
 
-      // Record success
       registry.increment(AUTO_METRICS.REQUESTS_TOTAL, {
         procedure,
-        status: 'success',
+        status: errorCode ? 'error' : 'success',
       })
+      if (errorCode) {
+        registry.increment(AUTO_METRICS.REQUEST_ERRORS, { procedure, code: errorCode })
+      }
 
       end()
+      recordOpenTelemetryDuration(registry, ctx, result, startedAt, errorCode)
       return result
     } catch (error) {
       // Record error
@@ -52,8 +57,79 @@ export function createMetricsInterceptor(
       })
 
       end()
+      recordOpenTelemetryDuration(registry, ctx, undefined, startedAt, errorCode)
       throw error
     }
+  }
+}
+
+function getEnvelopeErrorCode(result: unknown): string | undefined {
+  if (!result || typeof result !== 'object' || !('type' in result)) return undefined
+  const resultEnvelope = result as Envelope
+  if (resultEnvelope.type !== 'error') return undefined
+  const payload = resultEnvelope.payload
+  if (!payload || typeof payload !== 'object' || !('code' in payload)) return 'INTERNAL_ERROR'
+  return String((payload as { code: unknown }).code)
+}
+
+function getHttpStatus(result: unknown, errorCode?: string): string {
+  if (result instanceof Response) return String(result.status)
+  if (result && typeof result === 'object' && 'payload' in result) {
+    const payload = (result as Envelope).payload
+    if (payload instanceof Response) return String(payload.status)
+    if (payload && typeof payload === 'object' && 'status' in payload) {
+      return String((payload as { status: unknown }).status)
+    }
+  }
+  return errorCode ? '500' : '200'
+}
+
+const GRPC_STATUS_BY_ERROR: Record<string, string> = {
+  CANCELLED: '1',
+  INVALID_ARGUMENT: '3',
+  DEADLINE_EXCEEDED: '4',
+  NOT_FOUND: '5',
+  ALREADY_EXISTS: '6',
+  PERMISSION_DENIED: '7',
+  RESOURCE_EXHAUSTED: '8',
+  FAILED_PRECONDITION: '9',
+  UNIMPLEMENTED: '12',
+  INTERNAL_ERROR: '13',
+  UNAVAILABLE: '14',
+  DATA_LOSS: '15',
+  UNAUTHENTICATED: '16',
+}
+
+function recordOpenTelemetryDuration(
+  registry: MetricRegistry,
+  ctx: Context,
+  result: unknown,
+  startedAt: number,
+  errorCode?: string
+): void {
+  const durationSeconds = (performance.now() - startedAt) / 1000
+  if (ctx.protocol === 'http' && ctx.http) {
+    const status = getHttpStatus(result, errorCode)
+    const labels: Record<string, string> = {
+      'http.request.method': ctx.http.method,
+      'url.scheme': new URL(ctx.http.url).protocol.replace(':', ''),
+      'http.route': ctx.http.route ?? ctx.http.path,
+      'http.response.status_code': status,
+    }
+    if (Number(status) >= 500 || errorCode) labels['error.type'] = errorCode ?? status
+    registry.observe(OTEL_METRICS.HTTP_SERVER_REQUEST_DURATION, durationSeconds, labels)
+    return
+  }
+
+  if (ctx.protocol === 'grpc' && ctx.grpc) {
+    const labels: Record<string, string> = {
+      'rpc.system': 'grpc',
+      'rpc.service': ctx.grpc.service ?? 'unknown',
+      'rpc.method': ctx.grpc.method ?? 'unknown',
+      'rpc.grpc.status_code': errorCode ? (GRPC_STATUS_BY_ERROR[errorCode] ?? '13') : '0',
+    }
+    if (errorCode) labels['error.type'] = errorCode
+    registry.observe(OTEL_METRICS.RPC_SERVER_CALL_DURATION, durationSeconds, labels)
   }
 }
 
@@ -61,6 +137,37 @@ export function createMetricsInterceptor(
  * Ensure all auto-collected metrics are registered
  */
 function ensureAutoMetricsRegistered(registry: MetricRegistry): void {
+  if (!registry.getMetric(OTEL_METRICS.HTTP_SERVER_REQUEST_DURATION)) {
+    registry.histogram(OTEL_METRICS.HTTP_SERVER_REQUEST_DURATION, {
+      description: 'Duration of HTTP server requests',
+      unit: 's',
+      labels: [
+        'http.request.method',
+        'url.scheme',
+        'http.route',
+        'http.response.status_code',
+        'error.type',
+      ],
+      buckets: [...DEFAULT_HISTOGRAM_BUCKETS],
+    })
+  }
+
+  if (!registry.getMetric(OTEL_METRICS.RPC_SERVER_CALL_DURATION)) {
+    registry.histogram(OTEL_METRICS.RPC_SERVER_CALL_DURATION, {
+      description: 'Duration of RPC server calls',
+      unit: 's',
+      labels: [
+        'rpc.system',
+        'rpc.service',
+        'rpc.method',
+        'rpc.grpc.status_code',
+        'error.type',
+      ],
+      buckets: [...DEFAULT_HISTOGRAM_BUCKETS],
+    })
+  }
+
+  // Legacy Raffel metrics remain for one compatibility release.
   // Requests total counter
   if (!registry.getMetric(AUTO_METRICS.REQUESTS_TOTAL)) {
     registry.counter(AUTO_METRICS.REQUESTS_TOTAL, {

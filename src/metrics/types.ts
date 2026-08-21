@@ -18,7 +18,12 @@ export interface MetricOptions {
   labels?: string[]
   /** Bucket boundaries for histograms (default: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]) */
   buckets?: number[]
+  /** UCUM unit used when translating an OpenTelemetry name to Prometheus. */
+  unit?: 's' | 'By' | string
 }
+
+/** A host collector appended to Raffel's native Prometheus exposition. */
+export type AdditionalMetricCollector = () => string | Promise<string>
 
 /** Configuration for enabling metrics on server */
 export interface MetricsConfig {
@@ -32,6 +37,8 @@ export interface MetricsConfig {
   collectRequestMetrics?: boolean
   /** Auto-collect process metrics - CPU, memory, event loop (default: false) */
   collectProcessMetrics?: boolean
+  /** Additional Prometheus collectors exposed by the same endpoint. */
+  additionalCollectors?: AdditionalMetricCollector[]
 }
 
 /** Internal metric value storage */
@@ -63,6 +70,8 @@ export interface MetricDefinition {
   labelKeys: string[]
   /** For histogram: bucket boundaries */
   buckets?: number[]
+  /** UCUM unit carried by the metric definition. */
+  unit?: string
   /** Counter/gauge values by label key string */
   values: Map<string, MetricValue>
   /** Histogram values by label key string */
@@ -111,10 +120,19 @@ export type ExportFormat = 'prometheus' | 'json'
 
 /** Default histogram buckets (Prometheus defaults for seconds) */
 export const DEFAULT_HISTOGRAM_BUCKETS = [
-  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+  0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10,
 ]
 
-/** Auto-collected metric names */
+/** OpenTelemetry semantic-convention metric names. */
+export const OTEL_METRICS = {
+  HTTP_SERVER_REQUEST_DURATION: 'http.server.request.duration',
+  RPC_SERVER_CALL_DURATION: 'rpc.server.call.duration',
+} as const
+
+/**
+ * Legacy Raffel metric names kept for one compatibility release.
+ * @deprecated Prefer OTEL_METRICS and OpenTelemetry semantic-convention names.
+ */
 export const AUTO_METRICS = {
   REQUESTS_TOTAL: 'raffel_requests_total',
   REQUEST_DURATION: 'raffel_request_duration_seconds',
