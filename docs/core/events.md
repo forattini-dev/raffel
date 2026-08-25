@@ -49,6 +49,7 @@ server
 |--------|-------------|
 | `.input(schema)` | Define input validation schema (Zod) |
 | `.description(text)` | Add description for documentation |
+| `.docs({ hidden: true })` | Keep the event executable but omit it from generated documentation |
 | `.delivery(mode)` | Set delivery guarantee mode |
 | `.retryPolicy(policy)` | Configure retry behavior for at-least-once |
 | `.deduplicationWindow(ms)` | Set dedup window for at-most-once |

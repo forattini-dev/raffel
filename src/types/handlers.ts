@@ -252,6 +252,12 @@ export interface ContentTypesMeta {
   supported?: string[]
 }
 
+/** Documentation-only controls for a handler. */
+export interface HandlerDocumentationMeta {
+  /** Omit the handler from every generated documentation surface. */
+  hidden?: boolean
+}
+
 /**
  * Handler metadata
  */
@@ -273,6 +279,9 @@ export interface HandlerMeta {
    * Can be set via _meta.ts in fs-routes or programmatically.
    */
   tags?: string[]
+
+  /** Controls how this handler appears in generated documentation. */
+  docs?: HandlerDocumentationMeta
 
   /** Content type shorthand for this handler */
   contentType?: string

@@ -9,6 +9,7 @@ import type { SchemaRegistry } from '../../validation/index.js'
 import type { ContractPolicies } from '../../types/index.js'
 import { normalizeSchemaDescriptor } from '../../validation/index.js'
 import { projectResumableStreamContract } from '../../stream/projections.js'
+import { isHiddenFromDocumentation } from '../generators/visibility.js'
 
 /**
  * OpenAPI 3.0 Document structure
@@ -664,6 +665,7 @@ export function generateOpenAPI(
     if (restOperationIds.has(meta.name)) {
       continue
     }
+    if (isHiddenFromDocumentation(meta)) continue
 
     const handlerSchema = schemaRegistry?.get(meta.name)
     const path = nameToPath(meta.name, opts.basePath)
@@ -742,6 +744,7 @@ export function generateOpenAPI(
 
   // Process streams
   for (const meta of registry.listStreams()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const handlerSchema = schemaRegistry?.get(meta.name)
     const path = nameToPath(meta.name, opts.streamPath)
     const operationId = `stream${meta.name.charAt(0).toUpperCase() + nameToOperationId(meta.name).slice(1)}`
@@ -818,6 +821,7 @@ export function generateOpenAPI(
 
   // Process events
   for (const meta of registry.listEvents()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const handlerSchema = schemaRegistry?.get(meta.name)
     const path = nameToPath(meta.name, opts.eventPath)
     const operationId = `emit${meta.name.charAt(0).toUpperCase() + nameToOperationId(meta.name).slice(1)}`

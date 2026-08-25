@@ -19,6 +19,7 @@ import type { StreamDirection, HandlerMeta } from '../../types/index.js'
 import { createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
 import { resolveContentTypes } from './content-types.js'
 import { projectResumableStreamContract } from '../../stream/projections.js'
+import { isHiddenFromDocumentation } from './visibility.js'
 
 /**
  * Streams generation options
@@ -71,6 +72,7 @@ export function generateStreams(
 
   // Convert registered streams
   for (const meta of ctx.registry.listStreams()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const handlerSchema = ctx.schemaRegistry?.get(meta.name)
     const direction = convertDirection(meta.streamDirection)
 

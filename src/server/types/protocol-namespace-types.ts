@@ -5,6 +5,7 @@ import type {
   ProcedureHandler,
   StreamOperationalControls,
   LongPollContract,
+  HandlerDocumentationMeta,
 } from '../../types/index.js'
 import type { RouteCacheConfig } from '../../cache/server-runtime.js'
 
@@ -34,6 +35,8 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
   description?: string
   /** Tags for documentation grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Middleware interceptors */
   use?: Interceptor[]
   /** Response cache override for this HTTP route. */
@@ -249,6 +252,8 @@ export interface StreamOptions<TInput = unknown, TOutput = unknown> {
   description?: string
   /** Tags for documentation grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Connection-scoped controls for Live Streams. */
   controls?: StreamOperationalControls
   /** Input schema for stream parameters */
@@ -320,6 +325,8 @@ export interface RpcMethodOptions<TInput = unknown, TOutput = unknown> {
   description?: string
   /** Tags for documentation grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Input schema for validation */
   input?: z.ZodType<TInput>
   /** Output schema for documentation */
@@ -560,6 +567,8 @@ export interface GrpcMethodOptions {
   output?: z.ZodType
   /** Description for documentation */
   description?: string
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
 }
 
 /** gRPC unary method handler */

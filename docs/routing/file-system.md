@@ -262,6 +262,9 @@ import { z } from 'zod'
 export const input = z.object({ id: z.string() })
 export const output = z.object({ name: z.string() })
 
+// The route remains executable, but is omitted from generated docs/contracts.
+export const hidden = true
+
 export const meta = {
   description: 'Fetch a user',
   auth: 'required',
@@ -273,6 +276,12 @@ export default async function handler(input, ctx) {
   return { name: `user-${input.id}` }
 }
 ```
+
+`hidden` is scoped to this request file. It removes the operation from USD,
+OpenAPI, GraphQL, JSON-RPC, gRPC, and stream documentation projections without
+disabling the runtime route. It is therefore not an authorization mechanism;
+protect internal routes with authentication and policy as usual. The equivalent
+long-form metadata is `meta: { docs: { hidden: true } }`.
 
 For HTTP routes discovered from `src/http` or `discovery.routes`, the default
 export may also be an HTTP-style handler:

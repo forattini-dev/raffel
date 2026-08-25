@@ -284,6 +284,18 @@ Metadata is used by:
 - GraphQL schema
 - gRPC reflection
 
+To keep a procedure executable while omitting it from every generated
+documentation projection:
+
+```ts
+server.procedure('internal.rebuildIndex')
+  .docs({ hidden: true })
+  .handler(async () => rebuildIndex())
+```
+
+This only controls documentation visibility. It does not replace authentication
+or authorization.
+
 ---
 
 ## File-Based Procedures

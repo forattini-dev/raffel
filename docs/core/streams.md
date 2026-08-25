@@ -72,6 +72,7 @@ server
 | `.input(schema)` | Define input validation schema (Zod) |
 | `.output(schema)` | Define output validation schema (Zod) |
 | `.description(text)` | Add description for documentation |
+| `.docs({ hidden: true })` | Keep the stream executable but omit it from generated documentation |
 | `.direction(dir)` | Set stream direction (`server`, `client`, `bidi`) |
 | `.use(interceptor)` | Add interceptor/middleware |
 | `.handler(fn)` | Define the stream handler function |

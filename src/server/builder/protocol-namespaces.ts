@@ -227,6 +227,7 @@ export function createStreamsNamespace(ctx: StreamsNamespaceContext): StreamsNam
 
     registry.stream(streamName, handler, {
       description: options.description,
+      docs: options.docs,
       direction,
       controls: options.controls,
       interceptors: interceptors.length > 0 ? interceptors : undefined,
@@ -303,6 +304,7 @@ export function createRpcNamespace(ctx: RpcNamespaceContext): RpcNamespace {
     registry.procedure(name, handler, {
       description: options.description,
       tags: options.tags,
+      docs: options.docs,
       jsonrpc: { notification: isNotification },
       interceptors: interceptors.length > 0 ? interceptors : undefined,
     })
@@ -544,6 +546,7 @@ export function createGrpcNamespace(ctx: GrpcNamespaceContext): GrpcNamespace {
 
           registry.procedure(procedureName, handler as ProcedureHandler, {
             description: options.description,
+            docs: options.docs,
             grpc: { serviceName, methodName: name, type: 'unary' },
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })
@@ -569,6 +572,7 @@ export function createGrpcNamespace(ctx: GrpcNamespaceContext): GrpcNamespace {
 
           registry.stream(procedureName, handler as StreamHandler, {
             description: options.description,
+            docs: options.docs,
             direction: 'server',
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })
@@ -594,6 +598,7 @@ export function createGrpcNamespace(ctx: GrpcNamespaceContext): GrpcNamespace {
 
           registry.stream(procedureName, handler as StreamHandler, {
             description: options.description,
+            docs: options.docs,
             direction: 'client',
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })
@@ -619,6 +624,7 @@ export function createGrpcNamespace(ctx: GrpcNamespaceContext): GrpcNamespace {
 
           registry.stream(procedureName, handler as StreamHandler, {
             description: options.description,
+            docs: options.docs,
             direction: 'bidi',
             interceptors: interceptors.length > 0 ? interceptors : undefined,
           })

@@ -437,6 +437,8 @@ describe('Documentation UI HTML builder', () => {
     expect(css).toContain('.endpoint-right .sample-code {\n      margin: 0;\n      padding: 10px;')
     expect(css).toContain('.endpoint-right .sample-code code {\n      color: inherit;\n      font-family:')
     expect(css).toContain('font-size: 10px;\n      line-height: 1.4;')
+    expect(css).toContain('.protocol-try-it .md-code-block')
+    expect(css).toContain('.protocol-try-it .copy-code-btn')
   })
 
   it('can hide the sidebar for file-backed Markdown hideSidebar behavior', () => {

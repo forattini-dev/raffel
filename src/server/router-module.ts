@@ -19,6 +19,7 @@ import type {
   JsonRpcMeta,
   GrpcMeta,
   ContractPolicies,
+  HandlerDocumentationMeta,
 } from '../types/index.js'
 import type { HandlerSchema } from '../validation/index.js'
 import type { RouteCacheConfig } from '../cache/server-runtime.js'
@@ -46,6 +47,8 @@ export interface ModuleRoute {
   description?: string
   /** Tags for OpenAPI grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** HTTP path override for procedures */
   httpPath?: string
   /** HTTP method override for procedures */
@@ -105,6 +108,7 @@ function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let snapshotSchema: z.ZodType | undefined
   let description: string | undefined
+  let docs: HandlerDocumentationMeta | undefined
   let streamDirection: StreamDirection | undefined
   let streamControls: StreamOperationalControls | undefined
   let policies: ContractPolicies | undefined
@@ -142,6 +146,7 @@ function createStreamBuilder(
         name,
         handler: createSourceBackedStreamHandler(config),
         description,
+        docs,
         moduleInterceptors: [...moduleInterceptors],
         interceptors: [...interceptors],
         policies,
@@ -154,6 +159,10 @@ function createStreamBuilder(
     },
     description(desc) {
       description = desc
+      return builder
+    },
+    docs(meta) {
+      docs = meta
       return builder
     },
     graphql(config = 'subscription') {
@@ -178,6 +187,7 @@ function createStreamBuilder(
         name,
         handler: fn as StreamHandler,
         description,
+        docs,
         moduleInterceptors: [...moduleInterceptors],
         interceptors: [...interceptors],
         policies,
@@ -199,6 +209,7 @@ function createEventBuilder(
 ): EventBuilder {
   let inputSchema: z.ZodType | undefined
   let description: string | undefined
+  let docs: HandlerDocumentationMeta | undefined
   let deliveryGuarantee: DeliveryGuarantee = 'best-effort'
   let retryPolicy: RetryPolicy | undefined
   let deduplicationWindow: number | undefined
@@ -212,6 +223,10 @@ function createEventBuilder(
     },
     description(desc) {
       description = desc
+      return builder
+    },
+    docs(meta) {
+      docs = meta
       return builder
     },
     use(interceptor) {
@@ -243,6 +258,7 @@ function createEventBuilder(
         name,
         handler: fn as EventHandler,
         description,
+        docs,
         moduleInterceptors: [...moduleInterceptors],
         interceptors: [...interceptors],
         policies,
@@ -286,6 +302,7 @@ function createModuleView(
             summary: registration.summary,
             description: registration.description,
             tags: registration.tags,
+            docs: registration.docs,
             httpPath: registration.httpPath,
             httpMethod: registration.httpMethod,
             longPoll: registration.longPoll,

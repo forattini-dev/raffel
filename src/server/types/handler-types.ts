@@ -23,6 +23,7 @@ import type {
   ResumableStreamConfig,
   RetryPolicy,
   ContractPolicies,
+  HandlerDocumentationMeta,
 } from '../../types/index.js'
 import type { ProcedurePolicyConfig } from '../../middleware/policy/types.js'
 
@@ -92,6 +93,8 @@ export interface ProcedureBuilder<TInput = unknown, TOutput = unknown> {
    * ```
   */
   tags(tags: string[]): this
+  /** Configure generated documentation visibility. */
+  docs(meta: HandlerDocumentationMeta): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
   /** Enable or override hierarchical response caching for this procedure. */
@@ -176,6 +179,8 @@ export interface StreamBuilder<TInput = unknown, TOutput = unknown> {
   resumable(config: ResumableStreamConfig): void
   /** Add description */
   description(desc: string): this
+  /** Configure generated documentation visibility. */
+  docs(meta: HandlerDocumentationMeta): this
   /** Customize GraphQL subscription exposure and metadata. */
   graphql(config?: 'subscription' | GraphQLMeta): this
   /** Add interceptor */
@@ -191,6 +196,8 @@ export interface EventBuilder<TInput = unknown> {
   input<T extends z.ZodType>(schema: T): EventBuilder<z.infer<T>>
   /** Add description */
   description(desc: string): this
+  /** Configure generated documentation visibility. */
+  docs(meta: HandlerDocumentationMeta): this
   /** Add interceptor */
   use(interceptor: Interceptor): this
   /** Attach contract-bound runtime policies */
@@ -354,6 +361,8 @@ export interface ProcedureDef<TInput = unknown, TOutput = unknown> {
   description?: string
   /** Tags for grouping in docs */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Contract-bound runtime policies */
   policies?: ContractPolicies
   /** Response cache override for this procedure. */
@@ -527,6 +536,8 @@ export interface AddProcedureInput {
   description?: string
   /** Tags for grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** GraphQL mapping */
   graphql?: GraphQLMeta
   /** HTTP path override */
@@ -568,6 +579,8 @@ export interface AddStreamInput {
   resumable?: ResumableStreamConfig
   /** Description */
   description?: string
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** GraphQL subscription exposure metadata. */
   graphql?: GraphQLMeta
   /** Contract-bound runtime policies */
@@ -588,6 +601,8 @@ export interface AddEventInput {
   inputSchema?: import('zod').ZodType
   /** Description */
   description?: string
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Delivery guarantee */
   delivery?: 'best-effort' | 'at-least-once' | 'at-most-once'
   /** Retry policy (for at-least-once) */
@@ -620,6 +635,7 @@ export interface RegisterProcedureOptions {
   summary?: string
   description?: string
   tags?: string[]
+  docs?: HandlerDocumentationMeta
   graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: HttpMethod
@@ -639,6 +655,7 @@ export interface RegisterStreamOptions {
   controls?: StreamOperationalControls
   resumable?: ResumableStreamConfig
   description?: string
+  docs?: HandlerDocumentationMeta
   graphql?: GraphQLMeta
   policies?: ContractPolicies
   interceptors?: Interceptor[]
@@ -648,6 +665,7 @@ export interface RegisterEventOptions {
   kind: 'event'
   input?: import('zod').ZodType
   description?: string
+  docs?: HandlerDocumentationMeta
   delivery?: 'best-effort' | 'at-least-once' | 'at-most-once'
   retryPolicy?: RetryPolicy
   deduplicationWindow?: number

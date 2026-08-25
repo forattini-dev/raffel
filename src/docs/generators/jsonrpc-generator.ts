@@ -22,6 +22,7 @@ import {
   type ConvertedSchemaRegistry,
 } from './schema-converter.js'
 import { resolveContentTypes } from './content-types.js'
+import { isHiddenFromDocumentation } from './visibility.js'
 
 /**
  * JSON-RPC generation options
@@ -87,6 +88,7 @@ export function generateJsonRpc(
   const tags = new Set<string>()
 
   for (const meta of ctx.registry.listProcedures()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const handlerSchema = ctx.schemaRegistry?.get(meta.name)
     const namespace = groupByNamespace ? extractNamespace(meta.name) : undefined
 

@@ -22,6 +22,7 @@ import {
   type ConvertedSchemaRegistry,
 } from './schema-converter.js'
 import { resolveContentTypes } from './content-types.js'
+import { isHiddenFromDocumentation } from './visibility.js'
 
 /**
  * gRPC generation options
@@ -84,6 +85,7 @@ export function generateGrpc(
   const tags = new Set<string>()
 
   for (const meta of ctx.registry.listProcedures()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const handlerSchema = ctx.schemaRegistry?.get(meta.name)
     const mapping = resolveServiceAndMethod(meta.name, serviceNameOverrides, defaultServiceName)
 

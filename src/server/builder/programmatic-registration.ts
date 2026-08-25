@@ -153,6 +153,7 @@ export function createProgrammaticRegistration(
             summary: route.summary,
             description: route.description,
             tags: route.tags,
+            docs: route.docs,
             graphql: route.graphql,
             httpPath: route.httpPath,
             httpMethod: route.httpMethod,
@@ -165,6 +166,7 @@ export function createProgrammaticRegistration(
         } else if (route.kind === 'stream') {
           registry.stream(fullName, route.handler as StreamHandler, {
             description: route.description,
+            docs: route.docs,
             direction: route.streamDirection,
             controls: route.streamControls,
             resumable: route.resumable,
@@ -174,6 +176,7 @@ export function createProgrammaticRegistration(
         } else {
           registry.event(fullName, route.handler as EventHandler, {
             description: route.description,
+            docs: route.docs,
             delivery: route.delivery,
             retryPolicy: route.retryPolicy,
             deduplicationWindow: route.deduplicationWindow,
@@ -199,6 +202,7 @@ export function createProgrammaticRegistration(
       const summary = 'meta' in input ? input.meta?.summary : (input as AddProcedureInput).summary
       const description = 'meta' in input ? input.meta?.description : (input as AddProcedureInput).description
       const tags = 'meta' in input ? input.meta?.tags : (input as AddProcedureInput).tags
+      const docs = 'meta' in input ? input.meta?.docs : (input as AddProcedureInput).docs
       const graphql = 'meta' in input ? input.meta?.graphql : (input as AddProcedureInput).graphql
       const httpPath = 'meta' in input ? input.meta?.httpPath : (input as AddProcedureInput).httpPath
       const httpMethod = 'meta' in input ? input.meta?.httpMethod : (input as AddProcedureInput).httpMethod
@@ -223,6 +227,7 @@ export function createProgrammaticRegistration(
         summary,
         description,
         tags,
+        docs,
         graphql,
         httpPath,
         httpMethod,
@@ -250,6 +255,7 @@ export function createProgrammaticRegistration(
       const outputSchema = input.outputSchema
       const snapshotSchema = input.snapshotSchema
       const description = 'meta' in input ? input.meta?.description : (input as AddStreamInput).description
+      const docs = 'meta' in input ? input.meta?.docs : (input as AddStreamInput).docs
       const direction = 'meta' in input ? input.meta?.direction : (input as AddStreamInput).direction
       const controls = 'meta' in input ? input.meta?.controls : (input as AddStreamInput).controls
       const resumable = input.resumable
@@ -272,6 +278,7 @@ export function createProgrammaticRegistration(
 
       registry.stream(name, handler as any, {
         description,
+        docs,
         direction,
         controls,
         resumable,
@@ -294,6 +301,7 @@ export function createProgrammaticRegistration(
       const handler = input.handler as EventHandler
       const inputSchema = input.inputSchema
       const description = 'meta' in input ? input.meta?.description : (input as AddEventInput).description
+      const docs = 'meta' in input ? input.meta?.docs : (input as AddEventInput).docs
       const delivery = 'meta' in input ? input.meta?.delivery : (input as AddEventInput).delivery
       const retryPolicy = 'meta' in input ? input.meta?.retryPolicy : (input as AddEventInput).retryPolicy
       const deduplicationWindow = 'meta' in input ? input.meta?.deduplicationWindow : (input as AddEventInput).deduplicationWindow
@@ -311,6 +319,7 @@ export function createProgrammaticRegistration(
 
       registry.event(name, handler as any, {
         description,
+        docs,
         delivery,
         retryPolicy,
         deduplicationWindow,
@@ -366,6 +375,7 @@ export function createProgrammaticRegistration(
           controls: opts?.controls,
           resumable: opts?.resumable,
           description: opts?.description,
+          docs: opts?.docs,
           graphql: opts?.graphql,
           policies: opts?.policies,
           interceptors: opts?.interceptors,
@@ -377,6 +387,7 @@ export function createProgrammaticRegistration(
           handler: handler as EventHandler,
           inputSchema: opts?.input,
           description: opts?.description,
+          docs: opts?.docs,
           delivery: opts?.delivery,
           retryPolicy: opts?.retryPolicy,
           deduplicationWindow: opts?.deduplicationWindow,
@@ -392,6 +403,7 @@ export function createProgrammaticRegistration(
         summary: opts?.summary,
         description: opts?.description,
         tags: opts?.tags,
+        docs: opts?.docs,
         graphql: opts?.graphql,
         httpPath: opts?.httpPath,
         httpMethod: opts?.httpMethod,

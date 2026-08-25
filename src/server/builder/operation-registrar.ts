@@ -19,6 +19,7 @@ export interface ProcedureOperationInput {
   summary?: string
   description?: string
   tags?: string[]
+  docs?: AddProcedureInput['docs']
   graphql?: AddProcedureInput['graphql']
   httpPath?: AddProcedureInput['httpPath']
   httpMethod?: AddProcedureInput['httpMethod']
@@ -67,6 +68,7 @@ export function createProcedureOperationRegistrar(input: {
       summary,
       description,
       tags,
+      docs,
       graphql,
       httpPath,
       httpMethod,
@@ -108,6 +110,7 @@ export function createProcedureOperationRegistrar(input: {
       summary,
       description,
       tags,
+      docs,
       graphql,
       httpPath,
       httpMethod,

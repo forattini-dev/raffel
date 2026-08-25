@@ -278,6 +278,9 @@ export interface HandlerExports {
 
   /** Handler metadata */
   meta?: HandlerMeta
+
+  /** Omit this request from generated documentation while keeping it executable. */
+  hidden?: boolean
 }
 
 export type ProcedureHandlerFunction = (input: unknown, ctx: Context, ack?: () => void) => unknown | Promise<unknown>
@@ -318,6 +321,9 @@ export interface HandlerMeta {
    * Can also be set via _meta.ts in the directory.
    */
   tags?: string[]
+
+  /** Controls how this handler appears in generated documentation. */
+  docs?: import('../../types/handlers.js').HandlerDocumentationMeta
 
   /** Content type shorthand for this handler */
   contentType?: string

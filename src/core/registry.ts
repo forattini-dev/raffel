@@ -22,6 +22,7 @@ import type {
   HttpMethod,
   JsonRpcMeta,
   GrpcMeta,
+  HandlerDocumentationMeta,
 } from '../types/handlers.js'
 import { createPolicyInterceptors } from '../policy/runtime.js'
 import type { ContractPolicies } from '../types/policies.js'
@@ -35,6 +36,8 @@ export interface ProcedureOptions {
   description?: string
   /** Tags for OpenAPI grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Content type shorthand */
   contentType?: string
   /** Content type configuration */
@@ -71,6 +74,8 @@ export interface StreamRegistryOptions {
   direction?: StreamDirection
   /** Tags for documentation grouping */
   tags?: string[]
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   /** Content type shorthand */
   contentType?: string
   /** Content type configuration */
@@ -89,6 +94,8 @@ export interface StreamRegistryOptions {
  */
 export interface EventOptions {
   description?: string
+  /** Controls generated documentation visibility. */
+  docs?: HandlerDocumentationMeta
   delivery?: DeliveryGuarantee
   retryPolicy?: RetryPolicy
   deduplicationWindow?: number
@@ -256,6 +263,7 @@ export function createRegistry(): Registry {
           summary: options.summary,
           description: options.description,
           tags: options.tags,
+          docs: options.docs,
           contentType: options.contentType,
           contentTypes: options.contentTypes,
           graphql: options.graphql,
@@ -303,6 +311,7 @@ export function createRegistry(): Registry {
           name,
           description: options.description,
           tags: options.tags,
+          docs: options.docs,
           streamDirection: options.direction ?? 'server',
           streamControls: options.controls,
           resumable: options.resumable,
@@ -342,6 +351,7 @@ export function createRegistry(): Registry {
           kind: 'event',
           name,
           description: options.description,
+          docs: options.docs,
           delivery: options.delivery ?? 'best-effort',
           retryPolicy: options.retryPolicy,
           deduplicationWindow: options.deduplicationWindow,

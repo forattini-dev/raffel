@@ -41,6 +41,7 @@ import { generateJsonRpc, type JsonRpcGeneratorOptions } from './jsonrpc-generat
 import { generateGrpc, type GrpcGeneratorOptions } from './grpc-generator.js'
 import { generateGraphQL, type GraphQLGeneratorOptions } from './graphql-generator.js'
 import { createUSDAssemblyContext } from './usd-assembly-context.js'
+import { isHiddenFromDocumentation } from './visibility.js'
 
 // =============================================================================
 // Types
@@ -406,6 +407,7 @@ export function generateUSD(
 
       // Extract tags from streams
       for (const meta of ctx.registry.listStreams()) {
+        if (isHiddenFromDocumentation(meta)) continue
         const streamTags = meta.tags?.length ? meta.tags : extractStreamTags(meta.name)
         assembly.addTags(streamTags)
       }
@@ -607,7 +609,7 @@ function detectProtocols(
   const protocols: USDProtocol[] = []
 
   // Check for HTTP (procedures or REST resources)
-  const hasProcedures = ctx.registry.listProcedures().length > 0
+  const hasProcedures = ctx.registry.listProcedures().some(meta => !isHiddenFromDocumentation(meta))
   const hasRestResources = ctx.restResources && ctx.restResources.length > 0
   if (hasProcedures || hasRestResources) {
     protocols.push('http')
@@ -622,7 +624,7 @@ function detectProtocols(
   }
 
   // Check for Streams
-  const hasStreams = ctx.registry.listStreams().length > 0
+  const hasStreams = ctx.registry.listStreams().some(meta => !isHiddenFromDocumentation(meta))
   if (hasStreams) {
     protocols.push('streams')
   }

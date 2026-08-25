@@ -21,6 +21,7 @@ import {
 } from './schema-converter.js'
 import { generateCodeSamples, type CodeSampleContext } from './code-samples.js'
 import { buildPublicProcedureMatcher, getAuthMiddlewareDocumentation } from '../../middleware/auth.js'
+import { isHiddenFromDocumentation } from './visibility.js'
 
 /**
  * HTTP generation options
@@ -152,6 +153,7 @@ export function generateHttpPaths(
     if (restOperationIds.has(meta.name)) {
       continue
     }
+    if (isHiddenFromDocumentation(meta)) continue
 
     const handlerSchema = ctx.schemaRegistry?.get(meta.name)
 

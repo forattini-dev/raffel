@@ -477,7 +477,8 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       margin: 16px 0;
     }
 
-    .markdown-content .md-code-block {
+    .markdown-content .md-code-block,
+    .protocol-try-it .md-code-block {
       background: var(--bg-tertiary);
       border-radius: 6px;
       padding: 16px;
@@ -485,12 +486,14 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       overflow-x: auto;
     }
 
-    .markdown-content .md-code-wrap {
+    .markdown-content .md-code-wrap,
+    .protocol-try-it .md-code-wrap {
       position: relative;
       margin: 16px 0;
     }
 
-    .markdown-content .copy-code-btn {
+    .markdown-content .copy-code-btn,
+    .protocol-try-it .copy-code-btn {
       position: absolute;
       top: 8px;
       right: 8px;
@@ -504,7 +507,8 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       cursor: pointer;
     }
 
-    .markdown-content .copy-code-btn:hover {
+    .markdown-content .copy-code-btn:hover,
+    .protocol-try-it .copy-code-btn:hover {
       color: var(--text-primary);
       border-color: var(--primary-color);
     }
@@ -573,7 +577,8 @@ export const contentStyles = `    /* ========== MAIN CONTENT ========== */
       outline: none;
     }
 
-    .markdown-content .md-code-block code {
+    .markdown-content .md-code-block code,
+    .protocol-try-it .md-code-block code {
       font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
       font-size: 12px;
       line-height: 1.6;

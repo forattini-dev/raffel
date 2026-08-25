@@ -1236,7 +1236,16 @@ async function loadDirectory(
 
       // Load sibling markdown for rich description
       const siblingMarkdown = await loadSiblingMarkdown(source, filePath)
-      const mergedMeta = mergeMetaWithMarkdown(exports.meta, siblingMarkdown, directoryMeta)
+      let mergedMeta = mergeMetaWithMarkdown(exports.meta, siblingMarkdown, directoryMeta)
+      if (exports.hidden !== undefined) {
+        mergedMeta = {
+          ...mergedMeta,
+          docs: {
+            ...mergedMeta?.docs,
+            hidden: exports.hidden,
+          },
+        }
+      }
       const canInferOutput = kind === 'procedure' && !exports.output &&
         ['.ts', '.tsx', '.mts', '.cts'].includes(extname(filePath)) &&
         !filePath.endsWith('.d.ts')

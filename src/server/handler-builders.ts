@@ -13,6 +13,7 @@ import type {
   GrpcMeta,
   GraphQLMeta,
   ContractPolicies,
+  HandlerDocumentationMeta,
 } from '../types/index.js'
 import type { SchemaRegistry, HandlerSchema } from '../validation/index.js'
 import { mergeContractPolicies } from '../types/policies.js'
@@ -69,6 +70,7 @@ export interface ProcedureRegistrationMeta {
   summary?: string
   description?: string
   tags?: string[]
+  docs?: HandlerDocumentationMeta
   graphql?: GraphQLMeta
   httpPath?: string
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
@@ -109,6 +111,7 @@ export function createProcedureBuilder(
       summary: registration.summary,
       description: registration.description,
       tags: registration.tags,
+      docs: registration.docs,
       graphql: registration.graphql,
       httpPath: registration.httpPath,
       httpMethod: registration.httpMethod,
@@ -134,6 +137,7 @@ export function createProcedureBuilder(
   let summary: string | undefined
   let description: string | undefined
   let procedureTags: string[] | undefined
+  let docsMeta: HandlerDocumentationMeta | undefined
   let graphqlMeta: GraphQLMeta | undefined
   let httpPath: string | undefined
   let httpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | undefined
@@ -169,6 +173,10 @@ export function createProcedureBuilder(
     },
     tags(tagsArr) {
       procedureTags = tagsArr
+      return builder
+    },
+    docs(meta) {
+      docsMeta = meta
       return builder
     },
     graphql(config) {
@@ -277,6 +285,7 @@ export function createProcedureBuilder(
           summary,
           description,
           tags: procedureTags,
+          docs: docsMeta,
           graphql: graphqlMeta,
           httpPath,
           httpMethod,
@@ -328,6 +337,7 @@ export function createProcedureBuilder(
         summary,
         description,
         tags: procedureTags,
+        docs: docsMeta,
         graphql: graphqlMeta,
         httpPath,
         httpMethod,
@@ -361,6 +371,7 @@ export function createStreamBuilder(
   let outputSchema: z.ZodType | undefined
   let snapshotSchema: z.ZodType | undefined
   let description: string | undefined
+  let docsMeta: HandlerDocumentationMeta | undefined
   let direction: StreamDirection | undefined
   let controls: import('../types/index.js').StreamOperationalControls | undefined
   let graphqlMeta: GraphQLMeta | undefined
@@ -384,6 +395,10 @@ export function createStreamBuilder(
       description = desc
       return builder
     },
+    docs(meta) {
+      docsMeta = meta
+      return builder
+    },
     graphql(config = 'subscription') {
       graphqlMeta = typeof config === 'string' ? { type: config } : config
       return builder
@@ -405,6 +420,7 @@ export function createStreamBuilder(
 
       registry.stream(name, createSourceBackedStreamHandler(config), {
         description,
+        docs: docsMeta,
         direction: 'server',
         controls,
         resumable: config,
@@ -431,6 +447,7 @@ export function createStreamBuilder(
 
       registry.stream(name, fn, {
         description,
+        docs: docsMeta,
         direction,
         controls,
         graphql: graphqlMeta,
@@ -454,6 +471,7 @@ export function createEventBuilder(
 ): EventBuilder {
   let inputSchema: z.ZodType | undefined
   let description: string | undefined
+  let docsMeta: HandlerDocumentationMeta | undefined
   let deliveryGuarantee: 'best-effort' | 'at-least-once' | 'at-most-once' | undefined
   let retryPolicy: any
   let deduplicationWindow: number | undefined
@@ -467,6 +485,10 @@ export function createEventBuilder(
     },
     description(desc) {
       description = desc
+      return builder
+    },
+    docs(meta) {
+      docsMeta = meta
       return builder
     },
     delivery(guarantee) {
@@ -499,6 +521,7 @@ export function createEventBuilder(
       // Cast to EventHandler since the types are compatible (ack optional vs required)
       registry.event(name, fn as any, {
         description,
+        docs: docsMeta,
         delivery: deliveryGuarantee,
         retryPolicy,
         deduplicationWindow,

@@ -10,6 +10,9 @@ import { z } from 'zod'
 import { loadDiscovery } from '../../../src/server/fs-routes/loader.js'
 import { generateResourceRoutes } from '../../../src/server/fs-routes/resources/loader.js'
 import { createInMemoryDiscoverySource } from '../../../src/server/fs-routes/discovery-source.js'
+import { registerDiscoveredHandlers } from '../../../src/server/discovery-utils.js'
+import { createRegistry } from '../../../src/core/registry.js'
+import { createSchemaRegistry } from '../../../src/validation/index.js'
 
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), 'raffel-discovery-'))
@@ -80,6 +83,31 @@ export default async function middleware(ctx, next) { return next() }
 })
 
 describe('loadDiscovery with DiscoverySource', () => {
+  it('maps `export const hidden = true` to request documentation metadata', async () => {
+    const source = createInMemoryDiscoverySource({
+      '/app/src/http/internal/get.js': {
+        module: {
+          hidden: true,
+          default: async () => ({ ok: true }),
+        },
+      },
+    })
+
+    const result = await loadDiscovery({
+      baseDir: '/app',
+      discovery: { http: './src/http' },
+      extensions: ['.js'],
+      source,
+    })
+
+    expect(result.routes[0]?.name).toBe('internal/get')
+    expect(result.routes[0]?.meta?.docs).toEqual({ hidden: true })
+
+    const registry = createRegistry()
+    registerDiscoveredHandlers(result, registry, createSchemaRegistry(), [])
+    expect(registry.getProcedure('internal/get')?.meta.docs).toEqual({ hidden: true })
+  })
+
   it('loads ordinary HTTP handlers from an explicit Routes Root with prefix scoping', async () => {
     const source = createInMemoryDiscoverySource({
       '/app/src/domains/leads/routes/_middleware.js': {

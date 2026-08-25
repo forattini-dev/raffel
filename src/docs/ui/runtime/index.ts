@@ -997,7 +997,7 @@ function getEndpointsForProtocol(protocol: string): Endpoint[] {
     id: `ep-${id++}`,
     path,
     method,
-    summary: data?.summary ?? data?.description ?? path,
+    summary: data?.summary,
     description: data?.description,
     tags: tags ?? data?.tags ?? [],
     data,
@@ -1296,15 +1296,8 @@ function renderSidebar(): void {
   if (!nav) return
   nav.textContent = ''
   renderDocsPagesNav(nav)
-  // A real doc page (or a genuine non-root 404) shows the docs nav only.
-  // The docs root (`/`) is NOT a page — it's the overview, so it must list
-  // the active protocol's endpoints, expanded, like the old empty-path state.
-  const matchedPage = activePagePath
-    ? getDocsPageViews().some((p) => p.path === activePagePath)
-    : false
-  const isRoot = !activePagePath || activePagePath === '/'
-  if (matchedPage || !isRoot) return
-
+  // Endpoint groups remain visible and expanded while reading Markdown pages.
+  // Switching content must not make the request navigation disappear.
   for (const group of getEndpointGroupsForProtocol(activeProtocol)) {
     appendSidebarGroup(nav, group.name, group.endpoints.map((endpoint: Endpoint) => ({
       active: false,
@@ -2522,7 +2515,7 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   const container = doc.createElement('div')
   container.className = 'endpoint-details'
   const data = (endpoint.data ?? {}) as any
-  appendProtocolConsole(container, { doc, spec, wsSpec, streamsSpec, jsonrpcSpec, activeProtocol, endpoint, data, esc, escapeAttr, tryItConfig })
+  appendProtocolConsole(container, { doc, spec, wsSpec, graphqlSpec, streamsSpec, jsonrpcSpec, activeProtocol, endpoint, data, esc, escapeAttr, tryItConfig })
   const appendMany = (items: Array<[string, unknown]>) => items.forEach(([title, value]) => appendSchemaSubsection(container, title, value))
   if (activeProtocol === 'http') {
     // Two-column operation layout (ReDoc-style): the left column carries the
@@ -2653,7 +2646,14 @@ function renderEndpointDetails(endpoint: Endpoint): any {
   }
   if (activeProtocol === 'graphql') {
     appendInfoGrid(container, [['Endpoint', graphqlSpec.endpoint], ['Kind', data.kind], ['Resource', data.resource ?? data.name], ['Source', data.source]])
-    appendMany([['Arguments', data.args], ['Input', data.input], ['Output', data.output], ['Schema', data.schema], ['Relations', data.relations], ['Authorize', data.authorize], ['Authorization', data.authz], ['Policies', data.policies]])
+    const schemaSections: Array<[string, unknown]> = [
+      ['Arguments', data.args],
+      ['Input', data.input],
+      ['Output', data.output],
+      ['Schema', data.schema],
+    ]
+    schemaSections.forEach(([title, schema]) => appendSchemaTreeSubsection(container, title, schema))
+    appendMany([['Relations', data.relations], ['Authorize', data.authorize], ['Authorization', data.authz], ['Policies', data.policies]])
   }
   if (activeProtocol === 'streams') {
     const resumable = data['x-usd-resumable']
@@ -2751,6 +2751,16 @@ function appendSchemaSubsection(container: any, title: string, schema: unknown):
   const resolved = resolveSchema(schema)
   if (!resolved) return
   appendObjectSubsection(container, title, resolved)
+}
+
+function appendSchemaTreeSubsection(container: any, title: string, schema: unknown): void {
+  const resolved = resolveSchema(schema)
+  if (!resolved) return
+  const section = doc.createElement('div')
+  section.className = 'endpoint-subsection'
+  section.innerHTML = `<div class="subsection-label">${esc(title)}</div>`
+  renderSchemaTree(section, resolved)
+  container.appendChild(section)
 }
 
 function appendObjectSubsection(container: any, title: string, value: unknown): void {
@@ -3388,8 +3398,10 @@ function renderContent(): void {
   const main = byId('mainContent')
   if (!main) return
   main.textContent = ''
-  const page = activePagePath ? getDocsPageViews().find(item => item.path === activePagePath) : null
-  if (page) {
+  const isRoot = !activePagePath || activePagePath === '/'
+  const pagePath = isRoot ? '/' : activePagePath
+  const page = pagePath ? getDocsPageViews().find(item => item.path === pagePath) : null
+  if (page && !isRoot) {
     const breadcrumb = renderDocsBreadcrumb(page)
     if (breadcrumb) main.appendChild(breadcrumb)
     const article = doc.createElement('article')
@@ -3404,7 +3416,6 @@ function renderContent(): void {
   }
   // The docs root (`/`) is ours to define — never a "not found". Only a
   // non-root path with no matching page is a genuine 404.
-  const isRoot = !activePagePath || activePagePath === '/'
   if (activePagePath && !isRoot) {
     renderMissingDocsPage(main)
     renderToc(main)
@@ -3416,11 +3427,12 @@ function renderContent(): void {
   // mid-search, in which case the search results take the surface.
   if (!searchQuery) {
     main.appendChild(renderDocsOverview())
-    if (introductionMarkdown) {
+    const landingMarkdown = page?.markdown || introductionMarkdown
+    if (landingMarkdown) {
       const introduction = doc.createElement('section')
       introduction.className = 'docs-introduction markdown-content'
       introduction.id = 'introduction'
-      introduction.innerHTML = parseMarkdown(introductionMarkdown)
+      introduction.innerHTML = parseMarkdown(landingMarkdown, '/')
       main.appendChild(introduction)
     }
     const authentication = renderAuthenticationSection()
@@ -3437,7 +3449,8 @@ function renderContent(): void {
     section.id = endpoint.id
     const endpointData = (endpoint.data ?? {}) as any
     const deprecated = endpointData.deprecated ? '<span class="endpoint-deprecated">Deprecated</span>' : ''
-    section.innerHTML = `<div class="endpoint-header"><div><div class="endpoint-method-path"><span class="badge badge-${esc(endpoint.method.toLowerCase())}">${esc(endpoint.method)}</span><span class="endpoint-path">${esc(endpoint.path)}</span>${deprecated}</div><h2 class="endpoint-title">${esc(endpoint.summary ?? endpoint.path)}</h2>${endpoint.description ? `<div class="endpoint-description markdown-content">${parseMarkdown(endpoint.description)}</div>` : ''}</div></div>`
+    const title = endpoint.summary ? `<h2 class="endpoint-title">${esc(endpoint.summary)}</h2>` : ''
+    section.innerHTML = `<div class="endpoint-header"><div><div class="endpoint-method-path"><span class="badge badge-${esc(endpoint.method.toLowerCase())}">${esc(endpoint.method)}</span><span class="endpoint-path">${esc(endpoint.path)}</span>${deprecated}</div>${title}${endpoint.description ? `<div class="endpoint-description markdown-content">${parseMarkdown(endpoint.description)}</div>` : ''}</div></div>`
     section.appendChild(renderEndpointDetails(endpoint))
     main.appendChild(section)
   }

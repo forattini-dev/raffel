@@ -53,6 +53,17 @@ const docs = {
       delete: { summary: 'Delete health check', responses: { '204': { description: 'Deleted' } } },
     },
   },
+  components: {
+    schemas: {
+      LeadGraphQLResource: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          email: { type: 'string' },
+        },
+      },
+    },
+  },
   'x-usd': {
     documentation: {
       aliases: { '/start': '/quickstart', '/legacy/(.*)': '/$1' },
@@ -225,6 +236,7 @@ graph TD
           kind: 'query',
           resource: 'Lead',
           source: 'resource',
+          description: 'List leads with routing.',
           output: {
             type: 'array',
             items: { $ref: '#/components/schemas/LeadGraphQLResource' },
@@ -473,6 +485,9 @@ window.__runRaffelDocsSmoke = function () {
   document.documentElement.setAttribute('data-sidebar-ancestor-open-ok', String(openSidebarGroups.includes('Guides') && openSidebarGroups.includes('Getting Started')))
   document.documentElement.setAttribute('data-sidebar-collapsed-default-ok', String(collapsedSidebarGroups.includes('Reference')))
   document.documentElement.setAttribute('data-sidebar-active-page-ok', String(Boolean(document.querySelector('.docs-sidebar-page.active')?.textContent?.includes('Quickstart'))))
+  document.documentElement.setAttribute('data-sidebar-requests-visible-on-doc-ok', String(
+    Array.from(document.querySelectorAll('.nav-item-path')).some((item) => item.textContent?.includes('/health'))
+  ))
   const sidebarSubText = Array.from(document.querySelectorAll('.nav-subitem')).map((link) => link.textContent || '').join('|')
   document.documentElement.setAttribute('data-sidebar-sublevel-ok', String(
     sidebarSubText.includes('Install') &&
@@ -505,12 +520,32 @@ window.__runRaffelDocsSmoke = function () {
       button?.click()
       const mainText = document.getElementById('mainContent')?.textContent || ''
       const tryPanel = document.querySelector('.protocol-try-it-' + label.toLowerCase())
-      const liveExpected = ['Websocket', 'Streams', 'Jsonrpc'].includes(label)
+      const liveExpected = ['Websocket', 'Graphql', 'Streams', 'Jsonrpc'].includes(label)
       document.documentElement.setAttribute(
         'data-protocol-' + label.toLowerCase() + '-ok',
         String(Boolean(button) && mainText.includes(pathNeedle) && mainText.includes(detailsNeedle))
       )
       document.documentElement.setAttribute('data-protocol-try-' + label.toLowerCase() + '-ok', String(Boolean(tryPanel) && tryPanel.textContent.includes(liveExpected ? 'Live console' : 'Starter request')))
+      if (label === 'Graphql') {
+        const payload = tryPanel?.querySelector('.protocol-console-payload')?.value || ''
+        const schemaNames = Array.from(document.querySelectorAll('.schema-tree-name')).map((item) => item.textContent || '')
+        document.documentElement.setAttribute('data-protocol-graphql-visual-ok', String(
+          !document.querySelector('.endpoint-title') &&
+          mainText.split('List leads with routing.').length === 2 &&
+          payload.includes('query Leads') &&
+          payload.includes('id') &&
+          schemaNames.includes('id') &&
+          schemaNames.includes('email') &&
+          !tryPanel?.textContent?.includes('nc -u')
+        ))
+      }
+      if (label === 'Grpc') {
+        const copy = tryPanel?.querySelector('.copy-code-btn')
+        const style = copy ? getComputedStyle(copy) : null
+        document.documentElement.setAttribute('data-protocol-starter-style-ok', String(
+          style?.position === 'absolute' && style?.fontSize === '10px'
+        ))
+      }
     }
   }
 
@@ -767,6 +802,7 @@ async function run() {
       { label: 'declarative sidebar opens active ancestors', needle: 'data-sidebar-ancestor-open-ok="true"' },
       { label: 'declarative sidebar collapsed by default', needle: 'data-sidebar-collapsed-default-ok="true"' },
       { label: 'active declarative sidebar page', needle: 'data-sidebar-active-page-ok="true"' },
+      { label: 'request groups remain visible on a documentation page', needle: 'data-sidebar-requests-visible-on-doc-ok="true"' },
       { label: 'disabled link attribute', needle: 'aria-disabled="true" tabindex="-1" class="markdown-disabled"' },
       { label: 'heading id attribute', needle: 'id="helper-heading"' },
       { label: 'ignored heading still renders', needle: 'Hidden Heading' },
@@ -814,9 +850,11 @@ async function run() {
       { label: 'auto-generated UDP docs', needle: 'data-protocol-udp-ok="true"' },
       { label: 'WebSocket try panel', needle: 'data-protocol-try-websocket-ok="true"' },
       { label: 'GraphQL try panel', needle: 'data-protocol-try-graphql-ok="true"' },
+      { label: 'GraphQL concise live reference', needle: 'data-protocol-graphql-visual-ok="true"' },
       { label: 'stream try panel', needle: 'data-protocol-try-streams-ok="true"' },
       { label: 'JSON-RPC try panel', needle: 'data-protocol-try-jsonrpc-ok="true"' },
       { label: 'gRPC try panel', needle: 'data-protocol-try-grpc-ok="true"' },
+      { label: 'starter request styling', needle: 'data-protocol-starter-style-ok="true"' },
       { label: 'TCP try panel', needle: 'data-protocol-try-tcp-ok="true"' },
       { label: 'UDP try panel', needle: 'data-protocol-try-udp-ok="true"' },
       { label: 'search Ctrl+K hotkey focus', needle: 'data-search-hotkey-ok="true"' },

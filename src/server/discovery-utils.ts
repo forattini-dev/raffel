@@ -237,6 +237,7 @@ export function registerDiscoveredHandlers(
         summary: route.meta?.summary,
         description: route.meta?.description,
         tags: route.meta?.tags,
+        docs: route.meta?.docs,
         graphql: route.meta?.graphql,
         httpPath: route.meta?.httpPath,
         httpMethod: route.meta?.httpMethod,
@@ -252,6 +253,7 @@ export function registerDiscoveredHandlers(
     } else if (route.kind === 'stream') {
       registry.stream(route.name, route.handler as StreamHandler, {
         description: route.meta?.description,
+        docs: route.meta?.docs,
         direction: route.meta?.direction,
         controls: route.meta?.controls,
         resumable: route.resumable,
@@ -264,6 +266,7 @@ export function registerDiscoveredHandlers(
     } else if (route.kind === 'event') {
       registry.event(route.name, route.handler as EventHandler, {
         description: route.meta?.description,
+        docs: route.meta?.docs,
         delivery: route.meta?.delivery,
         retryPolicy: route.meta?.retryPolicy,
         deduplicationWindow: route.meta?.deduplicationWindow,

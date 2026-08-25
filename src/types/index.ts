@@ -109,6 +109,7 @@ export type {
   DeliveryGuarantee,
   RetryPolicy,
   GraphQLMeta,
+  HandlerDocumentationMeta,
   HandlerMeta,
   RegisteredHandler,
   Interceptor,

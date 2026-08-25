@@ -25,6 +25,7 @@ import type {
   LoadedGraphQLResource,
 } from '../../graphql/index.js'
 import { convertSchema, createDocSchemaRegistry, type ConvertedSchemaRegistry } from './schema-converter.js'
+import { isHiddenFromDocumentation } from './visibility.js'
 
 export interface GraphQLGeneratorOptions {
   /** GraphQL endpoint path */
@@ -64,6 +65,7 @@ export function generateGraphQL(
   const tags = new Set<string>()
 
   for (const meta of ctx.registry.listProcedures()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const schema = ctx.schemaRegistry?.get(meta.name)
     if (!schema) continue
     const field = meta.graphql?.field ?? defaultFieldNameGenerator(meta.name)
@@ -80,6 +82,7 @@ export function generateGraphQL(
   }
 
   for (const meta of ctx.registry.listStreams()) {
+    if (isHiddenFromDocumentation(meta)) continue
     const schema = ctx.schemaRegistry?.get(meta.name)
     if (!schema) continue
     const field = meta.graphql?.field ?? defaultFieldNameGenerator(meta.name)
@@ -298,12 +301,12 @@ function normalizePagination(
 function isQueryProcedure(name: string, type: 'query' | 'mutation' | undefined): boolean {
   if (type) return type === 'query'
   const nameLower = name.toLowerCase()
-  const lastSegment = name.split('.').pop()?.toLowerCase() ?? nameLower
+  const lastSegment = name.split(/[^0-9A-Za-z]+/).filter(Boolean).pop()?.toLowerCase() ?? nameLower
   return QUERY_PREFIXES.some((prefix) => lastSegment.startsWith(prefix))
 }
 
 function defaultFieldNameGenerator(handlerName: string): string {
-  const parts = handlerName.split(/[.\-_]/)
+  const parts = handlerName.split(/[^0-9A-Za-z]+/).filter(Boolean)
   return parts
     .map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
     .join('')

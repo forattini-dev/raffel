@@ -126,7 +126,8 @@ function defaultTypeNameGenerator(handlerName: string): string {
   // 'users.get' → 'UsersGet'
   // 'users.getById' → 'UsersGetById'
   return handlerName
-    .split(/[.\-_]/)
+    .split(/[^0-9A-Za-z]+/)
+    .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join('')
 }
@@ -134,7 +135,7 @@ function defaultTypeNameGenerator(handlerName: string): string {
 function defaultFieldNameGenerator(handlerName: string): string {
   // 'users.get' → 'usersGet'
   // 'users.get-by-id' → 'usersGetById'
-  const parts = handlerName.split(/[.\-_]/)
+  const parts = handlerName.split(/[^0-9A-Za-z]+/).filter(Boolean)
   return parts
     .map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
     .join('')
@@ -1413,7 +1414,7 @@ function isProcedureQuery(meta: HandlerMeta, options: Required<SchemaGenerationO
     default: {
       // Check if name starts with a query prefix
       const nameLower = meta.name.toLowerCase()
-      const lastSegment = meta.name.split('.').pop()?.toLowerCase() ?? nameLower
+      const lastSegment = meta.name.split(/[^0-9A-Za-z]+/).filter(Boolean).pop()?.toLowerCase() ?? nameLower
 
       return options.queryPrefixes.some(
         (prefix) => lastSegment.startsWith(prefix)

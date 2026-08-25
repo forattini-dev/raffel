@@ -114,4 +114,38 @@ describe('docs root — protocol defaults & open menus', () => {
     // graphql comes before udp in the priority list
     expect(order.indexOf('Graphql')).toBeLessThan(order.indexOf('Udp'))
   })
+
+  it('keeps request groups visible while a Markdown documentation page is open', () => {
+    const spec = {
+      ...MULTI_PROTOCOL_SPEC,
+      'x-usd': {
+        ...MULTI_PROTOCOL_SPEC['x-usd'],
+        documentation: {
+          pages: [{ title: 'Guide', path: '/guide', markdown: '# Guide' }],
+        },
+      },
+    }
+    const { sidebarHtml, mainHtml } = buildDocs(spec, 'https://docs.example.com/#/guide')
+
+    expect(mainHtml).toContain('Guide')
+    expect(sidebarHtml).toContain('/leads')
+    expect(sidebarHtml).not.toContain('tag-group collapsed')
+  })
+
+  it('renders the global home document as the `/docs` landing without replacing the overview', () => {
+    const spec = {
+      ...MULTI_PROTOCOL_SPEC,
+      'x-usd': {
+        ...MULTI_PROTOCOL_SPEC['x-usd'],
+        documentation: {
+          pages: [{ title: 'Comece aqui', path: '/', markdown: '# Descrição global' }],
+        },
+      },
+    }
+    const { sidebarHtml, mainHtml } = buildDocs(spec)
+
+    expect(mainHtml).toContain('docs-overview')
+    expect(mainHtml).toContain('Descrição global')
+    expect(sidebarHtml).toContain('/leads')
+  })
 })
