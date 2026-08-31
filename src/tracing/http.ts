@@ -133,7 +133,12 @@ export function startHttpServerSpan(
   })
 }
 
-export function applyHttpRouteToSpan(span: Span, method: string, route?: HttpTelemetryRoute): void {
+export function applyHttpRouteToSpan(
+  span: Span,
+  method: string,
+  route?: HttpTelemetryRoute,
+  options?: { rename?: boolean }
+): void {
   if (!route) return
 
   const normalizedMethod = normalizeMethod(method)
@@ -144,7 +149,11 @@ export function applyHttpRouteToSpan(span: Span, method: string, route?: HttpTel
     span.setAttribute('rpc.method', route.procedure)
     span.setAttribute('raffel.procedure', route.procedure)
   }
-  span.updateName(spanName(normalizedMethod, route.route, route.procedure))
+  // A borrowed span (started by an outer instrumentation layer) keeps its
+  // name; only spans this library owns are renamed to the route form.
+  if (options?.rename !== false) {
+    span.updateName(spanName(normalizedMethod, route.route, route.procedure))
+  }
 }
 
 export function finishHttpServerSpan(span: Span, statusCode: number): void {

@@ -299,11 +299,11 @@ export function createHttpAdapter(
 
     const completeSpan = () => {
       if (!span || spanCompleted) return
-      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req))
-      // Only finish spans this adapter started. When `createServerSpan` is
-      // false the active span belongs to an outer instrumentation layer —
-      // finishing it here would end the caller's span mid-flight. The route
-      // attributes above are still applied to it.
+      // A borrowed span (createServerSpan: false) belongs to an outer
+      // instrumentation layer: it still receives the route attributes, but is
+      // neither renamed nor finished here — ending the caller's span
+      // mid-flight or renaming it would clobber the outer layer's telemetry.
+      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req), { rename: ownsSpan })
       if (ownsSpan) {
         finishHttpServerSpan(span, res.statusCode)
       }
