@@ -1457,6 +1457,9 @@ function generateExampleFromSchema(schema: any, refStack = new Set<string>()): a
   if (schema.example !== undefined) return schema.example
   if (schema.default !== undefined) return schema.default
   if (schema.enum && schema.enum.length > 0) return schema.enum[0]
+  if (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+    return generateExampleFromSchema(schema.anyOf[0], refStack)
+  }
 
   switch (schema.type) {
     case 'string': return schema.format === 'email' ? 'user@example.com' : 'string'
