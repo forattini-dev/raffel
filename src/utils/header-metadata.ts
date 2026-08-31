@@ -38,7 +38,10 @@ function normalizeMetadataValue(value: unknown): string | undefined {
 }
 
 function shouldIncludeHeader(key: string): boolean {
-  return key.startsWith('x-') || STANDARD_METADATA_HEADERS.has(key)
+  // `expo-*`: expo-updates protocol headers (expo-platform, expo-runtime-version,
+  // expo-channel-name, ...) — forwarded like `x-*`, same precedent as the
+  // webhook signature headers above.
+  return key.startsWith('x-') || key.startsWith('expo-') || STANDARD_METADATA_HEADERS.has(key)
 }
 
 export function extractMetadataFromHeaders(headers: IncomingHttpHeaders): Record<string, string> {

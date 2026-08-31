@@ -45,6 +45,21 @@ describe('Header Metadata Utilities', () => {
       })
     })
 
+    it('extracts expo-* protocol headers (expo-updates)', () => {
+      const result = extractMetadataFromHeaders({
+        'expo-platform': 'android',
+        'expo-runtime-version': '1',
+        'expo-channel-name': 'production',
+        'expo-protocol-version': '1',
+      })
+      expect(result).toEqual({
+        'expo-platform': 'android',
+        'expo-runtime-version': '1',
+        'expo-channel-name': 'production',
+        'expo-protocol-version': '1',
+      })
+    })
+
     it('skips non-metadata headers', () => {
       const result = extractMetadataFromHeaders({
         host: 'example.com',
