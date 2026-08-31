@@ -7,7 +7,7 @@
 import type { z } from 'zod'
 import type { Context, Interceptor } from '../../../types/index.js'
 import type { ResourceResolver } from '../../../middleware/policy/types.js'
-import type { DirectoryMeta } from '../types.js'
+import type { DirectoryMeta, MiddlewareFunction } from '../types.js'
 
 // === REST Operations ===
 
@@ -187,6 +187,13 @@ export interface RestConfig {
     createdAt?: string
     updatedAt?: string
   }
+
+  /**
+   * Resource-level middlewares in `(ctx, next)` form — the same contract as
+   * route files and per-action middleware. Applied to every generated CRUD
+   * route (and custom actions), before `interceptors`.
+   */
+  middleware?: MiddlewareFunction[]
 
   /** Custom interceptors */
   interceptors?: Interceptor[]

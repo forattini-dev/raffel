@@ -28,6 +28,8 @@ import type {
   AdapterQuery,
   DatabaseClient,
 } from './types.js'
+import type { MiddlewareFunction } from '../types.js'
+import type { Interceptor } from '../../../types/index.js'
 import {
   REST_OPERATIONS,
   OPERATION_METHODS,
@@ -56,6 +58,7 @@ const DEFAULT_CONFIG: ResolvedRestConfig = {
   softDelete: false,
   policyResource: undefined,
   timestamps: {},
+  middleware: [],
   interceptors: [],
   basePath: '',
   compose: true,
@@ -245,9 +248,22 @@ function resolveConfig(config?: RestConfig, defaults?: Partial<RestConfig>): Res
     Object.assign(auth, config.auth)
   }
 
+  // `config.middleware` carries `(ctx, next)` middlewares — the same contract
+  // as route files and per-action middleware. Fold them into `interceptors`
+  // (envelope, ctx, next) so every generated CRUD route actually runs them;
+  // without this the field was silently dropped and route middleware such as
+  // context enrichers never executed.
+  const configMiddleware = (merged.middleware ?? []).filter(
+    (mw): mw is MiddlewareFunction => typeof mw === 'function',
+  )
+  const middlewareInterceptors: Interceptor[] = configMiddleware.map(
+    (mw) => async (_envelope, ctx, next) => mw(ctx, next),
+  )
+
   return {
     ...merged,
     auth,
+    interceptors: [...middlewareInterceptors, ...(merged.interceptors ?? [])],
     pagination: resolvePaginationConfig(defaults?.pagination, config?.pagination),
     policyResource: config?.policyResource ?? defaults?.policyResource,
     timestamps: { ...defaults?.timestamps, ...config?.timestamps },
