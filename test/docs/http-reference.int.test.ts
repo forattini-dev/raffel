@@ -338,6 +338,69 @@ describe('HTTP reference documentation', () => {
     expect(html).toContain('Unresolved schema reference: Missing')
   })
 
+  it('generates a response sample from the first anyOf branch', () => {
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Collections API', version: '1.0.0' },
+      paths: {
+        '/legal-entities': {
+          get: {
+            responses: {
+              '200': {
+                description: 'Legal entity collection',
+                content: {
+                  'application/json': {
+                    schema: {
+                      anyOf: [
+                        {
+                          type: 'object',
+                          required: ['data', 'pagination'],
+                          properties: {
+                            data: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                required: ['legalEntityId'],
+                                properties: { legalEntityId: { type: 'string' } },
+                              },
+                            },
+                            pagination: {
+                              type: 'object',
+                              required: ['count'],
+                              properties: { count: { type: 'integer' } },
+                            },
+                          },
+                        },
+                        {
+                          type: 'object',
+                          required: ['data', 'pagination', 'meta'],
+                          properties: {
+                            data: { type: 'array', items: { type: 'object' } },
+                            pagination: { type: 'object' },
+                            meta: { type: 'object' },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const responseSection = [...win.document.querySelectorAll('.endpoint-right-section')]
+      .find((section: any) => section.querySelector('.endpoint-right-header')?.textContent === 'Response samples') as any
+    const sample = responseSection?.querySelector('.sample-content.active code')?.textContent
+
+    expect(sample).toBe(JSON.stringify({
+      data: [{ legalEntityId: 'string' }],
+      pagination: { count: 0 },
+    }, null, 2))
+  })
+
   it('lists every response media type with named and line-oriented examples', () => {
     const records = [
       { id: 1, name: 'Ada' },
