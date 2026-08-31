@@ -102,6 +102,8 @@ export function createExecutionHttpDocs(context: ServerLifecycleExecutionContext
         jsonrpc: docsConfig.jsonrpc,
         graphql: docsConfig.graphql,
         grpc: docsConfig.grpc,
+        externalPaths: docsConfig.externalPaths,
+        externalComponents: docsConfig.externalComponents,
       }
     )
     markApiDocumentationMounted?.()

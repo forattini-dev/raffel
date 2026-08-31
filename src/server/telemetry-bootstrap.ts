@@ -158,6 +158,8 @@ export async function initializeTelemetry(
         httpPath: state.metricsConfig.endpoint,
         httpMethod: 'GET',
         summary: 'Prometheus metrics exposition',
+        // Operational endpoint for scrapers, not part of the API contract.
+        docs: { hidden: true },
       }
     )
 

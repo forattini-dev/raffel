@@ -276,6 +276,7 @@ export function createHttpAdapter(
     let parentContext: SpanContext | undefined
     let baggage: Baggage = {}
     let spanCompleted = false
+    let ownsSpan = false
     if (options.tracer) {
       baggage = parseBaggageHeader(extractHttpBaggageHeader(req.headers))
       if (options.createServerSpan !== false) {
@@ -289,17 +290,23 @@ export function createHttpAdapter(
           remoteAddress: req.socket?.remoteAddress,
           remotePort: req.socket?.remotePort,
         }, parentContext)
+        ownsSpan = true
         setTraceResponseHeaders(res, span)
       } else {
         span = options.tracer.getActiveSpan()
-        spanCompleted = true
       }
     }
 
     const completeSpan = () => {
       if (!span || spanCompleted) return
       applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req))
-      finishHttpServerSpan(span, res.statusCode)
+      // Only finish spans this adapter started. When `createServerSpan` is
+      // false the active span belongs to an outer instrumentation layer —
+      // finishing it here would end the caller's span mid-flight. The route
+      // attributes above are still applied to it.
+      if (ownsSpan) {
+        finishHttpServerSpan(span, res.statusCode)
+      }
       spanCompleted = true
     }
 

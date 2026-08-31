@@ -782,11 +782,31 @@ describe('TieredCache', () => {
       layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
     })
 
-    await cache.set('response', new Response('one-shot'))
     await cache.set('date', { createdAt: new Date() })
 
-    expect(await cache.get('response')).toBeUndefined()
     expect(await cache.get('date')).toBeUndefined()
+    await cache.shutdown()
+  })
+
+  it('accepts Response values, sized by content-length or buffered clone', async () => {
+    const cache = createTieredCache({
+      namespace: 'response-values',
+      layers: [createMemoryCacheLayer({ id: 'l1', ttlMs: 60_000 })],
+    })
+
+    // Sized via declared content-length.
+    const declared = new Response('sized', { headers: { 'content-length': '5' } })
+    await cache.set('declared', declared)
+    expect((await cache.get('declared'))?.value).toBeInstanceOf(Response)
+
+    // No content-length: sized by buffering a clone, without consuming the
+    // cached body.
+    const buffered = new Response('buffered-body')
+    await cache.set('buffered', buffered)
+    const hit = await cache.get('buffered')
+    expect(hit?.value).toBeInstanceOf(Response)
+    await expect((hit!.value as Response).clone().text()).resolves.toBe('buffered-body')
+
     await cache.shutdown()
   })
 
