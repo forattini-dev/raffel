@@ -113,6 +113,7 @@ export function createExecutionEntrypoint(context: ServerLifecycleExecutionConte
         // bind that context through the request, but do not create a second
         // server span.
         createServerSpan: !telemetryState.tracingConfig?.useGlobalOpenTelemetry,
+        renameBorrowedSpans: telemetryState.tracingConfig?.renameBorrowedSpans === true,
         resolveStreamControls: (procedure) =>
           registry.getStream(procedure)?.meta.streamControls,
       }),

@@ -1397,6 +1397,51 @@ describe('Tracing', () => {
         otelContext.disable()
       }
     })
+
+    it('renames the borrowed platform span to the route form when renameBorrowedSpans is set', async () => {
+      const exporter = new InMemorySpanExporter()
+      const provider = new BasicTracerProvider({
+        spanProcessors: [new SimpleSpanProcessor(exporter)],
+      })
+      const contextManager = new AsyncLocalStorageContextManager().enable()
+      otelTrace.setGlobalTracerProvider(provider)
+      otelContext.setGlobalContextManager(contextManager)
+
+      const port = await getFreePort()
+      const server = createServer({ port, host: '127.0.0.1' })
+      server.enableTracing({ useGlobalOpenTelemetry: true, renameBorrowedSpans: true })
+      server.http.get('/orders/:id', async (_input: unknown, ctx: any) => ({
+        id: ctx.params.id,
+      }))
+
+      try {
+        const platformTracer = otelTrace.getTracer('platform')
+        await platformTracer.startActiveSpan(
+          'platform.http.server',
+          { kind: OtelSpanKind.SERVER },
+          async (serverSpan) => {
+            await server.start()
+            const response = await fetch(`http://127.0.0.1:${port}/orders/order-1`)
+            expect(response.status).toBe(200)
+            await response.arrayBuffer()
+            serverSpan.end()
+          }
+        )
+
+        await provider.forceFlush()
+        const serverSpans = exporter
+          .getFinishedSpans()
+          .filter((span) => span.kind === OtelSpanKind.SERVER)
+        expect(serverSpans).toHaveLength(1)
+        expect(serverSpans[0].name).toBe('GET /orders/:id')
+        expect(serverSpans[0].name).not.toContain('order-1')
+      } finally {
+        await server.stop()
+        await provider.shutdown()
+        otelTrace.disable()
+        otelContext.disable()
+      }
+    })
   })
 
   describe('SAMPLING_STRATEGIES constants', () => {

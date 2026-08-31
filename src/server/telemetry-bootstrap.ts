@@ -102,6 +102,7 @@ export function configureTracing(
     batchTimeout: config.batchTimeout ?? 5000,
     defaultAttributes: config.defaultAttributes ?? {},
     useGlobalOpenTelemetry: config.useGlobalOpenTelemetry ?? false,
+    renameBorrowedSpans: config.renameBorrowedSpans ?? false,
   }
 
   state.tracerInstance = state.tracingConfig.useGlobalOpenTelemetry

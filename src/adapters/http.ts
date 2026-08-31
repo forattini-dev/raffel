@@ -106,6 +106,12 @@ export interface HttpAdapterOptions {
   createServerSpan?: boolean
 
   /**
+   * With createServerSpan: false, also rename the borrowed span to the
+   * route form when the route resolves. Default: false.
+   */
+  renameBorrowedSpans?: boolean
+
+  /**
    * When false, start() creates the http.Server but does not call listen().
    * Useful when an external TCP server manages connection dispatch (single-port mode).
    * Default: true
@@ -303,7 +309,9 @@ export function createHttpAdapter(
       // instrumentation layer: it still receives the route attributes, but is
       // neither renamed nor finished here — ending the caller's span
       // mid-flight or renaming it would clobber the outer layer's telemetry.
-      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req), { rename: ownsSpan })
+      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req), {
+        rename: ownsSpan || options.renameBorrowedSpans === true,
+      })
       if (ownsSpan) {
         finishHttpServerSpan(span, res.statusCode)
       }
