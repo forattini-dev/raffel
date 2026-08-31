@@ -249,6 +249,17 @@ export interface TracingConfig {
    * shut down that provider.
    */
   useGlobalOpenTelemetry?: boolean
+
+  /**
+   * Rename the platform-owned (borrowed) HTTP server span to the
+   * low-cardinality route form ("GET /items/:id") once the route resolves.
+   * Only meaningful with useGlobalOpenTelemetry — spans Raffel creates are
+   * always named by route. Enable when the platform instrumentation
+   * (Datadog SSI, OTel http auto-instrumentation) names its server span
+   * generically and expects the framework to apply the route. Default: false
+   * (the borrowed span keeps its name; route lands in http.route).
+   */
+  renameBorrowedSpans?: boolean
 }
 
 /**
