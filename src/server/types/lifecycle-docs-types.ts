@@ -6,6 +6,12 @@ import type {
   USDExternalDocs,
   USDServer,
   USDSecurityScheme,
+  USDPathItem,
+  USDSchema,
+  USDParameter,
+  USDResponse,
+  USDRequestBody,
+  USDExample,
 } from '../../usd/index.js'
 import type { OpenAPIDocument } from '../../usd/export/openapi.js'
 import type { MarkdownDocsSource } from '../../docs/markdown-loader.js'
@@ -241,6 +247,19 @@ export interface USDDocsConfig {
     options?: Record<string, unknown>
     serviceNameOverrides?: Record<string, { service: string; method?: string }>
     defaultServiceName?: string
+  }
+
+  /** Additional OpenAPI path contracts merged after generated HTTP routes. */
+  externalPaths?: Record<string, USDPathItem>
+
+  /** Additional reusable OpenAPI components merged by category. */
+  externalComponents?: {
+    schemas?: Record<string, USDSchema>
+    securitySchemes?: Record<string, USDSecurityScheme | { $ref: string }>
+    parameters?: Record<string, USDParameter | { $ref: string }>
+    responses?: Record<string, USDResponse | { $ref: string }>
+    requestBodies?: Record<string, USDRequestBody | { $ref: string }>
+    examples?: Record<string, USDExample | { $ref: string }>
   }
 }
 

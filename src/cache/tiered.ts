@@ -229,6 +229,22 @@ function logicalSize(value: unknown): number | undefined {
   }
 }
 
+async function cacheValueSize(value: unknown): Promise<number | undefined> {
+  if (!(value instanceof Response)) return logicalSize(value)
+  // Response bodies are not JSON-serializable, so logicalSize() would reject
+  // them. Prefer the declared content-length; fall back to buffering a clone.
+  const contentLength = value.headers.get('content-length')
+  if (contentLength !== null) {
+    const declared = Number(contentLength)
+    if (Number.isSafeInteger(declared) && declared >= 0) return declared
+  }
+  try {
+    return (await value.clone().arrayBuffer()).byteLength
+  } catch {
+    return undefined
+  }
+}
+
 function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
   return Boolean(value && typeof (value as PromiseLike<T>).then === 'function')
 }
@@ -873,7 +889,7 @@ export function createTieredCache(options: TieredCacheOptions): TieredCache {
       const capturedNamespaceEpoch = namespaceEpoch
       const capturedKeyEpoch = keyEpochs.get(namespacedKey) ?? 0
       const now = Date.now()
-      const sizeBytes = logicalSize(value)
+      const sizeBytes = await cacheValueSize(value)
       if (sizeBytes === undefined) return false
       const tags = [...new Set(
         (writeOptions.tags ?? []).map((tag) => tag.trim()).filter(Boolean),

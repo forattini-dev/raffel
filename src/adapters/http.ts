@@ -276,6 +276,7 @@ export function createHttpAdapter(
     let parentContext: SpanContext | undefined
     let baggage: Baggage = {}
     let spanCompleted = false
+    let ownsSpan = false
     if (options.tracer) {
       baggage = parseBaggageHeader(extractHttpBaggageHeader(req.headers))
       if (options.createServerSpan !== false) {
@@ -289,17 +290,23 @@ export function createHttpAdapter(
           remoteAddress: req.socket?.remoteAddress,
           remotePort: req.socket?.remotePort,
         }, parentContext)
+        ownsSpan = true
         setTraceResponseHeaders(res, span)
       } else {
         span = options.tracer.getActiveSpan()
-        spanCompleted = true
       }
     }
 
     const completeSpan = () => {
       if (!span || spanCompleted) return
-      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req))
-      finishHttpServerSpan(span, res.statusCode)
+      // A borrowed span (createServerSpan: false) belongs to an outer
+      // instrumentation layer: it still receives the route attributes, but is
+      // neither renamed nor finished here — ending the caller's span
+      // mid-flight or renaming it would clobber the outer layer's telemetry.
+      applyHttpRouteToSpan(span, method, getHttpTelemetryRoute(req), { rename: ownsSpan })
+      if (ownsSpan) {
+        finishHttpServerSpan(span, res.statusCode)
+      }
       spanCompleted = true
     }
 

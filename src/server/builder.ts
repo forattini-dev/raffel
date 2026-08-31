@@ -1025,6 +1025,8 @@ export function createServer(options: ServerOptions): RaffelServer {
         jsonrpc: config.jsonrpc,
         graphql: config.graphql,
         grpc: config.grpc,
+        externalPaths: config.externalPaths,
+        externalComponents: config.externalComponents,
       }
       logger.info({ basePath: usdDocsConfig.basePath, protocols: usdDocsConfig.protocols ?? 'auto' }, 'USD Documentation enabled')
       return server
