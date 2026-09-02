@@ -138,6 +138,72 @@ export interface HttpOverrideMiddlewareOptions {
   tracer?: Tracer
 }
 
+interface CompiledRestRoute {
+  resource: LoadedRestResource
+  route: LoadedRestResource['routes'][number]
+  fullPath: string
+  regex: RegExp
+  paramNames: string[]
+  /** `true` when the path carries at least one `:param` segment. */
+  dynamic: boolean
+}
+
+/**
+ * Compiles the REST routes once and orders them so that a literal path
+ * (`/org/nodes/salesforce-ids`) is tried before a parametrized sibling
+ * (`/org/nodes/:id`) regardless of discovery order — the same contract as
+ * `HttpRouteTable` ("exact routes beat dynamic routes; dynamic routes keep
+ * registration-order precedence"). Compiling per request also meant building
+ * one RegExp per route per request; now it happens once per resource set.
+ *
+ * The index is rebuilt lazily when the resource list changes identity or
+ * length (hot reload appends/replaces resources on the same array).
+ */
+function createRestRouteIndex(restResources: LoadedRestResource[], basePath: string) {
+  let compiled: CompiledRestRoute[] | null = null
+  let compiledFor: { list: LoadedRestResource[]; length: number } | null = null
+
+  function compile(): CompiledRestRoute[] {
+    const entries: CompiledRestRoute[] = []
+    for (const resource of restResources) {
+      for (const route of resource.routes) {
+        // Match path with params (e.g., /users/:id)
+        const fullPath = joinBasePath(basePath, route.path)
+        const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
+        const pathPattern = fullPath.replace(/:(\w+)/g, '([^/]+)')
+        entries.push({
+          resource,
+          route,
+          fullPath,
+          regex: new RegExp(`^${pathPattern}$`),
+          paramNames,
+          dynamic: paramNames.length > 0,
+        })
+      }
+    }
+    // Stable sort: static routes first, then dynamic ones in registration order.
+    return entries
+      .map((entry, order) => ({ entry, order }))
+      .sort((a, b) => Number(a.entry.dynamic) - Number(b.entry.dynamic) || a.order - b.order)
+      .map(({ entry }) => entry)
+  }
+
+  return {
+    candidates(): CompiledRestRoute[] {
+      if (
+        !compiled ||
+        !compiledFor ||
+        compiledFor.list !== restResources ||
+        compiledFor.length !== restResources.length
+      ) {
+        compiled = compile()
+        compiledFor = { list: restResources, length: restResources.length }
+      }
+      return compiled
+    },
+  }
+}
+
 export function createRestMiddleware(
   options: RestMiddlewareOptions
 ): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {
@@ -153,104 +219,145 @@ export function createRestMiddleware(
     tracer,
   } = options
   const codecs = resolveCodecs(configuredCodecs)
+  const routeIndex = createRestRouteIndex(restResources, basePath)
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
     const method = (req.method || 'GET').toUpperCase()
 
-    for (const resource of restResources) {
-      for (const route of resource.routes) {
-        if (route.method !== method) continue
+    for (const compiled of routeIndex.candidates()) {
+      const { resource, route, fullPath } = compiled
+      if (route.method !== method) continue
 
-        // Match path with params (e.g., /users/:id)
-        const fullPath = joinBasePath(basePath, route.path)
-        const pathPattern = fullPath.replace(/:(\w+)/g, '([^/]+)')
-        const regex = new RegExp(`^${pathPattern}$`)
-        const match = url.pathname.match(regex)
+      const match = url.pathname.match(compiled.regex)
 
-        if (match) {
-          // Extract params
-          const paramNames = (fullPath.match(/:(\w+)/g) || []).map((p: string) => p.slice(1))
-          const params: Record<string, string> = {}
-          paramNames.forEach((name: string, i: number) => {
-            params[name] = decodePathParam(match[i + 1])
-          })
+      if (match) {
+        // Extract params
+        const params: Record<string, string> = {}
+        compiled.paramNames.forEach((name: string, i: number) => {
+          params[name] = decodePathParam(match[i + 1])
+        })
 
-          const query = parseRestQueryParams(url.searchParams)
-          const procedureName = `${resource.name}.${route.operation}`
-          setHttpTelemetryRoute(req, {
-            route: fullPath,
+        const query = parseRestQueryParams(url.searchParams)
+        const procedureName = `${resource.name}.${route.operation}`
+        setHttpTelemetryRoute(req, {
+          route: fullPath,
+          procedure: procedureName,
+        })
+
+        const responseCodec = resolveHttpResponseCodec(req, res, codecs)
+        if (!responseCodec) {
+          return true
+        }
+
+        let body: unknown = {}
+        let rawBody: Buffer | undefined
+        if (['POST', 'PUT', 'PATCH'].includes(method)) {
+          const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
+          if (!parsed) {
+            return true
+          }
+          body = parsed.payload
+          rawBody = parsed.raw
+        }
+
+        const httpContext = await createHttpRequestContext({
+          req,
+          res,
+          method,
+          url,
+          input: {
+            body,
+            params,
+            query,
+          },
+          rawBody,
+          trustedProxies,
+          contextFactory,
+        })
+        const metadata = httpContext.metadata
+        const ctx = httpContext.ctx as any
+        const activeSpan = tracer?.getActiveSpan()
+        if (activeSpan) {
+          bindContextToSpan(ctx, activeSpan, undefined, tracer?.getBaggage())
+        }
+        ctx.params = params
+        ctx.query = query
+        ctx.operation = route.operation
+        ctx.resource = resource.name
+
+        try {
+          const successStatus =
+            registry?.getProcedure(procedureName)?.meta.httpSuccessStatus ??
+            defaultRestSuccessStatus(route.operation)
+          await dispatchHttpEnvelope({
+            res, router,
             procedure: procedureName,
+            payload: body,
+            metadata, ctx, responseCodec, method,
+            successStatus,
           })
-
-          const responseCodec = resolveHttpResponseCodec(req, res, codecs)
-          if (!responseCodec) {
-            return true
-          }
-
-          let body: unknown = {}
-          let rawBody: Buffer | undefined
-          if (['POST', 'PUT', 'PATCH'].includes(method)) {
-            const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
-            if (!parsed) {
-              return true
-            }
-            body = parsed.payload
-            rawBody = parsed.raw
-          }
-
-          const httpContext = await createHttpRequestContext({
-            req,
+          return true
+        } catch (err: any) {
+          const status = err.status ?? err.httpStatus ?? 500
+          sendErrorResponse(
             res,
-            method,
-            url,
-            input: {
-              body,
-              params,
-              query,
-            },
-            rawBody,
-            trustedProxies,
-            contextFactory,
-          })
-          const metadata = httpContext.metadata
-          const ctx = httpContext.ctx as any
-          const activeSpan = tracer?.getActiveSpan()
-          if (activeSpan) {
-            bindContextToSpan(ctx, activeSpan, undefined, tracer?.getBaggage())
-          }
-          ctx.params = params
-          ctx.query = query
-          ctx.operation = route.operation
-          ctx.resource = resource.name
-
-          try {
-            const successStatus =
-              registry?.getProcedure(procedureName)?.meta.httpSuccessStatus ??
-              defaultRestSuccessStatus(route.operation)
-            await dispatchHttpEnvelope({
-              res, router,
-              procedure: procedureName,
-              payload: body,
-              metadata, ctx, responseCodec, method,
-              successStatus,
-            })
-            return true
-          } catch (err: any) {
-            const status = err.status ?? err.httpStatus ?? 500
-            sendErrorResponse(
-              res,
-              status,
-              err.code || 'INTERNAL_ERROR',
-              err.message || 'Internal server error'
-            )
-            return true
-          }
+            status,
+            err.code || 'INTERNAL_ERROR',
+            err.message || 'Internal server error'
+          )
+          return true
         }
       }
     }
     return false
   }
+}
+
+interface HttpOverrideCandidate {
+  meta: ReturnType<Registry['listProcedures']>[number]
+  fullPath: string
+}
+
+interface ResolvedHttpOverride extends HttpOverrideCandidate {
+  params: Record<string, string>
+}
+
+/**
+ * Picks the procedure that serves `method pathname`, with the same precedence
+ * as `HttpRouteTable`: a literal path (`/org/nodes/salesforce-ids`) beats a
+ * parametrized one (`/org/nodes/:id`) no matter which was registered first;
+ * dynamic paths keep registration order. Without this, discovery order (which
+ * sorts `[id]` before `salesforce-ids` on disk) decided the winner.
+ */
+function resolveHttpOverride(
+  registry: Registry,
+  basePath: string,
+  method: string,
+  pathname: string
+): ResolvedHttpOverride | null {
+  const staticCandidates: HttpOverrideCandidate[] = []
+  const dynamicCandidates: HttpOverrideCandidate[] = []
+  for (const meta of registry.listProcedures()) {
+    if (!meta.httpPath) continue
+    if (meta.httpMethod && meta.httpMethod.toUpperCase() !== method) continue
+
+    const normalized = meta.httpPath.startsWith('/') ? meta.httpPath : `/${meta.httpPath}`
+    const fullPath = basePath !== '/' && !normalized.startsWith(basePath)
+      ? joinBasePath(basePath, normalized)
+      : normalized
+    const bucket = fullPath.includes(':') || fullPath.includes('*') ? dynamicCandidates : staticCandidates
+    bucket.push({ meta, fullPath })
+  }
+
+  for (const candidate of [...staticCandidates, ...dynamicCandidates]) {
+    const params = matchRoutePath(candidate.fullPath, pathname)
+      ?? (pathname.endsWith('/')
+        ? matchRoutePath(candidate.fullPath, pathname.slice(0, -1))
+        : null)
+    if (params) return { ...candidate, params }
+  }
+  return null
 }
 
 export function createHttpOverrideMiddleware(
@@ -272,97 +379,83 @@ export function createHttpOverrideMiddleware(
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
     const method = (req.method || 'GET').toUpperCase()
 
-    for (const meta of registry.listProcedures()) {
-      if (!meta.httpPath) continue
-      if (meta.httpMethod && meta.httpMethod.toUpperCase() !== method) continue
+    const resolved = resolveHttpOverride(registry, basePath, method, url.pathname)
+    if (!resolved) return false
+    const { meta, fullPath, params } = resolved
+    setHttpTelemetryRoute(req, {
+      route: fullPath,
+      procedure: meta.name,
+    })
 
-      const normalized = meta.httpPath.startsWith('/') ? meta.httpPath : `/${meta.httpPath}`
-      const fullPath = basePath !== '/' && !normalized.startsWith(basePath)
-        ? joinBasePath(basePath, normalized)
-        : normalized
+    const responseCodec = resolveHttpResponseCodec(req, res, codecs)
+    if (!responseCodec) {
+      return true
+    }
 
-      const params = matchRoutePath(fullPath, url.pathname)
-        ?? (url.pathname.endsWith('/')
-          ? matchRoutePath(fullPath, url.pathname.slice(0, -1))
-          : null)
-      if (!params) continue
-      setHttpTelemetryRoute(req, {
-        route: fullPath,
-        procedure: meta.name,
-      })
-
-      const responseCodec = resolveHttpResponseCodec(req, res, codecs)
-      if (!responseCodec) {
+    let payload: unknown = {}
+    let rawBody: Buffer | undefined
+    if (method === 'GET' || method === 'HEAD') {
+      payload = parseJsonQueryParams(url.searchParams)
+    } else {
+      const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
+      if (!parsed) {
         return true
       }
+      payload = parsed.payload
+      rawBody = parsed.raw
+    }
+    const requestBody = payload
 
-      let payload: unknown = {}
-      let rawBody: Buffer | undefined
-      if (method === 'GET' || method === 'HEAD') {
-        payload = parseJsonQueryParams(url.searchParams)
-      } else {
-        const parsed = await resolveHttpRequestBody({ req, res, codecs, maxBodySize })
-        if (!parsed) {
-          return true
-        }
-        payload = parsed.payload
-        rawBody = parsed.raw
-      }
-      const requestBody = payload
-
-      // Merge URL params into the dispatched payload so resource-style
-      // handlers that read `input.id` keep working alongside `ctx.params`.
-      // Path params are authoritative identifiers; keep them separate on
-      // `ctx.input.params` and make them win over body/query keys when the
-      // flattened procedure input collides.
-      if (Object.keys(params).length > 0) {
-        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-          payload = { ...(payload as Record<string, unknown>), ...params }
-        } else if (payload === undefined || payload === null || (typeof payload === 'object' && Object.keys(payload as object).length === 0)) {
-          payload = { ...params }
-        }
-      }
-
-      const query = parseJsonQueryParams(url.searchParams)
-      const httpContext = await createHttpRequestContext({
-        req,
-        res,
-        method,
-        url,
-        input: {
-          body: requestBody,
-          params,
-          query,
-        },
-        rawBody,
-        trustedProxies,
-        contextFactory,
-      })
-      const metadata = httpContext.metadata
-      const ctx = httpContext.ctx as any
-      const activeSpan = tracer?.getActiveSpan()
-      if (activeSpan) {
-        bindContextToSpan(ctx, activeSpan, undefined, tracer?.getBaggage())
-      }
-      ctx.params = params
-      ctx.query = query
-
-      try {
-        await dispatchHttpEnvelope({
-          res, router,
-          procedure: meta.name,
-          payload, metadata, ctx, responseCodec, method,
-          successStatus: meta.httpSuccessStatus,
-        })
-        return true
-      } catch (err: any) {
-        const status = err.status ?? err.httpStatus ?? 500
-        sendErrorResponse(res, status, err.code || 'INTERNAL_ERROR', err.message || 'Internal server error')
-        return true
+    // Merge URL params into the dispatched payload so resource-style
+    // handlers that read `input.id` keep working alongside `ctx.params`.
+    // Path params are authoritative identifiers; keep them separate on
+    // `ctx.input.params` and make them win over body/query keys when the
+    // flattened procedure input collides.
+    if (Object.keys(params).length > 0) {
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        payload = { ...(payload as Record<string, unknown>), ...params }
+      } else if (payload === undefined || payload === null || (typeof payload === 'object' && Object.keys(payload as object).length === 0)) {
+        payload = { ...params }
       }
     }
 
-    return false
+    const query = parseJsonQueryParams(url.searchParams)
+    const httpContext = await createHttpRequestContext({
+      req,
+      res,
+      method,
+      url,
+      input: {
+        body: requestBody,
+        params,
+        query,
+      },
+      rawBody,
+      trustedProxies,
+      contextFactory,
+    })
+    const metadata = httpContext.metadata
+    const ctx = httpContext.ctx as any
+    const activeSpan = tracer?.getActiveSpan()
+    if (activeSpan) {
+      bindContextToSpan(ctx, activeSpan, undefined, tracer?.getBaggage())
+    }
+    ctx.params = params
+    ctx.query = query
+
+    try {
+      await dispatchHttpEnvelope({
+        res, router,
+        procedure: meta.name,
+        payload, metadata, ctx, responseCodec, method,
+        successStatus: meta.httpSuccessStatus,
+      })
+      return true
+    } catch (err: any) {
+      const status = err.status ?? err.httpStatus ?? 500
+      sendErrorResponse(res, status, err.code || 'INTERNAL_ERROR', err.message || 'Internal server error')
+      return true
+    }
   }
 }
 
