@@ -84,4 +84,66 @@ export default handler
       reason: expect.stringContaining('not representable'),
     })
   })
+
+  it('uses the implementation return type when a HandlerFunction annotation erases it', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-output-contextual-'))
+    const routePath = path.join(dir, 'get.ts')
+    await writeFile(
+      routePath,
+      `type HandlerFunction = (input: unknown) => unknown | Promise<unknown> | Response | Promise<Response>
+
+const handler: HandlerFunction = async () => ({
+  data: [{ id: 'lead-1', active: true }],
+})
+
+export default handler
+`,
+    )
+
+    const result = createTypeScriptOutputSchemaInferrer().infer(routePath)
+
+    expect(result).toMatchObject({
+      status: 'inferred',
+      schema: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { id: { type: 'string' }, active: { type: 'boolean' } },
+            },
+          },
+        },
+      },
+    })
+  })
+
+  it('infers the JSON payload passed to Response.json', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'raffel-output-response-json-'))
+    const routePath = path.join(dir, 'post.ts')
+    await writeFile(
+      routePath,
+      `export default async function handler() {
+  return Response.json({ operation: { outcome: 'created' as const }, id: 'lead-1' })
+}
+`,
+    )
+
+    const result = createTypeScriptOutputSchemaInferrer().infer(routePath)
+
+    expect(result).toMatchObject({
+      status: 'inferred',
+      schema: {
+        type: 'object',
+        properties: {
+          operation: {
+            type: 'object',
+            properties: { outcome: { type: 'string', enum: ['created'] } },
+          },
+          id: { type: 'string' },
+        },
+      },
+    })
+  })
 })

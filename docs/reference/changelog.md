@@ -7,6 +7,15 @@ page highlights notable updates in the docs.
 
 ## Unreleased
 
+### Complete response contracts in generated docs
+
+The HTTP reference now expands `anyOf`, `oneOf`, and `allOf` response schemas
+instead of collapsing them to `any`. Filesystem TypeScript inference also
+recovers response shapes from handlers typed as `HandlerFunction` and from
+`Response.json(...)` payloads. Programmatic `server.http.*` routes can use the
+new `documentationOutput` option when they need an OpenAPI response contract
+without enabling runtime output validation.
+
 ### Semantic HTTP method colors in the sidebar
 
 HTTP method badges in the endpoint sidebar now use the same GET, POST, PUT,

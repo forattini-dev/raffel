@@ -484,6 +484,23 @@ export const schemaCodeStyles = `    /* ========== RESPONSE SAMPLES (Right Panel
       color: var(--text-secondary);
     }
 
+    .schema-composition-header {
+      font-weight: 600;
+    }
+
+    .schema-composition-variant {
+      margin: 8px 0 8px 12px;
+      border-left: 2px solid color-mix(in srgb, var(--primary-color) 35%, var(--border-color));
+    }
+
+    .schema-composition-label {
+      padding: 4px 8px;
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
     .schema-tree-unresolved {
       color: var(--text-muted);
       font-style: italic;

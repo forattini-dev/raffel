@@ -29,6 +29,8 @@ export interface HttpRouteOptions<TInput = unknown, TOutput = unknown> {
   input?: z.ZodType<TInput>
   /** Output schema (Zod) */
   output?: z.ZodType<TOutput>
+  /** Output shape used by documentation only; never enables runtime validation. */
+  documentationOutput?: unknown
   /** Short summary for documentation */
   summary?: string
   /** Detailed description (supports markdown) */

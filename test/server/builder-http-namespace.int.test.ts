@@ -102,6 +102,37 @@ describe('server.http.* namespace path matching', () => {
     expect(await response.json()).toEqual({ ok: true })
   })
 
+  it('documents programmatic outputs without enabling runtime validation', async () => {
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' })
+
+    server.http.get(
+      '/metadata',
+      {
+        documentationOutput: {
+          type: 'object',
+          required: ['service'],
+          properties: { service: { type: 'string' } },
+        },
+      },
+      async () => ({ service: 'closer', runtimeOnly: true }),
+    )
+    server.enableUSD({ info: { title: 'Documentation-only output', version: 'test' } })
+
+    await server.start()
+
+    expect(
+      server.getOpenAPIDocument()?.paths['/metadata']?.get?.responses['200']
+        ?.content?.['application/json']?.schema,
+    ).toMatchObject({
+      type: 'object',
+      properties: { service: { type: 'string' } },
+    })
+    const response = await fetch(`http://127.0.0.1:${port}/metadata`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ service: 'closer', runtimeOnly: true })
+  })
+
   it('tolerates trailing slash on static and param paths', async () => {
     const port = await getFreePort()
     server = createServer({ port, host: '127.0.0.1' })
