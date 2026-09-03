@@ -4,7 +4,7 @@
  * Tests for all rate limit driver implementations.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MemoryRateLimitDriver } from '../../../src/rate-limit/drivers/memory.js'
 import { FilesystemRateLimitDriver } from '../../../src/rate-limit/drivers/filesystem.js'
 import { RedisRateLimitDriver } from '../../../src/rate-limit/drivers/redis.js'
@@ -188,6 +188,49 @@ describe('FilesystemRateLimitDriver', () => {
   })
 
   describe('increment', () => {
+    it('should atomically increment and assign TTL with an ioredis-style client', async () => {
+      const evalFn = vi.fn().mockResolvedValue([2, 45000])
+      const client = {
+        get: vi.fn(),
+        incr: vi.fn(),
+        eval: evalFn,
+      } as unknown as RedisLikeClient
+      const driver = new RedisRateLimitDriver({ client })
+
+      const before = Date.now()
+      const record = await driver.increment('redis:atomic', 60000)
+
+      expect(evalFn).toHaveBeenCalledWith(
+        expect.stringContaining("redis.call('INCR', KEYS[1])"),
+        1,
+        'raffel:rate-limit:redis:atomic',
+        '60000',
+      )
+      expect(record.count).toBe(2)
+      expect(record.resetAt).toBeGreaterThanOrEqual(before + 45000)
+      expect(record.resetAt).toBeLessThanOrEqual(Date.now() + 45000)
+    })
+
+    it('should atomically increment with node-redis command arguments', async () => {
+      const evalFn = vi.fn().mockResolvedValue([1, 60000])
+      const client = {
+        get: vi.fn(),
+        incr: vi.fn(),
+        eval: evalFn,
+      } as unknown as RedisLikeClient
+      const driver = new RedisRateLimitDriver({ client, clientStyle: 'node-redis' })
+
+      await driver.increment('redis:atomic', 60000)
+
+      expect(evalFn).toHaveBeenCalledWith(
+        expect.any(String),
+        {
+          keys: ['raffel:rate-limit:redis:atomic'],
+          arguments: ['60000'],
+        },
+      )
+    })
+
     it('should increment count for new key', async () => {
       const record = await driver.increment('fs:user:1', 60000)
 
@@ -436,6 +479,17 @@ describe('RedisRateLimitDriver', () => {
 
       // TTL should be approximately the same (first set only)
       expect(secondTtl).toBe(firstTtl)
+    })
+
+    it('should repair a counter without TTL when eval is unavailable', async () => {
+      const mockClient = createMockRedisClient()
+      mockClient.store.set('raffel:rate-limit:redis:repair', { value: 4, ttl: 0 })
+      const driver = new RedisRateLimitDriver({ client: mockClient })
+
+      const record = await driver.increment('redis:repair', 60000)
+
+      expect(record.count).toBe(5)
+      expect(mockClient.store.get('raffel:rate-limit:redis:repair')?.ttl).toBeGreaterThan(Date.now())
     })
   })
 

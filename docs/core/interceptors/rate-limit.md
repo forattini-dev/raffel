@@ -52,6 +52,20 @@ createRateLimitInterceptor({
 })
 ```
 
+For a distributed fixed window, use the Redis driver with an `ioredis` or
+`node-redis` client. When the client exposes `EVAL`, Raffel atomically increments
+the counter and assigns its first TTL, preventing a partial failure from leaving
+an immortal rate-limit key:
+
+```ts
+const driver = createRateLimitDriver('redis', {
+  client: redis,
+  clientStyle: 'node-redis', // omit for ioredis / Valkey-compatible clients
+})
+
+server.use(createRateLimitInterceptor({ driver, maxRequests: 500, windowMs: 60_000 }))
+```
+
 ---
 
 ## Key Generation Strategies

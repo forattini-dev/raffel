@@ -38,6 +38,8 @@ export interface FilesystemRateLimitDriverOptions {
 export interface RedisRateLimitDriverOptions {
   client: RedisLikeClient
   prefix?: string
+  /** Redis client command style. Defaults to ioredis-compatible arguments. */
+  clientStyle?: 'ioredis' | 'node-redis'
 }
 
 export interface RedisLikeClient extends BaseRedisClient {
@@ -48,6 +50,7 @@ export interface RedisLikeClient extends BaseRedisClient {
   pttl?(key: string): Promise<number>
   del?(...keys: string[]): Promise<number>
   keys?(pattern: string): Promise<string[]>
+  eval?(script: string, ...args: any[]): Promise<unknown>
 }
 
 export interface S3dbRateLimitResource {
