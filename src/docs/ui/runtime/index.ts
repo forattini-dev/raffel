@@ -1617,8 +1617,29 @@ function collectContractExamples(owner: any, schema: any): unknown[] {
   })
 }
 
+function schemaComposition(schema: any): { label: string, variants: any[] } | null {
+  if (!schema || typeof schema !== 'object') return null
+  if (Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
+    return { label: 'One of', variants: schema.oneOf }
+  }
+  if (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+    return { label: 'Any of', variants: schema.anyOf }
+  }
+  if (Array.isArray(schema.allOf) && schema.allOf.length > 0) {
+    return { label: 'All of', variants: schema.allOf }
+  }
+  return null
+}
+
 function contractSchemaType(rawSchema: any, schema: any): { type: string, label: string } {
   const refName = rawSchema?.$ref ? String(rawSchema.$ref).split('/').pop() : ''
+  const composition = schemaComposition(schema)
+  if (composition) {
+    return {
+      type: 'composition',
+      label: `${composition.label.toLowerCase()} ${composition.variants.length} variants`,
+    }
+  }
   const type = Array.isArray(schema?.type)
     ? schema.type.join(' | ')
     : schema?.type || (refName ? 'object' : 'any')
@@ -1659,7 +1680,9 @@ function createContractRow(
   options: { owner?: any, description?: unknown, deprecated?: boolean, examplePrefix?: string } = {},
 ): { row: any, toggle: any | null, nestedSchema: any | null } {
   const schema = resolveSchema(rawSchema) as any ?? {}
-  const nestedSchema = schema.type === 'object' && schema.properties
+  const nestedSchema = schemaComposition(schema)
+    ? rawSchema
+    : schema.type === 'object' && schema.properties
     ? rawSchema
     : schema.type === 'array' && (resolveSchema(schema.items) as any)?.properties
       ? schema.items
@@ -2136,6 +2159,23 @@ function renderSchemaTree(parent: any, schema: any, depth = 0, refStack = new Se
     row.className = 'schema-tree-row schema-tree-unresolved'
     row.textContent = `Unresolved schema reference: ${refName}`
     div.appendChild(row)
+  } else if (schemaComposition(schema)) {
+    const composition = schemaComposition(schema)!
+    const header = doc.createElement('div')
+    header.className = 'schema-tree-row schema-tree-meta schema-composition-header'
+    header.textContent = `${composition.label} ${composition.variants.length} variants`
+    div.appendChild(header)
+    composition.variants.forEach((variant, index) => {
+      const resolvedVariant = resolveSchema(variant) as any
+      const group = doc.createElement('div')
+      group.className = 'schema-composition-variant'
+      const label = doc.createElement('div')
+      label.className = 'schema-composition-label'
+      label.textContent = resolvedVariant?.title || `Variant ${index + 1}`
+      group.appendChild(label)
+      renderSchemaTree(group, variant, depth + 1, nextRefStack)
+      div.appendChild(group)
+    })
   } else if (schema.type === 'object' && schema.properties) {
     Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
       const contract = createContractRow(key, prop, schema.required?.includes(key) === true)

@@ -743,6 +743,7 @@ export function createServer(options: ServerOptions): RaffelServer {
       handler: handler as ProcedureHandler,
       inputSchema: options.input,
       outputSchema: options.output,
+      documentationOutputSchema: options.documentationOutput,
       summary: options.summary,
       description: options.description,
       tags: options.tags,

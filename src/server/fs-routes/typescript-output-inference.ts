@@ -29,17 +29,24 @@ export function createTypeScriptOutputSchemaInferrer(): TypeScriptOutputSchemaIn
         const sourceFile = program.getSourceFile(absolutePath)
         if (!sourceFile) return { status: 'skipped', reason: 'source file is not part of the TypeScript program' }
 
-        const returnType = resolveDefaultExportReturnType(sourceFile, checker)
-        if (!returnType) return { status: 'skipped', reason: 'default export has no callable return type' }
+        const target = resolveDefaultExportTarget(sourceFile, checker)
+        if (!target) return { status: 'skipped', reason: 'default export has no callable return type' }
 
-        const awaitedType = checker.getAwaitedType(returnType) ?? returnType
-        if (isResponseWrapper(awaitedType, checker)) {
-          return { status: 'skipped', reason: `return type ${checker.typeToString(awaitedType)} wraps an HTTP response` }
-        }
+        const awaitedType = checker.getAwaitedType(target.returnType) ?? target.returnType
+        const wrapsResponse = isResponseWrapper(awaitedType, checker)
+        const contextualVariable = ts.isVariableDeclaration(target.declaration) && Boolean(target.declaration.type)
 
-        const schema = schemaForType(awaitedType, checker, new Set(), 0)
+        const schema = wrapsResponse
+          ? schemaForImplementationReturns(target.declaration, checker)
+          : schemaForType(awaitedType, checker, new Set(), 0) ??
+            (contextualVariable ? schemaForImplementationReturns(target.declaration, checker) : undefined)
         if (!schema) {
-          return { status: 'skipped', reason: `return type ${checker.typeToString(awaitedType)} is not representable as JSON Schema` }
+          return {
+            status: 'skipped',
+            reason: wrapsResponse
+              ? `return type ${checker.typeToString(awaitedType)} wraps an HTTP response without an inferable JSON payload`
+              : `return type ${checker.typeToString(awaitedType)} is not representable as JSON Schema`,
+          }
         }
 
         return {
@@ -93,7 +100,10 @@ function programForFile(filePath: string, programs: Map<string, ProgramEntry>): 
   return entry
 }
 
-function resolveDefaultExportReturnType(sourceFile: ts.SourceFile, checker: ts.TypeChecker): ts.Type | undefined {
+function resolveDefaultExportTarget(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+): { declaration: ts.Declaration; returnType: ts.Type } | undefined {
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile)
   if (!moduleSymbol) return undefined
   const exported = checker.getExportsOfModule(moduleSymbol).find(symbol => symbol.name === 'default')
@@ -104,7 +114,62 @@ function resolveDefaultExportReturnType(sourceFile: ts.SourceFile, checker: ts.T
   if (!declaration) return undefined
   const handlerType = checker.getTypeOfSymbolAtLocation(symbol, declaration)
   const signature = handlerType.getCallSignatures()[0]
-  return signature ? checker.getReturnTypeOfSignature(signature) : undefined
+  return signature ? { declaration, returnType: checker.getReturnTypeOfSignature(signature) } : undefined
+}
+
+function schemaForImplementationReturns(
+  declaration: ts.Declaration,
+  checker: ts.TypeChecker,
+): Record<string, unknown> | undefined {
+  const implementation = functionImplementation(declaration)
+  if (!implementation) return undefined
+  const schemas = returnExpressions(implementation)
+    .map(expression => jsonPayloadExpression(expression, checker))
+    .filter((expression): expression is ts.Expression => Boolean(expression))
+    .map(expression => schemaForType(checker.getTypeAtLocation(expression), checker, new Set(), 0))
+    .filter((schema): schema is Record<string, unknown> => Boolean(schema))
+  const unique = deduplicateSchemas(schemas)
+  if (unique.length === 0) return undefined
+  return unique.length === 1 ? unique[0] : { anyOf: unique }
+}
+
+function functionImplementation(declaration: ts.Declaration): ts.FunctionLikeDeclaration | undefined {
+  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) return declaration
+  if (!ts.isVariableDeclaration(declaration)) return undefined
+  const initializer = declaration.initializer
+  return initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+    ? initializer
+    : undefined
+}
+
+function returnExpressions(declaration: ts.FunctionLikeDeclaration): ts.Expression[] {
+  if (ts.isArrowFunction(declaration) && !ts.isBlock(declaration.body)) return [declaration.body]
+  if (!declaration.body || !ts.isBlock(declaration.body)) return []
+  const expressions: ts.Expression[] = []
+  const visit = (node: ts.Node): void => {
+    if (node !== declaration.body && ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node) && node.expression) {
+      expressions.push(node.expression)
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(declaration.body)
+  return expressions
+}
+
+function jsonPayloadExpression(expression: ts.Expression, checker: ts.TypeChecker): ts.Expression | undefined {
+  while (ts.isParenthesizedExpression(expression) || ts.isAwaitExpression(expression)) {
+    expression = expression.expression
+  }
+  const type = checker.getTypeAtLocation(expression)
+  if (!isResponseWrapper(checker.getAwaitedType(type) ?? type, checker)) return expression
+  if (!ts.isCallExpression(expression) || expression.arguments.length === 0) return undefined
+  const callee = expression.expression
+  const isJsonCall = ts.isPropertyAccessExpression(callee)
+    ? callee.name.text === 'json'
+    : ts.isIdentifier(callee) && callee.text === 'json'
+  return isJsonCall ? expression.arguments[0] : undefined
 }
 
 function schemaForType(

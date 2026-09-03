@@ -110,6 +110,32 @@ server.http.put(
 Resource files (`src/resources/*.ts`) follow REST conventions automatically:
 `create` → `201`, `delete` → `204` (empty body), everything else → `200`.
 
+## Documentation-only response schemas
+
+Programmatic `server.http.*` routes can describe a response without enabling
+runtime output validation by setting `documentationOutput` to a USD/JSON Schema
+shape:
+
+```typescript
+server.http.get(
+  '/metadata',
+  {
+    documentationOutput: {
+      type: 'object',
+      required: ['service'],
+      properties: {
+        service: { type: 'string' },
+      },
+    },
+  },
+  async () => ({ service: 'users' })
+)
+```
+
+Use `output` when the response must also be validated at runtime. Use
+`documentationOutput` when the route owns a documented contract but runtime
+validation would be inappropriate, such as metadata or operational endpoints.
+
 ---
 
 ## Input validation

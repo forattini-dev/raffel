@@ -401,6 +401,103 @@ describe('HTTP reference documentation', () => {
     }, null, 2))
   })
 
+  it('renders every composed response schema branch instead of collapsing it to any', () => {
+    const win = createReference({
+      openapi: '3.1.0',
+      info: { title: 'Composed API', version: '1.0.0' },
+      paths: {
+        '/result': {
+          get: {
+            responses: {
+              '200': {
+                description: 'Composed result',
+                content: {
+                  'application/json': {
+                    schema: {
+                      anyOf: [
+                        {
+                          title: 'Single result',
+                          type: 'object',
+                          required: ['data'],
+                          properties: { data: { type: 'string' } },
+                        },
+                        {
+                          title: 'Batch result',
+                          type: 'object',
+                          required: ['results'],
+                          properties: { results: { type: 'array', items: { type: 'string' } } },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const responseBody = [...win.document.querySelectorAll('.response-block')]
+      .find((element: any) => element.textContent.includes('application/json')) as any
+    const variants = [...responseBody.querySelectorAll('.schema-composition-variant')]
+
+    expect(responseBody.textContent).toContain('Any of')
+    expect(variants.map((variant: any) => variant.textContent)).toEqual([
+      expect.stringContaining('Single result'),
+      expect.stringContaining('Batch result'),
+    ])
+    expect(responseBody.textContent).toContain('data')
+    expect(responseBody.textContent).toContain('results')
+    expect(responseBody.textContent.trim()).not.toBe('Response Body · application/jsonany')
+  })
+
+  it('renders nested oneOf and allOf compositions', () => {
+    const { text } = renderReferenceSurface({
+      openapi: '3.1.0',
+      info: { title: 'Nested compositions', version: '1.0.0' },
+      paths: {
+        '/result': {
+          get: {
+            responses: {
+              '200': {
+                description: 'Nested result',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        choice: {
+                          oneOf: [
+                            { title: 'Text choice', type: 'string' },
+                            { title: 'Numeric choice', type: 'number' },
+                          ],
+                        },
+                        combined: {
+                          allOf: [
+                            { title: 'Identifier', type: 'object', properties: { id: { type: 'string' } } },
+                            { title: 'Timestamp', type: 'object', properties: { at: { type: 'string' } } },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    expect(text).toContain('One of 2 variants')
+    expect(text).toContain('Text choice')
+    expect(text).toContain('Numeric choice')
+    expect(text).toContain('All of 2 variants')
+    expect(text).toContain('Identifier')
+    expect(text).toContain('Timestamp')
+  })
+
   it('lists every response media type with named and line-oriented examples', () => {
     const records = [
       { id: 1, name: 'Ada' },
