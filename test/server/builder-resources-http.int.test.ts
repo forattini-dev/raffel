@@ -10,6 +10,7 @@ import { createServer as createNodeHttpServer } from 'node:http'
 import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { z } from 'zod'
 import { createServer } from '../../src/server/builder.js'
 import { loadDiscovery } from '../../src/server/fs-routes/index.js'
 
@@ -124,6 +125,118 @@ describe('Resource files via HTTP override middleware (issue #100)', () => {
     expect(create?.httpPath).toBe('/users')
     expect(del?.httpMethod).toBe('DELETE')
     expect(del?.httpPath).toBe('/users/:id')
+  })
+
+  it('projects discovered resource schemas and REST success statuses into OpenAPI', async () => {
+    tempDir = await createResourceFixture()
+    const discovery = await loadDiscovery({
+      baseDir: tempDir,
+      discovery: { resources: true },
+      extensions: ['.js'],
+    })
+    const users = discovery.resources.find((resource) => resource.name === 'users')
+    if (!users) throw new Error('users resource was not discovered')
+
+    users.handlers.schema = z.object({
+      id: z.string(),
+      name: z.string(),
+    })
+    users.handlers.inputSchema = z.object({ name: z.string() })
+    users.handlers.actions = {
+      summary: {
+        method: 'GET',
+        collection: true,
+        output: z.object({ count: z.number() }),
+        handler: async () => ({ count: 0 }),
+      },
+    }
+
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' }).enableUSD({
+      info: { title: 'Resource discovery contract', version: 'test' },
+    })
+    server.addDiscovery(discovery)
+    await server.start()
+
+    const document = server.getOpenAPIDocument()
+    if (!document) throw new Error('OpenAPI document was not generated')
+
+    const listSchema = document.paths['/users']?.get?.responses['200']?.content?.['application/json']?.schema
+    expect(listSchema).toMatchObject({
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: { type: 'string' }, name: { type: 'string' } },
+      },
+    })
+
+    expect(document.paths['/users']?.post?.requestBody?.content['application/json']?.schema)
+      .toMatchObject({
+        type: 'object',
+        properties: { name: { type: 'string' } },
+      })
+    expect(document.paths['/users']?.post?.responses['201']?.content?.['application/json']?.schema)
+      .toMatchObject({
+        type: 'object',
+        properties: { id: { type: 'string' }, name: { type: 'string' } },
+      })
+    expect(document.paths['/users']?.post?.responses['200']).toBeUndefined()
+    expect(document.paths['/users/{id}']?.delete?.responses['204']).toEqual({
+      description: 'Successful response',
+      headers: expect.any(Object),
+    })
+    expect(document.paths['/users/summary']?.get?.responses['200']?.content?.['application/json']?.schema)
+      .toMatchObject({
+        type: 'object',
+        properties: { count: { type: 'number' } },
+      })
+  })
+
+  it('projects an explicit list output override into OpenAPI', async () => {
+    tempDir = await createResourceFixture()
+    const discovery = await loadDiscovery({
+      baseDir: tempDir,
+      discovery: { resources: true },
+      extensions: ['.js'],
+    })
+    const users = discovery.resources.find((resource) => resource.name === 'users')
+    if (!users) throw new Error('users resource was not discovered')
+    const list = users.handlers.list
+    if (typeof list !== 'function') throw new Error('users list handler was not discovered')
+
+    const userSchema = z.object({ id: z.string(), name: z.string() })
+    users.handlers.schema = userSchema
+    users.handlers.list = {
+      handler: list,
+      output: z.object({
+        data: z.array(userSchema),
+        hasMore: z.boolean(),
+      }),
+    }
+
+    const port = await getFreePort()
+    server = createServer({ port, host: '127.0.0.1' }).enableUSD({
+      info: { title: 'Resource discovery contract', version: 'test' },
+    })
+    server.addDiscovery(discovery)
+    await server.start()
+
+    const document = server.getOpenAPIDocument()
+    if (!document) throw new Error('OpenAPI document was not generated')
+    expect(document.paths['/users']?.get?.responses['200']?.content?.['application/json']?.schema)
+      .toMatchObject({
+        type: 'object',
+        properties: {
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { id: { type: 'string' }, name: { type: 'string' } },
+            },
+          },
+          hasMore: { type: 'boolean' },
+        },
+      })
   })
 
   it('decodes resource path params and preserves malformed percent-encoding (issue #182)', async () => {

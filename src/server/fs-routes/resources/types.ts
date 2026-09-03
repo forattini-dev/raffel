@@ -224,6 +224,9 @@ export interface ResourceAction<TInput = unknown, TOutput = unknown> {
   /** Input schema */
   input?: z.ZodType<TInput>
 
+  /** Output schema used by contract projections. */
+  output?: z.ZodType<TOutput>
+
   /**
    * Per-action middleware. Composes AFTER `config.middleware` (issue #115).
    * Runs only for this action; other actions and the standard CRUD slots
@@ -240,11 +243,11 @@ export interface ResourceAction<TInput = unknown, TOutput = unknown> {
 }
 
 /**
- * Object form for a CRUD slot that needs per-operation middleware (issue #115).
+ * Object form for a CRUD slot that needs per-operation overrides.
  *
- * Use this instead of a bare handler when a single CRUD slot needs a
- * stricter (or extra) middleware chain than `config.middleware`. The
- * `middleware` here composes AFTER `config.middleware`.
+ * Use this instead of a bare handler when a single CRUD slot needs custom
+ * input/output schemas or a stricter middleware chain. The `middleware`
+ * here composes AFTER `config.middleware`.
  *
  * @example
  * ```ts
@@ -256,6 +259,13 @@ export interface ResourceAction<TInput = unknown, TOutput = unknown> {
  */
 export interface ResourceHandlerWithMiddleware<H> {
   middleware?: ResourceMiddleware[]
+  /** Per-operation input schema override. */
+  input?: z.ZodType
+  /**
+   * Per-operation output schema override. List handlers default to an array
+   * of the resource schema; declare this for paginated/custom envelopes.
+   */
+  output?: z.ZodType
   handler: H
 }
 
@@ -449,6 +459,12 @@ export interface ResourceRoute {
 
   /** Handler function */
   handler: (input: unknown, ctx: ResourceContext) => Promise<unknown>
+
+  /** Input schema projected into the capability contract. */
+  inputSchema?: z.ZodType
+
+  /** Output schema projected into the capability contract. */
+  outputSchema?: z.ZodType
 
   /**
    * Middleware to run for this specific route, in order. Already includes

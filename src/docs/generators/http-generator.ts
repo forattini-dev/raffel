@@ -245,6 +245,7 @@ function createProcedureOperation(
     auth?: 'required' | 'optional' | 'none'
     authz?: import('../../middleware/policy/types.js').ProcedurePolicyConfig
     longPoll?: import('../../types/index.js').LongPollContract
+    httpSuccessStatus?: number
   },
   handlerSchema: HandlerSchema | undefined,
   schemaRegistry: ConvertedSchemaRegistry,
@@ -264,7 +265,13 @@ function createProcedureOperation(
     summary: meta.summary ?? meta.description ?? `Call ${stripTrailingHttpVerb(meta.name, httpMethod)}`,
     description: meta.description,
     tags,
-    responses: createProcedureResponses(meta.name, handlerSchema, schemaRegistry, includeErrorResponses),
+    responses: createProcedureResponses(
+      meta.name,
+      handlerSchema,
+      schemaRegistry,
+      includeErrorResponses,
+      meta.httpSuccessStatus,
+    ),
     ...(meta.policies && { 'x-raffel-policies': meta.policies }),
     ...(meta.longPoll && { 'x-usd-long-poll': meta.longPoll }),
     ...(meta.authz && {
@@ -411,9 +418,11 @@ function createProcedureResponses(
   name: string,
   handlerSchema: HandlerSchema | undefined,
   schemaRegistry: ConvertedSchemaRegistry,
-  includeErrorResponses: boolean
+  includeErrorResponses: boolean,
+  httpSuccessStatus = 200,
 ): USDResponses {
   const responses: USDResponses = {}
+  const successStatus = String(httpSuccessStatus)
 
   // Common response headers
   const commonHeaders: Record<string, USDHeader> = {
@@ -437,12 +446,12 @@ function createProcedureResponses(
 
   // Success response
   const documentedOutput = handlerSchema?.output ?? handlerSchema?.documentationOutput
-  if (documentedOutput) {
+  if (documentedOutput && httpSuccessStatus !== 204) {
     const schemaName = generateSchemaName(name, 'Output')
     const outputSchema = convertSchema(documentedOutput)
     schemaRegistry.add(schemaName, outputSchema)
 
-    responses['200'] = {
+    responses[successStatus] = {
       description: 'Successful response',
       headers: commonHeaders,
       content: {
@@ -451,8 +460,13 @@ function createProcedureResponses(
         },
       },
     }
+  } else if (httpSuccessStatus === 204) {
+    responses[successStatus] = {
+      description: 'Successful response',
+      headers: commonHeaders,
+    }
   } else {
-    responses['200'] = {
+    responses[successStatus] = {
       description: 'Successful response',
       headers: commonHeaders,
       content: {

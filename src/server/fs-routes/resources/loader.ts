@@ -6,6 +6,7 @@
  */
 
 import { parse as parsePath } from 'node:path'
+import { z } from 'zod'
 import { createLogger } from '../../../utils/logger.js'
 import { createContext } from '../../../types/context.js'
 import { sid } from '../../../utils/id/index.js'
@@ -180,23 +181,49 @@ function resolveConfig(config?: ResourceConfig, name?: string): ResolvedResource
 /**
  * Normalise a CRUD slot. The slot may be:
  *   - a bare handler function
- *   - `{ middleware?, handler }` (issue #115 per-slot override)
+ *   - `{ middleware?, input?, output?, handler }` (per-slot overrides)
  *   - `false` / `undefined` (operation disabled)
  *
- * Returns `null` when the slot is disabled, otherwise `{ handler, middleware }`.
+ * Returns `null` when the slot is disabled, otherwise the normalised slot.
  */
 function unwrapCrudSlot<H>(
-  slot: H | { middleware?: ResourceMiddleware[]; handler: H } | false | undefined
-): { handler: H; middleware: ResourceMiddleware[] } | null {
+  slot: H | {
+    middleware?: ResourceMiddleware[]
+    input?: z.ZodType
+    output?: z.ZodType
+    handler: H
+  } | false | undefined
+): {
+  handler: H
+  middleware: ResourceMiddleware[]
+  input?: z.ZodType
+  output?: z.ZodType
+} | null {
   if (slot === false || slot === undefined || slot === null) return null
   if (typeof slot === 'function') return { handler: slot, middleware: [] }
   if (typeof slot === 'object') {
-    const obj = slot as { middleware?: ResourceMiddleware[]; handler: H }
+    const obj = slot as {
+      middleware?: ResourceMiddleware[]
+      input?: z.ZodType
+      output?: z.ZodType
+      handler: H
+    }
     if (typeof obj.handler !== 'function') return null
-    return { handler: obj.handler, middleware: obj.middleware ?? [] }
+    return {
+      handler: obj.handler,
+      middleware: obj.middleware ?? [],
+      input: obj.input,
+      output: obj.output,
+    }
   }
   return null
 }
+
+const resourceOptionsOutputSchema = z.object({
+  allowedMethods: z.array(z.string()),
+  allowedHeaders: z.array(z.string()).optional(),
+  maxAge: z.number().optional(),
+})
 
 /**
  * Compose middleware for a single route. Resource-level `config.middleware`
@@ -231,6 +258,8 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: false,
           handler: createListRoute(name, slot.handler, config),
+          inputSchema: slot.input,
+          outputSchema: slot.output ?? handlers.schema?.array(),
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -247,6 +276,8 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: false,
           handler: createGetRoute(name, slot.handler, config),
+          inputSchema: slot.input,
+          outputSchema: slot.output ?? handlers.schema?.nullable(),
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -262,7 +293,9 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           operation: 'create',
           resource: name,
           isAction: false,
-          handler: createCreateRoute(name, slot.handler, handlers.inputSchema, config),
+          handler: createCreateRoute(name, slot.handler, slot.input ?? handlers.inputSchema, config),
+          inputSchema: slot.input ?? handlers.inputSchema,
+          outputSchema: slot.output ?? handlers.schema,
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -278,7 +311,9 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           operation: 'update',
           resource: name,
           isAction: false,
-          handler: createUpdateRoute(name, slot.handler, handlers.inputSchema, config),
+          handler: createUpdateRoute(name, slot.handler, slot.input ?? handlers.inputSchema, config),
+          inputSchema: slot.input ?? handlers.inputSchema,
+          outputSchema: slot.output ?? handlers.schema,
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -294,7 +329,9 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           operation: 'patch',
           resource: name,
           isAction: false,
-          handler: createPatchRoute(name, slot.handler, handlers.patchSchema, config),
+          handler: createPatchRoute(name, slot.handler, slot.input ?? handlers.patchSchema, config),
+          inputSchema: slot.input ?? handlers.patchSchema,
+          outputSchema: slot.output ?? handlers.schema,
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -311,6 +348,8 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: false,
           handler: createDeleteRoute(name, slot.handler, config),
+          inputSchema: slot.input,
+          outputSchema: slot.output,
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -327,6 +366,8 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: false,
           handler: createHeadRoute(name, slot.handler, config),
+          inputSchema: slot.input,
+          outputSchema: slot.output,
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       }
@@ -343,6 +384,8 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: false,
           handler: createOptionsRoute(name, slot.handler, handlers, config),
+          inputSchema: slot.input,
+          outputSchema: slot.output ?? resourceOptionsOutputSchema,
           middleware: composeRouteMiddleware(config, slot.middleware),
         })
       } else {
@@ -355,6 +398,7 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: false,
           handler: createAutoOptionsRoute(name, handlers, config),
+          outputSchema: resourceOptionsOutputSchema,
           middleware: composeRouteMiddleware(config, undefined),
         })
       }
@@ -378,6 +422,8 @@ export function generateResourceRoutes(resources: LoadedResource[]): ResourceRou
           resource: name,
           isAction: true,
           handler: createActionRoute(name, actionName, action, config),
+          inputSchema: action.input,
+          outputSchema: action.output,
           middleware: composeRouteMiddleware(config, action.middleware),
         })
       }
@@ -577,13 +623,13 @@ function createUpdateRoute(
 function createPatchRoute(
   resource: string,
   handler: PatchHandler,
-  patchSchema: ResourceExports['patchSchema'],
+  patchSchema: z.ZodType | undefined,
   config: ResolvedResourceConfig
 ) {
   return async (input: unknown, baseCtx: ResourceContext) => {
     const raw = input as { id?: string; data?: unknown }
     const id = raw.id ?? ''
-    let data = raw.data ?? raw
+    let data: unknown = raw.data ?? raw
 
     // Validate input if schema provided
     if (patchSchema) {

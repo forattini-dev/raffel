@@ -69,6 +69,8 @@ export interface GeneratedResourceRouteLike {
   handler: unknown
   method?: string
   path?: string
+  inputSchema?: unknown
+  outputSchema?: unknown
   /**
    * Per-route interceptors composed by the route generator (issue #115).
    * Already includes the resource-level `config.middleware` floor plus any
@@ -386,6 +388,13 @@ export function createRegistrationService<
           : route.operation === 'delete'
             ? 204
             : undefined
+
+      if (route.inputSchema || route.outputSchema) {
+        const schema: HandlerSchema = {}
+        if (route.inputSchema) schema.input = route.inputSchema as never
+        if (route.outputSchema) schema.output = route.outputSchema as never
+        schemaRegistry.register(name, schema)
+      }
 
       registry.procedure(name, createHttpAwareProcedureHandler(route.handler as never), {
         interceptors: combineInterceptors(
